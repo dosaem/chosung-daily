@@ -13,7 +13,7 @@
 - pydantic v2 (요청 검증·응답 직렬화)
 - MySQL 8, Redis 7
 - Celery + Celery Beat (broker: Redis)
-- Authlib (구글/카카오 OAuth 로그인)
+- Authlib (구글/애플 OAuth 로그인)
 - gunicorn, Docker Compose
 - pytest(실제 MySQL/Redis 통합 테스트 위주), ruff, k6
 
@@ -37,13 +37,13 @@ graph LR
     Worker["Celery worker"]
     Beat["Celery beat<br/>(00:00 · 00:05 KST)"]
     Google(["Google OAuth"])
-    Kakao(["Kakao OAuth"])
+    Apple(["Apple OAuth"])
 
     Browser -->|"/ , /api/v1/*"| API
     REPO --> MySQL
     SVC -->|캐시 · 랭킹 · 통계 · rate limit| Redis
     API -.->|로그인 리다이렉트| Google
-    API -.->|로그인 리다이렉트| Kakao
+    API -.->|로그인 리다이렉트| Apple
 
     Beat -->|태스크 큐잉| Redis
     Redis --> Worker
@@ -79,7 +79,7 @@ web/                  # Jinja 템플릿 1장 + vanilla JS
 | GET | `/api/v1/puzzles/today/leaderboard?limit=20` | 랭킹(적은 시도 우선, 같으면 빨리 푼 순) | Bearer |
 | GET | `/api/v1/me/stats` | 내 streak · 최대streak · 누적 정답 | Bearer |
 | POST | `/api/v1/session/sync` | 이 브라우저=이 게스트를 세션 쿠키에 동기화 (로그인 전 필수) | Bearer |
-| GET | `/api/v1/auth/<provider>/login` | 구글/카카오 로그인 시작 (리다이렉트) | 세션 쿠키 |
+| GET | `/api/v1/auth/<provider>/login` | 구글/애플 로그인 시작 (리다이렉트) | 세션 쿠키 |
 | GET | `/api/v1/auth/<provider>/callback` | OAuth 콜백, 계정 연결 후 `/?login_token=`으로 리다이렉트 | 세션 쿠키 |
 
 에러 응답은 전부 `{code, message}` + 적절한 HTTP status로 통일 (아래 "에러 응답" 참고).
@@ -211,15 +211,20 @@ remaining_estimate(now)`로 다음 실행 예정 시각을 직접 계산해서 2
 트리거해서 워커가 정상 처리하는 것(태스크 로직 자체의 정확성)은 확인했지만, 이
 둘은 서로 다른 수준의 증거라는 걸 구분해 둔다.
 
-### 계정 연결 (구글/카카오 OAuth)
+### 계정 연결 (구글/애플 OAuth)
 
 원래 스펙(Phase 1~8)엔 없던 기능이다. 게스트 토큰이 브라우저 localStorage에만
-있어서 기기를 바꾸면 기록이 끊기는 문제 때문에, 구글/카카오 계정에 게스트를
+있어서 기기를 바꾸면 기록이 끊기는 문제 때문에, 구글/애플 계정에 게스트를
 연결해서 어느 기기에서 로그인해도 같은 기록으로 이어지게 하는 기능을 추가했다.
-아직 구글/카카오 개발자 콘솔에 실제 앱을 등록 안 해서(`GOOGLE_CLIENT_ID` 등이
+처음엔 카카오 로그인으로 만들었다가, "구글이랑 애플만 하자"는 결정으로 바꿨다
+— 책 검색(`flask search-books`)에 쓰는 카카오 REST API 키와는 완전히 별개다.
+아직 구글/애플 개발자 콘솔에 실제 앱을 등록 안 해서(`GOOGLE_CLIENT_ID` 등이
 비어있으면 `app/extensions.py`의 `init_oauth`가 그 provider를 아예 등록 안 하고
 503을 돌려줌) 실제 로그인 왕복은 한 번도 못 해봤다 — 등록 후 가장 먼저
-확인해야 할 지점.
+확인해야 할 지점. 애플은 client_secret이 고정값이 아니라 `APPLE_PRIVATE_KEY`로
+서명한 JWT라(`_apple_client_secret`), 구글보다 설정값이 하나 더 필요하다
+(`.env.example` 참고). Apple Developer Program 멤버십은 이미 BuildUrPalace(iOS
+출시작) 때 가입해둬서 추가 비용 없이 Services ID만 새로 만들면 된다.
 
 **설계**: `Account` 테이블(게스트 1명당 계정 0~1개, `unique(provider,
 provider_user_id)`)로 Guest를 건드리지 않고 위에 얹었다. 같은 provider 계정으로
@@ -231,8 +236,8 @@ provider_user_id)`)로 Guest를 건드리지 않고 위에 얹었다. 같은 pro
 "어느 게스트에 연결할지"를 쿼리파라미터(`?token=<게스트 토큰>`)로 받았다.
 문제는 그 파라미터를 아무나 원하는 값으로 채워서 링크를 만들 수 있다는
 것 — 공격자가 **자기** 게스트 토큰을 넣은 로그인 링크를 피해자에게 보내고,
-이미 구글에 로그인돼 있는 피해자가 그 링크를 눌러 동의 화면만 넘기면, 피해자의
-진짜 구글 계정이 **공격자의 게스트**에 영구 연결돼버린다(unique 제약 때문에
+이미 구글/애플에 로그인돼 있는 피해자가 그 링크를 눌러 동의 화면만 넘기면,
+피해자의 진짜 계정이 **공격자의 게스트**에 영구 연결돼버린다(unique 제약 때문에
 한 번 묶이면 피해자가 나중에 자기 기기에서 다시 로그인해도 계속 공격자
 게스트로 "전환"됨). 지금은 익명 게임 기록이라 피해가 제한적이지만, 나중에
 결제/구독을 이 Account에 붙이기로 돼 있어서 그대로 뒀으면 계정 탈취급 문제가
@@ -286,10 +291,15 @@ provider_user_id)`)로 Guest를 건드리지 않고 위에 얹었다. 같은 pro
 
 ## 알려진 제한사항 / 남은 작업
 
-- **구글/카카오 OAuth 미등록**: 개발자 콘솔에 앱을 아직 안 만들어서 실제 로그인
-  왕복을 못 해봤다 (`.env`에 `GOOGLE_CLIENT_ID` 등 채우면 바로 켜짐).
-- **책 검색 API 키 미발급**: `flask search-books`가 카카오/알라딘 키 없이는
-  빈 결과만 돌려준다.
+- **구글/애플 OAuth 미등록**: 개발자 콘솔에 앱을 아직 안 만들어서 실제 로그인
+  왕복을 못 해봤다 (`.env`에 `GOOGLE_CLIENT_ID`/`APPLE_*` 채우면 바로 켜짐).
+- **애플 client_secret(JWT)은 앱 시작 시점에 한 번만 만든다**(`_apple_client_secret`,
+  유효기간 150일). 재배포나 재시작 없이 앱 프로세스가 150일보다 오래 떠 있으면
+  애플 로그인만 조용히 실패하기 시작한다 — 지금은 주기적 재배포로 자연스럽게
+  갱신되는 걸 전제로 둔 단순화고, 그 전제가 깨지면(예: 오래 안 건드리고 방치)
+  Beat 태스크로 주기적 재발급하는 식으로 바꿔야 한다.
+- **책 검색 API 키: 카카오만 발급, 알라딘은 보류**: `flask search-books`가
+  알라딘 쪽은 TTBKey 없이는 빈 결과만 돌려준다(의도적으로 나중으로 미룸).
 - **rate limit 고정 윈도우**: 분당 10회가 윈도우 경계에서 최대 2배까지 샐 수
   있음 (의도된 단순화, 위 "Redis" 절 참고).
 - **k6 테스트는 닫힌 모델**이라 RPS가 아니라 지연시간 비교에만 쓸 수 있음

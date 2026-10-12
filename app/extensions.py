@@ -1,3 +1,6 @@
+import time
+
+import jwt
 import redis
 from authlib.integrations.flask_client import OAuth
 from flask import current_app, has_app_context
@@ -56,16 +59,49 @@ def init_oauth(app):
             client_kwargs={"scope": "openid email"},
         )
 
-    if app.config["KAKAO_CLIENT_ID"]:
+    apple_configured = all(
+        [
+            app.config["APPLE_CLIENT_ID"],
+            app.config["APPLE_TEAM_ID"],
+            app.config["APPLE_KEY_ID"],
+            app.config["APPLE_PRIVATE_KEY"],
+        ]
+    )
+    if apple_configured:
         client.register(
-            name="kakao",
-            client_id=app.config["KAKAO_CLIENT_ID"],
-            client_secret=app.config["KAKAO_CLIENT_SECRET"],
-            access_token_url="https://kauth.kakao.com/oauth/token",
-            authorize_url="https://kauth.kakao.com/oauth/authorize",
-            api_base_url="https://kapi.kakao.com/",
-            client_kwargs={"scope": "account_email"},
+            name="apple",
+            client_id=app.config["APPLE_CLIENT_ID"],
+            client_secret=_apple_client_secret(app),
+            server_metadata_url="https://appleid.apple.com/.well-known/openid-configuration",
+            client_kwargs={
+                "scope": "name email",
+                # 애플은 콜백을 GET 리다이렉트가 아니라 POST(form_post)로 보낸다 —
+                # 그래서 app/api/oauth.py의 callback 라우트가 POST도 받는다.
+                "response_mode": "form_post",
+            },
         )
+
+
+def _apple_client_secret(app) -> str:
+    """애플은 client_secret이 고정값이 아니라 ES256으로 서명한 JWT다(발급받은
+    .p8 private key로 서명). 최대 6개월까지 유효하게 만들 수 있는데, 여기선
+    150일로 넉넉히 잡았다 — 그보다 오래 앱 프로세스가 안 죽고 살아있으면(재배포도
+    없이) 새로 발급해야 한다. 실제 애플 콘솔 등록 전까진 검증 못 해본 부분.
+    """
+    now = int(time.time())
+    payload = {
+        "iss": app.config["APPLE_TEAM_ID"],
+        "iat": now,
+        "exp": now + 60 * 60 * 24 * 150,
+        "aud": "https://appleid.apple.com",
+        "sub": app.config["APPLE_CLIENT_ID"],
+    }
+    return jwt.encode(
+        payload,
+        app.config["APPLE_PRIVATE_KEY"],
+        algorithm="ES256",
+        headers={"kid": app.config["APPLE_KEY_ID"]},
+    )
 
 
 def get_oauth() -> OAuth | None:

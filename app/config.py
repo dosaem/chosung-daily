@@ -1,6 +1,9 @@
 import os
 from zoneinfo import ZoneInfo
 
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+
 KST = ZoneInfo("Asia/Seoul")
 
 
@@ -20,12 +23,21 @@ class Config:
     SQLALCHEMY_ENGINE_OPTIONS = {"pool_pre_ping": True, "isolation_level": "READ COMMITTED"}
     REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 
-    # 구글/카카오 콘솔에 앱을 등록해야 실제로 채워지는 값들. 비어 있으면 그 provider의
+    # 구글/애플 콘솔에 앱을 등록해야 실제로 채워지는 값들. 비어 있으면 그 provider의
     # 로그인 버튼은 "설정 안 됨" 에러를 내도록 처리한다(app/extensions.py의 init_oauth).
     GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
     GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
-    KAKAO_CLIENT_ID = os.environ.get("KAKAO_CLIENT_ID", "")
-    KAKAO_CLIENT_SECRET = os.environ.get("KAKAO_CLIENT_SECRET", "")
+
+    # 애플은 client_secret이 고정값이 아니라 ES256으로 서명한 JWT다(매번
+    # app/extensions.py의 _apple_client_secret이 생성). 그래서 KEY_ID/TEAM_ID/
+    # 서명용 private key까지 필요하다 — 구글보다 설정값이 하나 더 많다.
+    # Services ID (예: com.chosungdaily.web)
+    APPLE_CLIENT_ID = os.environ.get("APPLE_CLIENT_ID", "")
+    APPLE_TEAM_ID = os.environ.get("APPLE_TEAM_ID", "")
+    APPLE_KEY_ID = os.environ.get("APPLE_KEY_ID", "")
+    # .p8 파일 내용(PEM) 그대로. .env 한 줄에 넣어야 해서 줄바꿈을 "\n" 문자로
+    # 넣으면 아래서 실제 줄바꿈으로 되돌린다.
+    APPLE_PRIVATE_KEY = os.environ.get("APPLE_PRIVATE_KEY", "").replace("\\n", "\n")
 
     # 로그인 CSRF 방어(app/api/oauth.py의 sync_session 독스트링 참고)의 핵심 설정.
     # SameSite=Lax면 공격자 사이트/링크를 통한 요청엔 이 세션 쿠키가 안 실린다.
@@ -51,8 +63,21 @@ class TestingConfig(Config):
     # 안 가니, 이 값이 진짜 유효한 키일 필요는 없다 — 라우팅/가드 로직만 검증한다.
     GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "test-google-client-id")
     GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "test-google-client-secret")
-    KAKAO_CLIENT_ID = os.environ.get("KAKAO_CLIENT_ID", "test-kakao-client-id")
-    KAKAO_CLIENT_SECRET = os.environ.get("KAKAO_CLIENT_SECRET", "test-kakao-client-secret")
+
+    APPLE_CLIENT_ID = os.environ.get("APPLE_CLIENT_ID", "com.example.test")
+    APPLE_TEAM_ID = os.environ.get("APPLE_TEAM_ID", "TESTTEAMID")
+    APPLE_KEY_ID = os.environ.get("APPLE_KEY_ID", "TESTKEYID")
+    # ES256 서명엔 진짜 형식을 갖춘 EC 개인키가 있어야 해서(문자열 더미로는 안 됨),
+    # 테스트 프로세스 안에서 한 번 쓰고 버릴 키를 즉석에서 만든다.
+    APPLE_PRIVATE_KEY = (
+        ec.generate_private_key(ec.SECP256R1())
+        .private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+        .decode()
+    )
 
 
 class ProductionConfig(Config):

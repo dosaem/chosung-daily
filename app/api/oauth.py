@@ -31,7 +31,7 @@ def sync_session():
 
     왜 필요한가: 처음엔 /auth/<provider>/login이 쿼리파라미터 token=으로 어느
     게스트에 연결할지 받았는데, 그러면 공격자가 자기 게스트 토큰을 넣은 링크를
-    피해자에게 보내서 피해자가 그 링크로 구글/카카오 로그인을 완료하게 만들면
+    피해자에게 보내서 피해자가 그 링크로 구글/애플 로그인을 완료하게 만들면
     피해자의 진짜 계정이 공격자 게스트에 영구 연결돼버리는 로그인 CSRF가
     가능했다(보안 리뷰로 발견). 그 쿼리파라미터를 아무나 원하는 값으로 채워서
     보낼 수 있다는 게 근본 원인이라, "현재 브라우저가 어느 게스트인지"는 이제
@@ -56,17 +56,16 @@ def login(provider):
     session["oauth_pending_guest_id"] = guest.id
     redirect_uri = url_for("oauth.callback", provider=provider, _external=True)
 
-    if provider == "google":
-        # OIDC id_token 검증용 nonce. Authlib Flask 클라이언트의 표준 패턴.
-        nonce = secrets.token_urlsafe(16)
-        session["oauth_google_nonce"] = nonce
-        return client.authorize_redirect(redirect_uri, nonce=nonce)
-
-    return client.authorize_redirect(redirect_uri)
+    # 구글/애플 둘 다 OIDC라 id_token 재생 방지용 nonce가 필요하다(Authlib 표준 패턴).
+    nonce = secrets.token_urlsafe(16)
+    session["oauth_nonce"] = nonce
+    return client.authorize_redirect(redirect_uri, nonce=nonce)
 
 
-@bp.get("/auth/<provider>/callback")
+@bp.route("/auth/<provider>/callback", methods=["GET", "POST"])
 def callback(provider):
+    # 애플은 콜백을 GET 리다이렉트가 아니라 POST(response_mode=form_post)로
+    # 보낸다 — 그래서 이 라우트만 POST도 받는다(구글은 GET으로 온다).
     client = _get_client(provider)
 
     guest_id = session.pop("oauth_pending_guest_id", None)
@@ -74,7 +73,9 @@ def callback(provider):
         raise UnauthorizedError("로그인 세션이 만료됐습니다. 다시 시도해주세요.")
 
     token = client.authorize_access_token()
-    provider_user_id, email = _extract_identity(provider, client, token)
+    nonce = session.pop("oauth_nonce", None)
+    user_info = client.parse_id_token(token, nonce=nonce)
+    provider_user_id, email = str(user_info["sub"]), user_info.get("email")
 
     current_guest = db.session.get(Guest, guest_id)
     linked_guest = link_or_switch_account(
@@ -82,22 +83,8 @@ def callback(provider):
     )
 
     # 프론트(web/static/app.js)가 ?login_token=을 읽어서 localStorage 토큰을
-    # 바꾸고 새로고침한다. 이 경로는 .env에 GOOGLE/KAKAO 키를 실제로 넣고 콘솔에
+    # 바꾸고 새로고침한다. 이 경로는 .env에 GOOGLE/APPLE 키를 실제로 넣고 콘솔에
     # 앱을 등록하기 전까진 실제로 돌려본 적이 없다 — 등록 후 가장 먼저 테스트해야
-    # 하는 지점.
+    # 하는 지점. 특히 애플은 POST 콜백이라 리다이렉트 응답이 브라우저에서 실제로
+    # 기대대로 동작하는지(폼 제출 이후 redirect를 그대로 따라가는지)도 같이 확인.
     return redirect(f"/?login_token={linked_guest.token}")
-
-
-def _extract_identity(provider: str, client, token) -> tuple[str, str | None]:
-    if provider == "google":
-        nonce = session.pop("oauth_google_nonce", None)
-        user_info = client.parse_id_token(token, nonce=nonce)
-        return str(user_info["sub"]), user_info.get("email")
-
-    if provider == "kakao":
-        resp = client.get("v2/user/me", token=token)
-        data = resp.json()
-        email = (data.get("kakao_account") or {}).get("email")
-        return str(data["id"]), email
-
-    raise NotFoundError(f"지원하지 않는 로그인 방식입니다: {provider}")

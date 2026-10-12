@@ -8,4 +8,4 @@ class WordCategory(enum.StrEnum):
 
 class OAuthProvider(enum.StrEnum):
     GOOGLE = "google"
-    KAKAO = "kakao"
+    APPLE = "apple"

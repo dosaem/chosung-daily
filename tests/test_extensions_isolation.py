@@ -28,21 +28,22 @@ def test_redis_client_does_not_leak_between_flask_apps():
 
 
 def test_oauth_client_does_not_leak_between_flask_apps():
+    apple_off = {
+        "APPLE_CLIENT_ID": "",
+        "APPLE_TEAM_ID": "",
+        "APPLE_KEY_ID": "",
+        "APPLE_PRIVATE_KEY": "",
+    }
+
     app_a = Flask("app_a")
     app_a.config.update(
-        GOOGLE_CLIENT_ID="app-a-id",
-        GOOGLE_CLIENT_SECRET="app-a-secret",
-        KAKAO_CLIENT_ID="",
-        KAKAO_CLIENT_SECRET="",
+        GOOGLE_CLIENT_ID="app-a-id", GOOGLE_CLIENT_SECRET="app-a-secret", **apple_off
     )
     init_oauth(app_a)
 
     app_b = Flask("app_b")
     app_b.config.update(
-        GOOGLE_CLIENT_ID="app-b-id",
-        GOOGLE_CLIENT_SECRET="app-b-secret",
-        KAKAO_CLIENT_ID="",
-        KAKAO_CLIENT_SECRET="",
+        GOOGLE_CLIENT_ID="app-b-id", GOOGLE_CLIENT_SECRET="app-b-secret", **apple_off
     )
     init_oauth(app_b)
 

@@ -321,8 +321,8 @@ async function init() {
     .getElementById("google-login-button")
     .addEventListener("click", () => handleOAuthLogin("google"));
   document
-    .getElementById("kakao-login-button")
-    .addEventListener("click", () => handleOAuthLogin("kakao"));
+    .getElementById("apple-login-button")
+    .addEventListener("click", () => handleOAuthLogin("apple"));
   document.getElementById("backup-button").addEventListener("click", handleBackupClick);
   document.getElementById("restore-button").addEventListener("click", handleRestoreClick);
   document.getElementById("copy-token-button").addEventListener("click", handleCopyToken);
