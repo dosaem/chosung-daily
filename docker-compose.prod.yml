@@ -1,0 +1,91 @@
+# ============================================
+# PROD 환경 - Synology NAS (Container Manager)
+# API: https://chosung.dosaem.com
+# 실행: docker compose -f docker-compose.prod.yml up -d --build
+#       (.env를 compose 프로젝트명·시크릿 둘 다에 쓴다 — 아래 `name:` 참고)
+# ============================================
+name: chosung-daily-prod
+
+services:
+  mysql:
+    image: mysql:8
+    container_name: chosung-daily-mysql-prod
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: chosung_daily
+      MYSQL_USER: chosung
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    # 개발용 compose와 다르게 포트를 호스트에 안 연다 — app/worker/beat
+    # 컨테이너가 도커 내부 네트워크로만 접근하면 되고, 외부에 노출할 이유가 없다.
+    volumes:
+      - ./data/mysql:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7
+    container_name: chosung-daily-redis-prod
+    restart: unless-stopped
+    volumes:
+      - ./data/redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    container_name: chosung-daily-app-prod
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      FLASK_ENV: production
+      DATABASE_URL: mysql+pymysql://chosung:${MYSQL_PASSWORD}@mysql:3306/chosung_daily?charset=utf8mb4
+      REDIS_URL: redis://redis:6379/0
+    # Cloudflare Tunnel이 NAS 안에서 http://127.0.0.1:8089로 붙는다 — LAN/인터넷에
+    # 직접 노출할 필요가 없어서 루프백에만 바인딩한다(기존 프로젝트들의 0.0.0.0
+    # 공개 바인딩보다 한 단계 더 좁힌 선택, README "배포" 절에 이유 적어둠).
+    ports:
+      - "127.0.0.1:8089:5000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build: .
+    container_name: chosung-daily-worker-prod
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      FLASK_ENV: production
+      DATABASE_URL: mysql+pymysql://chosung:${MYSQL_PASSWORD}@mysql:3306/chosung_daily?charset=utf8mb4
+      REDIS_URL: redis://redis:6379/0
+    command: ["uv", "run", "celery", "-A", "celery_app.celery", "worker", "--loglevel=info"]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  beat:
+    build: .
+    container_name: chosung-daily-beat-prod
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      FLASK_ENV: production
+      DATABASE_URL: mysql+pymysql://chosung:${MYSQL_PASSWORD}@mysql:3306/chosung_daily?charset=utf8mb4
+      REDIS_URL: redis://redis:6379/0
+    command: ["uv", "run", "celery", "-A", "celery_app.celery", "beat", "--loglevel=info"]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
