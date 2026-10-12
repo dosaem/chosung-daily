@@ -18,8 +18,11 @@ services:
       MYSQL_PASSWORD: ${MYSQL_PASSWORD}
     # 개발용 compose와 다르게 포트를 호스트에 안 연다 — app/worker/beat
     # 컨테이너가 도커 내부 네트워크로만 접근하면 되고, 외부에 노출할 이유가 없다.
+    # named volume을 쓴다 — Synology DSM의 /volume1 ACL이 호스트 bind mount에는
+    # 걸리지만 도커가 관리하는 volume에는 안 걸려서, mysql 컨테이너(uid 999)가
+    # 쓰기 권한 없이 뻗는 걸 피한다 (alrimi 프로젝트의 postgres도 같은 이유로 동일 패턴).
     volumes:
-      - ./data/mysql:/var/lib/mysql
+      - mysql-data:/var/lib/mysql
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
       interval: 5s
@@ -31,7 +34,7 @@ services:
     container_name: chosung-daily-redis-prod
     restart: unless-stopped
     volumes:
-      - ./data/redis:/data
+      - redis-data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -89,3 +92,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+
+volumes:
+  mysql-data:
+  redis-data:
