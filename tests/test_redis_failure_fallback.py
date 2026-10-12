@@ -1,25 +1,3 @@
-import pytest
-from redis.exceptions import ConnectionError as RedisConnectionError
-
-import app.extensions as extensions
-
-
-class _BrokenRedis:
-    """모든 메서드 호출이 Redis 장애를 흉내 낸다."""
-
-    def __getattr__(self, _name):
-        def _raise(*args, **kwargs):
-            raise RedisConnectionError("simulated redis outage")
-
-        return _raise
-
-
-@pytest.fixture
-def broken_redis(app, monkeypatch):
-    monkeypatch.setattr(extensions, "_redis_client", _BrokenRedis())
-    yield
-
-
 def test_today_still_works_when_redis_is_down(client, guest_headers, today_puzzle, broken_redis):
     res = client.get("/api/v1/puzzles/today", headers=guest_headers)
 

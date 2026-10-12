@@ -10,3 +10,4 @@ htmlcov/
 .DS_Store
 instance/
 k6/results/
+celerybeat-schedule*

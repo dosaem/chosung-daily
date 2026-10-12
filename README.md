@@ -99,3 +99,35 @@ limit의 목적이 "악의적 스팸 방지"라 이 정도 오차는 감수하�
 돌려주고 호출부는 평소처럼 DB 경로로 계속 간다 — "Redis 장애 시 게임 자체(조회/제출)는
 DB로 동작하고, 랭킹·통계만 실패"가 이 한 함수로 전부 구현된다. rate limit도 "제출"의
 일부로 보고 fail-open(장애 시 그냥 통과)시켰다.
+
+### Celery Beat: 자정 퍼즐 생성 / 00:05 통계 배치
+
+**태스크의 실제 로직은 서비스 레이어에, Celery는 얇은 어댑터로.**
+`app/services/puzzle_maintenance_service.py`에 평범한 함수 두 개
+(`ensure_today_puzzle_and_warm_cache`, `flush_daily_stats_for_yesterday`)로 로직을
+두고, `celery_app.py`/`app/tasks/scheduled.py`는 그 함수를 호출만 한다. 이렇게 나눈
+이유는 테스트 가능성 때문이다 — Celery 태스크는 `-A celery_app.celery`로 뜰 자기만의
+Flask 앱이 필요한데, pytest의 테스트 앱과 그 앱은 설정(DB/Redis)이 다르다. 서비스
+함수로 로직을 빼두면 pytest가 테스트 앱 컨텍스트 안에서 그 함수를 직접 불러 검증할 수
+있고(`tests/test_puzzle_maintenance.py`), Celery 쪽은 "배선(태스크 이름, Beat
+스케줄, 타임존)만 맞는지"를 가볍게 확인한다(`tests/test_celery_wiring.py`).
+
+**실제로 겪은 함정**: `app/extensions.py`가 처음엔 redis 클라이언트를 모듈 전역
+변수 하나에 저장했는데, `celery_app.py`가 자기 몫의 `create_app()`을 모듈
+레벨에서 실행하면서 그 전역을 자기 설정(dev Redis, 인덱스 0)으로 덮어써버렸다.
+pytest 프로세스 하나에서 테스트 앱과 `celery_app.py`가 둘 다 import되는 순간,
+나중에 import된 쪽이 전역을 덮어쓰는 문제였다(지금까지는 테스트 실행 순서 덕에
+우연히 안 터졌을 뿐). `db`/`migrate`가 Flask-SQLAlchemy/Flask-Migrate 내부에서
+앱마다 따로 상태를 들고 있는 것과 같은 방식으로, redis 클라이언트도
+`app.extensions`에 앱별로 저장하도록 고쳤다 — 이제 `get_redis()`는
+`current_app.extensions`에서 조회해서, 서로 다른 Flask 앱 인스턴스가 완전히
+독립적인 Redis 연결을 갖는다.
+
+**"매일 자정 자동 실행"은 설정값과 스케줄러 계산까지만 확인했다.** `celery.conf.timezone
+= "Asia/Seoul"`로 Beat의 crontab이 KST 기준으로 해석되게 했고, `crontab(...).
+remaining_estimate(now)`로 다음 실행 예정 시각을 직접 계산해서 23:59:59/00:04:59
+(KST)가 나오는 것까지 확인했다 — 이건 Beat가 내부적으로 쓰는 것과 같은 계산 함수라
+단순히 설정값을 읽는 것보다는 신뢰도가 높지만, 실제로 자정을 넘기며 beat 컨테이너가
+태스크를 큐에 넣는 순간을 지켜본 건 아니다. `celery call`로 두 태스크를 수동
+트리거해서 워커가 정상 처리하는 것(태스크 로직 자체의 정확성)은 확인했지만, 이
+둘은 서로 다른 수준의 증거라는 걸 구분해 둔다.

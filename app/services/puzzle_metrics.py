@@ -12,7 +12,8 @@ from app.utils.redis_safe import safe_redis_call
 SECONDS_PER_DAY = 86400
 
 
-def _stats_key(puzzle_date: date) -> str:
+def stats_key(puzzle_date: date) -> str:
+    """app/services/puzzle_maintenance_service.py의 Celery Beat 배치도 같은 키 포맷을 쓴다."""
     return f"stats:{puzzle_date.isoformat()}"
 
 
@@ -27,7 +28,7 @@ def record_finish(puzzle_date: date, is_correct: bool, attempt_no: int) -> None:
     Beat 배치가 반영한다(Phase 5) — 여기서는 Redis만 건드린다.
     """
     field = str(attempt_no) if is_correct else "fail"
-    safe_redis_call("hincrby", _stats_key(puzzle_date), field, 1)
+    safe_redis_call("hincrby", stats_key(puzzle_date), field, 1)
 
 
 def record_leaderboard(
@@ -41,7 +42,7 @@ def record_leaderboard(
 
 
 def get_today_stats(puzzle_date: date) -> TodayStatsResponse:
-    counts = safe_redis_call("hgetall", _stats_key(puzzle_date)) or {}
+    counts = safe_redis_call("hgetall", stats_key(puzzle_date)) or {}
 
     by_attempt_count = {str(n): int(counts.get(str(n), 0)) for n in range(1, MAX_ATTEMPTS + 1)}
     total_solved = sum(by_attempt_count.values())

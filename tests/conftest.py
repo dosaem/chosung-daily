@@ -1,10 +1,11 @@
 from datetime import datetime
 
 import pytest
+from redis.exceptions import ConnectionError as RedisConnectionError
 
 from app import create_app
 from app.config import KST
-from app.extensions import db, get_redis
+from app.extensions import _REDIS_EXTENSION_KEY, db, get_redis
 from app.models import DailyPuzzle, Word, WordCategory
 from app.services.guest_service import issue_guest
 
@@ -51,3 +52,19 @@ def today_puzzle(app):
 def guest_headers(app):
     guest = issue_guest()
     return {"Authorization": f"Bearer {guest.token}"}
+
+
+class _BrokenRedis:
+    """모든 메서드 호출이 Redis 장애를 흉내 낸다."""
+
+    def __getattr__(self, _name):
+        def _raise(*args, **kwargs):
+            raise RedisConnectionError("simulated redis outage")
+
+        return _raise
+
+
+@pytest.fixture
+def broken_redis(app, monkeypatch):
+    monkeypatch.setitem(app.extensions, _REDIS_EXTENSION_KEY, _BrokenRedis())
+    yield
