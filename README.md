@@ -1,8 +1,88 @@
 # 오늘의 초성 (chosung-daily)
 
-하루에 한 문제, 초성을 보고 단어를 맞추는 웹 게임의 백엔드.
+하루에 한 문제, 초성을 보고 단어를 맞추는 웹 게임의 백엔드. Flask로 만든
+이직용 포트폴리오 프로젝트다 — Java/Spring, TypeScript/NestJS로 6년차
+백엔드를 하다가 Flask를 처음 써보면서, 설계 판단마다 "Spring이었다면 어떻게
+했을지"를 비교하며 진행했다. Spring 개념 대응표는
+[`docs/spring-to-flask.md`](docs/spring-to-flask.md) 참고.
 
-> 아직 뼈대만 있는 상태입니다. 아키텍처, API 명세, 설계 판단 등 상세 문서는 이후 Phase에서 채웁니다.
+## 기술 스택
+
+- Python 3.12, uv (의존성/가상환경)
+- Flask 3 (app factory), Flask-SQLAlchemy, Flask-Migrate(Alembic)
+- pydantic v2 (요청 검증·응답 직렬화)
+- MySQL 8, Redis 7
+- Celery + Celery Beat (broker: Redis)
+- Authlib (구글/카카오 OAuth 로그인)
+- gunicorn, Docker Compose
+- pytest(실제 MySQL/Redis 통합 테스트 위주), ruff, k6
+
+## 아키텍처
+
+```mermaid
+graph LR
+    subgraph Client
+        Browser["브라우저<br/>(Jinja 1장 + vanilla JS)"]
+    end
+
+    subgraph "Flask App (gunicorn)"
+        API["app/api/*<br/>(Blueprint, 요청파싱/응답변환만)"]
+        SVC["app/services/*<br/>(비즈니스 로직, 트랜잭션 경계)"]
+        REPO["app/repositories/*<br/>(DB 접근)"]
+        API --> SVC --> REPO
+    end
+
+    MySQL[("MySQL 8")]
+    Redis[("Redis 7<br/>broker + cache")]
+    Worker["Celery worker"]
+    Beat["Celery beat<br/>(00:00 · 00:05 KST)"]
+    Google(["Google OAuth"])
+    Kakao(["Kakao OAuth"])
+
+    Browser -->|"/ , /api/v1/*"| API
+    REPO --> MySQL
+    SVC -->|캐시 · 랭킹 · 통계 · rate limit| Redis
+    API -.->|로그인 리다이렉트| Google
+    API -.->|로그인 리다이렉트| Kakao
+
+    Beat -->|태스크 큐잉| Redis
+    Redis --> Worker
+    Worker --> MySQL
+    Worker --> Redis
+```
+
+레이어 구조(Spring의 controller/service/repository/entity에 대응):
+
+```
+app/
+├── api/            # Blueprint. 요청 파싱, 응답 변환만
+├── schemas/        # pydantic 요청/응답 모델 (DTO)
+├── services/        # 비즈니스 로직, 트랜잭션 경계
+├── repositories/    # DB 접근
+├── models/          # SQLAlchemy 모델 (Entity)
+├── tasks/           # Celery 태스크 (얇은 어댑터)
+├── errors.py        # 도메인 예외 + errorhandler
+└── cli.py           # flask 커맨드 (시드, 퍼즐 스케줄링, 책 검색)
+web/                  # Jinja 템플릿 1장 + vanilla JS
+```
+
+## API 목록
+
+| 메서드 | 경로 | 설명 | 인증 |
+|---|---|---|---|
+| GET | `/health` | 헬스체크 | - |
+| GET | `/` | 게임 화면 (Jinja) | - |
+| POST | `/api/v1/guests` | 게스트 토큰 발급 | - |
+| GET | `/api/v1/puzzles/today` | 오늘의 퍼즐(초성/글자수/카테고리/남은시도/상태/힌트), 정답 미포함 | Bearer |
+| POST | `/api/v1/puzzles/today/guesses` | 정답 제출 → 판정/피드백/남은시도/(종료 시)정답 | Bearer |
+| GET | `/api/v1/puzzles/today/stats` | 시도 횟수별 정답자 비율 | Bearer |
+| GET | `/api/v1/puzzles/today/leaderboard?limit=20` | 랭킹(적은 시도 우선, 같으면 빨리 푼 순) | Bearer |
+| GET | `/api/v1/me/stats` | 내 streak · 최대streak · 누적 정답 | Bearer |
+| POST | `/api/v1/session/sync` | 이 브라우저=이 게스트를 세션 쿠키에 동기화 (로그인 전 필수) | Bearer |
+| GET | `/api/v1/auth/<provider>/login` | 구글/카카오 로그인 시작 (리다이렉트) | 세션 쿠키 |
+| GET | `/api/v1/auth/<provider>/callback` | OAuth 콜백, 계정 연결 후 `/?login_token=`으로 리다이렉트 | 세션 쿠키 |
+
+에러 응답은 전부 `{code, message}` + 적절한 HTTP status로 통일 (아래 "에러 응답" 참고).
 
 ## 실행 방법
 
@@ -20,6 +100,14 @@ uv run pytest
 uv run ruff check .
 ```
 
+단어 시드 / 퍼즐 스케줄링:
+
+```bash
+uv run flask seed-words data/seed_words.csv
+uv run flask schedule-puzzles --days 30
+uv run flask search-books "데미안" --add 0   # 카카오/알라딘 API 키 필요 (.env)
+```
+
 ## 설계 판단
 
 ### 트랜잭션 경계
@@ -33,16 +121,6 @@ uv run ruff check .
 API/CLI(`app/api`, `app/cli.py`)는 서비스 함수를 호출만 하고 직접 `db.session`을 만지지 않는다.
 예: `schedule_puzzles(days=30)`는 30일치를 전부 배정하거나, 중간에 에러가 나면 이번 실행에서
 새로 만든 배정을 전부 롤백한다 (기존에 이미 있던 날짜는 건드리지 않음).
-
-### 퍼즐 카테고리 비중 (book_title은 일요일만)
-
-실제로 플레이해보고 나온 피드백: 책 제목이 일반 단어랑 비슷한 빈도로 섞이니까 안
-읽어본 사람한텐 그냥 모르는 단어고, 여러 단어짜리 제목은 초성도 길어서 체감
-난이도가 들쭉날쭉했다. `app/services/puzzle_schedule_service.py`의 `_pick_word`가
-날짜의 요일을 보고 "오늘 원하는 카테고리"를 먼저 정한다 — 일요일(`BOOK_TITLE_WEEKDAY
-= 6`)만 책 제목을 후보로 넣고, 나머지 요일은 일반 단어만 본다. 원하는 카테고리에
-후보가 없으면(예: 일요일인데 최근에 안 쓴 책 제목이 없음) 카테고리 제한을 풀고
-다시 찾아서, 빈 날짜가 생기진 않는다.
 
 ### 동시성: 정답 제출
 
@@ -75,7 +153,8 @@ streak/solved_count가 두 번 올라가면 안 된다. `app/services/guess_serv
 정의된 코드: `UNAUTHORIZED`(401, 토큰 없음/무효), `VALIDATION_ERROR`(400, 요청 값 자체가
 잘못됨 — 예: 정답과 길이가 다른 guess), `NOT_FOUND`(404), `NO_PUZZLE_TODAY`(404, 오늘
 퍼즐이 아직 스케줄 안 됨), `ALREADY_FINISHED`(409, 이미 끝난 퍼즐에 또 제출),
-`RATE_LIMITED`(429, 분당 제출 횟수 초과).
+`RATE_LIMITED`(429, 분당 제출 횟수 초과), `ACCOUNT_ALREADY_LINKED`(409, 이미 다른
+계정이 연결된 게스트), `OAUTH_PROVIDER_UNAVAILABLE`(503, 콘솔 등록 전인 로그인 방식).
 
 ### Redis: 캐시 / 랭킹 / 통계 / rate limit
 
@@ -96,7 +175,7 @@ streak/solved_count가 두 번 올라가면 안 된다. `app/services/guess_serv
 순서가 나온다(REV 불필요).
 
 **통계**: `stats:{date}` Hash에 `HINCRBY`로 "1"~"5"(그 시도 횟수에 맞춘 정답)와 "fail"을
-누적한다. DB(`DailyStats`)로의 배치 반영은 Celery Beat 몫이라 Phase 4에선 손대지 않았다.
+누적한다. DB(`DailyStats`)로의 배치 반영은 Celery Beat가 매일 00:05 KST에 한다.
 
 **rate limit은 고정 윈도우(fixed window)다.** 게스트가 "처음" 요청한 시점부터 60초
 단위로 카운터가 리셋된다 — 슬라이딩 윈도우보다 구현이 단순하지만, 윈도우 경계에서
@@ -108,7 +187,8 @@ limit의 목적이 "악의적 스팸 방지"라 이 정도 오차는 감수하�
 호출(캐시/통계/랭킹/rate limit)이 거친다. Redis가 없거나 장애면 조용히 `default`를
 돌려주고 호출부는 평소처럼 DB 경로로 계속 간다 — "Redis 장애 시 게임 자체(조회/제출)는
 DB로 동작하고, 랭킹·통계만 실패"가 이 한 함수로 전부 구현된다. rate limit도 "제출"의
-일부로 보고 fail-open(장애 시 그냥 통과)시켰다.
+일부로 보고 fail-open(장애 시 그냥 통과)시켰다. `docs/perf.md`에서 Redis를 아예 내리고
+부하 테스트를 돌려서 이 폴백이 실제로 동작하는 것까지 확인했다.
 
 ### Celery Beat: 자정 퍼즐 생성 / 00:05 통계 배치
 
@@ -121,17 +201,6 @@ Flask 앱이 필요한데, pytest의 테스트 앱과 그 앱은 설정(DB/Redis
 함수로 로직을 빼두면 pytest가 테스트 앱 컨텍스트 안에서 그 함수를 직접 불러 검증할 수
 있고(`tests/test_puzzle_maintenance.py`), Celery 쪽은 "배선(태스크 이름, Beat
 스케줄, 타임존)만 맞는지"를 가볍게 확인한다(`tests/test_celery_wiring.py`).
-
-**실제로 겪은 함정**: `app/extensions.py`가 처음엔 redis 클라이언트를 모듈 전역
-변수 하나에 저장했는데, `celery_app.py`가 자기 몫의 `create_app()`을 모듈
-레벨에서 실행하면서 그 전역을 자기 설정(dev Redis, 인덱스 0)으로 덮어써버렸다.
-pytest 프로세스 하나에서 테스트 앱과 `celery_app.py`가 둘 다 import되는 순간,
-나중에 import된 쪽이 전역을 덮어쓰는 문제였다(지금까지는 테스트 실행 순서 덕에
-우연히 안 터졌을 뿐). `db`/`migrate`가 Flask-SQLAlchemy/Flask-Migrate 내부에서
-앱마다 따로 상태를 들고 있는 것과 같은 방식으로, redis 클라이언트도
-`app.extensions`에 앱별로 저장하도록 고쳤다 — 이제 `get_redis()`는
-`current_app.extensions`에서 조회해서, 서로 다른 Flask 앱 인스턴스가 완전히
-독립적인 Redis 연결을 갖는다.
 
 **"매일 자정 자동 실행"은 설정값과 스케줄러 계산까지만 확인했다.** `celery.conf.timezone
 = "Asia/Seoul"`로 Beat의 crontab이 KST 기준으로 해석되게 했고, `crontab(...).
@@ -186,3 +255,42 @@ provider_user_id)`)로 Guest를 건드리지 않고 위에 얹었다. 같은 pro
 `OAuth()` 인스턴스를 만들어서 `app.extensions`에 저장하는, redis 때와 동일한
 해법으로 고쳤다. `tests/test_extensions_isolation.py`에 redis/OAuth 둘 다
 회귀 테스트를 남겨뒀다 — 같은 실수를 또 하지 않으려고.
+
+### 퍼즐 카테고리 비중 (book_title은 일요일만)
+
+실제로 플레이해보고 나온 피드백: 책 제목이 일반 단어랑 비슷한 빈도로 섞이니까 안
+읽어본 사람한텐 그냥 모르는 단어고, 여러 단어짜리 제목은 초성도 길어서 체감
+난이도가 들쭉날쭉했다. `app/services/puzzle_schedule_service.py`의 `_pick_word`가
+날짜의 요일을 보고 "오늘 원하는 카테고리"를 먼저 정한다 — 일요일(`BOOK_TITLE_WEEKDAY
+= 6`)만 책 제목을 후보로 넣고, 나머지 요일은 일반 단어만 본다. 원하는 카테고리에
+후보가 없으면(예: 일요일인데 최근에 안 쓴 책 제목이 없음) 카테고리 제한을 풀고
+다시 찾아서, 빈 날짜가 생기진 않는다.
+
+## 부하 테스트 요약
+
+자정 트래픽 스파이크(0→50 VU, `GET /puzzles/today` + 30% `POST .../guesses`)로
+캐시 적용 전/후를 비교했다. 캐시는 코드를 안 건드리고 Redis 컨테이너를 내려서
+"미적용" 상태를 만들었다 — Redis 장애 폴백이 실제로 동작하는지도 같이 확인한
+셈이다.
+
+| 지표 | 캐시 미적용 | 캐시 적용 | 개선 |
+|---|---|---|---|
+| 전체 `http_req_duration` p95 | 65.31ms | 21.66ms | 약 3.0배 |
+| `GET /puzzles/today` p95 | 62.39ms | 19.76ms | 약 3.2배 |
+| `POST .../guesses` p95 | 69.53ms | 24.28ms | 약 2.9배 |
+| 에러율 | 0% | 0% | - |
+
+50 VU·분당 10회 rate limit·게스트별 `FOR UPDATE` 락이 같이 걸린 상태에서도
+에러 0%였다. 방법론, RPS가 거의 안 변한 이유(닫힌 모델 테스트의 한계) 등
+자세한 내용과 원본 수치는 [`docs/perf.md`](docs/perf.md) 참고.
+
+## 알려진 제한사항 / 남은 작업
+
+- **구글/카카오 OAuth 미등록**: 개발자 콘솔에 앱을 아직 안 만들어서 실제 로그인
+  왕복을 못 해봤다 (`.env`에 `GOOGLE_CLIENT_ID` 등 채우면 바로 켜짐).
+- **책 검색 API 키 미발급**: `flask search-books`가 카카오/알라딘 키 없이는
+  빈 결과만 돌려준다.
+- **rate limit 고정 윈도우**: 분당 10회가 윈도우 경계에서 최대 2배까지 샐 수
+  있음 (의도된 단순화, 위 "Redis" 절 참고).
+- **k6 테스트는 닫힌 모델**이라 RPS가 아니라 지연시간 비교에만 쓸 수 있음
+  (`docs/perf.md` 참고).
