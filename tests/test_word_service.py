@@ -1,5 +1,6 @@
-from app.models import Word
-from app.services.word_service import seed_words_from_csv
+from app.models import Word, WordCategory
+from app.schemas.book import BookSearchResult
+from app.services.word_service import add_word_from_book, seed_words_from_csv
 
 
 def _write_csv(tmp_path, rows):
@@ -47,4 +48,31 @@ def test_seed_words_skips_unknown_category(app, tmp_path):
 
     assert result.created == 1
     assert len(result.skipped) == 1
+    assert Word.query.count() == 1
+
+
+def _book(title="데미안", author="헤르만 헤세", publisher="민음사"):
+    return BookSearchResult(title=title, author=author, publisher=publisher, source="kakao")
+
+
+def test_add_word_from_book_creates_new_word(app):
+    word, created = add_word_from_book(_book())
+
+    assert created is True
+    assert word.answer == "데미안"
+    assert word.category == WordCategory.BOOK_TITLE
+    assert word.hint == "헤르만 헤세, 민음사"
+    assert Word.query.count() == 1
+
+
+def test_add_word_from_book_is_idempotent(app):
+    """flask search-books ... --add를 같은 책으로 두 번 돌려도 Word가 중복
+    등록되면 안 된다 — 실제로 "데미안"을 두 번 추가해서 중복 row가 생기는 걸
+    발견하고 고쳤다.
+    """
+    add_word_from_book(_book())
+
+    word, created = add_word_from_book(_book())
+
+    assert created is False
     assert Word.query.count() == 1

@@ -66,8 +66,11 @@ def search_books_command(query, size, add_index):
         if not (0 <= add_index < len(results)):
             click.echo(f"--add 값이 범위를 벗어남 (0~{len(results) - 1})")
             return
-        word = add_word_from_book(results[add_index])
-        click.echo(f"등록 완료: {word.answer} (chosung={word.chosung})")
+        word, created = add_word_from_book(results[add_index])
+        if created:
+            click.echo(f"등록 완료: {word.answer} (chosung={word.chosung})")
+        else:
+            click.echo(f"이미 등록돼 있음: {word.answer} (chosung={word.chosung})")
 
 
 def register_commands(app):
