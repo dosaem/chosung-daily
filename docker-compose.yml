@@ -30,7 +30,7 @@ services:
     build: .
     env_file: .env
     environment:
-      DATABASE_URL: mysql+pymysql://chosung:chosung@mysql:3306/chosung_daily
+      DATABASE_URL: mysql+pymysql://chosung:chosung@mysql:3306/chosung_daily?charset=utf8mb4
       REDIS_URL: redis://redis:6379/0
     ports:
       - "8000:5000"

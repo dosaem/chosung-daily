@@ -13,6 +13,7 @@ dependencies = [
     "pydantic-settings>=2.15.0",
     "pymysql>=1.2.3",
     "redis>=8.1.0",
+    "requests>=2.34.2",
 ]
 
 [tool.uv]
@@ -21,6 +22,7 @@ package = false
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+extend-exclude = ["migrations"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]

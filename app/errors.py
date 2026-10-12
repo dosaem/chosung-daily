@@ -1,4 +1,5 @@
 from flask import jsonify
+from pydantic import ValidationError as PydanticValidationError
 
 
 class AppError(Exception):
@@ -20,10 +21,38 @@ class NotFoundError(AppError):
     message = "요청한 리소스를 찾을 수 없습니다."
 
 
+class UnauthorizedError(AppError):
+    code = "UNAUTHORIZED"
+    status_code = 401
+    message = "인증이 필요합니다."
+
+
+class ValidationError(AppError):
+    code = "VALIDATION_ERROR"
+    status_code = 400
+    message = "요청 값이 올바르지 않습니다."
+
+
+class NoPuzzleTodayError(AppError):
+    code = "NO_PUZZLE_TODAY"
+    status_code = 404
+    message = "오늘의 퍼즐이 아직 준비되지 않았습니다."
+
+
+class AlreadyFinishedError(AppError):
+    code = "ALREADY_FINISHED"
+    status_code = 409
+    message = "이미 종료된 퍼즐입니다."
+
+
 def register_error_handlers(app):
     @app.errorhandler(AppError)
     def handle_app_error(err: AppError):
         return jsonify({"code": err.code, "message": err.message}), err.status_code
+
+    @app.errorhandler(PydanticValidationError)
+    def handle_pydantic_error(err: PydanticValidationError):
+        return jsonify({"code": "VALIDATION_ERROR", "message": str(err)}), 400
 
     @app.errorhandler(404)
     def handle_404(_err):
