@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>오늘의 초성</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+</head>
+<body>
+  <main class="card">
+    <header class="header">
+      <h1>오늘의 초성</h1>
+      <p id="streak" class="streak"></p>
+    </header>
+
+    <section id="puzzle" class="puzzle">
+      <p id="date" class="date"></p>
+      <p id="category" class="category"></p>
+      <p id="chosung" class="chosung">...</p>
+      <p id="attempts-left" class="attempts-left"></p>
+    </section>
+
+    <section id="history" class="history"></section>
+
+    <form id="guess-form" class="guess-form">
+      <input
+        id="guess-input"
+        type="text"
+        autocomplete="off"
+        placeholder="정답을 입력하세요"
+      />
+      <button type="submit">제출</button>
+    </form>
+
+    <p id="hint" class="hint"></p>
+    <p id="message" class="message"></p>
+
+    <section id="result" class="result hidden">
+      <p id="result-text" class="result-text"></p>
+      <button id="share-button" type="button">결과 공유하기</button>
+      <p id="share-copied" class="copied hidden">클립보드에 복사했어요!</p>
+    </section>
+  </main>
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

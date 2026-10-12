@@ -1,0 +1,158 @@
+:root {
+  color-scheme: light;
+  font-family: -apple-system, "Apple SD Gothic Neo", "Pretendard", system-ui, sans-serif;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 24px 16px;
+  background: #f4f4f5;
+  color: #18181b;
+}
+
+.card {
+  width: 100%;
+  max-width: 420px;
+  background: #fff;
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 16px;
+}
+
+.header h1 {
+  font-size: 1.25rem;
+  margin: 0;
+}
+
+.streak {
+  font-size: 0.85rem;
+  color: #71717a;
+  margin: 0;
+}
+
+.puzzle {
+  text-align: center;
+  margin-bottom: 16px;
+}
+
+.date,
+.category {
+  font-size: 0.8rem;
+  color: #71717a;
+  margin: 2px 0;
+}
+
+.chosung {
+  font-size: 3rem;
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  margin: 12px 0;
+}
+
+.attempts-left {
+  font-size: 0.85rem;
+  color: #3f3f46;
+}
+
+.history {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.history-row {
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+}
+
+.cell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  font-weight: 700;
+}
+
+.cell.correct {
+  background: #16a34a;
+  color: #fff;
+}
+
+.cell.wrong {
+  background: #e4e4e7;
+  color: #3f3f46;
+}
+
+.guess-form {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.guess-form input {
+  flex: 1;
+  padding: 10px 12px;
+  border: 1px solid #d4d4d8;
+  border-radius: 8px;
+  font-size: 1rem;
+}
+
+.guess-form button,
+.result button {
+  padding: 10px 16px;
+  border: none;
+  border-radius: 8px;
+  background: #18181b;
+  color: #fff;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+.hint {
+  min-height: 1.2em;
+  font-size: 0.9rem;
+  color: #a16207;
+}
+
+.message {
+  min-height: 1.2em;
+  font-size: 0.85rem;
+  color: #dc2626;
+  white-space: pre-wrap;
+}
+
+.result {
+  margin-top: 12px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.result-text {
+  font-weight: 600;
+}
+
+.copied {
+  font-size: 0.8rem;
+  color: #16a34a;
+}
+
+.hidden {
+  display: none;
+}

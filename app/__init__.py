@@ -5,6 +5,7 @@ from app.cli import register_commands
 from app.config import CONFIG_BY_NAME
 from app.errors import register_error_handlers
 from app.extensions import db, init_redis, migrate
+from app.web import register_web
 
 
 def create_app(config_name: str | None = None) -> Flask:
@@ -12,7 +13,7 @@ def create_app(config_name: str | None = None) -> Flask:
 
     config_name = config_name or os.environ.get("FLASK_ENV", "development")
 
-    app = Flask(__name__)
+    app = Flask(__name__, template_folder="../web/templates", static_folder="../web/static")
     app.config.from_object(CONFIG_BY_NAME[config_name])
 
     db.init_app(app)
@@ -22,6 +23,7 @@ def create_app(config_name: str | None = None) -> Flask:
     from app import models  # noqa: F401  (db.metadata에 테이블 등록)
 
     register_blueprints(app)
+    register_web(app)
     register_error_handlers(app)
     register_commands(app)
 
