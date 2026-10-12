@@ -45,6 +45,12 @@ class AlreadyFinishedError(AppError):
     message = "이미 종료된 퍼즐입니다."
 
 
+class RateLimitedError(AppError):
+    code = "RATE_LIMITED"
+    status_code = 429
+    message = "제출이 너무 많습니다. 잠시 후 다시 시도해주세요."
+
+
 def register_error_handlers(app):
     @app.errorhandler(AppError)
     def handle_app_error(err: AppError):

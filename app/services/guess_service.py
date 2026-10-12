@@ -1,6 +1,7 @@
 import unicodedata
-from datetime import timedelta
+from datetime import datetime, timedelta
 
+from app.config import KST
 from app.errors import AlreadyFinishedError, ValidationError
 from app.extensions import db
 from app.models import Attempt, Guest, GuestStats
@@ -8,6 +9,7 @@ from app.repositories.attempt_repository import list_for_guest_puzzle
 from app.repositories.guest_stats_repository import lock_for_guest
 from app.schemas.guess import GuessResponse
 from app.services.game_rules import MAX_ATTEMPTS, compute_reveal, summarize_attempts
+from app.services.puzzle_metrics import record_finish, record_leaderboard
 from app.services.puzzle_service import get_today_puzzle_or_404
 
 
@@ -71,6 +73,8 @@ def submit_guess(guest: Guest, raw_guess: str) -> GuessResponse:
 
     db.session.commit()
 
+    _record_metrics(puzzle.puzzle_date, guest.id, attempt_no, is_correct, finished)
+
     return GuessResponse(
         is_correct=is_correct,
         feedback=None if is_correct else _compare(guess, word.answer),
@@ -82,6 +86,18 @@ def submit_guess(guest: Guest, raw_guess: str) -> GuessResponse:
 
 def _compare(guess: str, answer: str) -> list[bool]:
     return [g == a for g, a in zip(guess, answer, strict=True)]
+
+
+def _record_metrics(
+    puzzle_date, guest_id: int, attempt_no: int, is_correct: bool, finished: bool
+) -> None:
+    """DB 커밋이 끝난 뒤에만 호출한다 — 커밋이 롤백되면 이 기록도 안 남아야 하니까.
+    둘 다 safe_redis_call을 거쳐서 Redis가 죽어 있어도 이 요청 자체에는 영향이 없다.
+    """
+    if finished:
+        record_finish(puzzle_date, is_correct, attempt_no)
+    if is_correct:
+        record_leaderboard(puzzle_date, guest_id, attempt_no, datetime.now(KST))
 
 
 def _record_solve(stats: GuestStats, today) -> None:

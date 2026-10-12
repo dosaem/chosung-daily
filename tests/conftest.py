@@ -4,7 +4,7 @@ import pytest
 
 from app import create_app
 from app.config import KST
-from app.extensions import db
+from app.extensions import db, get_redis
 from app.models import DailyPuzzle, Word, WordCategory
 from app.services.guest_service import issue_guest
 
@@ -14,6 +14,10 @@ def app():
     app = create_app("testing")
     with app.app_context():
         db.create_all()
+        # 캐시/랭킹/통계/rate limit 전부 Redis 상태를 쓰기 때문에, 테스트 DB(인덱스 1)를
+        # 비워두지 않으면 이전 테스트가 심어둔 puzzle:{date} 캐시나 ratelimit 카운터가
+        # 다음 테스트로 샌다 (실제로 이걸 안 했다가 테스트가 깨졌었음).
+        get_redis().flushdb()
         yield app
         db.session.remove()
         db.drop_all()

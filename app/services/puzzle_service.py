@@ -7,19 +7,33 @@ from app.repositories.attempt_repository import list_for_guest_puzzle
 from app.repositories.puzzle_repository import find_by_date
 from app.schemas.puzzle import TodayPuzzleResponse
 from app.services.game_rules import MAX_ATTEMPTS, compute_reveal, summarize_attempts
+from app.services.puzzle_cache import CachedPuzzle, cache_puzzle, get_cached_puzzle
 
 
-def get_today_puzzle_or_404() -> DailyPuzzle:
-    """오늘(KST) 날짜의 DailyPuzzle을 찾는다. 없으면 404.
+def get_today_puzzle_or_404() -> DailyPuzzle | CachedPuzzle:
+    """오늘(KST) 날짜의 퍼즐을 찾는다. 없으면 404.
+
+    Cache-Aside: 먼저 Redis(`puzzle:{date}`)를 보고, 없으면 DB에서 읽어 캐시에
+    채운다. 캐시에서 온 CachedPuzzle은 DailyPuzzle과 같은 속성(id, puzzle_date,
+    word.chosung/answer/hint/category)을 노출해서 호출부가 둘을 구분할 필요가
+    없다. Redis가 죽어 있으면 get_cached_puzzle이 조용히 None을 돌려주고 DB로
+    그냥 넘어간다(safe_redis_call).
 
     "오늘"을 여기서 한 번만 계산하고 이후엔 puzzle.puzzle_date를 쓴다 — 호출부가
     각자 datetime.now(KST)를 다시 부르면 자정 근처 요청에서 날짜가 두 번 다르게
     계산될 수 있다. guess_service.submit_guess도 이 함수를 그대로 쓴다.
     """
     today = datetime.now(KST).date()
+
+    cached = get_cached_puzzle(today)
+    if cached is not None:
+        return cached
+
     puzzle = find_by_date(today)
     if puzzle is None:
         raise NoPuzzleTodayError()
+
+    cache_puzzle(puzzle)
     return puzzle
 
 
