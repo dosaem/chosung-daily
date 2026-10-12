@@ -10,8 +10,33 @@
   <main class="card">
     <header class="header">
       <h1>오늘의 초성</h1>
-      <p id="streak" class="streak"></p>
+      <p id="streak" class="streak">🔥 -</p>
     </header>
+
+    <section class="account">
+      <button id="google-login-button" type="button" class="link-button">구글로 로그인</button>
+      <button id="kakao-login-button" type="button" class="link-button">카카오로 로그인</button>
+      <button id="backup-button" type="button" class="link-button">내 기록 백업</button>
+      <button id="restore-button" type="button" class="link-button">다른 기기 기록 불러오기</button>
+    </section>
+
+    <div id="backup-panel" class="panel hidden">
+      <p class="panel-desc">이 코드를 저장해두면 다른 기기에서도 같은 기록으로 이어할 수 있어요.</p>
+      <div class="token-row">
+        <input id="token-display" type="text" readonly />
+        <button id="copy-token-button" type="button">복사</button>
+      </div>
+      <p id="copy-token-done" class="copied hidden">복사했어요!</p>
+    </div>
+
+    <div id="restore-panel" class="panel hidden">
+      <p class="panel-desc">백업해둔 코드를 붙여넣으면 그 기록을 이 기기로 가져와요.</p>
+      <div class="token-row">
+        <input id="token-input" type="text" placeholder="백업 코드 붙여넣기" autocomplete="off" />
+        <button id="restore-submit-button" type="button">불러오기</button>
+      </div>
+      <p id="restore-message" class="message"></p>
+    </div>
 
     <section id="puzzle" class="puzzle">
       <p id="date" class="date"></p>

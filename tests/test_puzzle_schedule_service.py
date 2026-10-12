@@ -59,3 +59,36 @@ def test_schedule_falls_back_when_pool_exhausted(app):
 
     assert created == 3
     assert DailyPuzzle.query.count() == 3
+
+
+def test_book_title_only_appears_on_sunday(app):
+    general_words = [
+        Word(answer=f"일반{i}", category=WordCategory.GENERAL, hint="테스트용") for i in range(5)
+    ]
+    book_words = [
+        Word(answer=f"책{i}", category=WordCategory.BOOK_TITLE, hint="테스트용") for i in range(5)
+    ]
+    db.session.add_all(general_words + book_words)
+    db.session.commit()
+
+    # 14일(2주)이면 일요일이 항상 정확히 2번 들어있다 — 시작 요일에 상관없이.
+    schedule_puzzles(days=14, avoid_days=2)
+
+    puzzles = DailyPuzzle.query.all()
+    assert len(puzzles) == 14
+
+    for puzzle in puzzles:
+        if puzzle.puzzle_date.weekday() != 6:  # 월=0 ... 일=6
+            assert puzzle.word.category == WordCategory.GENERAL
+
+    sunday_categories = {p.word.category for p in puzzles if p.puzzle_date.weekday() == 6}
+    assert WordCategory.BOOK_TITLE in sunday_categories
+
+
+def test_sunday_falls_back_to_general_when_no_book_title_words_exist(app):
+    _make_words(3)  # 전부 일반 단어, book_title 없음
+
+    created = schedule_puzzles(days=14, avoid_days=2)
+
+    assert created == 14
+    assert DailyPuzzle.query.count() == 14

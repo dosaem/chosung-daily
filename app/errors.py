@@ -51,6 +51,18 @@ class RateLimitedError(AppError):
     message = "제출이 너무 많습니다. 잠시 후 다시 시도해주세요."
 
 
+class AccountAlreadyLinkedError(AppError):
+    code = "ACCOUNT_ALREADY_LINKED"
+    status_code = 409
+    message = "이미 다른 계정이 연결된 게스트입니다."
+
+
+class OAuthProviderUnavailableError(AppError):
+    code = "OAUTH_PROVIDER_UNAVAILABLE"
+    status_code = 503
+    message = "이 로그인 방식은 아직 설정되지 않았습니다."
+
+
 def register_error_handlers(app):
     @app.errorhandler(AppError)
     def handle_app_error(err: AppError):

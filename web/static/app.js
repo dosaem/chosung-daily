@@ -91,7 +91,7 @@ async function loadStats() {
   }
   const stats = await res.json();
   streakEl.textContent =
-    `연속 ${stats.current_streak}일 (최고 ${stats.max_streak}일) · 누적 ${stats.solved_count}문제`;
+    `🔥 연속 ${stats.current_streak}일 · 최고 ${stats.max_streak}일 · 누적 ${stats.solved_count}문제`;
 }
 
 function renderPuzzle(puzzle) {
@@ -211,20 +211,97 @@ function buildShareText() {
   return lines.join("\n");
 }
 
-async function handleShare() {
-  const text = buildShareText();
+// 공유 버튼과 토큰 백업 버튼이 똑같은 "복사하고 잠깐 체크 표시" 패턴을 쓴다.
+async function copyToClipboard(text, feedbackElId) {
   try {
     await navigator.clipboard.writeText(text);
-    const copied = document.getElementById("share-copied");
-    copied.classList.remove("hidden");
-    setTimeout(() => copied.classList.add("hidden"), 2000);
+    const feedback = document.getElementById(feedbackElId);
+    feedback.classList.remove("hidden");
+    setTimeout(() => feedback.classList.add("hidden"), 2000);
   } catch {
     showMessage(`클립보드 복사를 지원하지 않는 환경이에요. 직접 복사해주세요:\n\n${text}`);
   }
 }
 
+async function handleShare() {
+  await copyToClipboard(buildShareText(), "share-copied");
+}
+
+function togglePanel(panelId, otherPanelId) {
+  const panel = document.getElementById(panelId);
+  document.getElementById(otherPanelId).classList.add("hidden");
+  panel.classList.toggle("hidden");
+}
+
+function handleBackupClick() {
+  document.getElementById("token-display").value = state.token;
+  togglePanel("backup-panel", "restore-panel");
+}
+
+function handleRestoreClick() {
+  togglePanel("restore-panel", "backup-panel");
+}
+
+async function handleCopyToken() {
+  await copyToClipboard(state.token, "copy-token-done");
+}
+
+async function handleRestoreSubmit() {
+  const input = document.getElementById("token-input");
+  const token = input.value.trim();
+  const restoreMessage = document.getElementById("restore-message");
+  if (!token) return;
+
+  // 붙여넣은 코드가 진짜 유효한 토큰인지, 아무 보호된 API나 하나 불러서 확인한다
+  // (전용 "토큰 검증" 엔드포인트는 없어서 /me/stats로 겸한다).
+  const res = await fetch(`${API_BASE}/me/stats`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!res.ok) {
+    restoreMessage.textContent = "올바르지 않은 백업 코드예요. 다시 확인해주세요.";
+    return;
+  }
+
+  safeStorageSet(TOKEN_KEY, token);
+  location.reload();
+}
+
+async function syncSession() {
+  // "이 브라우저 = 이 게스트"를 서버 세션 쿠키에 남긴다. 로그인 버튼이 더 이상
+  // 토큰을 쿼리파라미터로 안 보내는 이유는 app/api/oauth.py의 sync_session
+  // 독스트링 참고 — 쿼리파라미터는 아무 값이나 넣은 링크를 피해자가 클릭하게
+  // 만들 수 있어서(로그인 CSRF), 세션 쿠키로 바꿨다.
+  await fetch(`${API_BASE}/session/sync`, {
+    method: "POST",
+    headers: authHeaders(),
+  });
+}
+
+function handleOAuthLogin(provider) {
+  // provider 로그인 자체가 전체 페이지 이동(리다이렉트)이라 fetch가 아니라
+  // location.href로 이동한다. 어느 게스트인지는 서버가 세션 쿠키(syncSession이
+  // 미리 심어둠)로 판단하므로 여기서 토큰을 실어 보낼 필요가 없다.
+  location.href = `${API_BASE}/auth/${provider}/login`;
+}
+
+// 로그인 콜백이 끝나면 /?login_token=<새 토큰>으로 돌아온다. 있으면 저장하고
+// URL에서 지운다(새로고침해도 다시 안 보이게, 그리고 주소창에 토큰이 안 남게).
+function applyLoginTokenFromUrl() {
+  const params = new URLSearchParams(location.search);
+  const loginToken = params.get("login_token");
+  if (!loginToken) return;
+
+  safeStorageSet(TOKEN_KEY, loginToken);
+  params.delete("login_token");
+  const query = params.toString();
+  history.replaceState({}, "", location.pathname + (query ? `?${query}` : ""));
+}
+
 async function init() {
+  applyLoginTokenFromUrl();
   state.token = await ensureToken();
+  syncSession(); // 응답을 기다릴 필요 없음 — 로그인 버튼 누르기 전까지만 심어지면 된다.
 
   const puzzle = await loadToday();
   if (!puzzle) return;
@@ -240,6 +317,18 @@ async function init() {
 
   document.getElementById("guess-form").addEventListener("submit", handleSubmit);
   document.getElementById("share-button").addEventListener("click", handleShare);
+  document
+    .getElementById("google-login-button")
+    .addEventListener("click", () => handleOAuthLogin("google"));
+  document
+    .getElementById("kakao-login-button")
+    .addEventListener("click", () => handleOAuthLogin("kakao"));
+  document.getElementById("backup-button").addEventListener("click", handleBackupClick);
+  document.getElementById("restore-button").addEventListener("click", handleRestoreClick);
+  document.getElementById("copy-token-button").addEventListener("click", handleCopyToken);
+  document
+    .getElementById("restore-submit-button")
+    .addEventListener("click", handleRestoreSubmit);
 }
 
 init();

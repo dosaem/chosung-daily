@@ -20,6 +20,20 @@ class Config:
     SQLALCHEMY_ENGINE_OPTIONS = {"pool_pre_ping": True, "isolation_level": "READ COMMITTED"}
     REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 
+    # 구글/카카오 콘솔에 앱을 등록해야 실제로 채워지는 값들. 비어 있으면 그 provider의
+    # 로그인 버튼은 "설정 안 됨" 에러를 내도록 처리한다(app/extensions.py의 init_oauth).
+    GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
+    GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
+    KAKAO_CLIENT_ID = os.environ.get("KAKAO_CLIENT_ID", "")
+    KAKAO_CLIENT_SECRET = os.environ.get("KAKAO_CLIENT_SECRET", "")
+
+    # 로그인 CSRF 방어(app/api/oauth.py의 sync_session 독스트링 참고)의 핵심 설정.
+    # SameSite=Lax면 공격자 사이트/링크를 통한 요청엔 이 세션 쿠키가 안 실린다.
+    # Secure는 HTTPS 뒤에서만 쿠키를 보내게 하는 옵션인데, 로컬 개발(http)에선
+    # 켜면 쿠키 자체가 안 먹어서 꺼둔다 — 실제 배포(HTTPS) 때는 반드시 켜야 한다.
+    SESSION_COOKIE_SAMESITE = "Lax"
+    SESSION_COOKIE_SECURE = os.environ.get("SESSION_COOKIE_SECURE", "false").lower() == "true"
+
 
 class DevelopmentConfig(Config):
     DEBUG = True
@@ -32,6 +46,13 @@ class TestingConfig(Config):
         "mysql+pymysql://chosung:chosung@localhost:3306/chosung_daily_test?charset=utf8mb4",
     )
     REDIS_URL = os.environ.get("TEST_REDIS_URL", "redis://localhost:6379/1")
+    # 테스트에서도 OAuth 클라이언트가 "등록은 돼 있는" 상태를 보려고 더미 값을 둔다.
+    # 실제 제공자에 네트워크 요청하는 지점(authorize_access_token 등)까진 테스트가
+    # 안 가니, 이 값이 진짜 유효한 키일 필요는 없다 — 라우팅/가드 로직만 검증한다.
+    GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "test-google-client-id")
+    GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "test-google-client-secret")
+    KAKAO_CLIENT_ID = os.environ.get("KAKAO_CLIENT_ID", "test-kakao-client-id")
+    KAKAO_CLIENT_SECRET = os.environ.get("KAKAO_CLIENT_SECRET", "test-kakao-client-secret")
 
 
 class ProductionConfig(Config):

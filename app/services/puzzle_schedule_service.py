@@ -3,7 +3,12 @@ from datetime import date, datetime, timedelta
 
 from app.config import KST
 from app.extensions import db
-from app.models import DailyPuzzle, Word
+from app.models import DailyPuzzle, Word, WordCategory
+
+# 월=0 ... 일=6 (datetime.date.weekday() 기준). 책 제목은 매일 섞으면 체감 난이도가
+# 들쭉날쭉해서(안 읽어본 사람한텐 그냥 모르는 단어 + 여러 단어짜리면 초성도 김)
+# 일주일에 한 번, 일요일에만 후보로 넣는 "특별 라운드"로 뺐다(사용자 피드백 반영).
+BOOK_TITLE_WEEKDAY = 6
 
 
 def schedule_puzzles(days: int = 30, avoid_days: int = 14) -> int:
@@ -35,7 +40,21 @@ def _pick_word(target_date: date, avoid_days: int) -> Word:
         .filter(DailyPuzzle.puzzle_date >= cutoff, DailyPuzzle.puzzle_date < target_date)
         .distinct()
     )
-    candidates = Word.query.filter(~Word.id.in_(recently_used_ids)).all()
+
+    preferred_category = (
+        WordCategory.BOOK_TITLE
+        if target_date.weekday() == BOOK_TITLE_WEEKDAY
+        else WordCategory.GENERAL
+    )
+    candidates = Word.query.filter(
+        Word.category == preferred_category, ~Word.id.in_(recently_used_ids)
+    ).all()
+
+    if not candidates:
+        # 원하는 카테고리에 후보가 없으면(예: 일요일인데 최근에 안 쓴 책 제목이
+        # 없음) 카테고리 제한을 풀고 다시 찾는다 — 빈 날짜를 만들진 않는다.
+        candidates = Word.query.filter(~Word.id.in_(recently_used_ids)).all()
+
     if candidates:
         return random.choice(candidates)
 
