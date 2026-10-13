@@ -5,7 +5,9 @@ from app.api.rate_limit import rate_limited
 from app.errors import ValidationError
 from app.models import Guest, PuzzleLanguage
 from app.schemas.guess import GuessRequest
+from app.schemas.puzzle import HintUnlockRequest
 from app.services.guess_service import submit_guess
+from app.services.hint_service import unlock_hint
 from app.services.puzzle_metrics import get_today_leaderboard, get_today_stats
 from app.services.puzzle_service import get_today_puzzle_or_404, get_today_puzzle_view
 
@@ -41,6 +43,14 @@ def today():
 def guess():
     payload = GuessRequest.model_validate(request.get_json(silent=True) or {})
     result = submit_guess(g.guest, payload.puzzle_id, payload.guess)
+    return jsonify(result.model_dump(mode="json"))
+
+
+@bp.post("/puzzles/today/hint-unlock")
+@with_guest
+def hint_unlock():
+    payload = HintUnlockRequest.model_validate(request.get_json(silent=True) or {})
+    result = unlock_hint(g.guest, payload.puzzle_id)
     return jsonify(result.model_dump(mode="json"))
 
 

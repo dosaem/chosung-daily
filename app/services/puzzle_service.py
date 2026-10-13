@@ -4,6 +4,7 @@ from app.config import KST
 from app.errors import NoPuzzleTodayError
 from app.models import DailyPuzzle, Guest, PuzzleLanguage
 from app.repositories.attempt_repository import list_for_guest_puzzle
+from app.repositories.hint_unlock_repository import is_unlocked
 from app.repositories.puzzle_repository import find_by_date
 from app.schemas.puzzle import AttemptView, TodayPuzzleResponse
 from app.services.game_rules import (
@@ -55,9 +56,7 @@ def get_today_puzzle_view(guest: Guest) -> TodayPuzzleResponse:
     solved, wrong_count = summarize_attempts(attempts)
     finished, show_hint = compute_reveal(len(attempts), wrong_count, solved)
 
-    # 힌트 미리 보기는 티켓 06 에서 들어온다. OR 조건을 지금 써 두면 06 은 이 값을
-    # HintUnlock 조회로 바꾸기만 하면 된다(spec §A.2 "힌트 표시 규칙").
-    hint_unlocked = False
+    hint_unlocked = is_unlocked(guest.id, puzzle.id)
 
     if solved:
         status = "success"

@@ -6,6 +6,7 @@ from app.extensions import db
 from app.models import Attempt, Guest, GuestStats
 from app.repositories.attempt_repository import list_for_guest_puzzle
 from app.repositories.guest_stats_repository import lock_for_guest
+from app.repositories.hint_unlock_repository import is_unlocked
 from app.schemas.guess import GuessResponse
 from app.services.game_rules import (
     MAX_ATTEMPTS,
@@ -79,6 +80,8 @@ def submit_guess(guest: Guest, puzzle_id: int | None, raw_guess: str) -> GuessRe
 
     wrong_count = prior_wrong_count + (0 if is_correct else 1)
     finished, show_hint = compute_reveal(attempt_no, wrong_count, is_correct)
+    # 힌트 표시 규칙은 조회와 제출이 같다 — `show_hint OR hint_unlocked`(spec §A.2).
+    hint_unlocked = is_unlocked(guest.id, puzzle.id)
 
     if is_correct:
         _record_solve(stats, puzzle.puzzle_date)
@@ -91,7 +94,7 @@ def submit_guess(guest: Guest, puzzle_id: int | None, raw_guess: str) -> GuessRe
         is_correct=is_correct,
         feedback=None if is_correct else compare_letters(guess, answer),
         attempts_left=MAX_ATTEMPTS - attempt_no,
-        hint=word.hint if show_hint else None,
+        hint=word.hint if (show_hint or hint_unlocked) else None,
         answer=word.answer if finished else None,
     )
 
