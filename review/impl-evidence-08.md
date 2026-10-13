@@ -198,7 +198,7 @@ active: False
 
 최종 리뷰(`review/impl-review-08.md` 라운드 1, FAIL) 의 BLOCKER 0 / MAJOR 1 /
 MINOR 0 을 처리했다. 머리글의 "커밋 4개 / 20파일 / 로컬 main 72a2a3c" 는 이 라운드
-기준으로 **커밋 8개, `main..HEAD` 22파일, 로컬 main `528879b`(티켓 20 머지) 위로
+기준으로 **커밋 9개, `main..HEAD` 22파일, 로컬 main `20d279a`(티켓 20·10 머지) 위로
 rebase** 로 바뀌었다.
 
 ### D-08-1 (MAJOR) — Sentry 가 OAuth 인증 코드·사용자 JSON 을 요청 본문에 보존한다
@@ -320,14 +320,49 @@ $ uv run pytest tests/test_sentry.py -q          # stack_frame_variables=False �
 - **미수정 MINOR: 없음**(리뷰 MINOR 0건). 리뷰가 틀렸다고 판단한 지적도 없다 —
   D-08-1 은 재현으로 확인했다.
 
+### 마이그레이션 재배치 (로컬 main 갱신 반영)
+
+작업 중 코디네이터가 로컬 main 이 `20d279a`(티켓 20·10 머지, 새 head
+`f394da7f4d88` = `Account.provider_refresh_token`/`provider_client_id`) 로 갔다고
+알려왔다. rebase 직후엔 head 가 둘로 갈렸다:
+
+```
+$ FLASK_APP=wsgi.py uv run flask db heads     # down_revision 재설정 전
+f394da7f4d88 (head)
+ff06a1bf5afc (head)
+```
+
+`ff06a1bf5afc` 의 `down_revision` 을 `4e72a4045fbc` → `f394da7f4d88` 로 옮겼다.
+같이 고친 것 하나: `tests/test_migrations.py` 의 `LANGUAGE_REVISION`("퍼즐 언어 =
+설정 테이블 직전 리비전") 은 이제 직전 리비전이 아니라 두 단계 아래라, 설정 테이블
+왕복 테스트가 티켓 10 마이그레이션까지 같이 되돌리고 있었다. 이름과 값을
+`APP_SETTING_PARENT_REVISION = "f394da7f4d88"` 로 바꿔 내 마이그레이션 한 칸만
+내렸다 올리게 했다.
+
+```
+$ FLASK_APP=wsgi.py uv run flask db history | head -2
+f394da7f4d88 -> ff06a1bf5afc (head), add app_setting table for runtime config
+4e72a4045fbc -> f394da7f4d88, add account provider refresh token and client id
+
+$ ./scripts/check_migration_heads.sh
+ff06a1bf5afc (head)
+OK: Alembic head 1개
+
+$ uv run pytest tests/test_migrations.py -q    # upgrade → 데이터 → downgrade → upgrade
+6 passed in 26.94s
+```
+
+왕복은 전용 DB `chosung_daily_test_t08_migrations` 에서만 돌렸다. 공용
+`chosung_daily_test`·개발 DB `chosung_daily` 에는 손대지 않았다.
+
 ### 이 라운드 전체 재검증
 
 ```
-$ git rebase main                        # 로컬 main 528879b, 충돌 없음
+$ git rebase main                        # 로컬 main 20d279a, 충돌 없음
 Successfully rebased and updated refs/heads/dosaem/t08-app-config-health-sentry.
 
 $ uv run pytest -q
-279 passed in 189.48s (0:03:09)
+318 passed in 174.77s (0:02:54)
 
 $ uv run ruff check .
 All checks passed!
@@ -338,7 +373,11 @@ ff06a1bf5afc (head)
 $ git diff main...HEAD --check            # 출력 없음
 ```
 
-마이그레이션은 이 라운드에서 건드리지 않았다(head 1개 그대로). 테스트 수가 203 →
-279 로 늘어난 건 rebase 로 들어온 다른 티켓 테스트와 이번 회귀 테스트 4개 때문이다.
+테스트 수가 203 → 318 로 늘어난 건 rebase 로 들어온 다른 티켓(20·10) 테스트와
+이번 회귀 테스트 4개 때문이다. `uv run ruff format --check` 는 레포 전체에서 14개
+파일을 "재포맷 대상" 으로 잡는데 이 라운드 전부터 그랬고(게이트는 `ruff check`),
+내가 새로 쓴 `app/observability.py`·`tests/test_sentry.py` 는 통과한다 — 범위 밖
+포맷 변경을 섞지 않으려고 나머지는 그대로 뒀다.
+
 외부 서비스 호출·배포·`git push` 없음. 시크릿 값은 기록하지 않았다 — 위 표식은
 전부 더미(`sentinel-*`, `*-MARKER`, `@example.test`)다.

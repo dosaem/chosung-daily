@@ -8,7 +8,7 @@
 심으면 둘이 어긋날 수 있다 — 빈 테이블로도 /config가 정상 응답해야 한다.
 
 Revision ID: ff06a1bf5afc
-Revises: 4e72a4045fbc
+Revises: f394da7f4d88
 Create Date: 2026-10-14 06:52:45.690962
 
 """
@@ -18,7 +18,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = 'ff06a1bf5afc'
-down_revision = '4e72a4045fbc'
+down_revision = 'f394da7f4d88'
 branch_labels = None
 depends_on = None
 

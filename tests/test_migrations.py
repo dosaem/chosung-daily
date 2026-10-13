@@ -30,7 +30,7 @@ from app.utils.mask import build_mask
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 PREVIOUS_REVISION = "9ec267465b4e"  # 퍼즐 언어 직전 리비전
-LANGUAGE_REVISION = "4e72a4045fbc"  # 퍼즐 언어 = 설정 테이블 직전 리비전
+APP_SETTING_PARENT_REVISION = "f394da7f4d88"  # 설정 테이블 직전 리비전
 
 PUZZLE_DATE = date(2026, 10, 13)
 KO_ANSWER = "해리 포터"
@@ -275,7 +275,7 @@ def test_app_setting_table_round_trips(migration_engine):
     _run_flask_db(_migration_database_url(), "upgrade")
     assert "app_setting" in _table_names(migration_engine)
 
-    _run_flask_db(_migration_database_url(), "downgrade", LANGUAGE_REVISION)
+    _run_flask_db(_migration_database_url(), "downgrade", APP_SETTING_PARENT_REVISION)
     assert "app_setting" not in _table_names(migration_engine)
 
     _run_flask_db(_migration_database_url(), "upgrade")
