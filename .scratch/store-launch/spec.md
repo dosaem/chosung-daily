@@ -284,6 +284,8 @@ chosung.dosaem.com 은 "하루 한 문제 초성 맞추기"가 돌아가는 Flas
 20. (티켓 작성 중 발견) §B.24 "분석 이벤트 4개" 의 명칭·파라미터가 스펙에 없음 — 티켓 24 에서 `puzzle_complete(language, success, attempts)`, `share`, `paywall_view`, `subscribe_start` 로 확정하고 여기 결과 기록
 14. (r3 MINOR) Google 상태 매핑 빈칸: `SUBSCRIPTION_STATE_PAUSED → hold`, `PENDING → 행 없음(권한 없음)`, grace 의 `grace_expires_at` 은 해당 `lineItems[].expiryTime` — provider 어댑터 티켓에서 fixture 로 확정
 
+- (티켓 10 반영) 미정 17 확정: 앱 애플 로그인은 설정값 `APPLE_APP_BUNDLE_ID` 하나만 추가하고 서명 키(`APPLE_TEAM_ID`·`APPLE_KEY_ID`·`APPLE_PRIVATE_KEY`)는 웹과 공유한다(Sign in with Apple 키 하나가 App ID 와 그 Services ID 를 모두 서명). client_secret 생성은 `apple_client_secret(app, client_id)` 로 인자화해 웹은 Services ID, 앱은 번들 ID 로 서명한다 — §A.13 자동 갱신(티켓 11)은 이 **두 client 의 secret 을 모두** 대상으로 해야 한다.
+
 ## Further Notes
 
 - 운영자 계정은 정확히 두 개: `dosaem90@gmail.com`, `hsseo@dosaem.com`.

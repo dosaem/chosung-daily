@@ -88,6 +88,7 @@ web/                  # Jinja 템플릿 1장 + vanilla JS
 | POST | `/api/v1/session/sync` | 이 브라우저=이 게스트를 세션 쿠키에 동기화 (로그인 전 필수) | Bearer |
 | GET | `/api/v1/auth/<provider>/login` | 구글/애플 로그인 시작 (리다이렉트) | 세션 쿠키 |
 | GET | `/api/v1/auth/<provider>/callback` | OAuth 콜백, 계정 연결 후 `/?login_token=`으로 리다이렉트 | 세션 쿠키 |
+| POST | `/api/v1/auth/token-exchange` | 앱 네이티브 로그인 id_token 교환 → 계정 연결/전환 후 `{token}` | Bearer |
 
 에러 응답은 전부 `{code, message}` + 적절한 HTTP status로 통일 (아래 "에러 응답" 참고).
 
@@ -274,7 +275,7 @@ remaining_estimate(now)`로 다음 실행 예정 시각을 직접 계산해서 2
 비어있으면 `app/extensions.py`의 `init_oauth`가 그 provider를 아예 등록 안 하고
 503을 돌려줌) 실제 로그인 왕복은 한 번도 못 해봤다 — 등록 후 가장 먼저
 확인해야 할 지점. 애플은 client_secret이 고정값이 아니라 `APPLE_PRIVATE_KEY`로
-서명한 JWT라(`_apple_client_secret`), 구글보다 설정값이 하나 더 필요하다
+서명한 JWT라(`apple_client_secret`), 구글보다 설정값이 하나 더 필요하다
 (`.env.example` 참고). Apple Developer Program 멤버십은 이미 BuildUrPalace(iOS
 출시작) 때 가입해둬서 추가 비용 없이 Services ID만 새로 만들면 된다.
 
@@ -607,6 +608,59 @@ bash 가 본문 실행 전에 끝까지 읽으므로 표준입력을 끊어도 �
 보낸다 — 스크립트 안의 어떤 검사도 같은 PR 이 같이 고칠 수 있으니 소용없다. 그래서
 잡의 `if` 에서 **선행 CI 가 이 저장소의 `push` 였는지**(`workflow_run.event == 'push'`,
 `head_repository.full_name == github.repository`)를 checkout·secret 사용 전에 본다.
+### 10. 앱 로그인은 id_token 교환 (ADR 0002 요약)
+
+웹은 리다이렉트 + 세션 쿠키로 계정을 연결하지만, 앱은 같은 흐름을 WebView 에 태우지
+않는다 — 구글이 임베디드 WebView OAuth 를 차단하고, 시스템 브라우저로 열면 위의 로그인
+CSRF 방어(세션 쿠키)가 깨져서 PKCE 식 상태 저장을 따로 만들어야 한다. 대신 앱이 네이티브
+SDK 로 받은 `id_token` 을 **게스트 Bearer 토큰과 함께** `POST /api/v1/auth/token-exchange`
+로 보내고, 서버가 JWKS 로 서명과 `aud` 를 검증한 뒤 웹과 **같은** `link_or_switch_account`
+로 연결한다. 연결 요청 자체가 Bearer 로 인증되니 로그인 CSRF 가 구조적으로 성립하지 않는다
+— 웹에서 실제로 겪은 그 버그가 앱 경로에는 아예 없다.
+
+**aud 매트릭스**: 서버는 요청만 보고 플랫폼을 알 수 없어서, provider 별로 받아들일 `aud`
+집합을 설정으로 고정한다(`app/services/app_login_service.py` 의 `allowed_audiences`).
+
+| provider | 플랫폼 | 앱이 쓰는 값 | 서버가 받는 `aud` | 설정값 |
+|---|---|---|---|---|
+| google | iOS | iOS 클라이언트 ID | iOS 클라이언트 ID | `GOOGLE_IOS_CLIENT_ID` |
+| google | Android | `serverClientId` = 웹 클라이언트 ID | 웹 클라이언트 ID | `GOOGLE_WEB_CLIENT_ID` |
+| apple | iOS | `sign_in_with_apple` | 앱 번들 ID | `APPLE_APP_BUNDLE_ID` |
+| apple | Android | 지원 안 함 | — | — |
+
+Android 의 구글 클라이언트 ID 는 APK 서명(SHA-1) 검증용이라 `aud` 에 나오지 않는다 —
+`serverClientId` 로 넘긴 웹 클라이언트 ID 가 들어온다. 설정값이 비어 있으면 받아들일
+`aud` 집합이 빈 집합이 되는데, 이때 검증을 건너뛰지 않고 **거부**한다. 설정 누락이
+"아무 토큰이나 통과" 로 조용히 바뀌는 쪽이 훨씬 위험하다. 같은 이유로 허용 알고리즘을
+`RS256` 하나로 고정했다(JWKS 는 공개 정보라, 알고리즘을 토큰 헤더에 맡기면 공개키를 HMAC
+비밀로 쓴 위조 토큰이 통과한다 — `tests/test_id_token_verify.py` 가 직접 만든 위조 토큰으로
+이 둘을 고정한다).
+
+**애플 토큰을 보관하는 이유**: 애플은 계정 삭제 시 연결 철회(revoke)를 요구하는데, revoke
+API 가 받는 건 `id_token` 이 아니라 **refresh/access token** 이다. 그래서 앱은 로그인마다
+`authorization_code` 도 함께 보내고, 서버가 그걸 애플 토큰 엔드포인트에서 교환해 받은
+`refresh_token` 을 `Account.provider_refresh_token` 에 **Fernet 암호화**(SECRET_KEY 파생 키,
+`app/utils/crypto.py`)해서 넣는다. 평문으로 두면 DB 유출 한 번이 "애플 계정 연결까지 넘어감"
+이 되고, 키를 설정값으로 하나 더 늘리는 대신 SECRET_KEY 에서 파생한다(이 값의 수명은
+SECRET_KEY 와 어차피 같다). 발급 client 도 `Account.provider_client_id` 에 같이 남긴다 —
+애플 revoke 는 "그 토큰을 발급한 client" 의 자격증명으로만 받아주고, 웹은 Services ID,
+앱은 번들 ID 로 발급되기 때문이다. 웹 콜백(`/auth/apple/callback`)도 같은 두 컬럼에 저장해서
+삭제 경로가 "웹으로 연결했는지 앱으로 연결했는지" 를 구분할 필요가 없게 했다(실제 revoke
+호출은 계정 삭제 티켓).
+
+판단 두 가지를 더 적어둔다.
+
+- **애플인데 `authorization_code` 가 없으면 400 으로 거절한다.** 요청 스키마에서 이 필드가
+  선택인 건 구글이 안 보내기 때문이고, 애플에서 빠지면 "연결은 됐는데 나중에 철회할 수단이
+  없는 계정" 이 생긴다 — 그건 애플 심사 요구사항(계정 삭제 시 연결 철회)을 못 지키는 상태라
+  아예 만들지 않는다.
+- **교환으로 받은 `id_token` 의 `sub` 를 앱이 보낸 `id_token` 의 `sub` 와 비교한다.** 안 하면
+  남의 `authorization_code` 를 끼워 넣어 그 사람의 refresh token 을 내 계정에 붙일 수 있다.
+  교환 응답의 토큰도 앱이 보낸 것과 똑같이 서명·`aud` 를 검증한다.
+
+JWKS 는 provider 가 키를 교체할 때만 바뀌는 공개 정보라 프로세스 안에 1시간 캐시한다.
+redis 클라이언트·Authlib 레지스트리와 달리 앱 설정과 무관한 값이어서(어느 Flask 앱이 물어도
+같은 공개키) `app.extensions` 가 아니라 모듈 전역에 둬도 "멀티 앱 오염" 이 생기지 않는다.
 
 ## 부하 테스트 요약
 
@@ -637,7 +691,7 @@ bash 가 본문 실행 전에 끝까지 읽으므로 표준입력을 끊어도 �
   방식으로 다루지 않으려고 **구글도 애플과 똑같이 실제 배포(NAS) 도메인이
   생긴 뒤에 같이 등록·테스트하기로 함** — 그때까지 OAuth 로그인은 코드만
   준비된 상태로 둔다.
-- **애플 client_secret(JWT)은 앱 시작 시점에 한 번만 만든다**(`_apple_client_secret`,
+- **애플 client_secret(JWT)은 앱 시작 시점에 한 번만 만든다**(`apple_client_secret`,
   유효기간 150일). 재배포나 재시작 없이 앱 프로세스가 150일보다 오래 떠 있으면
   애플 로그인만 조용히 실패하기 시작한다 — 지금은 주기적 재배포로 자연스럽게
   갱신되는 걸 전제로 둔 단순화고, 그 전제가 깨지면(예: 오래 안 건드리고 방치)
