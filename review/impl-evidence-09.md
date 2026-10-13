@@ -488,14 +488,15 @@ FAILED tests/test_legal_pages.py::test_transfer_section_ko_states_real_opt_outs[
 FAILED tests/test_legal_pages.py::test_transfer_section_en_states_real_opt_outs[...] (4건)
 ```
 
-### 전체 재검증 (로컬 main 위로 rebase 후)
+### 전체 재검증 (로컬 main `1b990e7` 위로 rebase 후)
 
 접속값은 이 문서 머리의 로컬 테스트 설정과 같다(DB `chosung_daily_test_t09`, Redis
 DB 11). 공용 테스트 DB 는 건드리지 않았고, 이 문서에 인증값을 새로 적지 않는다.
+`git diff main...HEAD --check` exit 0, 작업 트리 clean.
 
 ```
 $ uv run pytest -q
-473 passed
+522 passed in 197.84s (0:03:17)        # 환경 오류 0건
 
 $ uv run ruff check .
 All checks passed!
@@ -506,11 +507,19 @@ $ uv run ruff format --check app/web.py app/config.py app/utils/ui_language.py \
 8 files already formatted
 
 $ FLASK_ENV=testing uv run flask --app wsgi db heads
-f394da7f4d88 (head)          # 1줄. 이 티켓은 마이그레이션을 만들지 않는다.
+ff06a1bf5afc (head)          # 1줄. 이 티켓은 마이그레이션을 만들지 않는다 —
+                             # 이 리비전은 rebase 로 들어온 main 의 것이다.
 
 $ impeccable detect "http://127.0.0.1:5099/{privacy,terms}?lang={ko,en}"
 4 URL 전부 exit=0            # 대조군 v2_softdark_home.html 은 7건/exit=2 (탐지기 생존)
+
+$ curl -H 'Accept-Language: en-US,ko;q=0.1' .../privacy  → Content-Language: en
+$ curl -H 'Accept-Language: ko-KR,en;q=0.1' .../privacy  → Content-Language: ko
 ```
+
+레포 전체 `ruff format --check .` 는 이 문서 §3 에 적은 대로 **내 파일이 아닌** 기존
+12개 파일 때문에 여전히 실패한다(CI 게이트는 `ruff check` 뿐). 그래서 이 라운드에서
+건드린 8개 파일만 따로 확인했다.
 
 ### 미수정 MINOR
 
