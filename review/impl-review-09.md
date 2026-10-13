@@ -96,3 +96,88 @@ getComputedStyle(document.querySelector('.doc')).boxSizing
 - 취향·스타일 제안 없음. 결함 집계: BLOCKER 0, MAJOR 1, MINOR 2. MAJOR 수정 후 재검토가 필요하다.
 
 판정: FAIL
+
+## 라운드 2
+
+검토 대상 HEAD: `eb2c8f4`, 로컬 main 및 merge-base: `8115301`.
+`git diff main...HEAD` 전체와 `git log main..HEAD --oneline`의 10개 커밋을 검토했다.
+티켓 09, 스펙 §A.15·§A.16·US45·미정 9, 국외 이전 안내와 관계된 §B.21·§B.24·§C.30,
+CONTEXT, SCREENS 웹 절, MASTER와 우선 규칙 OVERRIDES를 대조했다.
+코디네이터의 추가 범위인 연락처 설정값 및 사업자 정보 5개도 포함했다.
+
+### 체크박스별 판정
+
+| 티켓 체크박스 | 충족 여부 | 직접 확인한 근거 |
+|---|---|---|
+| 공용 토큰 CSS, 라이트/다크, 그림자 없음, Pretendard, 메인 스타일 유지 | 충족 | `tokens.css`의 색·간격·폰트 값을 OVERRIDES와 대조했다. `tile-empty`는 muted 참조이며 다크 재정의도 있다. 기존 메인 `style.css`·`index.html` 변경 없음. 실제 브라우저의 문서 폭·패딩은 D-09-3 재검증 참조. |
+| Jinja ko/en 개인정보처리방침 및 필수 공시 | 충족 | 두 페이지 × 두 언어가 200 및 정확한 Content-Language로 렌더된다. 수집 항목 6개, 보유 기간, 업체 5개, 국외 이전, 아동, 삭제 링크와 연락처를 본문에서 대조했다. 게스트 상태와 광고·분석·오류 전송을 구분하며 D-09-1은 수정됐다. |
+| 구독 자동 갱신·스토어 해지·EULA 선택 자리 | 충족 | ko/en 모두 자동 갱신, 스토어 해지, 계정 삭제로 구독이 해지되지 않는다는 설명, Apple 표준 EULA 링크 및 커스텀 선택 자리가 있다. 미정 9의 최종 결정은 별도 사람 작업이다. |
+| pytest 렌더 테스트·두 페이지 detect 0건 | 충족 | 실제 Jinja 응답을 검사하는 렌더 테스트와 독립 test client 검증을 실행했다. 공용 CSS를 적용한 ko/en × 두 페이지 detect는 모두 0건이다. 실행 결과·한계는 아래 검증 절 참조. |
+| README 경로·갱신 책임·설계 판단 | 충족 | 문서 경로·시행일·갱신 책임과 트리거, 법적 페이지에서 토큰을 먼저 도입하는 `### 09.`가 있다. 내용 요건은 충족하지만 공통 추가 위치 규칙은 D-09-4 참조. |
+
+추가 사용자 결정도 충족한다. `app/config.py:92`의 연락처는 환경 설정값으로 읽고 빈 문자열이면
+기본 연락처를 사용한다. 사업자 정보 5개는 기본값이 빈 문자열이며 `app/web.py:70`에서
+공백을 제거한 뒤 값이 있는 항목만 공통 레이아웃(`web/templates/legal/_layout.html:68`)에 전달한다.
+실제 test client로 연락처 변경, 일부 사업자 값만 설정, 공백 항목 생략, HTML 특수문자
+이스케이프를 ko/en × 두 페이지에서 확인했다. 운영 Compose의 `env_file`로 이 설정들이
+앱에 전달되는 구조도 읽어서 확인했으며 운영 접속은 하지 않았다.
+
+### 이전 결함 재판정
+
+| ID | 기존 심각도 | 판정 | 위치 및 동일 입력 재검증 |
+|---|---|---|---|
+| D-09-1 | MAJOR | FIXED | `web/templates/legal/privacy.ko.html:111`, `privacy.en.html:118`. 두 언어 개인정보처리방침 4절을 읽으면 계정 미연결로 막을 수 있는 로그인 정보와 게스트에게도 발생하는 광고·분석·오류 전송을 구분한다. 게스트 플레이를 전체 국외 이전 거부 방법으로 안내하던 문구가 제거됐고 기능별 거부·제한을 명시한다. |
+| D-09-2 | MINOR | FIXED | `app/utils/ui_language.py:46`. 실제 test client로 두 경로에 `Accept-Language: en-US,ko;q=0.1` → `en`, `ko-KR,en;q=0.1` → `ko`를 확인했다. 지역 태그의 주 언어를 q 순서로 선택하므로 이전의 역전이 없다. |
+| D-09-3 | MINOR | FIXED | `web/static/legal.css:22`, `:31`. 실제 Chrome에서 네 문서 × 375/480/481/768px를 측정했다. 외곽 폭은 각각 375/480/480/480px, 좌우 패딩은 16/16/24/24px, 가로 넘침은 전부 false다. 라이트·다크 각 16건 모두 통과하여 이전 528px·모바일 24px 문제가 해소됐다. |
+
+REPEAT 0건. 위 FIXED 결함은 현재 결함 수에 포함하지 않는다.
+
+### 새 결함 목록
+
+#### D-09-4 — MINOR: README 설계 판단을 섹션 끝에 덧붙이지 않음
+
+- 위치: `README.md:895`.
+- 근거: 티켓 공통 규칙은 README 설계 판단에 자기 번호 소제목을 **섹션 끝에 덧붙이도록** 명시한다.
+- 재현 명령: `git diff main...HEAD -- README.md` 및 `rg -n '^### (09|04)\.|^## 부하' README.md`.
+- 기대: 기존 설계 판단 마지막 `### 04. 제출 일관성` 뒤, 다음 최상위 `## 부하 테스트 요약` 전에 `### 09.`가 추가된다.
+- 실제: 895행의 `### 09.`가 기존 `### 04.` 소제목 3개(924·943·962행) 앞에 삽입된다. 로컬 main에도 이 04 절들이 이미 있으므로 현재 main 대비 섹션 끝 추가가 아니다.
+- 영향: 병렬 티켓의 공용 파일 추가 위치 약속을 벗어난다. 타 티켓 본문을 덮어쓰거나 런타임 동작을 손상시키지는 않았으므로 MINOR이며, 문체·취향 제안이 아니다. 자기 09 절만 설계 판단 끝으로 옮기면 된다.
+
+### 직접 실행한 검증
+
+접속값은 구현 증거의 로컬 테스트 설정을 사용했으며 인증값은 이 리뷰에 기록하지 않는다.
+`TEST_DATABASE_URL`은 기존 `chosung_daily_test_t09`, `TEST_REDIS_URL`은 로컬 Redis DB 11,
+`TEST_MIGRATION_DATABASE_URL`은 기존 `chosung_daily_test_t09_migrations`로 지정했다.
+새 DB를 만들지 않았고 기본 테스트 DB로 전환하지 않았다.
+
+| 명령/검사 | 결과 |
+|---|---|
+| 위 테스트 환경변수를 지정한 `uv run pytest -q` | `536 passed in 202.24s (0:03:22)`, exit 0. 접속 오류·간헐 실패가 없어 재실행하지 않았다. |
+| `uv run ruff check .` | `All checks passed!`, exit 0. |
+| `FLASK_ENV=testing uv run flask --app wsgi db heads` | `ff06a1bf5afc (head)` 한 줄. 이 티켓 자체의 마이그레이션 변경은 없다. |
+| `git diff main...HEAD --check` | exit 0. |
+| Flask test client, 두 문서 × ko/en | 4건 모두 200, Content-Language 일치. D-09-2의 헤더 입력 4건도 통과. |
+| 추가 설정값 직접 렌더 | 두 문서 × ko/en에서 연락처 교체, 일부 항목·공백 항목 생략, 사업자 값의 `<script>` 문자열 이스케이프 통과. |
+| Chrome headless, 네 문서 × 네 폭 × light/dark | 32건 폭·패딩·넘침 검사 통과. 배경/전경은 light `rgb(250,250,249)` / `rgb(15,23,42)`, dark `rgb(20,26,38)` / `rgb(241,245,249)`. |
+| `impeccable detect` 기본 문서 4개 및 사업자 정보가 채워진 문서 4개 | 각각 출력 없음, exit 0. 대조군 `design/archive/v2_softdark_home.html`은 7건, exit 2로 탐지기 동작 확인. |
+
+검증용 임시 파일은 `/tmp/t09-review-r2/`에만 작성했다. Flask test client의 실제 렌더 HTML에서
+외부 링크 태그를 제거하고 실제 `tokens.css`·`legal.css`를 원문 그대로 inline했다.
+`/Users/saem/.impeccable/bin/0.1.14/impeccable detect`에 `privacy-ko.html`, `privacy-en.html`,
+`terms-ko.html`, `terms-en.html`을 전달했다(사업자 값 설정본은 같은 이름 앞에 `filled-`).
+브라우저는 폭 고정 iframe에서 `getBoundingClientRect().width`, computed padding,
+문서 scrollWidth 및 색상을 읽었다. 외부 리소스 요청은 CSP와 호스트 해석 차단으로 제한했다.
+따라서 CDN 글꼴 실제 다운로드나 외부 약관 링크 도착지는 이번 검증 범위에 포함하지 않는다.
+프로덕션·NAS·실제 외부 서비스에 접근하지 않았다.
+
+### 보안·범위·테스트 품질 및 참고
+
+- 공개 GET 렌더 경로만 추가되어 인증 변경·CSRF 상태 변경·DB 쓰기는 없다. `lang`은 허용된 ko/en 값으로만 템플릿 이름에 들어가고 사업자 정보와 연락처는 Jinja 자동 이스케이프를 거친다. 새 인증 우회·입력 삽입·데이터 손상 결함을 발견하지 못했다.
+- 추가 환경 설정·운영자 블록은 코디네이터가 확인한 사용자 결정 범위다. 사업자 실제 값이 비어 있는 것은 의도이며 결함이 아니다. `.env.example`은 자기 `[09]` 블록, `docs/RELEASE.md`는 자기 `### 09.`를 끝에 추가했고 다른 티켓 내용은 수정하지 않았다. README의 추가 위치만 D-09-4에 기록했다.
+- `.scratch/`·기존 메인 스타일 변경 없음. 운영 시크릿 노출은 발견하지 못했다. 구현 증거의 DB 접속 예시는 로컬 개발용 값이며 이 리뷰에 복사하지 않았다. 공개 연락처와 테스트용 사업자 샘플은 운영 인증정보가 아니다.
+- 테스트는 Jinja 응답을 mock하지 않고 실제 렌더를 검사한다. 추가 언어 회귀 테스트는 문제였던 헤더 조합을 직접 사용하고, 국외 이전 검사는 4절로 범위를 좁혔다. CSS 테스트는 선언 문자열 수준이므로 위 브라우저 측정으로 보완했다.
+- 이전 라운드에 적힌 테스트 한계는 남아 있다: 백업 보유 기간의 단순 `"14"` 검사는 아동 문구로도 통과할 수 있고, 토큰 테스트는 OVERRIDES 파일을 읽지 않고 복사한 기대값과 비교한다. 현재 본문과 토큰은 직접 대조했으며 기존 참고사항을 신규 결함으로 중복 집계하지 않는다. README의 “OVERRIDES를 고치면 테스트가 먼저 깨진다”는 설명도 이 테스트 한계 아래 해석해야 한다.
+- `/account/delete` 구현과 EULA 최종 선택, 출시 전 실제 사업자 값 입력은 각각 후속 티켓·사람 작업이다. 이 리뷰는 제품 사양과 구현의 일치를 확인했으며 법률 적합성을 별도로 인증하지 않는다.
+- 취향·스타일 제안 없음. 현재 결함: BLOCKER 0, MAJOR 0, MINOR 1(D-09-4). 기존 3건은 모두 FIXED, REPEAT 0건이다.
+
+판정: PASS
