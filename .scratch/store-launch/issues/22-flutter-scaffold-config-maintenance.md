@@ -14,7 +14,7 @@
 - [ ] 패키지: Riverpod, go_router, dio, flutter_secure_storage, easy_localization(ko/en), sentry_flutter, firebase_core/analytics, flutter_native_splash, flutter_launcher_icons(임시 아이콘), very_good_analysis. 번들/패키지 `com.dosaem.chosung`, 앱 이름 "오늘의 초성"/"Hidden Vowels". Hive/freezed 없음
 - [ ] Firebase 설정 파일(`google-services.json`, `GoogleService-Info.plist`)은 gitignore + `.example` 자리표시자 커밋, 파일이 없으면 Firebase 초기화를 건너뛴다(디버그·CI). analyze/test 는 파일 없이 통과
 - [ ] `ApiClient` 인터페이스는 이 티켓이 쓰는 `POST /guests`, `GET /config`, `GET /me/stats` 만 정의 + Dio 구현 + 테스트용 Fake. 나머지 §A' 메서드는 쓰는 티켓(23·24·25·27·29·30)이 추가한다. `--dart-define=API_BASE_URL`. 에러 코드→도메인 예외 매핑 골격
-- [ ] 게스트 토큰 secure storage 보관, 없으면 `POST /guests {puzzle_language}`(기기 언어가 en 이면 en). 401 이면 새 게스트
+- [ ] 게스트 토큰 secure storage 보관, 없으면 `POST /guests {puzzle_language}`(기기 언어가 en 이면 en). 401 이면 새 게스트. 토큰 상태는 **게스트 토큰 Provider**(Riverpod, 앱 전역)로 노출하고 ApiClient 내부에 숨기지 않는다 — 27 이 값을 교체하고 28 이 변경을 구독한다
 - [ ] OVERRIDES 토큰 → ThemeData(라이트/다크, Pretendard, Lucide), 토큰 이름을 상수로(`primaryButton`, `tileEmpty`, `tileCorrect`…), 그림자 없음. iPad 중앙 정렬 최대 600px 레이아웃 래퍼
 - [ ] S7 점검/강제 업데이트 화면 + 분기(위젯 테스트: Fake `/config` 로 점검/업데이트/정상 3분기, 목업 없음 — 명세+토큰)
 - [ ] 3탭 뼈대(오늘/순위/내 기록) + 탭 바 아래 배너 슬롯 자리(상시 예약, 내용은 29)
@@ -27,3 +27,4 @@
 - P1-09/P2-7: Blocked by 에 03 추가(`POST /guests {puzzle_language}` 소비)
 - P1-14/P2-14: ApiClient 를 이 티켓이 쓰는 3개 메서드로 줄임 — 분할 대신 범위 축소
 - P1-16/P2-15/P3-12: Firebase 파일 부재 시 초기화 스킵 + `.example` 전략
+- (r3) P1-28/P3-22/리뷰어 2: 27·28 이 참조하는 "게스트 토큰 Provider" 를 이 티켓의 산출물로 명시
