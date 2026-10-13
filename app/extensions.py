@@ -78,6 +78,14 @@ def init_oauth(app):
                 # 애플은 콜백을 GET 리다이렉트가 아니라 POST(form_post)로 보낸다 —
                 # 그래서 app/api/oauth.py의 callback 라우트가 POST도 받는다.
                 "response_mode": "form_post",
+                # Authlib 기본값은 client_secret_basic(HTTP Basic 헤더)인데, 애플
+                # 토큰 엔드포인트는 client_id/client_secret을 POST 바디로만 받는다
+                # (실제로 겪음 — Basic으로 보내면 애플이 자격증명을 아예 못 읽고
+                # invalid_client를 돌려줌. curl로 바디에 직접 넣어 보내면 정상
+                # 통과하는 걸로 확인). authlib의 `register()`는 client_kwargs에
+                # 담긴 값만 실제 OAuth2Client 생성자로 전달한다 — 바깥에 바로
+                # 써도 조용히 무시된다.
+                "token_endpoint_auth_method": "client_secret_post",
             },
         )
 
