@@ -3,12 +3,20 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from app.models.enums import WordCategory
+from app.models.enums import PuzzleLanguage, WordCategory
+from app.utils.mask import MaskTile
 
 
 class TodayPuzzleResponse(BaseModel):
+    puzzle_id: int
     date: date
+    language: PuzzleLanguage
+    # 플레이어가 보는 문제 그 자체. 언어와 무관하게 같은 포맷이다(app/utils/mask.py).
+    mask: list[MaskTile]
+    # ko 호환 필드. ko 는 `Word.chosung` 현행 값, en 은 `mask` 의 보이는 글자로 만든
+    # 문자열(빈 타일은 "_")이다. 신규 클라이언트는 `mask` 를 쓴다.
     chosung: str
+    # 구분자(공백·하이픈)를 뺀 글자 수.
     length: int
     category: WordCategory
     attempts_left: int

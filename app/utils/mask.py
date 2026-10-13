@@ -16,7 +16,7 @@
 """
 
 from app.models.enums import PuzzleLanguage
-from app.utils.chosung import syllable_chosung
+from app.utils.chosung import PLACEHOLDER, syllable_chosung
 
 REVEALED = "r"
 HIDDEN = "h"
@@ -58,3 +58,14 @@ def _korean_tile(ch: str) -> MaskTile:
         # 한글이 아닌 글자(영문·숫자·기호)는 초성이 없으니 단서 없는 빈 타일이다.
         return {"t": HIDDEN, "c": ""}
     return {"t": REVEALED, "c": chosung}
+
+
+def mask_to_text(mask: list[MaskTile], placeholder: str = PLACEHOLDER) -> str:
+    """가림을 한 줄 문자열로 펼친다 — 보이는 타일은 글자, 빈 타일은 자리표시자.
+
+    `GET /puzzles/today` 의 ko 호환 필드(`chosung`)를 en 퍼즐에서도 채우는 데 쓴다.
+    ko 는 `Word.chosung` 컬럼의 현행 값을 그대로 쓰기 때문에 여기 오지 않는다
+    (README "03. 언어 인지 응답" 참고). 자리표시자는 `extract_chosung` 과 같은
+    글자를 쓴다 — 두 문자열이 같은 응답 필드를 채우니 모양도 같아야 한다.
+    """
+    return "".join(placeholder if tile["t"] == HIDDEN else tile["c"] for tile in mask)

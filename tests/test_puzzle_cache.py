@@ -5,7 +5,7 @@ from app.models import DailyPuzzle, Word
 
 
 def test_today_populates_cache_on_miss(client, guest_headers, today_puzzle):
-    key = f"puzzle:{today_puzzle.puzzle_date.isoformat()}"
+    key = f"puzzle:{today_puzzle.puzzle_date.isoformat()}:ko"
     assert get_redis().get(key) is None
 
     res = client.get("/api/v1/puzzles/today", headers=guest_headers)
