@@ -89,6 +89,15 @@ class TestingConfig(Config):
 class ProductionConfig(Config):
     TRUST_PROXY = True
 
+    # 애플은 콜백을 cross-site top-level POST(response_mode=form_post)로 보낸다.
+    # SameSite=Lax 쿠키는 cross-site POST엔 기본적으로 안 실려서(실제로 겪음 —
+    # /auth/apple/login에서 심은 oauth_pending_guest_id 세션이 콜백에서 안 보임,
+    # UnauthorizedError "로그인 세션이 만료됐습니다"), 세션 쿠키를 None으로 풀어야
+    # 애플 로그인이 동작한다. 브라우저는 SameSite=None 쿠키에 Secure가 없으면
+    # 통째로 버리므로, env var 설정을 깜빡해도 깨지지 않게 여기서 강제한다.
+    SESSION_COOKIE_SAMESITE = "None"
+    SESSION_COOKIE_SECURE = True
+
 
 CONFIG_BY_NAME = {
     "development": DevelopmentConfig,
