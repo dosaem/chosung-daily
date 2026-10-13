@@ -23,3 +23,20 @@ def summarize_attempts(attempts) -> tuple[bool, int]:
     solved = any(a.is_correct for a in attempts)
     wrong_count = sum(1 for a in attempts if not a.is_correct)
     return solved, wrong_count
+
+
+def day_result(attempts_count: int, solved: bool) -> str:
+    """하루치 결과를 success|fail|in_progress|none 으로 분류한다 (기록 화면용).
+
+    `GET /puzzles/today` 의 status 와 값이 겹치지만 한 가지가 다르다 — 거기선 아직
+    한 번도 안 낸 상태가 "지금 풀고 있는 퍼즐"이라 `in_progress` 지만, 지난 날짜를
+    돌아보는 기록 화면에서는 시도가 0개면 "미플레이"(`none`)다. 그래서
+    get_today_puzzle_view 의 분기를 이 함수로 합치지 않았다.
+    """
+    if solved:
+        return "success"
+    if attempts_count == 0:
+        return "none"
+    if attempts_count >= MAX_ATTEMPTS:
+        return "fail"
+    return "in_progress"
