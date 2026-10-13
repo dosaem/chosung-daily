@@ -1,0 +1,35 @@
+# 백엔드 이미지(Dockerfile의 `COPY . .`)에 들어갈 필요가 없는 것들.
+# Flutter 앱(mobile/)과 계획 문서(.scratch/)가 이미지에 섞이면 빌드 컨텍스트가
+# 수십 MB 커지고, 백엔드 컨테이너에 앱 소스가 그대로 실려 나간다.
+
+mobile/
+.scratch/
+review/
+handoff/
+docs/
+k6/
+
+.venv/
+tests/
+migrations/__pycache__/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+.git/
+.github/
+.gitignore
+.dockerignore
+Dockerfile
+docker-compose*.yml
+
+# 시크릿은 env_file로 런타임에 주입한다 — 이미지에 구워 넣지 않는다.
+.env
+.env.*
+
+.DS_Store
+instance/
+celerybeat-schedule*
