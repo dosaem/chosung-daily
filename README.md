@@ -126,6 +126,31 @@ uv run flask search-books "데미안" --add 0   # 카카오/알라딘 API 키 �
 uv run flask notify-operator-test           # 운영자 Slack 알림 도착 확인 (SLACK_WEBHOOK_URL)
 ```
 
+## 운영: 백업 / 복구
+
+prod·develop compose 에 `backup` 서비스가 돌면서 매일 **04:00 KST** 에 MySQL 을
+덤프한다. 자세한 NAS 설정·리허설 절차는 `docs/RELEASE.md`.
+
+| | |
+|---|---|
+| 덤프 위치 | 호스트 `${BACKUP_DIR}`(기본 `./backups`) ← 컨테이너 `/backups` bind mount |
+| 파일 이름 | `chosung_daily-YYYYmmdd-HHMMSS.sql.gz` (mysqldump + gzip) |
+| 보존 | 14일치 (`BACKUP_RETENTION_DAYS`, 오늘 것까지 14개) |
+| 실패 알림 | `SLACK_WEBHOOK_URL` 로 POST (비워두면 알림만 생략) |
+
+```bash
+# 지금 한 번 백업 (04:00 을 기다리지 않고)
+docker compose -f docker-compose.prod.yml -p chosung-daily-prod --env-file .env \
+  exec backup /scripts/backup.sh
+
+# 복구 — 되돌릴 수 없다. 덤프 시점 이후의 행은 사라진다
+./scripts/restore.sh <덤프.sql.gz> chosung-daily-prod      # 확인 프롬프트
+./scripts/restore.sh -y <덤프.sql.gz> chosung-daily-prod   # 프롬프트 없이
+
+# 복구 후 캐시 정리
+docker compose -f docker-compose.prod.yml -p chosung-daily-prod restart app worker beat
+```
+
 ## 설계 판단
 
 > 아래 `트랜잭션 경계`~`퍼즐 카테고리 비중` 은 초기 구현 때 쓴 항목이다. 스토어 출시
@@ -383,6 +408,42 @@ compose 는 프로젝트 디렉터리의 `.env` 를 자동으로 읽기 때문�
 - **비교는 bytes 로 한다.** `secrets.compare_digest` 는 비 ASCII 문자가 든 `str` 을 받으면
   `TypeError` 를 낸다 — 한글이 섞인 아무 값을 폼에 넣으면 403 이어야 할 요청이 500 이 된다.
   양쪽을 `encode()` 해서 넘긴다.
+### 21. 백업: cron 데몬 대신 sleep 루프, 덤프는 bind mount
+
+백업은 앱이 아니라 **독립 컨테이너**다(`docker-compose.prod.yml` 의 `backup`).
+app/worker 가 뻗어 있어도 백업은 돌아야 하고, 반대로 백업 스크립트가 터져도 서비스는
+살아 있어야 한다. Celery Beat 안에 넣지 않은 것도 같은 이유다 — Beat 가 죽으면
+퍼즐 배정과 백업이 한꺼번에 멈춘다.
+
+이미지는 **`mysql:8` 을 재사용**한다. `mysqldump`·`gzip`·`curl`·GNU `find`·`date` 가
+전부 들어 있고, NAS 가 이미 당겨 둔 이미지라 추가로 받을 게 없다(실측으로 확인).
+
+그 안에서 **cron 데몬을 쓰지 않고** `backup-cron.sh` 가 "다음 04:00 까지 자고
+일어나서 덤프" 를 반복한다. `mysql:8` 에는 cron 이 없어서 쓰려면 컨테이너가 뜰
+때마다 패키지를 받아와야 하고(NAS 의 네트워크에 매번 의존), crond 가 죽으면 백업만
+조용히 멈춘다 — 아무 로그도 없이. sleep 루프는 PID 1 이라 죽으면 compose 의
+`restart: unless-stopped` 가 바로 다시 띄우고, 컨테이너 로그에 다음 실행 시각이
+찍힌다. 시각 계산은 `date -d` 같은 GNU 확장 없이 "하루 안의 초" 로만 해서(KST 는
+DST 가 없다) macOS 에서도 같은 스크립트를 테스트할 수 있다.
+
+**덤프만 bind mount 한다.** DB 볼륨은 DSM 의 `/volume1` ACL 때문에 named volume
+이어야 하지만(§19), 덤프는 반대로 호스트 폴더에 있어야 백업이다 — 컨테이너와 볼륨이
+날아간 상황에서 꺼내야 하니까. `backup` 컨테이너는 root 로 돌아서 mysql(uid 999)을
+막던 ACL 문제가 없다.
+
+덤프 옵션은 `--single-transaction`(04:00 에 누가 플레이해도 테이블을 잠그지 않고 한
+시점을 뜬다) + `--databases ... --add-drop-database`(덤프 안에 DROP/CREATE DATABASE
+가 들어가서 복구가 "그 시점 그대로" 가 된다 — 복구 후에 덤프 이후 행이 남지 않는다).
+비밀번호는 `--defaults-extra-file` 로 넘긴다. `-p<비밀번호>` 로 주면 같은 호스트의
+`ps` 출력에 그대로 보이고, `restore.sh` 는 아예 비밀번호를 모른다(mysql 컨테이너 안의
+env 를 쓴다).
+
+**테스트는 셸 스크립트를 실제로 실행한다**(`tests/test_backup_restore.py`).
+`mysqldump`·`curl`·`docker` 만 PATH 앞의 스텁으로 바꿔 인자와 stdin 을 기록하고,
+gzip·find·date 는 진짜를 쓴다. 그래서 "gzip 덤프가 떨어지는지", "14일 지난 파일이
+지워지는지", "실패하면 Slack 으로 쏘는지", "비밀번호가 명령줄에 안 나오는지" 를
+흉내가 아니라 스크립트가 한 일로 본다. 컨테이너를 띄우는 복구 리허설은
+`docs/RELEASE.md` "복구 리허설" 절에 실측으로 남겼다.
 
 ### 02. 퍼즐 언어 모델 — expand–contract 대신 마이그레이션 1개
 

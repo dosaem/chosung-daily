@@ -96,3 +96,86 @@ NAS 에 올리기 전에 "프로젝트명만 유지하면 기존 볼륨이 그�
 (`chosung-daily`, 볼륨 `chosung-daily_mysql_data`)는 건드리지 않았다.
 
 명령·출력 전문은 `review/impl-evidence-19.md`.
+
+### 21. 매일 백업과 복구 리허설
+
+prod/develop compose 에 `backup` 서비스가 있다. `mysql:8` 이미지를 그대로 써서
+(mysqldump·gzip·curl·find 가 다 들어 있다) `TZ=Asia/Seoul` 로 돌고, 매일 04:00
+KST 에 `scripts/backup.sh` 를 실행한다 — `mysqldump --single-transaction
+--databases chosung_daily --add-drop-database | gzip` → `${BACKUP_DIR}` 에
+`chosung_daily-YYYYmmdd-HHMMSS.sql.gz`, 14일치 보존, 실패하면 `SLACK_WEBHOOK_URL`
+로 알림.
+
+| | 값 |
+|---|---|
+| 덤프 위치(호스트) | `${BACKUP_DIR}` → 컨테이너 `/backups` bind mount |
+| 보존 | `BACKUP_RETENTION_DAYS` (기본 14) — 오늘 것까지 14개 |
+| 실행 시각 | `BACKUP_AT` (기본 04:00, 컨테이너 TZ = KST) |
+| 실패 알림 | `SLACK_WEBHOOK_URL` (비우면 알림만 생략, 종료 코드는 그대로 1) |
+
+**NAS 설정 메모**
+
+- `BACKUP_DIR` 은 체크아웃 밖의 공유 폴더를 권장한다(예
+  `/volume1/backup/chosung-daily-prod`). 체크아웃 디렉터리를 지워도 덤프는 남는다.
+  prod 와 develop 은 **다른 경로**를 준다(기본값이 `./backups` 라 같은 디렉터리에서
+  두 인스턴스를 돌리면 덤프가 섞인다).
+- **DSM ACL 문제는 해당 없음.** DB 볼륨을 bind mount 로 못 쓰는 이유는 mysql
+  컨테이너가 uid 999 로 돌아서 `/volume1` ACL 에 막히기 때문인데, `backup`
+  컨테이너는 root(uid 0)로 돌고 쓰는 것도 자기가 만든 덤프 파일뿐이다.
+  로컬 검증에서 `id` = `uid=0(root)`, 덤프 소유자 `root:root` 확인.
+- 덤프를 꺼낼 때는 컨테이너가 떠 있을 필요가 없다 — DSM File Station 에서
+  `BACKUP_DIR` 을 열면 `.sql.gz` 가 그대로 있다.
+
+#### 복구 리허설
+
+운영자가 되돌릴 수 있는지 **실제로 확인하는** 절차다. 사고 전에 한 번 돌려 본다.
+`<프로젝트>` 는 `chosung-daily-prod` / `chosung-daily-develop`(docs 위 표).
+
+```bash
+# 1. 지금 백업 하나 만든다 (04:00 을 기다리지 않는다)
+docker compose -f docker-compose.prod.yml -p <프로젝트> --env-file <env> \
+  exec backup /scripts/backup.sh
+ls -l <BACKUP_DIR>            # chosung_daily-YYYYmmdd-HHMMSS.sql.gz
+
+# 2. 복구
+./scripts/restore.sh <BACKUP_DIR>/chosung_daily-...sql.gz <프로젝트>
+#    -y 를 주면 확인 프롬프트를 건너뛴다(비대화 실행은 -y 필수)
+
+# 3. 앱 캐시 정리 (Redis 에 퍼즐 캐시가 남아 있을 수 있다)
+docker compose -f docker-compose.prod.yml -p <프로젝트> restart app worker beat
+```
+
+`restore.sh` 는 덤프를 `gzip -dc` 로 풀어서 `docker compose -p <프로젝트> exec -T
+mysql` 의 stdin 으로 넣는다. 비밀번호는 mysql 컨테이너 안의
+`$MYSQL_ROOT_PASSWORD` 를 쓰므로 호스트 쪽에서 시크릿을 읽지 않는다. 덤프에
+`DROP DATABASE IF EXISTS` 가 들어 있어서 복구 시점 이후에 생긴 행은 사라진다.
+
+**리허설 실측 (2026-10-13, 티켓 21, macOS / Docker 29.8.2)**
+
+NAS 가 아니라 로컬에서 `docker-compose.prod.yml` 을 전용 프로젝트
+`chosung-daily-t21`(포트 8097, 임시 env 파일)로 띄워서 확인했다. 실제 `.env`·
+`.env.prod` 는 건드리지 않았고, 검증 후 그 프로젝트만 `down -v` 했다.
+
+1. `db upgrade` + `seed-words` + `schedule-puzzles --days 2`, 게스트 발급 후 오답
+   1회 → **상태 A**: word 20 / guest 1 / attempt 1 / daily_puzzle 2,
+   `attempts_left` 4.
+2. `exec backup /scripts/backup.sh` → `backups/chosung_daily-20261013-214939.sql.gz`
+   (2.5KB). 덤프 안에 `/*!40000 DROP DATABASE IF EXISTS chosung_daily*/;` 와
+   `CREATE DATABASE`·`USE`·테이블 `DROP TABLE IF EXISTS`·INSERT 들이 있다.
+3. 데이터 변경 → **상태 B**: 오답 1회 더(`attempts_left` 3), 단어 1건 INSERT,
+   `daily_puzzle` 1건 DELETE → word 21 / attempt 2 / daily_puzzle 1.
+4. `./scripts/restore.sh -y backups/chosung_daily-20261013-214939.sql.gz
+   chosung-daily-t21` → **상태 A 그대로 복원**: word 20 / guest 1 / attempt 1 /
+   daily_puzzle 2, 추가했던 단어 0건. 앱을 재시작하지 않고도 같은 게스트 토큰으로
+   `GET /api/v1/puzzles/today` 가 200 + `attempts_left` 4.
+5. 보존: 컨테이너 안에서 13·14·15·30일 전 mtime 덤프를 만들고 `backup.sh` 실행 →
+   14·15·30일 것만 `pruned`, 13·2일 것과 덤프가 아닌 파일은 그대로.
+6. 실패 알림: `MYSQL_HOST=no-such-mysql` 로 실행 → `mysqldump: Got error: 2005`,
+   종료 코드 1, 부분 덤프(`.partial`) 안 남음, Slack 으로
+   `{"text":"[chosung-daily] MySQL backup failed - db=... host=... - mysqldump
+   exited non-zero"}` POST. 웹훅이 안 닿는 주소여도 종료 코드는 1 그대로.
+7. 스케줄: `BACKUP_AT` 을 2분 뒤로 주고 `backup-cron.sh` 를 돌려 **그 시각
+   정각에** 덤프가 떨어지는 걸 확인(`21:52:00+0900`). 컨테이너 기본 로그는
+   `daily at 04:00 +0900, next in 22258s`.
+
+명령·출력 전문은 `review/impl-evidence-21.md`.
