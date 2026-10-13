@@ -215,6 +215,7 @@ celery 브로커 큐와 rate limit 카운터는 DB 와 무관해서 건드리지
 | 00:00 | `tasks.ensure_today_puzzle` | 지원 언어(ko·en)를 돌며 오늘 퍼즐을 **언어마다 따로 배정·커밋**하고 `puzzle:{date}:{lang}` 캐시를 채운다 | 그 언어만 건너뛰고 다음 언어 계속 + Slack "퍼즐 배정 실패" |
 | 00:05 | `tasks.flush_daily_stats` | 전날 Redis 통계(`stats:{date}:{lang}`)를 언어별로 `DailyStats` 에 반영 | Redis 장애면 예외 → Celery 재시도(최대 5회, backoff) |
 | 09:00 | `tasks.notify_low_word_pool` | 언어별 미사용 단어 잔량이 **14일치 미만**이면 Slack 알림 | Slack 전송 실패는 경고 로그만 (`app/clients/slack.py`) |
+| 월 09:10 | `tasks.notify_apple_secret_expiry` | 애플 `client_secret`(JWT) 만료가 **7일 안**이면 Slack 알림 (주 1회) | 같음 |
 
 잔량 알림을 자정이 아니라 09:00 에 둔 건, 알림이 운영자가 깨어 있는 시간에 와야
 그날 안에 `flask seed-words` 로 단어를 채울 수 있어서다. 잔량은 "아직 한 번도
@@ -225,6 +226,7 @@ celery 브로커 큐와 rate limit 카운터는 DB 와 무관해서 건드리지
 # 수동 트리거 (워커가 떠 있어야 한다)
 uv run celery -A celery_app.celery call tasks.ensure_today_puzzle
 uv run celery -A celery_app.celery call tasks.notify_low_word_pool
+uv run celery -A celery_app.celery call tasks.notify_apple_secret_expiry
 ```
 
 ## 설계 판단
@@ -973,6 +975,56 @@ OVERRIDES 토큰을 CSS 변수로 옮긴 공용 스타일시트(`web/static/toke
 길이가 안 맞는 제출은 `VALIDATION_ERROR` 로 **시도를 소비하지 않는다** — 오타로 한
 글자 덜 친 걸 기회 소모로 세면 게임이 불친절해진다.
 
+### 11. 애플 secret 요청 경로 갱신 (Beat 재서명 대신)
+
+애플 `client_secret` 은 고정값이 아니라 `.p8` 키로 ES256 서명한 JWT 고, 수명이 최대
+6개월이다(여기선 150일). 원래 구현은 앱 시작 시점에 한 번만 서명했는데, 그러면 재배포
+없이 프로세스가 150일을 넘기는 순간 **애플 로그인만** 조용히 실패한다 — 퍼즐·랭킹은
+멀쩡하니 모니터도 안 울고, 하필 150일 뒤에 깨지니 원인을 찾기도 어렵다.
+
+갱신 방법으로 두 가지를 놓고 골랐다.
+
+| | Beat 가 주기적으로 재서명 | **요청 경로에서 갱신 (선택)** |
+|---|---|---|
+| 갱신 주체 | Beat 프로세스 하나 | 요청을 받은 프로세스가 자기 것만 |
+| 값 전달 | 공유 저장소(Redis/DB)에 써서 워커들이 읽어야 함 | 필요 없음 |
+| Beat 가 죽으면 | 전 워커가 같이 만료 | 영향 없음 |
+| 워커가 늘면 | 새 워커도 공유 저장소를 봐야 함 | 각자 자기 것 서명 |
+
+**Beat 를 안 쓴 이유는 값을 옮길 곳이 생기기 때문이다.** Beat 가 재서명해도 그 JWT 를
+gunicorn 워커들에게 전달하려면 Redis 나 DB 에 넣고 워커가 읽어야 하는데, 그 순간
+"자격증명을 저장소에 둔다"는 새 문제(암호화·만료·동시 갱신)가 생긴다. 반면 secret 은
+**키만 있으면 아무 프로세스나 똑같이 만들 수 있는 값**이라 공유할 이유가 애초에 없다 —
+같은 client 의 secret 을 두 워커가 따로 서명해도 애플 입장에선 둘 다 유효하다. 그래서
+각 프로세스가 `app.extensions` 안에서 자기 것만 들고, 만료 7일 전부터 재서명해 교체한다
+(`app/extensions.py` 의 `apple_client_secret`). 외부 저장소도 잠금도 없다.
+
+갱신 지점은 `app/api/oauth.py` 의 `_get_client` 다 — `/auth/apple/login` 과
+`/auth/apple/callback` 이 둘 다 이 함수를 거치므로, 진입마다 접근자를 통해 Authlib
+클라이언트의 `client_secret` 을 유효한 값으로 맞춘다. 토큰 교환 **직전**이 아니라
+진입에서 맞추는 게 중요하다: 콜백은 `authorize_access_token()` 안에서 애플에 요청을
+보내버리기 때문에, 그 호출 뒤에 교체하면 이미 만료된 secret 으로 한 번 실패한다.
+앱(네이티브) 로그인의 토큰 교환 경로도 같은 접근자를 쓴다
+(`app/services/app_login_service.py`) — 웹은 Services ID, 앱은 번들 ID 로 서명해야
+애플이 받아주니 `client_id` 를 인자로 받고, 계정 삭제 때의 애플 revoke 도 이 공개
+함수를 그대로 재사용한다.
+
+**관측(`apple_client_secret_expiries`)은 갱신하지 않는다.** `/health` 의
+`apple_secret_expires_at`(두 client 중 더 이른 시각)과 Beat 만료 알림이 이 함수를 보는데,
+여기서 갱신까지 하면 "만료 임박"이 관측되는 순간 사라져서 **알림이 영원히 안 울리는
+죽은 분기**가 된다. 처음엔 접근자 하나로 둘 다 쓰려다가 이걸 알고 읽기용을 갈랐다.
+
+그래서 Beat 주 1회(월 09:10 KST) 알림의 의미는 "갱신해라"가 아니라 **"갱신이 안 돌고
+있다"는 신호**다. 요청 경로 갱신이 정상이면 secret 이 7일 구간에 머무르지 않아 이 알림은
+울리지 않는다. 울린다면 그 프로세스에 애플 로그인이 한 건도 안 들어오고 있다는 뜻 —
+예를 들어 Beat 자기 자신이 그렇다(Beat 는 요청을 안 받으니 시작 때 서명한 secret 을 그대로
+들고 늙는다). 안전망으로서 정확히 그 상태를 운영자에게 보여준다. Slack 메시지에는
+client_id 와 만료 시각만 넣고 JWT 자체는 넣지 않는다 — 서명된 자격증명을 알림 채널로
+복제하는 셈이 되기 때문이다.
+
+위 "08. 헬스체크 등급" 의 "`apple_secret_expires_at` 은 … 지금은 `null`" 과 "알려진
+제한사항" 의 "앱 시작 시점에 한 번만 만든다" 는 이 티켓으로 해소됐다 — 공유 절은
+덧붙이기만 하는 규칙(티켓 10 과 같은 이유)이라 그 줄들은 그대로 뒀다.
 
 ## 부하 테스트 요약
 
