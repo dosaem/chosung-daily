@@ -1,0 +1,91 @@
+{#
+  법적 문서(/privacy, /terms) 공통 틀. 본문은 언어별 템플릿이 `document` 블록에 채운다.
+  틀에 들어가는 몇 안 되는 문구(내비·푸터)만 여기서 언어별로 고른다 — 본문 분량에
+  비하면 작고, 번역 프레임워크를 들일 만한 양이 아니다.
+#}
+{% set chrome = {
+  "ko": {
+    "home": "오늘의 초성",
+    "other_lang_label": "English",
+    "other_lang": "en",
+    "effective": "시행일",
+    "privacy": "개인정보처리방침",
+    "terms": "이용약관",
+    "delete": "계정 삭제",
+    "operator": "운영자 정보",
+    "service": "서비스",
+    "contact": "연락처",
+  },
+  "en": {
+    "home": "Hidden Vowels",
+    "other_lang_label": "한국어",
+    "other_lang": "ko",
+    "effective": "Effective",
+    "privacy": "Privacy Policy",
+    "terms": "Terms of Service",
+    "delete": "Delete account",
+    "operator": "Operator information",
+    "service": "Service",
+    "contact": "Contact",
+  },
+}[ui_language] %}
+<!doctype html>
+<html lang="{{ ui_language }}">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block title %}{% endblock %} · {{ chrome.home }}</title>
+  <link rel="alternate" hreflang="ko" href="{{ url_for(request.endpoint, lang='ko') }}" />
+  <link rel="alternate" hreflang="en" href="{{ url_for(request.endpoint, lang='en') }}" />
+  {# Pretendard 는 ko/en 을 한 폰트로 덮는다 (OVERRIDES §3). 버전 고정. #}
+  <link
+    rel="stylesheet"
+    href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css"
+  />
+  <link rel="stylesheet" href="{{ url_for('static', filename='tokens.css') }}?v={{ asset_version }}" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='legal.css') }}?v={{ asset_version }}" />
+</head>
+<body>
+  <main class="doc">
+    <nav class="doc-nav" aria-label="{{ chrome.home }}">
+      <a class="doc-nav-link" href="{{ url_for('web.index') }}">&larr; {{ chrome.home }}</a>
+      <a
+        class="doc-nav-link"
+        href="?lang={{ chrome.other_lang }}"
+        hreflang="{{ chrome.other_lang }}"
+        lang="{{ chrome.other_lang }}"
+      >{{ chrome.other_lang_label }}</a>
+    </nav>
+
+    <h1 class="doc-title">{% block heading %}{% endblock %}</h1>
+    <p class="doc-meta">{{ chrome.effective }} {{ effective_date.isoformat() }}</p>
+
+    {% block document %}{% endblock %}
+
+    {# 운영자 정보. 두 문서가 같은 블록을 쓴다 — 사업자 등록 뒤에 한 곳만 고치면 된다.
+       `business_info` 는 설정에 값이 있는 항목만 들어온다(app/web.py `_business_info`).
+       전부 비면 서비스명과 연락처만 남는다 — 값을 지어내지 않는다. #}
+    <section class="doc-operator" aria-labelledby="doc-operator-heading">
+      <h2 id="doc-operator-heading">{{ chrome.operator }}</h2>
+      <dl>
+        <dt>{{ chrome.service }}</dt>
+        <dd>{{ chrome.home }} (chosung.dosaem.com)</dd>
+        {% for label, value in business_info %}
+        <dt>{{ label }}</dt>
+        <dd>{{ value }}</dd>
+        {% endfor %}
+        <dt>{{ chrome.contact }}</dt>
+        <dd><a href="mailto:{{ contact_email }}">{{ contact_email }}</a></dd>
+      </dl>
+    </section>
+
+    <footer class="doc-footer">
+      <a class="doc-nav-link" href="{{ url_for('web.privacy', lang=ui_language) }}">{{ chrome.privacy }}</a>
+      <a class="doc-nav-link" href="{{ url_for('web.terms', lang=ui_language) }}">{{ chrome.terms }}</a>
+      {# /account/delete 는 티켓 14 에서 구현된다. Play Data safety 의 삭제 URL 이라
+         문서에서 먼저 가리켜 둔다. #}
+      <a class="doc-nav-link" href="/account/delete?lang={{ ui_language }}">{{ chrome.delete }}</a>
+    </footer>
+  </main>
+</body>
+</html>

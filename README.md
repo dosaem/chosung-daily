@@ -91,6 +91,8 @@ web/                  # Jinja 템플릿 1장 + vanilla JS
 | GET | `/api/v1/auth/<provider>/callback` | OAuth 콜백, 계정 연결 후 `/?login_token=`으로 리다이렉트 | 세션 쿠키 |
 | POST | `/api/v1/auth/token-exchange` | 앱 네이티브 로그인 id_token 교환 → 계정 연결/전환 후 `{token}` | Bearer |
 | GET | `/api/v1/config` | 앱 설정(최소 앱 버전·점검·지원 언어·스토어 링크), 60초 캐시 | - |
+| GET | `/privacy` | 개인정보처리방침 (Jinja, ko/en — `?lang=` 또는 Accept-Language) | - |
+| GET | `/terms` | 이용약관 (Jinja, ko/en — `?lang=` 또는 Accept-Language) | - |
 
 에러 응답은 전부 `{code, message}` + 적절한 HTTP status로 통일 (아래 "에러 응답" 참고).
 
@@ -130,6 +132,36 @@ uv run flask schedule-puzzles --language en --days 30
 uv run flask search-books "데미안" --add 0   # 카카오/알라딘 API 키 필요 (.env)
 uv run flask notify-operator-test           # 운영자 Slack 알림 도착 확인 (SLACK_WEBHOOK_URL)
 ```
+
+## 법적 문서 (`/privacy`, `/terms`)
+
+스토어 심사·구독 화면·Play Data safety 양식이 전부 이 두 URL 을 가리킨다. 한국어·영어가
+`?lang=ko|en` 으로 고정되고, `?lang=` 이 없으면 `Accept-Language`, 그것도 없으면 한국어다
+(`app/utils/ui_language.py`).
+
+| | |
+|---|---|
+| 라우트 | `app/web.py` (`privacy`, `terms`) |
+| 본문 | `web/templates/legal/{privacy,terms}.{ko,en}.html` — 언어마다 파일 하나 |
+| 공통 틀 | `web/templates/legal/_layout.html` (내비·푸터 문구만 언어별로 고름) |
+| 스타일 | `web/static/tokens.css` (공용 디자인 토큰) + `web/static/legal.css` (문서 레이아웃) |
+| 시행일 | `app/web.py` 의 `LEGAL_EFFECTIVE_DATE` |
+| 연락처·사업자 정보 | 설정값 `LEGAL_CONTACT_EMAIL`, `LEGAL_BUSINESS_*` (`app/config.py`). 값이 있는 항목만 "운영자 정보" 블록에 렌더 — 출시 전 채울 값은 `docs/RELEASE.md` "### 09." |
+
+**갱신 책임은 운영자(= 프로젝트 주인)에게 있다.** 아래가 바뀌면 두 언어 본문을 **같은
+커밋에서** 고치고 `LEGAL_EFFECTIVE_DATE` 를 올린다 — 한쪽 언어만 고쳐진 문서가 나가면
+심사에서 걸린다.
+
+- 수집 항목이 늘거나 줄 때 (새 외부 SDK, 새 저장 컬럼)
+- 제3자·수탁업체가 바뀔 때 (Google, Apple, AdMob, Firebase Analytics, Sentry)
+- 보유 기간이 바뀔 때 (예: `BACKUP_RETENTION_DAYS` 를 14일에서 바꾸면 방침의 14일도 고친다)
+- 구독 상품·가격·해지 경로가 바뀔 때
+- EULA 선택이 확정될 때 (현재는 Apple 표준 EULA 링크 — 스펙 미정 9)
+- 사업자·통신판매업 등록이 끝났을 때 (`LEGAL_BUSINESS_*` 를 `.env` 에 채운다 — 본문 수정은 없다)
+
+`tests/test_legal_pages.py` 가 "필수 공시 문구가 두 언어 본문에 있는지" 를 지키니, 항목을
+지우면 테스트가 먼저 깨진다. `/account/delete` 링크는 문서가 먼저 가리키고 페이지는 티켓
+14 에서 생긴다.
 
 ## 운영: 백업 / 복구
 
@@ -860,6 +892,34 @@ Redis 장애 때도 `safe_redis_call` 이 같은 `None` 을 주니 분기가 하
 죽어 있어도 배정은 커밋된다 — 플레이어는 DB 경로로 같은 퍼즐을 받는다. 캐시 실패를
 배정 실패로 올리면 "Redis 때문에 오늘 퍼즐이 없다"가 되는데, 이건 Redis 장애 정책
 ("게임 자체는 DB 로 동작")과 정면으로 어긋난다.
+### 09. 웹 디자인 토큰 CSS 를 법적 문서 페이지에서 먼저 도입
+
+OVERRIDES 토큰을 CSS 변수로 옮긴 공용 스타일시트(`web/static/tokens.css`)를 **법적 문서
+페이지에서 처음 쓴다.** 운영자 페이지(15·16)와 새 메인 페이지(18)가 같은 파일을 재사용한다.
+
+- **왜 법적 페이지가 먼저인가.** 토큰을 쓸 첫 화면이 필요한데, 메인 페이지는 게임 로직이
+  얽혀 있어 토큰 도입과 화면 교체가 한 커밋에 섞인다. `/privacy`·`/terms` 는 정적 문서라
+  토큰만으로 끝나고, 그래서 "토큰이 실제로 충분한가" 를 게임 화면을 건드리지 않고 검증할
+  수 있다. 기존 `web/static/style.css` 는 그대로 뒀다(18 에서 교체).
+- **토큰 파일에 요소 규칙을 두지 않았다.** `tokens.css` 는 `:root` 변수와
+  `prefers-color-scheme: dark` 재정의만 담는다. 세 페이지가 공유하는 파일이 `body` 나 `h1`
+  을 직접 칠하면, 페이지마다 그걸 되돌리는 코드가 생긴다. 페이지 레이아웃은 각자의
+  스타일시트(`legal.css`)에.
+- **값을 여기서 정하지 않는다.** 색·간격·폰트의 정본은 OVERRIDES 표이고 이 파일은 옮겨
+  적은 것뿐이다. `tests/test_token_css.py` 가 표의 라이트/다크 값과 1:1로 비교하니,
+  OVERRIDES 를 고치면 테스트가 먼저 깨진다. 그림자 토큰은 아예 없다(OVERRIDES §4: 그림자
+  없음) — 금지한 것은 변수조차 만들지 않는 쪽이 지켜진다.
+- **brand 오렌지는 밑줄과 포커스 링에만.** 라이트에서 `#EA580C` on `#FAFAF9` 는 3.9:1 로
+  AA 미달이라 글자색으로 쓸 수 없다(OVERRIDES §2). 문서 링크는 글자를 `foreground` 로
+  두고 `text-decoration-color` 만 brand 로 줬다 — 링크가 눈에 띄면서 대비는 본문과 같다.
+- **언어마다 템플릿 파일 하나.** 한 템플릿 안에서 `if` 로 ko/en 본문을 섞으면 어느 언어를
+  고쳤는지 diff 에 안 보이고 한쪽만 갱신된 문서가 나간다. 내비·푸터처럼 짧은 틀 문구만
+  `_layout.html` 에서 언어별로 고른다 — 번역 프레임워크를 들일 분량이 아니다.
+- **`?lang=` 이 Accept-Language 보다 세다.** 스토어 심사자·앱·Data safety 양식이 특정 언어
+  문서를 링크로 고정해야 하는데, 브라우저 언어 설정에 따라 다른 문서가 열리면 안 된다.
+- **검증은 띄워 놓은 서버 URL 로.** `impeccable detect` 는 Jinja 의 `url_for` 를 못 풀어서
+  템플릿 파일을 그냥 스캔하면 CSS 를 못 읽는다(티켓 01 메모). 그래서 개발 서버를 띄우고
+  URL 4개(ko/en × 2페이지)에 detect 를 돌린다 — 0건. `review/impl-evidence-09.md` 참고.
 
 ### 04. `puzzle_id` 고정과 409 `PUZZLE_CHANGED`
 

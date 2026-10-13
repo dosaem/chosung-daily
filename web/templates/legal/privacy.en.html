@@ -1,0 +1,184 @@
+{% extends "legal/_layout.html" %}
+{% block title %}Privacy Policy{% endblock %}
+{% block heading %}Privacy Policy{% endblock %}
+{% block document %}
+<p>
+  Hidden Vowels (오늘의 초성) runs the same server behind the web app
+  (<code>chosung.dosaem.com</code>) and the iOS and Android apps. This policy covers all three.
+</p>
+<p>
+  There is no sign-up. Your records belong to a single <strong>guest token</strong> stored on your
+  device. We never ask for your name, phone number, address, date of birth, or payment details.
+</p>
+
+<h2>1. What we collect, and how long we keep it</h2>
+<dl>
+  <dt>Guest token</dt>
+  <dd>
+    A random string that identifies your records. The server issues it on your first visit or
+    first launch and your device stores it. The backup code shown under "back up my records"
+    is this token. Deleted when you delete your account.
+  </dd>
+
+  <dt>Account email</dt>
+  <dd>
+    If you link a Google or Apple account, we store the email address and the unique identifier
+    the provider gives us. Nothing is collected if you never link an account. Deleted when you
+    unlink or delete your account.
+  </dd>
+
+  <dt>Apple refresh token</dt>
+  <dd>
+    If you signed in with Apple, we keep the refresh token Apple issued so that deleting your
+    account can actually revoke the Apple sign-in. It is discarded on deletion; if the revocation
+    call fails we keep it encrypted for up to 7 days of retries and then discard it.
+  </dd>
+
+  <dt>Attempt history</dt>
+  <dd>
+    The words you submitted, whether they were correct, how many attempts you used, submission
+    times, and your streak and solved counts. Used to build the leaderboard and statistics.
+    Deleted when you delete your account.
+  </dd>
+
+  <dt>Subscription identifier</dt>
+  <dd>
+    If you buy the ad-free subscription, we store the purchase identifier (transaction ID or
+    purchase token) and expiry time that App Store or Google Play gives us. Payment methods and
+    card details are handled by the store and never reach our server. Deleted when you delete
+    your account (see the Terms of Service about cancelling).
+  </dd>
+
+  <dt>Advertising ID</dt>
+  <dd>
+    Apps only. The Google AdMob SDK bundled in the app uses your device advertising ID
+    (IDFA on iOS, Advertising ID on Android) for ad requests. We do
+    <strong>not store it on our server</strong> — the SDK sends it straight to AdMob. You can
+    reset or delete the advertising ID in your device settings, and change your choice under
+    "Ad privacy settings" in the app where that applies.
+  </dd>
+
+  <dt>Access and error logs</dt>
+  <dd>
+    To investigate failures, request paths, timestamps, and error stacks are written to our
+    server logs and to Sentry. Identifying values such as emails and tokens are masked. Sentry
+    deletes them automatically according to its retention policy.
+  </dd>
+</dl>
+<p class="doc-note">
+  We back up the database once a day and keep each backup for <strong>14</strong> days. So when
+  you delete your account the data disappears from the service immediately, but it may remain in
+  backups taken earlier for up to 14 days before those are discarded in turn.
+</p>
+
+<h2>2. Why we use it</h2>
+<ul>
+  <li>Running the puzzle, your streak, the leaderboard, and statistics</li>
+  <li>Linking an account so the same records follow you across devices</li>
+  <li>Checking your ad-free subscription status</li>
+  <li>Serving ads in the apps (not to subscribers)</li>
+  <li>Responding to incidents and improving the service</li>
+</ul>
+<p>
+  We do not use the data for anything beyond the purposes above, and we never sell it to third
+  parties for advertising or marketing.
+</p>
+
+<h2>3. Sharing with third parties and processors</h2>
+<p>These processors handle data only within the function listed next to them.</p>
+<dl>
+  <dt>Google (sign-in, Firebase Analytics, Google Play)</dt>
+  <dd>
+    Identifier and email when you link a Google account; aggregate app usage events (puzzle
+    completed, share, paywall view, subscription start); Google Play subscription verification.
+  </dd>
+
+  <dt>Apple (sign-in, App Store)</dt>
+  <dd>Identifier and email when you link an Apple account; App Store subscription verification.</dd>
+
+  <dt>Google AdMob</dt>
+  <dd>Serving and measuring ads in the apps: device advertising ID and ad request data.</dd>
+
+  <dt>Sentry</dt>
+  <dd>Error tracking: request context and stack traces at the moment of an error.</dd>
+</dl>
+<p>
+  Each company processes the data under its own published policy. When the service no longer
+  needs the data, we also ask these processors to delete it.
+</p>
+
+<h2>4. International transfer</h2>
+<p>
+  The processors above (Google, Apple, AdMob, Firebase Analytics, Sentry) run servers outside
+  the Republic of Korea, mostly in the United States, so using those features transfers data
+  abroad. The items, purposes, and recipients are the same as in section 3, and the transfer
+  lasts as long as you use the feature.
+</p>
+<p>
+  How you can refuse depends on the feature. If you never link a Google or Apple account,
+  no identifier or email is transferred to the sign-in provider; if you never subscribe, no
+  purchase identifier is transferred to the stores. But the apps still send ads, usage events,
+  and error reports <strong>even without a linked account</strong> — playing as a guest is not
+  a way to refuse international transfer.
+</p>
+<ul>
+  <li>
+    <strong>Ads (AdMob)</strong>: you can refuse or change personalized-ads consent through
+    the iOS tracking permission request and the app's "Ad privacy settings" (shown where it
+    applies). Refusing turns off personalized ads, but the ad request itself still goes to
+    AdMob. To stop ad transfers entirely, use the ad-free subscription or delete the app.
+  </li>
+  <li>
+    <strong>Usage events (Firebase Analytics)</strong>: apps only, and there is
+    <strong>no per-feature opt-out</strong> today. To refuse, do not use the apps.
+  </li>
+  <li>
+    <strong>Error reports (Sentry)</strong>: both web and apps. We need them to fix outages,
+    so there is <strong>no per-feature opt-out</strong>.
+  </li>
+</ul>
+<p>
+  If you cannot accept these transfers, please stop using the service and delete your account
+  and records as described in section 6.
+</p>
+
+<h2>5. Children under 14</h2>
+<p>
+  The service is not for children <strong>under 14</strong> and we do not knowingly collect data
+  from them. If we learn that records belong to a child under 14 we delete them without delay.
+  Please tell us at the contact address below.
+</p>
+
+<h2>6. Deletion and your rights</h2>
+<p>You can delete your account and all records at any time. This cannot be undone.</p>
+<ul>
+  <li>Web: <a href="/account/delete?lang=en">chosung.dosaem.com/account/delete</a></li>
+  <li>App: "Delete account" at the bottom of the My Records screen</li>
+</ul>
+<p>
+  Deleting removes your guest token, attempt history, linked account, subscription identifier,
+  and leaderboard entries. <strong>It does not cancel your subscription</strong> — you must
+  cancel in App Store or Google Play to stop being charged. To access, correct, or restrict
+  processing of your data, write to the contact address.
+</p>
+
+<h2>7. How we protect it</h2>
+<p>
+  Traffic is encrypted with HTTPS, and sensitive values such as the Apple refresh token are
+  stored encrypted. The operator pages are limited to the designated operator accounts. Logs
+  mask tokens and email addresses.
+</p>
+
+<h2>8. Changes to this policy</h2>
+<p>
+  When the content changes we update the effective date on this page, and we announce
+  significant changes in the app and on the web.
+</p>
+
+<h2>9. Contact</h2>
+<p>
+  Operator: <a href="mailto:{{ contact_email }}">{{ contact_email }}</a><br />
+  The operator is also the privacy contact, and handles questions, deletion requests, and
+  reports about children's data at this address.
+</p>
+{% endblock %}

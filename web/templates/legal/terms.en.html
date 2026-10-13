@@ -1,0 +1,109 @@
+{% extends "legal/_layout.html" %}
+{% block title %}Terms of Service{% endblock %}
+{% block heading %}Terms of Service{% endblock %}
+{% block document %}
+<p>
+  These terms cover the Hidden Vowels (오늘의 초성) web app
+  (<code>chosung.dosaem.com</code>) and the iOS and Android apps. Using the service means you
+  accept them.
+</p>
+
+<h2>1. What the service does</h2>
+<p>
+  One masked word per day. The puzzle changes at midnight Korea Standard Time (KST), with one
+  puzzle per puzzle language (Korean and English). There is no sign-up: the guest token stored
+  on your device owns your records.
+</p>
+
+<h2>2. Linked accounts and backup codes</h2>
+<p>
+  Linking a Google or Apple account lets you continue the same records on another device.
+  Without an account you can still move your records with the backup code shown under "back up
+  my records". That code is the key to your records, so do not share it. If you lose the code
+  and never linked an account, there is no way to recover the records.
+</p>
+
+<h2>3. Ad-free subscription</h2>
+<p>
+  In the apps, a monthly subscription (product ID <code>adfree_monthly</code>) removes banner and
+  interstitial ads and unlocks hint previews without watching an ad. The price is whatever
+  App Store or Google Play shows for your region (₩1,500 per month in Korea).
+</p>
+<ul>
+  <li>
+    <strong>Auto-renewal</strong>: the subscription <strong>automatically renews</strong> unless
+    you cancel before the current period ends, and your store account is charged.
+  </li>
+  <li>
+    <strong>Cancelling</strong>: you <strong>cancel in the store</strong> — on iOS, Settings
+    &gt; Apple Account &gt; Subscriptions; on Android, Google Play &gt; Subscriptions. Benefits
+    stay active until the end of the current period. Deleting your account in the app does not
+    cancel the subscription.
+  </li>
+  <li>
+    <strong>Refunds</strong>: billing and refunds follow App Store or Google Play policy and the
+    operator cannot process them for you. Please ask the store directly.
+  </li>
+  <li>
+    <strong>Restoring</strong>: after changing devices or reinstalling, use "Restore purchases"
+    on the subscription screen to reattach a subscription bought with the same store account.
+  </li>
+</ul>
+
+<h2>4. End User License Agreement (EULA)</h2>
+<p>
+  Use of the app itself is governed by Apple's standard Licensed Application End User License
+  Agreement:
+  <a href="{{ apple_standard_eula_url }}" rel="noopener" target="_blank">Apple standard EULA</a>.
+</p>
+<p class="doc-note">
+  If we decide to use a custom EULA instead, the link in this section will point to that document.
+  Until then, Apple's standard EULA applies.
+</p>
+
+<h2>5. Rules of use</h2>
+<ul>
+  <li>Do not submit answers or manipulate the leaderboard with automated tools or scripts.</li>
+  <li>Do not disrupt the service with excessive API calls (rate limits apply).</li>
+  <li>Do not try to obtain anyone else's guest token or backup code.</li>
+  <li>Do not scrape the word and hint data in bulk to redistribute it elsewhere.</li>
+</ul>
+<p>
+  Where we confirm a violation, we may remove the affected records from the leaderboard or
+  restrict access.
+</p>
+
+<h2>6. Changes and interruptions</h2>
+<p>
+  This service is run by one person, so maintenance, incidents, or shutdown may interrupt it
+  temporarily or permanently. During maintenance the app and web show a maintenance screen. If
+  the service is to shut down, we will announce it in the app and on the web beforehand.
+</p>
+
+<h2>7. Limits of liability</h2>
+<p>
+  The service is provided "as is". For the free features we are not liable for damages from lost
+  records or leaderboard errors. For the paid subscription we are responsible for providing the
+  ad-free benefit during the period you paid for, and not for damages beyond that. Consumer
+  rights guaranteed by applicable law are not limited by this section.
+</p>
+
+<h2>8. Privacy</h2>
+<p>
+  What we collect, how long we keep it, and how to delete it are set out in the
+  <a href="{{ url_for('web.privacy', lang='en') }}">Privacy Policy</a>.
+</p>
+
+<h2>9. Changes to these terms</h2>
+<p>
+  When the terms change we update the effective date on this page and announce significant
+  changes in the app and on the web. Continuing to use the service after that announcement means
+  you accept the updated terms.
+</p>
+
+<h2>10. Governing law and contact</h2>
+<p>
+  These terms are governed by the laws of the Republic of Korea. For questions, write to
+  <a href="mailto:{{ contact_email }}">{{ contact_email }}</a>.
+</p>
+{% endblock %}
