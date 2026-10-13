@@ -92,6 +92,29 @@ async function loadStats() {
   const stats = await res.json();
   streakEl.textContent =
     `🔥 연속 ${stats.current_streak}일 · 최고 ${stats.max_streak}일 · 누적 ${stats.solved_count}문제`;
+  renderLinkedAccount(stats.linked_account);
+}
+
+// 로그인 버튼은 provider 연결 전까지만 보여준다 — 연결된 뒤엔 어떤 계정으로
+// 연결됐는지 보여주고, 같은 게스트에 또 연결 시도할 일이 없게 버튼을 숨긴다.
+function renderLinkedAccount(linkedAccount) {
+  const el = document.getElementById("linked-account");
+  const providerLabel = { google: "구글", apple: "Apple" };
+
+  if (!linkedAccount) {
+    el.classList.add("hidden");
+    document.getElementById("google-login-button").classList.remove("hidden");
+    document.getElementById("apple-login-button").classList.remove("hidden");
+    return;
+  }
+
+  const label = providerLabel[linkedAccount.provider] ?? linkedAccount.provider;
+  el.textContent = linkedAccount.email
+    ? `✅ ${label} 계정으로 로그인됨 (${linkedAccount.email})`
+    : `✅ ${label} 계정으로 로그인됨`;
+  el.classList.remove("hidden");
+  document.getElementById("google-login-button").classList.add("hidden");
+  document.getElementById("apple-login-button").classList.add("hidden");
 }
 
 function renderPuzzle(puzzle) {

@@ -61,6 +61,13 @@ body {
   cursor: pointer;
 }
 
+.linked-account {
+  font-size: 0.78rem;
+  color: #16a34a;
+  width: 100%;
+  text-align: center;
+}
+
 .panel {
   background: #f4f4f5;
   border-radius: 10px;

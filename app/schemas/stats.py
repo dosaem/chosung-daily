@@ -3,10 +3,16 @@ from datetime import date
 from pydantic import BaseModel
 
 
+class LinkedAccount(BaseModel):
+    provider: str
+    email: str | None
+
+
 class MyStatsResponse(BaseModel):
     current_streak: int
     max_streak: int
     solved_count: int
+    linked_account: LinkedAccount | None
 
 
 class TodayStatsResponse(BaseModel):
