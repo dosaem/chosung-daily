@@ -437,13 +437,13 @@ def redis_exec_stub(stub):
     stub.write(
         "docker",
         'printf "%s\\n" "$@" >> "$STUB_LOG/docker.args"\n'
-        "case \" $* \" in\n"
+        'case " $* " in\n'
         '*" exec -T mysql "*)\n'
         '  cat > "$STUB_LOG/mysql.stdin"\n'
         "  ;;\n"
         '*" exec -T redis "*)\n'
         '  while [ $# -gt 0 ] && [ "$1" != sh ]; do shift; done\n'
-        '  [ $# -gt 0 ] || exit 1\n'
+        "  [ $# -gt 0 ] || exit 1\n"
         '  exec "$@"\n'
         "  ;;\n"
         "esac",

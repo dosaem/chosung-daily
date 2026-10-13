@@ -732,8 +732,33 @@ All checks passed!
 $ bash -n scripts/backup.sh scripts/backup-cron.sh scripts/restore.sh     # 종료 0
 ```
 
-145 → 148 은 이번에 추가한 회귀 테스트 3개다. 전용 DB `chosung_daily_test_t21`
-과 Redis DB 9 만 썼고 공용 테스트 DB 는 비우지 않았다.
+145 → 148 은 이번에 추가한 회귀 테스트 3개다.
+
+**로컬 `main` 위로 rebase 후 재실행.** rebase 중 `main` 에 티켓 02(퍼즐 언어
+마이그레이션)가 들어와 있었다 — 충돌 없이 8커밋이 올라갔고 작업 트리는 clean 이다.
+
+```
+$ git rebase main                 # main = 4f9f179 (Merge 티켓 02)
+Successfully rebased and updated refs/heads/dosaem/t21-backup-restore
+
+$ uv run pytest -q
+186 passed in 80.39s
+
+$ uv run ruff check .             # All checks passed!
+$ uv run ruff format --check tests/test_backup_restore.py
+1 file already formatted
+$ uv run flask db heads
+4e72a4045fbc (head)               # 1줄. 티켓 21 은 마이그레이션을 만들지 않았고
+                                  # 이 head 는 티켓 02 가 가져온 것이다
+$ git status --short               # 비어 있음
+```
+
+전용 DB `chosung_daily_test_t21` 과 Redis DB 9 만 썼고 공용 테스트 DB 는 비우지
+않았다. 티켓 02 의 `tests/test_migrations.py` 는 테스트 DB 이름 + `_migrations`
+DB 를 미리 만들어 둬야 해서(README "실행 방법") 이 worktree 전용으로
+`chosung_daily_test_t21_migrations` 를 README 명령 그대로 만들었다 — 스키마
+변경이 아니라 테스트 자원 준비이고, 공용 `chosung_daily_test_migrations` 는
+건드리지 않았다.
 
 ### 틀렸다고 판단한 지적
 
