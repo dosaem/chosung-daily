@@ -27,6 +27,29 @@ class Config:
     }
     REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 
+    # 광고 제거 구독(ADR 0003). 스토어에 앱과 상품을 등록해야 채워지는 값들이고,
+    # 비어 있으면 app/clients/app_store.py·play.py 가 STORE_UNAVAILABLE(503)로
+    # 막는다 — 개발·테스트에서 결제 없이 나머지 API 를 돌릴 수 있어야 한다.
+    SUBSCRIPTION_PRODUCT_ID = os.environ.get("SUBSCRIPTION_PRODUCT_ID", "adfree_monthly")
+
+    # App Store Server API. KEY_ID/ISSUER_ID/.p8 는 App Store Connect >
+    # 사용자 및 액세스 > 통합 > In-App Purchase 키에서 같이 발급된다.
+    # BUNDLE_ID 는 iOS 앱 번들 ID — 영수증(JWS)의 bundleId 와 대조하는 값이다.
+    APP_STORE_BUNDLE_ID = os.environ.get("APP_STORE_BUNDLE_ID", "")
+    APP_STORE_ISSUER_ID = os.environ.get("APP_STORE_ISSUER_ID", "")
+    APP_STORE_KEY_ID = os.environ.get("APP_STORE_KEY_ID", "")
+    # APPLE_PRIVATE_KEY 와 같은 요령으로 .p8 내용을 한 줄에 담는다. 로그인용
+    # "Sign in with Apple" 키와는 다른 키다(용도가 달라 따로 발급해야 한다).
+    APP_STORE_PRIVATE_KEY = os.environ.get("APP_STORE_PRIVATE_KEY", "").replace("\\n", "\n")
+    # JWS 서명 체인을 검증할 Apple Root CA 인증서(.cer, DER) 경로들. Apple PKI
+    # 페이지에서 받아 서버에 두고 콤마로 나열한다. 비어 있으면 검증을 할 수 없다.
+    APP_STORE_ROOT_CERT_PATHS = os.environ.get("APP_STORE_ROOT_CERT_PATHS", "")
+
+    # Google Play Developer API. 서비스 계정 JSON 키 파일 경로와 Android 패키지명.
+    # Play Console > API 액세스에서 서비스 계정을 만들고 "재무 데이터" 권한을 준다.
+    PLAY_PACKAGE_NAME = os.environ.get("PLAY_PACKAGE_NAME", "")
+    PLAY_SERVICE_ACCOUNT_FILE = os.environ.get("PLAY_SERVICE_ACCOUNT_FILE", "")
+
     # 운영자 알림(단어 잔량·배정 실패·백업 실패 등)을 받을 Slack Incoming Webhook.
     # 비어 있으면 app/clients/slack.py 가 전송을 건너뛴다 — 개발·테스트 기본값.
     SLACK_WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL", "")
