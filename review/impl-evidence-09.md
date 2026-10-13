@@ -488,7 +488,7 @@ FAILED tests/test_legal_pages.py::test_transfer_section_ko_states_real_opt_outs[
 FAILED tests/test_legal_pages.py::test_transfer_section_en_states_real_opt_outs[...] (4건)
 ```
 
-### 전체 재검증 (로컬 main `1b990e7` 위로 rebase 후)
+### 전체 재검증 (로컬 main `8115301` 위로 rebase 후)
 
 접속값은 이 문서 머리의 로컬 테스트 설정과 같다(DB `chosung_daily_test_t09`, Redis
 DB 11). 공용 테스트 DB 는 건드리지 않았고, 이 문서에 인증값을 새로 적지 않는다.
@@ -496,7 +496,7 @@ DB 11). 공용 테스트 DB 는 건드리지 않았고, 이 문서에 인증값�
 
 ```
 $ uv run pytest -q
-522 passed in 197.84s (0:03:17)        # 환경 오류 0건
+536 passed in 232.97s (0:03:52)        # 환경 오류 0건
 
 $ uv run ruff check .
 All checks passed!
