@@ -58,3 +58,49 @@
 BLOCKER 0개 / MAJOR 1개 / MINOR 0개. D-08-1 수정 후 재리뷰가 필요하다.
 
 판정: FAIL
+
+## 라운드 2
+
+### 범위와 기준
+
+- 검토 HEAD `bcc02b49e7290377e4c2f7a42eda8b12a31927b4`, 로컬 main `0abb1d79d8eea3701893e57313745ad566e19632`, merge-base `20d279a256d0f17152ae6ac273f4758c80fbb712`.
+- `git diff main...HEAD` 22파일 및 `git log main..HEAD` 9커밋을 확인했다. origin/main은 사용하지 않았다. 티켓 08, 스펙 §A.10·§A' config/health·§C.29·§C.30, CONTEXT.md와 구현 증거의 수정 라운드를 대조했다.
+- UI 변경이 없어 디자인 검토는 해당 없음. 하위 에이전트 없이 직접 검토했다. 리뷰 문서 외 파일 변경, 새 DB 생성, 프로덕션 접근, 실제 외부 서비스 호출은 하지 않았다.
+
+### 티켓 체크박스별 확인
+
+| 체크박스 | 판정 | 직접 확인한 근거 |
+|---|---|---|
+| AppSetting 테이블·마이그레이션·head 1개, 비인증 config 네 필드·60초 캐시 | 충족 | 모델/마이그레이션과 `app/services/app_config_service.py:20`의 TTL 60을 확인했다. `tests/test_app_config.py`가 실제 DB 설정 행 반영, 인증 없는 응답 전체, Redis 캐시 유지·TTL·장애 폴백을 검증한다. 마이그레이션 6개 테스트와 head 확인이 통과했다. 새 마이그레이션의 부모는 `f394da7f4d88`이다. |
+| 환경변수 STORE_URL_IOS·STORE_URL_ANDROID·APP_STORE_ID, 빈 링크 null, .env.example, 티켓 18 공용 출처 | 충족 | `app/config.py:65`부터 세 환경변수를 읽고 `.env.example` 끝의 08 블록에 선언한다. 별도 프로세스에서 세 환경변수에 합성 값을 넣어 create_app 설정값 일치를 직접 assert했다. 기본 null 및 링크 응답 테스트 통과. APP_STORE_ID를 Flask 설정으로 제공하며 웹 배지 자체 구현은 18 범위다. |
+| health 네 필드, DB 실패 503 / Redis 실패 200+degraded | 충족 | `app/api/health.py:18`과 실제 SELECT 1·Redis ping 경로를 확인했다. 정상·DB 장애·Redis 장애·동시 장애 테스트 모두 통과. apple_secret_expires_at=null은 티켓 11 전까지 허용된다. |
+| DSN 있을 때만 Sentry Flask·Celery 통합, 환경·릴리스 태그 | 충족 | `app/observability.py:57`의 DSN 가드, 통합 등록과 태그를 확인했다. 실제 SDK와 메모리 Transport로 Flask 오류 및 Celery 로컬 task 오류를 수집하는 회귀 테스트가 통과했다. D-08-1 수정 확인은 아래 기록. |
+| README 설계 판단 두 항목 및 UptimeRobot 사람 등록 메모 | 충족 | README의 `### 08.` 두 절과 운영 절에 DB 설정 선택 이유, DB/Redis 헬스 등급, 5분 HTTP 상태코드 모니터와 사람 등록 안내가 있다. |
+
+### 직접 실행한 검증
+
+- `uv run pytest -q` → **318 passed in 145.86s (0:02:25)**, exit 0. 실패·skip·xfail 없이 1회 통과하여 재실행하지 않았다.
+- 기존 로컬 `chosung_daily_test_t08`와 `chosung_daily_test_t08_migrations`를 각각 `TEST_DATABASE_URL`·`TEST_MIGRATION_DATABASE_URL`로 지정하고 `TEST_REDIS_URL=redis://127.0.0.1:6379/10`을 사용했다. 접속 성공으로 기본 테스트 DB 폴백은 없었다. 인증 부분은 기록하지 않는다. `FLASK_SKIP_DOTENV=1`, SENTRY_DSN·SLACK_WEBHOOK_URL 빈 값으로 실행했다.
+- `uv run ruff check .` → `All checks passed!`, exit 0.
+- `FLASK_SKIP_DOTENV=1 SENTRY_DSN='' FLASK_APP=wsgi.py uv run flask db heads` → `ff06a1bf5afc (head)` 한 줄, exit 0.
+- `git diff main...HEAD --check` → 출력 없음, exit 0.
+- 별도 `uv run python -` 프로세스에서 환경변수 3개 로딩을 assert하고, 실제 Sentry SDK의 Transport만 메모리 수집기로 교체해 JSON POST 오류를 발생시켰다. 본문 authorization_code·receipt, 쿼리 code, Authorization 헤더에 넣은 더미 표식이 이벤트 전체에 없고 스택 프레임 vars도 없음을 assert했다. HTTP 500/오류 이벤트 1건과 환경·릴리스가 유지됐다. 외부 전송은 하지 않았다.
+
+### 이전 결함 판정
+
+#### D-08-1 — FIXED (이전 심각도 MAJOR)
+
+- **파일:라인:** `app/observability.py:18`, `app/observability.py:66`; 회귀 검증 `tests/test_sentry.py:147`, `tests/test_sentry.py:172`, `tests/test_sentry.py:188`, `tests/test_sentry.py:211`.
+- **재현:** 위 테스트 환경에서 `uv run pytest -q` 실행. Apple form POST에 code/user/id_token 더미 표식을 넣고 provider 경계에서 로컬 RuntimeError를 발생시키며, Google GET 콜백에는 code 쿼리 표식을 넣는다. 실제 SDK가 만든 메모리 이벤트를 확인한다. 추가 JSON POST 수동 검증도 같은 오류 수집 경로로 실행했다.
+- **기대:** 오류 자체와 환경·릴리스는 보존하고 요청 본문·쿼리·쿠키·지역 변수의 인증정보는 이벤트에 남기지 않는다.
+- **실제:** 회귀 테스트와 수동 검증이 통과했다. data_collection이 본문·쿼리·쿠키·유저 정보·SQL 바인드 데이터·큐 인자·지역 변수 수집을 끈다. SDK 초기화 인자를 mock으로 확인하는 데 그치지 않고 실제 완성된 이벤트의 민감 표식 부재와 오류 존재를 검증한다. 이전 결함은 재현되지 않았다.
+
+### 새 결함 및 기타 검토
+
+- 새 결함 없음. 미해결 BLOCKER 0개 / MAJOR 0개 / MINOR 0개, REPEAT 0개, FIXED 1개.
+- 신규 config는 읽기 전용 비인증 요구에 맞고 설정 쓰기 API는 노출하지 않는다. 기존 인증·CSRF 경로 변경은 없다. 마이그레이션은 독립 설정 테이블을 만들며 기존 테이블 데이터를 바꾸지 않는다. downgrade/upgrade 및 SQL 직접 삽입 검증도 통과했다.
+- 공유 파일은 README 08 설계 판단·config 행·health 소유 행 설명과 해당 운영 안내, `.env.example`의 08 블록에 한정된다. 다른 티켓의 설계 판단·환경변수 블록 변경이나 범위 밖 기능 변경은 발견하지 못했다. 변경 파일에 실제 시크릿이 기록된 정황은 발견하지 못했다.
+- 참고: pyproject의 SDK 하한은 넓지만 현재 uv.lock과 Dockerfile의 frozen 설치가 검증한 SDK 2.72.0을 사용한다. 이번 판정은 이 잠금 환경 기준이다.
+- 한계: 실제 Sentry 서버 수신, 별도 브로커/워커 프로세스 전송, UptimeRobot 등록은 수행하지 않았다. 메모리 Transport와 Celery 로컬 실행 검증으로 구분한다. Apple 만료 시각 채우기와 웹 배지는 각각 후속 티켓 11·18의 범위다.
+
+판정: PASS
