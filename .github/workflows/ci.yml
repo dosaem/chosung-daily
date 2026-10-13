@@ -55,5 +55,8 @@ jobs:
       - name: Lint (ruff)
         run: uv run ruff check .
 
+      - name: Migration heads (정확히 1개)
+        run: ./scripts/check_migration_heads.sh
+
       - name: Test (pytest)
         run: uv run pytest -v
