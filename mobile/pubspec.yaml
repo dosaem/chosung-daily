@@ -1,0 +1,76 @@
+name: chosung
+description: "오늘의 초성 / Hidden Vowels — 하루 한 문제 초성 맞추기 앱."
+publish_to: 'none'
+
+# 앱 버전. /api/v1/config 의 min_app_version 과 비교하는 "현재 버전" 은
+# package_info_plus 가 이 값을 런타임에 읽어온다 (lib/startup/app_version.dart).
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.10.7
+
+dependencies:
+  cupertino_icons: ^1.0.8
+  dio: ^5.11.1
+  easy_localization: ^3.0.8
+  firebase_analytics: ^12.6.0
+  firebase_core: ^4.15.0
+  flutter:
+    sdk: flutter
+  flutter_riverpod: ^3.3.2
+  flutter_secure_storage: ^11.2.0
+  go_router: ^17.5.0
+  lucide_icons: ^0.257.0
+  package_info_plus: ^10.2.2
+  sentry_flutter: ^8.14.2
+  url_launcher: ^6.3.2
+
+dev_dependencies:
+  flutter_launcher_icons: ^0.14.4
+  flutter_native_splash: ^2.4.7
+  flutter_test:
+    sdk: flutter
+  very_good_analysis: ^10.1.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/translations/
+    - assets/icon/
+
+  # OVERRIDES §3: 본문·UI·타일 모두 Pretendard. 가변 폰트 대신 정적 3종을 쓴다 —
+  # Flutter 는 fontWeight 로 에셋을 골라주므로 가변 축(wght)을 TextStyle 마다
+  # fontVariations 로 지정할 필요가 없다. 라이선스는 OFL(assets/fonts/Pretendard-LICENSE.txt).
+  fonts:
+    - family: Pretendard
+      fonts:
+        - asset: assets/fonts/Pretendard-Regular.otf
+          weight: 400
+        - asset: assets/fonts/Pretendard-SemiBold.otf
+          weight: 600
+        - asset: assets/fonts/Pretendard-Bold.otf
+          weight: 700
+
+# 임시 아이콘(티켓 22). 최종 아이콘·스토어 자산은 티켓 33.
+# 생성: dart run flutter_launcher_icons
+flutter_launcher_icons:
+  image_path: assets/icon/app_icon.png
+  android: true
+  ios: true
+  remove_alpha_ios: true
+  adaptive_icon_background: "#0F172A"
+  adaptive_icon_foreground: assets/icon/app_icon_foreground.png
+
+# 스플래시는 아이콘과 같은 색(OVERRIDES §8).
+# 생성: dart run flutter_native_splash:create
+flutter_native_splash:
+  color: "#0F172A"
+  image: assets/icon/app_icon_foreground.png
+  color_dark: "#0F172A"
+  image_dark: assets/icon/app_icon_foreground.png
+  android_12:
+    color: "#0F172A"
+    image: assets/icon/app_icon_foreground.png
+    color_dark: "#0F172A"
+    image_dark: assets/icon/app_icon_foreground.png

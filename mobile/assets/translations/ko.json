@@ -1,0 +1,35 @@
+{
+  "app": {
+    "name": "오늘의 초성"
+  },
+  "tabs": {
+    "today": "오늘",
+    "ranking": "순위",
+    "records": "내 기록"
+  },
+  "startup": {
+    "loading": "불러오는 중",
+    "error_title": "연결할 수 없어요",
+    "error_body": "네트워크를 확인하고 다시 시도해주세요.",
+    "retry": "다시 시도"
+  },
+  "maintenance": {
+    "title": "잠시 점검 중이에요",
+    "fallback": "조금 뒤에 다시 열어주세요."
+  },
+  "update": {
+    "title": "새 버전이 필요해요",
+    "body": "스토어에서 업데이트한 뒤 다시 열어주세요.",
+    "open_store": "스토어로 이동"
+  },
+  "streak": {
+    "days": "{count}일",
+    "current": "현재",
+    "max": "최고",
+    "solved": "누적",
+    "puzzles": "{count}문제"
+  },
+  "ads": {
+    "slot_label": "광고 자리"
+  }
+}

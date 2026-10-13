@@ -1,0 +1,35 @@
+{
+  "app": {
+    "name": "Hidden Vowels"
+  },
+  "tabs": {
+    "today": "Today",
+    "ranking": "Ranking",
+    "records": "Records"
+  },
+  "startup": {
+    "loading": "Loading",
+    "error_title": "Can't connect",
+    "error_body": "Check your network and try again.",
+    "retry": "Try again"
+  },
+  "maintenance": {
+    "title": "We're under maintenance",
+    "fallback": "Please come back in a little while."
+  },
+  "update": {
+    "title": "A new version is required",
+    "body": "Update in the store and open the app again.",
+    "open_store": "Open the store"
+  },
+  "streak": {
+    "days": "{count} days",
+    "current": "Current",
+    "max": "Best",
+    "solved": "Solved",
+    "puzzles": "{count} puzzles"
+  },
+  "ads": {
+    "slot_label": "Ad slot"
+  }
+}
