@@ -16,3 +16,6 @@
 | `FAKE_CURL_FAILS` | curl | 처음 N 번은 연결 실패(`000`)하고 그 뒤로 응답 (기본 0) |
 | `FAKE_CURL_STATUS` | curl | 연결된 뒤 돌려줄 HTTP 상태 코드 (기본 200) |
 | `FAKE_CURL_COUNTER` | curl | 호출 횟수를 기록할 파일 (필수) |
+
+가짜 `docker` 는 `exec -T` 에서 진짜처럼 표준입력을 끝까지 읽는다 — 부를 때 stdin 을
+닫거나(`subprocess.DEVNULL`) 넘겨야 한다. 터미널에 붙은 채로 부르면 멈춘다.

@@ -34,6 +34,7 @@ def run_dry(*args):
         ["bash", str(DEPLOY_SH), *args],
         capture_output=True,
         text=True,
+        stdin=subprocess.DEVNULL,
         check=False,
     )
 
@@ -66,8 +67,21 @@ class FakeNas:
         }
 
     def deploy(self, *args):
+        """NAS 에서 사람이 손으로 돌릴 때처럼 파일 인자로 실행한다."""
         return subprocess.run(
             ["bash", str(DEPLOY_SH), *args],
+            capture_output=True,
+            text=True,
+            stdin=subprocess.DEVNULL,
+            env=self.env,
+            check=False,
+        )
+
+    def deploy_via_stdin(self, *args):
+        """워크플로의 실제 진입 경로 — `ssh nas 'bash -s -- ...' < deploy/deploy.sh`."""
+        return subprocess.run(
+            ["bash", "-s", "--", *args],
+            input=DEPLOY_SH.read_text(encoding="utf-8"),
             capture_output=True,
             text=True,
             env=self.env,
@@ -197,6 +211,7 @@ def test_dry_run_runs_nothing(tmp_path):
         ["bash", str(DEPLOY_SH), "prod", "--dry-run"],
         capture_output=True,
         text=True,
+        stdin=subprocess.DEVNULL,
         env=nas.env,
         check=False,
     )
@@ -476,3 +491,69 @@ def test_deploy_fails_when_health_status_is_not_200(tmp_path, status):
     assert f"HTTP {status}" in res.stdout
     curls = [line for line in nas.calls() if line.startswith("curl")]
     assert len(curls) == 10, "200 이 아니면 재시도하고 그 뒤 실패한다"
+
+
+# --- D-20-4: 표준입력으로 실행해도 검사를 건너뛰지 않는다 -------------------------
+#
+# 워크플로는 `ssh nas 'bash -s -- prod <sha>' < deploy/deploy.sh` 로 스크립트를 표준
+# 입력에서 읽힌다. 이때 `docker compose exec -T` 가 같은 표준입력을 컨테이너로 흘려
+# 보내면서 bash 가 아직 안 읽은 스크립트 뒷부분(서비스 조회·health 루프)을 먹어버린다.
+# bash 는 그 자리에서 조용히 0 으로 끝나므로 검사되지 않은 배포가 초록색이 된다.
+
+
+def test_deploy_via_stdin_runs_the_same_steps_as_a_file(tmp_path):
+    """실제 진입 경로(표준입력)와 파일 인자 실행이 같은 단계를 지난다."""
+    by_file = FakeNas(tmp_path / "file", "chosung-daily", FAKE_GIT_BRANCH="main")
+    res_file = by_file.deploy("prod")
+    by_stdin = FakeNas(tmp_path / "stdin", "chosung-daily", FAKE_GIT_BRANCH="main")
+    res_stdin = by_stdin.deploy_via_stdin("prod")
+
+    assert res_file.returncode == 0, res_file.stdout + res_file.stderr
+    assert res_stdin.returncode == 0, res_stdin.stdout + res_stdin.stderr
+    assert by_stdin.calls() == by_file.calls()
+    assert "== prod 배포 완료" in res_stdin.stdout
+
+
+def test_deploy_via_stdin_still_checks_health(tmp_path):
+    """마이그레이션 뒤의 health 검사가 exec -T 에 먹히지 않는다."""
+    with health_server(200) as port:
+        nas = FakeNas(
+            tmp_path,
+            "chosung-daily",
+            fakes=("git", "docker", "sleep"),
+            FAKE_GIT_BRANCH="main",
+            FAKE_DOCKER_PORT=f"127.0.0.1:{port}",
+        )
+        res = nas.deploy_via_stdin("prod")
+
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert "/health → 200" in res.stdout
+
+
+def test_deploy_via_stdin_fails_when_health_is_not_200(tmp_path):
+    """검사를 건너뛰고 0 으로 끝나는 게 제일 위험하다 — 빨갛게 끝나야 한다."""
+    nas = FakeNas(
+        tmp_path,
+        "chosung-daily",
+        FAKE_GIT_BRANCH="main",
+        FAKE_CURL_STATUS="500",
+    )
+    res = nas.deploy_via_stdin("prod")
+
+    assert res.returncode != 0, res.stdout
+    assert "HTTP 500" in res.stdout
+    assert "배포 완료" not in res.stdout
+
+
+def test_deploy_via_stdin_fails_when_a_service_is_not_running(tmp_path):
+    nas = FakeNas(
+        tmp_path,
+        "chosung-daily",
+        FAKE_GIT_BRANCH="main",
+        FAKE_DOCKER_RUNNING="mysql redis app beat",
+    )
+    res = nas.deploy_via_stdin("prod")
+
+    assert res.returncode != 0, res.stdout
+    assert "worker" in res.stderr
+    assert not any(line.startswith("curl") for line in nas.calls())
