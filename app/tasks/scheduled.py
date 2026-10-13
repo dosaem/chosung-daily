@@ -1,6 +1,7 @@
 from celery.schedules import crontab
 from redis.exceptions import RedisError
 
+from app.services.apple_secret_service import notify_apple_secret_expiry
 from app.services.puzzle_maintenance_service import (
     ensure_today_puzzles_for_all_languages,
     flush_daily_stats_for_yesterday,
@@ -29,9 +30,17 @@ def notify_low_word_pool_task():
     notify_low_word_pool()
 
 
+@celery.task(name="tasks.notify_apple_secret_expiry")
+def notify_apple_secret_expiry_task():
+    notify_apple_secret_expiry()
+
+
 # 시각은 전부 KST다(celery.conf.timezone = "Asia/Seoul").
 # 잔량 알림을 09:00에 둔 이유: 자정 배정 직후가 아니라 운영자가 깨어 있는
 # 시간에 와야 그날 안에 CSV를 채울 수 있다.
+# 애플 secret 만료 알림은 주 1회(월 09:10)다 — 갱신 자체는 요청 경로가 하고
+# (스펙 §A.13) 이건 "갱신이 안 돌고 있다"를 잡는 안전망이라 매일 볼 일이 아니다.
+# 잔량 알림과 10분 떼어놔서 두 Slack 메시지가 한 번에 겹치지 않게 했다.
 BEAT_SCHEDULE = {
     "ensure-today-puzzle": {
         "task": "tasks.ensure_today_puzzle",
@@ -44,6 +53,10 @@ BEAT_SCHEDULE = {
     "notify-low-word-pool": {
         "task": "tasks.notify_low_word_pool",
         "schedule": crontab(hour=9, minute=0),
+    },
+    "notify-apple-secret-expiry": {
+        "task": "tasks.notify_apple_secret_expiry",
+        "schedule": crontab(day_of_week="mon", hour=9, minute=10),
     },
 }
 

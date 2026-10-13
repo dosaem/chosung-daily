@@ -4,7 +4,7 @@ from flask import Blueprint, current_app, g, jsonify, redirect, request, session
 
 from app.api.auth import with_guest
 from app.errors import NotFoundError, OAuthProviderUnavailableError, UnauthorizedError
-from app.extensions import db, get_oauth
+from app.extensions import apple_client_secret, db, get_oauth
 from app.models import Guest, OAuthProvider
 from app.schemas.auth import TokenExchangeRequest
 from app.schemas.guest import GuestResponse
@@ -23,6 +23,17 @@ def _get_client(provider: str):
     client = oauth.create_client(provider) if oauth else None
     if client is None:
         raise OAuthProviderUnavailableError(f"{provider} 로그인이 아직 설정되지 않았습니다.")
+
+    if provider == OAuthProvider.APPLE.value:
+        # 애플 client_secret 은 고정값이 아니라 만료되는 JWT 다. 등록 시점에 서명한
+        # 값을 프로세스 수명 내내 쓰면 150일 뒤 애플 로그인만 조용히 죽는다 — 로그인·
+        # 콜백이 다 이 함수를 거치므로, 진입마다 접근자를 통해 Authlib 클라이언트의
+        # client_secret 을 유효한 값으로 맞춘다(스펙 §A.13). 접근자가 만료 7일 전까지는
+        # 캐시된 값을 그대로 돌려주니 요청마다 서명하지는 않는다.
+        client.client_secret = apple_client_secret(
+            current_app, current_app.config["APPLE_CLIENT_ID"]
+        )
+
     return client
 
 
