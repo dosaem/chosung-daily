@@ -50,6 +50,24 @@ def test_unknown_lang_falls_back(client, path):
     assert '<html lang="ko">' in _body(client, f"{path}?lang=fr")
 
 
+# 브라우저가 보내는 흔한 조합: 선호 언어에는 지역 꼬리표가 붙고, 두 번째 언어는 낮은
+# q 값으로 온다. 이때 q 값이 높은 쪽을 골라야 한다 (D-09-2).
+@pytest.mark.parametrize("path", ["/privacy", "/terms"])
+@pytest.mark.parametrize(
+    ("accept_language", "expected"),
+    [
+        ("en-US,ko;q=0.1", "en"),
+        ("ko-KR,en;q=0.1", "ko"),
+    ],
+)
+def test_region_tag_does_not_lose_to_low_q_language(client, path, accept_language, expected):
+    res = client.get(path, headers={"Accept-Language": accept_language})
+
+    assert res.status_code == 200
+    assert res.headers["Content-Language"] == expected
+    assert f'<html lang="{expected}">' in res.data.decode()
+
+
 @pytest.mark.parametrize("path", ["/privacy", "/terms"])
 def test_both_languages_are_discoverable(client, path):
     html = _body(client, path)
@@ -137,6 +155,76 @@ def test_privacy_links_deletion_page_and_contact(client, lang):
     assert "/account/delete" in html
     assert LEGAL_CONTACT_EMAIL in html
     assert f"mailto:{LEGAL_CONTACT_EMAIL}" in html
+
+
+# --- 국외 이전 거부 방법 (D-09-1) ------------------------------------------
+#
+# 서비스 사양상 앱 광고(AdMob)·분석(Firebase Analytics)·오류 추적(Sentry)은 계정 연결
+# 여부와 무관하게 동작한다(스펙 §B.21 광고 게이트는 UMP 상태, §B.24 분석, §C.30 Sentry).
+# 그래서 "게스트로만 플레이하면 국외 이전을 피할 수 있다" 는 안내는 실제로 전송을
+# 멈추지 못하는 방법을 거부 절차로 제시하는 것이다. 아래 테스트는 4절 본문만 떼어
+# 검사한다 — 같은 단어가 다른 절에 있어도 통과하지 않게.
+
+
+def _international_transfer_section(client, lang: str) -> str:
+    """4절(국외 이전) 본문만 떼어낸다. 절 번호는 두 언어가 같다."""
+    html = _body(client, f"/privacy?lang={lang}")
+    start = html.index("<h2>4.")
+    return html[start : html.index("<h2>5.", start)]
+
+
+@pytest.mark.parametrize("lang", ["ko", "en"])
+def test_transfer_section_is_the_international_transfer_section(client, lang):
+    # 아래 두 테스트가 엉뚱한 절을 보고 통과하지 않게 먼저 못을 박는다.
+    section = _international_transfer_section(client, lang).lower()
+
+    assert ("국외 이전" if lang == "ko" else "international transfer") in section
+    assert "admob" in section
+    assert "sentry" in section
+
+
+# "계정 연결 안 함 = 국외 이전 거부" 라는 틀린 안내를 다시 넣지 못하게 막는다.
+@pytest.mark.parametrize(
+    ("lang", "forbidden"),
+    [
+        ("ko", ["게스트로만 플레이", "게스트로 플레이하면"]),
+        ("en", ["play as a guest without linking", "play as a guest instead"]),
+    ],
+)
+def test_transfer_section_does_not_sell_guest_play_as_opt_out(client, lang, forbidden):
+    section = _international_transfer_section(client, lang).lower()
+
+    for phrase in forbidden:
+        assert phrase.lower() not in section
+
+
+# 거부 방법을 기능별로 정확하게 구분한다: 계정 연결과 무관하게 전송되는 것이 있고,
+# 광고는 ATT·UMP 로 맞춤만 끌 수 있고, 분석·오류 추적은 개별 거부 수단이 없다.
+PRIVACY_TRANSFER_KO = [
+    "계정을 연결하지 않아도",
+    "광고 개인정보 설정",
+    "추적 허용",
+    "개별 거부 수단",
+    "구독",
+]
+
+PRIVACY_TRANSFER_EN = [
+    "even without a linked account",
+    "ad privacy settings",
+    "tracking permission",
+    "no per-feature opt-out",
+    "subscription",
+]
+
+
+@pytest.mark.parametrize("phrase", PRIVACY_TRANSFER_KO)
+def test_transfer_section_ko_states_real_opt_outs(client, phrase):
+    assert phrase.lower() in _international_transfer_section(client, "ko").lower()
+
+
+@pytest.mark.parametrize("phrase", PRIVACY_TRANSFER_EN)
+def test_transfer_section_en_states_real_opt_outs(client, phrase):
+    assert phrase.lower() in _international_transfer_section(client, "en").lower()
 
 
 @pytest.mark.parametrize("lang", ["ko", "en"])

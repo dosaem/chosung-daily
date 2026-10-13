@@ -24,11 +24,28 @@ def resolve_ui_language(lang_param: str | None, accept_language: str | None) -> 
             return requested
 
     if accept_language:
-        # q 값 정렬·지역 꼬리표 매칭은 werkzeug 가 이미 한다.
-        best = parse_accept_header(accept_language, LanguageAccept).best_match(
-            SUPPORTED_UI_LANGUAGES
-        )
-        if best:
-            return best
+        for tag in _accepted_languages(accept_language):
+            if tag in SUPPORTED_UI_LANGUAGES:
+                return tag
 
     return DEFAULT_UI_LANGUAGE
+
+
+def _accepted_languages(accept_language: str) -> list[str]:
+    """Accept-Language 를 선호 순서의 주 언어 목록으로 바꾼다 (지역 꼬리표 제거).
+
+    `LanguageAccept.best_match` 를 쓰지 않는 이유: werkzeug 는 완전 일치를 먼저 찾고
+    완전 일치가 없을 때만 주 언어로 내려간다. 그래서 `en-US,ko;q=0.1` 처럼 선호 언어에
+    지역 꼬리표가 붙으면, 완전 일치하는 q=0.1 의 ko 가 q=1 의 en-US 를 이겨 버린다.
+    우리는 본문이 ko/en 둘뿐이라 지역 꼬리표를 구분할 일이 없으니, 꼬리표를 먼저 떼고
+    q 값 순서대로 보는 게 맞다.
+
+    파싱(q 값 해석·정렬)은 그대로 werkzeug 에 맡긴다 — 순회 순서가 q 내림차순이고,
+    q 가 같으면 헤더에 적힌 순서다. q=0 은 "받지 않겠다" 는 뜻이라 버린다.
+    """
+    parsed = parse_accept_header(accept_language, LanguageAccept)
+    return [
+        tag.strip().lower().replace("_", "-").split("-")[0]
+        for tag, quality in parsed
+        if quality > 0
+    ]

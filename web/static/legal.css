@@ -17,10 +17,21 @@ body:lang(en) {
   letter-spacing: var(--letter-spacing-en);
 }
 
+/* OVERRIDES §10 의 480px 은 카드 '외곽' 폭이다 — content-box 로 두면 좌우 패딩이
+ * 더해져 실제 폭이 528px 이 된다. 패딩은 §4 의 "16(모바일) 24(태블릿+)". */
 .doc {
+  box-sizing: border-box;
   max-width: var(--content-max-width);
   margin: 0 auto;
-  padding: var(--space-6) var(--space-6) var(--space-12);
+  padding: var(--space-4) var(--space-4) var(--space-12);
+}
+
+/* 경계는 §10 의 "≤480 폭 100% / 481+ 카드 480px" 과 같은 481px 을 쓴다 —
+ * 폭이 고정되는 지점과 패딩이 넓어지는 지점을 다르게 둘 이유가 없다. */
+@media (min-width: 481px) {
+  .doc {
+    padding: var(--space-6) var(--space-6) var(--space-12);
+  }
 }
 
 /* --- 내비·푸터 ---------------------------------------------------------- */
