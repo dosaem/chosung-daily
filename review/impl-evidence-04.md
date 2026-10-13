@@ -133,3 +133,83 @@ e4ae48d feat(04): 퍼즐 고정·제출 일관성·시도 이력 복원
   "새 퍼즐이 있어요" 배너는 티켓 17·18 범위다.
 - 스펙 미정 13(클라이언트가 `mask` 의 `s` 위치로 간격을 다시 끼우는 규칙)은 티켓 17
   에서 확정한다. 서버 쪽 전제(구분자 없는 `guess`)는 이 티켓에서 갖춰 놨다.
+
+## 머지 준비 rebase
+
+Codex 최종 리뷰(PASS) 이후 로컬 `main` 이 `1b990e7`("Merge 티켓 05") 로 앞서가서 이
+브랜치를 그 위로 재배치했다. `git rebase main` → `git merge-base main HEAD` ==
+`1b990e7` == `git rev-parse main`.
+
+### 충돌 파일과 해결 방식
+
+| 파일 | 충돌 | 해결 |
+|---|---|---|
+| `app/services/game_rules.py` | 양쪽이 **파일 끝에 함수를 덧붙였다** — main(티켓 07)은 `day_result`, 이 티켓은 `normalize_for_compare`·`compare_letters` | 둘 다 보존. main 의 `day_result` 를 먼저 두고 그 뒤에 이 티켓의 두 함수를 붙였다. 이 티켓이 파일 머리에 넣은 import 3줄(`unicodedata`, `PuzzleLanguage`, `SEPARATOR_CHARS`)은 자동 머지됐다. 어느 함수도 서로를 참조하지 않아 섞일 지점이 없다 |
+
+나머지 공유 파일은 전부 자동 머지됐고, 결과가 "양쪽 줄이 다 남은" 상태인지 직접 확인했다.
+
+- **`README.md`** — API 표는 main 의 네 변경(`/health` 등급, `/leaderboard` 응답
+  형태, 신규 `/me/history`·`/api/v1/config` 행)과 이 티켓의 두 행 갱신
+  (`/puzzles/today` 의 `attempts`·`hint_unlocked`, `POST .../guesses` 의
+  `{puzzle_id, guess}`·409)이 모두 남았다. "설계 판단" 은 덧붙이기 규칙대로
+  `### 05.` 절 뒤에 `### 04.` 세 절이 붙었다 — main 의 `### 08.`·`### 07.`·`### 05.`
+  절은 한 줄도 건드리지 않았다.
+- **`.scratch/store-launch/spec.md`** — 이 티켓이 "미정 항목" 끝에 추가한
+  `12. **확정(티켓 04)**` 한 줄만 남고 다른 티켓의 줄은 그대로다.
+- **`tests/test_puzzle_language_api.py`, `tests/test_redis_failure_fallback.py`** —
+  main 이 바꾼 단정(`display` 필드, `me is None`)과 이 티켓이 바꾼 제출 본문
+  (`puzzle_id` 동봉)이 서로 다른 줄이라 그대로 합쳐졌다.
+- `.env.example`, `docs/RELEASE.md` 는 이 티켓이 건드리지 않은 파일이라 main 쪽
+  내용이 그대로다.
+
+### 리뷰 이후 코드 변경
+
+**동작(프로덕션 코드) 변경은 없다.** `app/`·`web/`·`k6/` 의 변경 집합이 rebase 전후
+바이트 단위로 같은지 파일별로 비교해 확인했다(`app/api/puzzles.py`, `app/errors.py`,
+`app/schemas/guess.py`, `app/schemas/puzzle.py`, `app/services/game_rules.py`,
+`app/services/guess_service.py`, `app/services/puzzle_service.py`,
+`web/static/app.js`, `k6/midnight_spike.js` 전부 동일). 문서·스펙·신규 테스트 파일도
+동일하다.
+
+달라진 건 **`tests/test_leaderboard.py` 한 파일**이다. main 의 티켓 07 이 이 파일에
+테스트 4개를 새로 추가했는데, 전부 이 파일의 지역 헬퍼 `_guess(client, token, text)`
+를 쓴다. 이 티켓이 그 헬퍼를 `_guess(client, token, puzzle, text)` 로 바꿔
+`puzzle_id` 를 동봉하게 했으므로, 새 테스트의 호출 9곳에 `today_puzzle` 인자를
+끼웠다. 안 끼우면 `puzzle_id` 없는 제출이 409 `PUZZLE_CHANGED` 로 걸러져
+리더보드가 비는 실패가 난다. 네 테스트 모두 이미 `today_puzzle` 픽스처를 받고 있어서
+인자 추가만으로 끝났고, 단정은 한 줄도 바꾸지 않았다.
+
+### 마이그레이션
+
+이 티켓은 마이그레이션을 추가하지 않는다(스키마 변경 없음). main 이 가져온
+`ff06a1bf5afc`(`app_setting` 테이블) 하나가 그대로 head 다 — `down_revision` 을
+다시 걸 대상이 없다.
+
+```
+$ FLASK_APP=wsgi.py DATABASE_URL="...chosung_daily_test_t04_migrations" uv run flask db heads
+ff06a1bf5afc (head)
+```
+
+왕복(upgrade → 데이터 → downgrade → upgrade)은 `tests/test_migrations.py` 가 별도
+`chosung_daily_test_t04_migrations` DB 에 `flask db` 서브프로세스로 돌리며, 아래
+전체 스위트에 포함돼 통과했다.
+
+### rebase 후 재실행
+
+```
+$ uv run ruff check .
+All checks passed!
+```
+
+```
+$ uv run pytest -q
+........................................................................ [ 20%]
+........................................................................ [ 40%]
+........................................................................ [ 60%]
+........................................................................ [ 80%]
+........................................................................ [100%]
+360 passed in 141.76s (0:02:21)
+```
+
+rebase 전 311 → 360 (+49). 늘어난 49개는 main 에 새로 들어온 티켓 05·07·08 의
+테스트다. 실패·에러 0, MySQL `Too many connections` 도 없었다.
