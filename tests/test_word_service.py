@@ -1,4 +1,4 @@
-from app.models import Word, WordCategory
+from app.models import PuzzleLanguage, Word, WordCategory
 from app.schemas.book import BookSearchResult
 from app.services.word_service import add_word_from_book, seed_words_from_csv
 
@@ -76,3 +76,81 @@ def test_add_word_from_book_is_idempotent(app):
 
     assert created is False
     assert Word.query.count() == 1
+
+
+# --- 언어·가림 ---------------------------------------------------------------
+
+
+def test_seed_words_defaults_to_korean_and_fills_mask(app, tmp_path):
+    csv_path = _write_csv(tmp_path, [("사과", "general", "과일")])
+
+    seed_words_from_csv(csv_path)
+
+    word = Word.query.one()
+    assert word.language == PuzzleLanguage.KO
+    assert [tile["c"] for tile in word.mask] == ["ㅅ", "ㄱ"]
+
+
+def test_seed_words_reads_language_column(app, tmp_path):
+    path = tmp_path / "words.csv"
+    path.write_text(
+        "language,category,answer,hint\nen,general,apple,red fruit\n",
+        encoding="utf-8",
+    )
+
+    result = seed_words_from_csv(str(path))
+
+    assert result.created == 1
+    word = Word.query.one()
+    assert word.language == PuzzleLanguage.EN
+    assert [tile["t"] for tile in word.mask] == ["h", "r", "r", "r", "h"]
+
+
+def test_seed_words_skips_unknown_language(app, tmp_path):
+    path = tmp_path / "words.csv"
+    path.write_text(
+        "language,category,answer,hint\nfr,general,pomme,fruit\n",
+        encoding="utf-8",
+    )
+
+    result = seed_words_from_csv(str(path))
+
+    assert result.created == 0
+    assert len(result.skipped) == 1
+    assert Word.query.count() == 0
+
+
+def test_seed_words_treats_same_answer_in_another_language_as_a_different_word(app, tmp_path):
+    path = tmp_path / "words.csv"
+    path.write_text(
+        "language,category,answer,hint\n"
+        "ko,general,plan,계획\n"
+        "en,general,plan,a scheme\n",
+        encoding="utf-8",
+    )
+
+    result = seed_words_from_csv(str(path))
+
+    assert result.created == 2
+    assert {word.language for word in Word.query.all()} == {
+        PuzzleLanguage.KO,
+        PuzzleLanguage.EN,
+    }
+
+
+def test_add_word_from_book_defaults_to_korean_and_fills_mask(app):
+    word, _created = add_word_from_book(_book())
+
+    assert word.language == PuzzleLanguage.KO
+    assert [tile["c"] for tile in word.mask] == ["ㄷ", "ㅁ", "ㅇ"]
+
+
+def test_add_word_from_book_can_register_an_english_title(app):
+    word, created = add_word_from_book(
+        _book(title="Dune", author="Frank Herbert", publisher="Ace"),
+        language=PuzzleLanguage.EN,
+    )
+
+    assert created is True
+    assert word.language == PuzzleLanguage.EN
+    assert [tile["t"] for tile in word.mask] == ["r", "h", "r", "h"]
