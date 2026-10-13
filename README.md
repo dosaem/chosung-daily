@@ -158,6 +158,19 @@ docker compose -f docker-compose.prod.yml -p chosung-daily-prod --env-file .env 
 (TTL 26시간). 앱·워커를 재시작해도 안 지워진다 — Redis 는 별도 컨테이너다.
 celery 브로커 큐와 rate limit 카운터는 DB 와 무관해서 건드리지 않는다.
 
+## 운영: 업타임 모니터
+
+`/health` 를 5분마다 보는 모니터는 [UptimeRobot](https://uptimerobot.com) 에
+**사람이 한 번 등록**한다(서버 코드로는 못 하는 일, 스펙 §C.29). 등급별 응답은
+아래 "설계 판단 08. 헬스체크 등급" 참고.
+
+- 모니터 타입 **HTTP(s)**, URL `https://<배포 도메인>/health`, 간격 5분
+- **"Keyword" 모니터로 `"status": "ok"` 를 보지 않는다.** Redis 만 죽은
+  `degraded`(200) 상태에서도 알람이 울려버린다. HTTP 상태코드만 보게 두면
+  DB 장애(503)만 알람이 된다 — 등급을 나눈 이유가 이것이다.
+- 알림 채널은 운영자 메일. Slack 알림은 서버가 직접 보내는 운영자 알림
+  (단어 잔량·배정 실패·백업 실패)과 섞지 않는다.
+
 ## 설계 판단
 
 > 아래 `트랜잭션 경계`~`퍼즐 카테고리 비중` 은 초기 구현 때 쓴 항목이다. 스토어 출시
@@ -727,23 +740,6 @@ Sentry 는 `SENTRY_DSN` 이 있을 때만 켠다(`app/observability.py`). 초기
 `celery_app.py` 에서 같은 `create_app()` 을 거치기 때문에, 웹과 워커가 환경·릴리스
 태그를 따로 관리하지 않는다. `send_default_pii=False`(기본값)를 명시해서 요청
 쿠키·바디가 자동으로 따라가지 않는 걸 코드에서 바로 읽히게 뒀다.
-
-## 운영
-
-> 티켓 번호를 붙인 `### NN. 제목` 으로 이 절 끝에 덧붙인다 — 배포 절차 자체는
-> [`docs/RELEASE.md`](docs/RELEASE.md) 를 본다.
-
-### 08. 업타임 모니터 등록 (사람이 해야 함)
-
-[UptimeRobot](https://uptimerobot.com) 에 운영자 계정으로 모니터를 만든다. 서버
-코드로는 못 하는 일이라 배포 후 수동 한 번이다.
-
-- 모니터 타입 **HTTP(s)**, URL `https://<배포 도메인>/health`, 간격 5분
-- **"Keyword" 모니터로 `"status": "ok"` 를 보지 않는다.** Redis 만 죽은
-  `degraded`(200) 상태에서도 알람이 울려버린다. HTTP 상태코드만 보게 두면
-  DB 장애(503)만 알람이 된다 — 등급을 나눈 이유가 이것이다.
-- 알림 채널은 운영자 메일. Slack 알림은 서버가 직접 보내는 운영자 알림
-  (단어 잔량·배정 실패·백업 실패)과 섞지 않는다.
 
 ## 부하 테스트 요약
 
