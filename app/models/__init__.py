@@ -1,4 +1,5 @@
 from app.models.account import Account
+from app.models.app_setting import AppSetting
 from app.models.attempt import Attempt
 from app.models.daily_puzzle import DailyPuzzle
 from app.models.daily_stats import DailyStats
@@ -9,6 +10,7 @@ from app.models.word import Word
 
 __all__ = [
     "Account",
+    "AppSetting",
     "Attempt",
     "DailyPuzzle",
     "DailyStats",

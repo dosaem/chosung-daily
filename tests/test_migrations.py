@@ -30,6 +30,7 @@ from app.utils.mask import build_mask
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 PREVIOUS_REVISION = "9ec267465b4e"  # 퍼즐 언어 직전 리비전
+LANGUAGE_REVISION = "4e72a4045fbc"  # 퍼즐 언어 = 설정 테이블 직전 리비전
 
 PUZZLE_DATE = date(2026, 10, 13)
 KO_ANSWER = "해리 포터"
@@ -93,6 +94,11 @@ def migration_engine():
     yield engine
     _drop_every_table(engine)
     engine.dispose()
+
+
+def _table_names(engine) -> set[str]:
+    with engine.connect() as conn:
+        return {row[0] for row in conn.execute(text("SHOW TABLES")).all()}
 
 
 def _insert_korean_data(engine) -> None:
@@ -262,3 +268,36 @@ def test_both_languages_fit_on_the_same_date_after_upgrade(migration_engine):
         }
 
     assert languages == {"ko", "en"}
+
+
+def test_app_setting_table_round_trips(migration_engine):
+    """08: 설정 테이블이 upgrade 로 생기고 downgrade 로 사라져야 한다."""
+    _run_flask_db(_migration_database_url(), "upgrade")
+    assert "app_setting" in _table_names(migration_engine)
+
+    _run_flask_db(_migration_database_url(), "downgrade", LANGUAGE_REVISION)
+    assert "app_setting" not in _table_names(migration_engine)
+
+    _run_flask_db(_migration_database_url(), "upgrade")
+    assert "app_setting" in _table_names(migration_engine)
+
+
+def test_app_setting_rows_written_without_the_orm_are_readable(migration_engine):
+    """마이그레이션이 만든 스키마만으로 설정 행을 쓰고 읽을 수 있어야 한다 —
+    운영자가 DB 에 직접 행을 넣는 게 이 테이블의 1차 사용법이다(토글 UI 는 16)."""
+    _run_flask_db(_migration_database_url(), "upgrade")
+
+    with migration_engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO app_setting (setting_key, value, updated_at) "
+                "VALUES ('maintenance_enabled', 'true', NOW())"
+            )
+        )
+
+    with migration_engine.connect() as conn:
+        row = conn.execute(
+            text("SELECT setting_key, value FROM app_setting")
+        ).mappings().one()
+
+    assert dict(row) == {"setting_key": "maintenance_enabled", "value": "true"}
