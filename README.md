@@ -76,7 +76,7 @@ web/                  # Jinja 템플릿 1장 + vanilla JS
 
 | 메서드 | 경로 | 설명 | 인증 |
 |---|---|---|---|
-| GET | `/health` | 헬스체크 | - |
+| GET | `/health` | 헬스체크 (DB 실패 503, Redis 실패 200 + `degraded`) | - |
 | GET | `/` | 게임 화면 (Jinja) | - |
 | POST | `/api/v1/guests` | 게스트 토큰 발급 (`{puzzle_language?}`, 기본 `ko`) | - |
 | PATCH | `/api/v1/me` | 퍼즐 언어 선호 변경 (`{puzzle_language}`) → `{puzzle_language}` | Bearer |
@@ -89,6 +89,7 @@ web/                  # Jinja 템플릿 1장 + vanilla JS
 | GET | `/api/v1/auth/<provider>/login` | 구글/애플 로그인 시작 (리다이렉트) | 세션 쿠키 |
 | GET | `/api/v1/auth/<provider>/callback` | OAuth 콜백, 계정 연결 후 `/?login_token=`으로 리다이렉트 | 세션 쿠키 |
 | POST | `/api/v1/auth/token-exchange` | 앱 네이티브 로그인 id_token 교환 → 계정 연결/전환 후 `{token}` | Bearer |
+| GET | `/api/v1/config` | 앱 설정(최소 앱 버전·점검·지원 언어·스토어 링크), 60초 캐시 | - |
 
 에러 응답은 전부 `{code, message}` + 적절한 HTTP status로 통일 (아래 "에러 응답" 참고).
 
@@ -671,6 +672,78 @@ provider 당 `JWKS_REFRESH_MIN_INTERVAL_SECONDS`(60초)에 한 번으로 제한�
 `apple_client_secret(app, client_id)` 로 바뀌었다(웹 Services ID 와 앱 번들 ID 를 모두 서명할 수
 있게 인자화 + 공개). 위 "설계 판단"·"알려진 제한사항" 의 기존 항목에 나오는 `_apple_client_secret`
 은 같은 함수의 예전 이름이다 — 공유 절은 덧붙이기만 하는 규칙이라 그 줄들은 건드리지 않았다.
+### 08. 점검·최소 버전을 서버 설정으로 (`app_setting` + `/api/v1/config`)
+
+스토어에 올라간 앱은 고칠 수가 없다. 서버만 내려야 하는 점검 시간이 생겼거나,
+특정 버전 이하에서 더 못 쓰게 막아야 할 때(예: 응답 포맷이 바뀜) **앱을 새로 심사
+받지 않고** 끄고 켜야 한다. 그래서 두 값을 코드·환경변수가 아니라 DB 행에 둔다 —
+환경변수면 값을 바꿀 때 재배포가 필요하고, 그때 서버가 재시작한다.
+
+- **키·값 테이블 하나**(`app_setting`: `setting_key`, `value`, `updated_at`)로 끝낸다.
+  설정이 네 개(최소 버전 iOS/Android, 점검 on/off·메시지)뿐이라 컬럼을 하나씩 가진
+  "설정 한 줄 테이블" 을 만들면 항목이 늘 때마다 마이그레이션을 또 해야 한다. 값은
+  전부 문자열로 받고 의미(불리언·버전 문자열)는 읽는 쪽인
+  `app/services/app_config_service.py` 가 정한다. Spring 의 `@ConfigurationProperties`
+  대신 DB 를 보는 셈 — 운영자가 바꿔야 하는 건 코드 설정이 아니다.
+- **기본값은 코드에만 둔다.** 마이그레이션이 기본값 행을 심지 않는다. 두 곳에
+  기본값이 있으면 어긋나고, 빈 테이블로도 `/config` 가 정상 응답해야 한다. 최소
+  버전 기본값은 첫 릴리스인 `1.0.0` 이라 아무도 강제 업데이트에 걸리지 않는다.
+- **점검 플래그는 꺼진 쪽으로 기운다.** `value` 가 `"true"`/`"1"` 일 때만 켜고, 그
+  밖의 값(빈 문자열·오타)은 전부 꺼진 것으로 읽는다. 실수로 켜져서 전체 유저가
+  점검 화면을 보는 쪽이 반대보다 훨씬 비싸다.
+- **캐시 60초.** 앱이 시작할 때마다 부르는 엔드포인트라 매번 DB 를 때릴 이유가 없고,
+  반대로 점검을 켠 뒤 퍼지는 데 1분 넘게 걸리면 운영자가 답답하다. 캐시는 Redis 고,
+  Redis 가 죽으면 DB 에서 다시 만들어 응답한다(아래 "헬스체크 등급" 과 같은 원칙).
+- **경로는 `/api/v1/config`, 헬스체크는 루트 `/health`.** 앱이 `API_BASE_URL` 하나로
+  모든 JSON API 를 부르니 설정도 같은 prefix 에 둔다. 반면 `/health` 는 앱이 아니라
+  배포 스크립트·업타임 모니터가 보는 운영용 엔드포인트라 버전 prefix 없이 루트에
+  둔다 — 배포 경로를 바꾸면 모니터 설정도 같이 바꿔야 한다.
+- **스토어 링크는 환경변수**(`STORE_URL_IOS`, `STORE_URL_ANDROID`, `APP_STORE_ID`).
+  운영자가 수시로 바꾸는 값이 아니고 앱을 올릴 때 한 번 정해지는 값이라 DB 행으로
+  둘 이유가 없다. 아직 스토어에 등록 전이면 비어 있고, 그때 응답은 `null` 이다.
+  `APP_STORE_ID` 는 웹 Smart App Banner 메타 태그 전용이라 `/config` 응답 필드에는
+  넣지 않았다(스펙 §A' 의 응답 필드 네 개를 그대로 지킨다).
+
+### 08. 헬스체크 등급 (503 / 200 + degraded)
+
+업타임 모니터는 "사람을 깨울 상태" 만 실패로 봐야 한다. 이 서비스에서 DB 와 Redis 는
+무게가 다르다 — 퍼즐·시도 기록은 DB 에 있어서 DB 가 죽으면 게임 자체가 안 되지만,
+Redis 는 캐시·랭킹·통계·rate limit 용이고 전부 폴백이 있다(위 "Redis" 절). 그래서
+`/health` 가 둘을 한 덩어리로 묶지 않고 등급을 나눈다.
+
+| 상태 | HTTP | `status` | 뜻 |
+|---|---|---|---|
+| 정상 | 200 | `ok` | 둘 다 응답 |
+| Redis 장애 | 200 | `degraded` | 랭킹·통계는 빈 값, 게임은 DB 로 그대로 돌아감 |
+| DB 장애 | 503 | `down` | 퍼즐을 못 읽는다 — 깨워야 한다 |
+
+Redis 장애를 503 으로 올리면 "게임은 되는데 알람이 울리는" 상태가 되고, 반대로 DB
+장애를 200 으로 숨기면 모니터가 못 잡는다. `apple_secret_expires_at` 은 애플
+client_secret(JWT) 만료 시각 자리로, 요청 경로 갱신을 넣는 티켓에서 채운다(지금은
+`null`). 응답 본문에 버전·호스트명 같은 정보는 넣지 않는다 — 인증 없이 열려 있다.
+
+Sentry 는 `SENTRY_DSN` 이 있을 때만 켠다(`app/observability.py`). 초기화 지점을
+`create_app()` 한 곳으로 모아 Flask·Celery 통합을 같이 등록했다 — 워커·Beat 도
+`celery_app.py` 에서 같은 `create_app()` 을 거치기 때문에, 웹과 워커가 환경·릴리스
+태그를 따로 관리하지 않는다. `send_default_pii=False`(기본값)를 명시해서 요청
+쿠키·바디가 자동으로 따라가지 않는 걸 코드에서 바로 읽히게 뒀다.
+
+## 운영
+
+> 티켓 번호를 붙인 `### NN. 제목` 으로 이 절 끝에 덧붙인다 — 배포 절차 자체는
+> [`docs/RELEASE.md`](docs/RELEASE.md) 를 본다.
+
+### 08. 업타임 모니터 등록 (사람이 해야 함)
+
+[UptimeRobot](https://uptimerobot.com) 에 운영자 계정으로 모니터를 만든다. 서버
+코드로는 못 하는 일이라 배포 후 수동 한 번이다.
+
+- 모니터 타입 **HTTP(s)**, URL `https://<배포 도메인>/health`, 간격 5분
+- **"Keyword" 모니터로 `"status": "ok"` 를 보지 않는다.** Redis 만 죽은
+  `degraded`(200) 상태에서도 알람이 울려버린다. HTTP 상태코드만 보게 두면
+  DB 장애(503)만 알람이 된다 — 등급을 나눈 이유가 이것이다.
+- 알림 채널은 운영자 메일. Slack 알림은 서버가 직접 보내는 운영자 알림
+  (단어 잔량·배정 실패·백업 실패)과 섞지 않는다.
 
 ## 부하 테스트 요약
 
