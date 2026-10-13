@@ -176,3 +176,94 @@ stdin exit 0 health called False completed False
 현재 열린 결함 합계: **BLOCKER 0, MAJOR 1, MINOR 1**. 이전 결함 3건 FIXED, REPEAT 0건.
 
 판정: FAIL
+
+## 라운드 3
+
+- 검토일: 2026-10-14. 기준: 로컬 `main` (`72a2a3c`) ... `HEAD` (`47b37fb`). `origin/main` 미사용.
+- `git log main..HEAD`의 8개 커밋과 `git diff main...HEAD`, 티켓 20, 스펙 §C.27·US 64/65, CONTEXT, 구현 증거 및 이전 리뷰를 직접 대조했다.
+- 하위 에이전트 없이 검토했다. 애플리케이션·테스트·설정·scratch 수정, NAS 접속, 배포, 외부 서비스 호출, push 없음. UI·마이그레이션 변경 없음.
+
+### 티켓 체크박스별 판정
+
+| 체크박스 | 판정 | 직접 확인한 근거 |
+|---|---|---|
+| 대상별 설정, Git 갱신/build/upgrade/재기동 확인/health 200, 양쪽 인자 로컬 검증 및 RELEASE 절차 | 충족 | 두 대상의 dry-run/실행 테스트, 실제 임시 Git 저장소의 승인 SHA 검사, 루프백 HTTP 302 실패/200 성공 테스트 통과. fetch + ff-only merge가 pull의 갱신 역할을 한다. 서비스 목록은 compose에서 조회하므로 추가된 backup도 실제 실행 시 검사 대상이다. stdin 진입 경로도 실제 로컬 Docker로 재검증했다. |
+| main/develop push에 CI 성공 선행 → Tailscale → SSH, ci.yml 변경 제한 | 미충족 | CI 성공·브랜치 매핑·SHA 전달·연결 순서는 구현됐고 ci.yml 변경은 develop 추가 한 줄뿐이다. 그러나 PR CI도 배포 권한을 얻는 이벤트 검증 누락이 있다(D-20-6). |
+| secrets 목록 표, NAS 사람 작업 D3 분리, push 금지 | 충족 | RELEASE 티켓 20 절의 secret 이름 4개와 SSH/Tailscale D3 체크리스트 확인. 이번 리뷰는 push하지 않았다. 구현자의 과거 push 여부는 로컬 diff/log로 독립 증명할 수 없다. |
+
+공유 파일 규칙은 충족: README는 설계 판단 마지막의 `### 20.`, RELEASE는 파일 끝의 `### 20.` 아래에만 추가된다. 범위 밖 애플리케이션 변경은 없다.
+
+### 이전 결함 재판정
+
+| ID | 이전 심각도 | 판정 | 직접 확인한 근거 |
+|---|---|---|---|
+| D-20-1 | MAJOR | FIXED | workflow 25/62행의 SHA 전달과 deploy.sh 120~139행의 원격 tip/HEAD 비교 유지. 실제 로컬 Git 회귀 테스트 통과. 기존 A 승인 후 origin B 재현 조건에서 빌드를 차단한다. |
+| D-20-2 | MAJOR | FIXED | deploy.sh 172~175행의 HTTP 상태 200 비교 유지. 실제 curl/루프백 서버의 302 거부·200 수용 테스트 통과. |
+| D-20-3 | MINOR | FIXED | RELEASE diff의 추가 85행 전체가 201행 `### 20.` 이하이며 다른 티켓 절 변경 없음. |
+| D-20-4 | MAJOR | FIXED | deploy.sh 51행부터 본문이 main 함수이고 190행에서 `main "$@" < /dev/null` 실행. stdin을 소비하는 fake Docker와 실제 로컬 Docker 양쪽에서 후속 검사를 수행한다. |
+| D-20-5 | MINOR | FIXED | README 505행 `### 20.`이 두 티켓 02 절 이후, `## 부하 테스트 요약` 바로 앞에 추가된다. 기존 다른 티켓 내용 삭제/이동 없음. |
+
+### 직접 실행한 검증
+
+- 기존 `chosung_daily_test_t20`에 `TEST_DATABASE_URL`, Redis DB 8에 `TEST_REDIS_URL`을 지정하여 `uv run pytest -q` → **231 passed in 70.96s**, exit 0. 접속 문자열의 인증 값은 문서에 기록하지 않는다. 기본 DB fallback·새 DB 생성·간헐 실패·재실행 없음. 마이그레이션 테스트도 기존 전용 파생 DB를 사용했다.
+- `uv run ruff check .` → **All checks passed!**, exit 0.
+- `bash -n deploy/deploy.sh` → exit 0.
+- `uv run flask db heads` → `4e72a4045fbc (head)` 한 줄.
+- `git diff --check main...HEAD` → 출력 없음, exit 0.
+- 라운드 2 D-20-4에 실린 Python 재현 명령을 현재 스크립트로 다시 실행했다. 이미 실행 중인 로컬 개발 Redis 컨테이너에서 `sleep 0.2`만 실행하고 나머지는 가짜 NAS 명령을 사용했다. 서비스 구성·데이터는 변경하지 않았다.
+
+```text
+file exit 0 health called True completed True
+stdin exit 0 health called True completed True
+```
+
+- 새 stdin 회귀 테스트 4개는 정상 완료뿐 아니라 health 500 및 서비스 누락 시 실패도 검사한다. 실제 Git/HTTP 테스트도 존재하므로 전체 테스트가 항상 통과하거나 과한 mock만으로 구성됐다고 보지는 않는다. 워크플로 테스트에는 아래 이벤트 출처 검증 공백이 남아 있다.
+
+### 신규 결함
+
+#### D-20-6 — PR CI 성공도 배포 잡을 열어 PR 스크립트를 NAS에서 실행할 수 있음
+
+- 심각도: **MAJOR**
+- 위치: `.github/workflows/deploy.yml:18` (출처 조건 누락), `.github/workflows/deploy.yml:30` (이벤트 SHA checkout), `.github/workflows/deploy.yml:62` (그 스크립트를 NAS로 전송). 관련 입력: `.github/workflows/ci.yml:6`의 `pull_request` 트리거.
+- 원인: workflow_run의 브랜치 이름 필터와 conclusion만 검사한다. 선행 CI가 `push`였는지, 그 head repository가 이 저장소인지 확인하지 않는다. `main`/`develop`이라는 이름은 PR의 소스 브랜치에도 사용할 수 있다. PR CI가 성공하면 배포 잡이 이벤트 SHA를 checkout하고 배포 secrets로 연결한 NAS에 해당 커밋의 스크립트를 보낸다.
+- 재현 입력: CI 성공 `workflow_run`에 `event=pull_request`, `head_branch=main`(또는 develop), PR의 `head_sha`를 넣는다. fork PR을 허용하고 그 CI가 실행/승인되는 저장소에서는 head repository가 fork인 경우도 동일하다. PR의 `deploy/deploy.sh` 앞에 무해한 출력 명령을 추가한 경우조차 이 코드는 신뢰 검증 전에 NAS에서 실행되는 구조다. 기존 스크립트 내부의 SHA 검사는 PR이 바꿀 수 있는 코드라 신뢰 경계를 대신하지 못한다.
+- 기대: 이 저장소 main/develop **push**의 성공한 CI만 배포 잡에 들어가고, PR 성공은 checkout·secret 사용·NAS 연결 전에 차단된다.
+- 실제: 현재 YAML의 조건은 PR/fork를 구별하지 않아 모두 허용한다. 외부 호출 없이 아래 명령으로 실제 설정을 읽고 조건을 대조했다(실제 GitHub Actions/NAS 공격 실행을 했다는 뜻은 아니다).
+
+```bash
+uv run python - <<'PY'
+from pathlib import Path
+import yaml
+w = yaml.safe_load(Path('.github/workflows/deploy.yml').read_text())
+job = w['jobs']['deploy']
+assert job['if'] == "github.event.workflow_run.conclusion == 'success'"
+for event, repo in [('push', 'base'), ('pull_request', 'base'),
+                    ('pull_request', 'fork')]:
+    payload = dict(event=event, head_repository=repo,
+                   head_branch='main', conclusion='success')
+    allowed = (payload['head_branch'] in w[True]['workflow_run']['branches']
+               and payload['conclusion'] == 'success')
+    print(event, repo, allowed)
+print(job['steps'][0]['with']['ref'])
+PY
+```
+
+```text
+push base True
+pull_request base True
+pull_request fork True
+${{ github.event.workflow_run.head_sha }}
+```
+
+- 영향: 요청된 push 자동 배포를 넘어 PR에도 배포 권한이 전달된다. 특히 외부 PR CI를 허용하는 경우 검토·병합 전 코드가 NAS 배포 계정 권한으로 실행될 수 있다.
+- 테스트 공백: `tests/test_deploy_workflow.py:71`의 성공 조건 테스트는 conclusion/success 문자열만 확인하고 PR 및 다른 head repository를 거부하는지 검사하지 않는다. push 성공/실패, PR 성공, fork의 동일 이름 브랜치를 구별하는 검증이 필요하다.
+
+### 참고 및 검증 한계
+
+- 실제 GitHub Actions/Tailscale/NAS 전체 리허설, 컨테이너 build/up 및 운영 데이터 유지 검증은 수행하지 않았다. D3 사람 체크리스트로 남아 있으며 구현 증거의 과거 실행 기록을 이번 실행 결과로 대체하지 않았다.
+- 인증·CSRF 애플리케이션 코드는 변경되지 않았다. prod 프로젝트명 유지와 볼륨 삭제 명령 부재를 확인했다. diff에서 운영 시크릿 실값은 발견하지 않았다. 구현 증거 초기 절에는 기존 개발 DB의 접속 문자열이 있으므로 "모든 자격 증명 문자열이 없다"는 주장은 성립하지 않지만 이를 운영 시크릿 누출로 집계하지 않았다.
+- 이번 결함은 코드의 신뢰 경계 문제이며, 권한 설정이 없는 실제 저장소에 공격이 성공했다고 주장하지 않는다. 외부 서비스 접근 없이 YAML의 허용 조건과 스크립트 실행 경로를 확인했다.
+
+현재 열린 결함 합계: **BLOCKER 0, MAJOR 1, MINOR 0**. 이전 결함 5건 FIXED, REPEAT 0건. 신규 D-20-6 1건.
+
+판정: FAIL
