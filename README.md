@@ -738,8 +738,23 @@ client_secret(JWT) 만료 시각 자리로, 요청 경로 갱신을 넣는 티�
 Sentry 는 `SENTRY_DSN` 이 있을 때만 켠다(`app/observability.py`). 초기화 지점을
 `create_app()` 한 곳으로 모아 Flask·Celery 통합을 같이 등록했다 — 워커·Beat 도
 `celery_app.py` 에서 같은 `create_app()` 을 거치기 때문에, 웹과 워커가 환경·릴리스
-태그를 따로 관리하지 않는다. `send_default_pii=False`(기본값)를 명시해서 요청
-쿠키·바디가 자동으로 따라가지 않는 걸 코드에서 바로 읽히게 뒀다.
+태그를 따로 관리하지 않는다.
+
+**Sentry 로 무엇을 보내지 않는지는 `data_collection` 으로 못 박는다.** 처음엔
+`send_default_pii=False` 만 명시해두고 "요청 쿠키·바디는 안 따라간다" 고 적었는데,
+최종 리뷰에서 그게 틀린 걸 재현으로 잡았다 — 그 옵션은 쿠키·유저 식별자만 끄고 요청
+**본문**은 PII 설정과 무관하게 기본 수집이다. OAuth 콜백이 한 번 500 이 나면 애플이
+보낸 인증 코드(`code`)와 최초 로그인 `user` JSON(이메일·이름)이 그대로 이벤트에
+실린다. 기본 스크러버도 `code`/`user` 는 민감어 목록에 없어서 못 막는다. 그래서
+`app/observability.py` 의 `SENTRY_DATA_COLLECTION` 에서 요청 본문·쿼리스트링·쿠키·
+유저 식별자(IP)·SQL 바인드 파라미터·Celery task 인자를 범주별로 끈다. 지역 변수도
+껐다 — `flask/app.py:wsgi_app` 프레임의 `environ` 에 `?code=...` 와 `HTTP_COOKIE` 가
+통째로 들어 있고, 이름 기준 필터는 그 안쪽을 못 본다. 남는 건 예외·스택·소스
+컨텍스트·메서드·경로·환경·릴리스다(운영에서 원인 찾기엔 충분했다).
+
+함정: 이런 보장은 `sentry_sdk.init` 인자를 mock 으로 보는 테스트로는 검증이 안 된다.
+`tests/test_sentry.py` 뒤쪽은 실제 SDK 를 켜고 Transport 만 메모리로 바꿔서 완성된
+이벤트 payload 에 민감값이 없는지 본다. 설정을 손대면 이 테스트가 잡아준다.
 
 ## 부하 테스트 요약
 
