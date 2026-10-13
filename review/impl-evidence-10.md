@@ -313,3 +313,101 @@ $ uv run pytest -q
 $ FLASK_SKIP_DOTENV=1 FLASK_APP=wsgi.py uv run flask db heads
 f394da7f4d88 (head)
 ```
+
+## 머지 준비 rebase
+
+리뷰(Codex 최종 PASS) 이후 로컬 `main` 이 두 번 앞서갔다. 처음 `21856d8`(티켓 03 머지)
+위로 rebase 하는 도중 `main` 이 다시 `528879b`(티켓 20 머지)로 움직여서, 같은 방식으로 한 번
+더 올렸다. 최종 베이스는 `528879b` 다.
+
+```
+$ git merge-base main HEAD
+528879bec2ad62cecd6834e5342104f9d02a9e8a
+$ git rev-parse main
+528879bec2ad62cecd6834e5342104f9d02a9e8a
+$ git status --short
+(출력 없음 — clean)
+```
+
+### 충돌 파일과 해결 방식
+
+충돌은 **`README.md` 1개**뿐이었다. 티켓 03 이 "설계 판단" 에 `### 03.` 세 절을, 이 티켓이
+같은 자리에 `### 10.` 절을 붙여서 같은 블록을 양쪽이 건드렸다. **양쪽 내용을 모두 보존**해
+03 세 절 뒤에 10 절이 오게 두는 것으로 풀었다 — 어느 쪽 문장도 지우거나 고치지 않았다.
+두 번째 rebase(티켓 20)에서는 20 이 README 의 다른 영역(`### 20.`)만 건드려 자동 병합됐고,
+결과적으로 `### 01./02./03./19./20./21.` 과 `### 10.` 이 모두 남아 있다.
+
+다른 공유 파일은 충돌 없이 양쪽이 다 남았다.
+
+- `README.md` API 표 — 03 의 `?language=` 행들과 이 티켓의 `POST /api/v1/auth/token-exchange`
+  행이 함께 있다.
+- `.env.example` — 앱 로그인 설정값 블록(`GOOGLE_IOS_CLIENT_ID`·`GOOGLE_WEB_CLIENT_ID`·
+  `APPLE_APP_BUNDLE_ID`)이 그대로.
+- `docs/RELEASE.md` — 티켓 20 이 추가한 내용만 있고 이 티켓은 손대지 않았다.
+- `.scratch/store-launch/spec.md` — 이 티켓의 "미정 항목" 행만 유지.
+
+### 리뷰 이후 코드 변경
+
+**없다.** `git range-diff` 로 rebase 전 11개 커밋과 rebase 후 11개 커밋을 비교하면
+`docs(10): 앱 로그인 설정값·ADR 0002 요약·구현 증거` 한 개만 다르고, 그 차이도 위 README
+절이 붙는 위치(앞뒤 문맥 줄)뿐이다. 나머지 10개는 전부 동일(`=`)하다.
+
+```
+$ git range-diff 72a2a3c..808f23f 528879b..HEAD
+ 1:  0d0bcc8 =  1:  b65dd68 feat(10): Account 에 애플 refresh token·발급 client 컬럼 추가
+ 2:  51602d8 =  2:  b99acd6 feat(10): 구글·애플 JWKS 래퍼와 id_token 검증 순수 함수
+ 3:  f8057e9 =  3:  e653d97 feat(10): POST /auth/token-exchange — 앱 로그인과 애플 토큰 보관
+ 4:  b84111d !  4:  302889e docs(10): 앱 로그인 설정값·ADR 0002 요약·구현 증거
+ 5:  1d96d5e =  5:  df1caf4 review(10): final review round 1
+ 6:  abc3cd0 =  6:  0b537f4 fix(10): 모르는 kid 면 JWKS 를 다시 받아 키 교체 로그인을 받아들인다 (D-10-1)
+ 7:  754a75b =  7:  0b3b2b7 chore(10): 마이그레이션 down_revision 을 머지된 02 리비전 위로 재설정
+ 8:  9d8042a =  8:  af9e3b8 docs(10): 수정 라운드 1 증거 — D-10-1·D-10-2 원인·수정·검증 출력
+ 9:  5f9ffdd =  9:  85cd41f fix(10): 기존 OAuth 리다이렉트 테스트의 provider discovery 호출 제거
+10:  853bfb6 = 10:  9b0d580 docs(10): 증거의 rebase 기준 커밋을 main 실제 tip(72a2a3c)으로 정정
+11:  808f23f = 11:  10f6839 review(10): final review round 2
+```
+
+main 에 새로 들어온 코드(티켓 03 의 언어 인지 서비스·API, 티켓 20 의 배포 스크립트)와
+맞물려 깨지는 테스트는 **없어서 테스트도 고치지 않았다.**
+
+### 마이그레이션
+
+티켓 03·20 은 마이그레이션을 들여오지 않아서 `main` 의 head 는 여전히 `4e72a4045fbc`(티켓 02)
+이고, 이 티켓의 `f394da7f4d88` 은 이미 그 위에 얹혀 있다 — `down_revision` 을 다시 손댈 필요가
+없었다. heads 가 1줄인 것과 왕복을 다시 확인했다.
+
+```
+$ FLASK_SKIP_DOTENV=1 FLASK_APP=wsgi.py uv run flask db heads
+f394da7f4d88 (head)
+```
+
+```
+$ DATABASE_URL=...chosung_daily_test_t10_migrations uv run flask db upgrade
+INFO  [alembic.runtime.migration] Running upgrade  -> 19c8c4591377, add word, daily_puzzle, guest, attempt, guest_stats, daily_stats
+INFO  [alembic.runtime.migration] Running upgrade 19c8c4591377 -> e759d7e8d071, add account table for oauth linking
+INFO  [alembic.runtime.migration] Running upgrade e759d7e8d071 -> 9ec267465b4e, replace kakao with apple as oauth provider
+INFO  [alembic.runtime.migration] Running upgrade 9ec267465b4e -> 4e72a4045fbc, add puzzle language and mask
+INFO  [alembic.runtime.migration] Running upgrade 4e72a4045fbc -> f394da7f4d88, add account provider refresh token and client id
+$ ... flask db current            → f394da7f4d88 (head)
+$ ... SHOW COLUMNS FROM account   → ['provider', 'provider_user_id', 'provider_refresh_token', 'provider_client_id']
+$ ... flask db downgrade 4e72a4045fbc
+INFO  [alembic.runtime.migration] Running downgrade f394da7f4d88 -> 4e72a4045fbc, add account provider refresh token and client id
+$ ... SHOW COLUMNS FROM account   → ['provider', 'provider_user_id']
+$ ... flask db upgrade
+INFO  [alembic.runtime.migration] Running upgrade 4e72a4045fbc -> f394da7f4d88, add account provider refresh token and client id
+$ ... SHOW COLUMNS FROM account   → ['provider', 'provider_user_id', 'provider_refresh_token', 'provider_client_id']
+$ ... flask db current            → f394da7f4d88 (head)
+```
+
+### rebase 후 전체 재실행
+
+테스트 전용 자원(DB `chosung_daily_test_t10`, Redis DB 12, 마이그레이션 DB
+`chosung_daily_test_t10_migrations`)으로 돌렸다. 리뷰 시점 225개에서 297개로 는 건 티켓 03·20
+이 들여온 테스트가 합류했기 때문이고, 전부 통과한다.
+
+```
+$ uv run ruff check .
+All checks passed!
+$ uv run pytest -q
+297 passed in 122.84s (0:02:02)
+```
