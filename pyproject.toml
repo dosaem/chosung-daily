@@ -27,7 +27,18 @@ target-version = "py312"
 extend-exclude = ["migrations"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B"]
+select = ["E", "F", "I", "UP", "B", "PL", "RUF", "SIM", "PT"]
+
+[tool.ruff.lint.per-file-ignores]
+# 블루프린트/모델 import를 함수 안에서 하는 건 순환 import 회피다 —
+# app/__init__.py가 app.api를 import하고 app.api.*가 app.extensions(=app 패키지
+# 실행)를 import해서, 최상단으로 올리면 import가 순환한다. 설계상 필요한 지연
+# import라 이 두 파일만 PLC0415를 끈다.
+"app/__init__.py" = ["PLC0415"]
+"app/api/__init__.py" = ["PLC0415"]
+# 테스트의 `assert resp.status_code == 200`, `assert len(rows) == 3` 같은 비교는
+# 상수로 빼면 오히려 뭘 검증하는지 안 보인다. 테스트에서만 매직값 비교를 허용한다.
+"tests/*" = ["PLR2004"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

@@ -72,7 +72,7 @@ def test_add_word_from_book_is_idempotent(app):
     """
     add_word_from_book(_book())
 
-    word, created = add_word_from_book(_book())
+    _word, created = add_word_from_book(_book())
 
     assert created is False
     assert Word.query.count() == 1

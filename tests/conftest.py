@@ -67,4 +67,3 @@ class _BrokenRedis:
 @pytest.fixture
 def broken_redis(app, monkeypatch):
     monkeypatch.setitem(app.extensions, _REDIS_EXTENSION_KEY, _BrokenRedis())
-    yield

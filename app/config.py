@@ -1,4 +1,5 @@
 import os
+from typing import ClassVar
 from zoneinfo import ZoneInfo
 
 from cryptography.hazmat.primitives import serialization
@@ -20,7 +21,10 @@ class Config:
     # "이 트랜잭션이 맨 처음 뭔가를 읽은 시점"의 스냅샷을 쓴다. FOR UPDATE 기반
     # 동시성 제어(app/services/guess_service.py)가 막 커밋된 데이터를 보려면
     # READ COMMITTED가 필요하다 (MySQL 공식 문서가 이 조합을 권장).
-    SQLALCHEMY_ENGINE_OPTIONS = {"pool_pre_ping": True, "isolation_level": "READ COMMITTED"}
+    SQLALCHEMY_ENGINE_OPTIONS: ClassVar[dict[str, object]] = {
+        "pool_pre_ping": True,
+        "isolation_level": "READ COMMITTED",
+    }
     REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 
     # 구글/애플 콘솔에 앱을 등록해야 실제로 채워지는 값들. 비어 있으면 그 provider의
