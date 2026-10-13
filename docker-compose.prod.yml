@@ -1,15 +1,24 @@
 # ============================================
-# PROD 환경 - Synology NAS (Container Manager)
-# API: https://chosung.dosaem.com
-# 실행: docker compose -f docker-compose.prod.yml up -d --build
-#       (.env를 compose 프로젝트명·시크릿 둘 다에 쓴다 — 아래 `name:` 참고)
+# PROD / DEVELOP 공용 - Synology NAS (Container Manager)
+# prod    : https://chosung.dosaem.com  (8089)
+# develop : 8090, 체크아웃 디렉터리 /volume1/docker/chosung-daily-develop
+#
+# 실행 (프로젝트명·포트·env 파일을 전부 밖에서 준다):
+#   prod    : docker compose -f docker-compose.prod.yml -p chosung-daily-prod \
+#               --env-file .env up -d --build
+#   develop : docker compose -f docker-compose.prod.yml -p chosung-daily-develop \
+#               --env-file .env.develop up -d --build
+#
+# 컨테이너 이름·볼륨 이름은 compose 프로젝트 기본 네이밍(<프로젝트>_<키>)에
+# 맡긴다 — container_name이나 최상위 name:을 고정하면 같은 NAS에서 두 인스턴스가
+# 이름 충돌로 동시에 못 뜬다. 기존 prod 볼륨(chosung-daily-prod_mysql-data)에
+# 그대로 붙으려면 prod는 프로젝트명 chosung-daily-prod를 계속 써야 한다
+# (README "설계 판단" §19).
 # ============================================
-name: chosung-daily-prod
 
 services:
   mysql:
     image: mysql:8
-    container_name: chosung-daily-mysql-prod
     restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
@@ -31,7 +40,6 @@ services:
 
   redis:
     image: redis:7
-    container_name: chosung-daily-redis-prod
     restart: unless-stopped
     volumes:
       - redis-data:/data
@@ -43,18 +51,18 @@ services:
 
   app:
     build: .
-    container_name: chosung-daily-app-prod
     restart: unless-stopped
-    env_file: .env
+    env_file: ${ENV_FILE:-.env}
     environment:
       FLASK_ENV: production
       DATABASE_URL: mysql+pymysql://chosung:${MYSQL_PASSWORD}@mysql:3306/chosung_daily?charset=utf8mb4
       REDIS_URL: redis://redis:6379/0
-    # Cloudflare Tunnel이 NAS 안에서 http://127.0.0.1:8089로 붙는다 — LAN/인터넷에
-    # 직접 노출할 필요가 없어서 루프백에만 바인딩한다(기존 프로젝트들의 0.0.0.0
-    # 공개 바인딩보다 한 단계 더 좁힌 선택, README "배포" 절에 이유 적어둠).
+    # Cloudflare Tunnel이 NAS 안에서 http://127.0.0.1:${APP_PORT}로 붙는다 —
+    # LAN/인터넷에 직접 노출할 필요가 없어서 루프백에만 바인딩한다(기존 프로젝트들의
+    # 0.0.0.0 공개 바인딩보다 한 단계 더 좁힌 선택, README "배포" 절에 이유 적어둠).
+    # prod 8089 / develop 8090 — 포트는 env 파일의 APP_PORT로 갈린다.
     ports:
-      - "127.0.0.1:8089:5000"
+      - "127.0.0.1:${APP_PORT}:5000"
     depends_on:
       mysql:
         condition: service_healthy
@@ -63,9 +71,8 @@ services:
 
   worker:
     build: .
-    container_name: chosung-daily-worker-prod
     restart: unless-stopped
-    env_file: .env
+    env_file: ${ENV_FILE:-.env}
     environment:
       FLASK_ENV: production
       DATABASE_URL: mysql+pymysql://chosung:${MYSQL_PASSWORD}@mysql:3306/chosung_daily?charset=utf8mb4
@@ -79,9 +86,8 @@ services:
 
   beat:
     build: .
-    container_name: chosung-daily-beat-prod
     restart: unless-stopped
-    env_file: .env
+    env_file: ${ENV_FILE:-.env}
     environment:
       FLASK_ENV: production
       DATABASE_URL: mysql+pymysql://chosung:${MYSQL_PASSWORD}@mysql:3306/chosung_daily?charset=utf8mb4
