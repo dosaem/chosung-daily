@@ -1,0 +1,4 @@
+#!/bin/sh
+# 가짜 sleep — 기다리지 않는다(테스트가 재시도 대기만큼 느려지지 않게).
+printf 'sleep %s\n' "$*" >> "$FAKE_LOG"
+exit 0

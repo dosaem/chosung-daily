@@ -1,0 +1,14 @@
+#!/bin/sh
+# 가짜 git — 호출을 기록하고, 브랜치 질의에만 답한다.
+printf 'git %s\n' "$*" >> "$FAKE_LOG"
+
+if [ -n "${FAKE_GIT_FAIL:-}" ]; then
+  case "$*" in
+    *"$FAKE_GIT_FAIL"*) echo "fake git: $FAKE_GIT_FAIL 실패" >&2; exit 1 ;;
+  esac
+fi
+
+case "$*" in
+  *"rev-parse --abbrev-ref HEAD"*) echo "${FAKE_GIT_BRANCH:-main}" ;;
+esac
+exit 0

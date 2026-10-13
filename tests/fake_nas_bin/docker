@@ -1,0 +1,27 @@
+#!/bin/sh
+# 가짜 docker — compose 질의에 답하고 호출을 기록한다.
+printf 'docker %s\n' "$*" >> "$FAKE_LOG"
+
+# 진짜 `docker compose exec -T` 는 표준입력을 컨테이너로 흘려보낸다(`-T` 는 TTY 만
+# 끈다). 스크립트를 `bash -s` 로 표준입력에서 읽히면 이게 아직 안 읽힌 스크립트
+# 본문을 먹어버리므로(D-20-4), 가짜도 똑같이 stdin 을 끝까지 읽는다.
+# 호출하는 쪽은 stdin 을 반드시 닫거나 넘긴다 — 터미널에 붙은 채로 부르면 멈춘다.
+case "$*" in
+  *"exec -T"*) cat > /dev/null ;;
+esac
+
+if [ -n "${FAKE_DOCKER_FAIL:-}" ]; then
+  case "$*" in
+    *"$FAKE_DOCKER_FAIL"*) echo "fake docker: $FAKE_DOCKER_FAIL 실패" >&2; exit 1 ;;
+  esac
+fi
+
+case "$*" in
+  *"config --services"*)
+    for s in ${FAKE_DOCKER_SERVICES:-mysql redis app worker beat}; do echo "$s"; done ;;
+  *"ps --services"*)
+    for s in ${FAKE_DOCKER_RUNNING:-mysql redis app worker beat}; do echo "$s"; done ;;
+  *"port app 5000"*)
+    echo "${FAKE_DOCKER_PORT:-127.0.0.1:8089}" ;;
+esac
+exit 0
