@@ -461,3 +461,196 @@ rebase 로 들어온 `tests/test_migrations.py` 는 별도 DB 를 요구해서(R
 
 도커를 띄우지 않았고 실제 NAS·GitHub Actions·Tailscale 연결은 여전히
 `docs/RELEASE.md` D3 체크리스트의 사람 작업이다.
+
+## 수정 라운드 2
+
+리뷰 라운드 2(`review/impl-review-20.md` "## 라운드 2")의 열린 결함 2건을 고쳤다.
+MAJOR 1(D-20-4) · MINOR 1(D-20-5). 미수정 MINOR 는 없다. 리뷰어 지적이 틀렸다고
+본 항목도 없다 — 두 건 다 리뷰의 재현 방법 그대로 재현됐다.
+
+### D-20-4 (MAJOR) — `compose exec -T` 가 SSH 로 넘긴 스크립트 뒷부분을 먹음
+
+**원인.** bash 는 표준입력에서 읽는 스크립트를 "읽으면서 실행" 한다. 그 표준입력은
+자식 프로세스에 그대로 물려지고, `docker compose exec -T` 는 `-T` 로 TTY 만 끄고
+표준입력은 컨테이너로 흘려보낸다. 그래서 `flask db upgrade` 한 줄이 **bash 가 아직
+안 읽은 스크립트 뒷부분**(서비스 기동 확인 + `/health` 루프)을 통째로 소비하고,
+bash 는 읽을 게 없어진 자리에서 **조용히 exit 0** 한다. 워크플로의 실제 진입 경로가
+`ssh nas 'bash -s -- prod <sha>' < deploy/deploy.sh` 라서 운영에서 늘 이 경로다.
+
+bash 자체 동작으로 먼저 최소 재현했다(배포 스크립트와 무관하게 성립한다):
+
+```text
+$ cat s.sh
+echo one
+cat > /dev/null
+echo two
+echo three
+
+$ bash s.sh < /dev/null        # 파일 인자
+one
+two
+three
+$ bash -s < s.sh; echo "exit=$?"   # 표준입력
+one
+exit=0
+```
+
+`two`/`three` 가 사라지고 종료 코드는 0 이다 — 결함의 모양과 정확히 같다.
+
+**리뷰의 재현 그대로(진짜 docker).** 리뷰 §D-20-4 의 스크립트를 그대로 돌렸다
+(`exec -T app` 만 이미 돌고 있는 로컬 개발 Redis 컨테이너의 `sleep 0.2` 로 바꿔치고
+나머지는 가짜 NAS 명령 — 실제 배포·DB 변경 없음):
+
+```text
+수정 전
+file  exit 0 health called True  completed True
+stdin exit 0 health called False completed False
+
+수정 후
+file  exit 0 health called True  completed True
+stdin exit 0 health called True  completed True
+```
+
+**고치기 전에 테스트로 고정.** 두 군데를 바꿔 결함을 테스트로 묶었다.
+
+1. `tests/fake_nas_bin/docker` — 진짜처럼 `exec -T` 에서 stdin 을 끝까지 읽는다
+   (`cat > /dev/null`). 리뷰가 지적한 "가짜 docker 는 stdin 을 소비하지 않아서
+   결함을 놓친다" 는 공백을 메운다. 부르는 쪽이 stdin 을 반드시 닫거나 넘기도록
+   `FakeNas.deploy()` 와 `run_dry()` 에 `stdin=subprocess.DEVNULL` 을 넣고
+   `tests/fake_nas_bin/README.md` 에 적었다.
+2. `FakeNas.deploy_via_stdin()` — 워크플로와 같은 `bash -s -- <args>` + 스크립트를
+   표준입력으로. 새 테스트 4개가 이 경로를 쓴다.
+
+red (수정 전, `tests/test_deploy_script.py -k stdin`):
+
+```text
+FAILED tests/test_deploy_script.py::test_deploy_via_stdin_runs_the_same_steps_as_a_file
+FAILED tests/test_deploy_script.py::test_deploy_via_stdin_still_checks_health
+FAILED tests/test_deploy_script.py::test_deploy_via_stdin_fails_when_health_is_not_200
+FAILED tests/test_deploy_script.py::test_deploy_via_stdin_fails_when_a_service_is_not_running
+4 failed, 29 deselected in 2.12s
+```
+
+실패 출력의 마지막 줄이 `... exec -T app uv run flask db upgrade` 이고 종료 코드가
+0 이다 — 리뷰가 적은 증상과 같다.
+
+**수정 내용.** `deploy/deploy.sh` 본문 전체를 `main()` 안으로 넣고 파일 맨 끝에서
+`main "$@" < /dev/null` 로 부른다. 어떤 자식도 스크립트 본문을 표준입력으로
+물려받지 않는다. 명령마다 `< /dev/null` 을 붙이는 대신 본문을 한 번에 끊은 이유는,
+나중에 입력을 읽는 명령이 하나 더 들어와도 같은 사고가 다시 나지 않게 하기
+위해서다. 함수 정의는 bash 가 본문 실행 **전에** 끝까지 읽으므로 그 자리에서
+표준입력을 끊어도 안전하다(아래 bash 3.2/5.2 실측). 증상(검사 생략)을 가리는 게
+아니라 "자식이 스크립트 본문을 물려받는다" 는 원인을 끊는다.
+
+변수에 `local` 을 붙인 것 말고 단계·분기·메시지·종료 코드는 그대로다.
+`.github/workflows/deploy.yml` 과 README §20 에는 왜 이렇게 부르는지만 적었다
+(README §20 의 "배포 스크립트가 입력을 받을 일은 없어서 걸리는 게 없다" 는 문장이
+바로 이 결함을 만든 추론이라 그 문단을 고쳐 적었다).
+
+green:
+
+```text
+$ uv run pytest tests/test_deploy_script.py -q
+.................................                                        [100%]
+33 passed in 4.18s
+```
+
+**bash 버전.** 로컬 bash 는 3.2(macOS)라 NAS·러너의 bash 5 에서도 같은지 확인했다.
+받아둔 로컬 이미지의 bash 5.2.37 로 표준입력 실행:
+
+```text
+$ docker run --rm -i -v "$PWD:/repo:ro" --entrypoint bash chosung-daily-app:latest -c '...
+  bash -s -- prod < /repo/deploy/deploy.sh'
+GNU bash, version 5.2.37(1)-release (aarch64-unknown-linux-gnu)
+== prod 배포: main → /tmp/docker/chosung-daily (chosung-daily-prod / .env)
++ git fetch --quiet origin main
++ git merge --ff-only origin/main
++ docker compose ... up -d --build
++ docker compose ... exec -T app uv run flask db upgrade
++ docker compose ... config --services
++ docker compose ... ps --services --filter status=running
++ docker compose ... port app 5000
+http://127.0.0.1:8089/health → 200 {"status":"ok"}
+== prod 배포 완료
+exit=0
+```
+
+같은 이미지에서 수정 전 모양(`bash -s < s.sh`)은 bash 5.2 에서도 `one` 만 찍고 0 으로
+끝났다 — 결함도, 수정도 두 버전에서 같이 재현된다.
+
+```text
+$ docker run --rm -v "$PWD:/mnt:ro" -w /mnt koalaman/shellcheck:stable deploy/deploy.sh
+shellcheck exit=0
+$ bash -n deploy/deploy.sh   # exit 0
+```
+
+### D-20-5 (MINOR) — README `### 20.` 이 공유 절 중간에 있었음
+
+**원인.** 라운드 1 시점의 로컬 main 에서는 `### 20.` 이 `설계 판단` 절 끝이었는데,
+그 뒤 main 에 티켓 02 의 두 절이 들어오면서 중간 삽입이 됐다. rebase 때 위치를
+다시 보지 않았다.
+
+**수정 내용.** `### 20.` 블록을 `설계 판단` 절 맨 끝(두 `### 02.` 절 뒤,
+`## 부하 테스트 요약` 앞)으로 옮겼다. 이번 rebase 로 main 에 티켓 21 의 `### 21.`
+절도 들어왔는데, 그 절은 티켓 21 소유라 건드리지 않고 그 뒤로 갔다.
+
+```text
+$ rg -n '^### ' README.md | tail -4
+415:### 21. 백업: cron 데몬 대신 sleep 루프, 덤프는 bind mount
+452:### 02. 퍼즐 언어 모델 — expand–contract 대신 마이그레이션 1개
+477:### 02. 가림(mask) 포맷 — 언어마다 다른 렌더링 코드를 만들지 않기
+505:### 20. 배포 스크립트를 ssh 표준입력으로 흘려보내는 이유
+
+$ git diff main..HEAD --stat -- README.md
+ README.md | 51 +++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 51 insertions(+)
+```
+
+삭제 0줄 — 공유 파일에 자기 번호 절만 끝에 덧붙인 상태다. `docs/RELEASE.md` 도
+이번 rebase 에서 티켓 21 절 뒤로 밀렸고, 여전히 모든 추가가 파일 끝 `### 20.`
+아래에 있다(D-20-3 유지).
+
+### 전체 검증 (로컬 main `72a2a3c` 위로 rebase 후)
+
+```text
+$ git log --oneline main..HEAD
+c85a1f9 fix(20) 라운드 2: 배포 본문을 stdin 없이 돌려 exec -T 가 스크립트를 먹지 않게
+bb5c1c4 review: 티켓 20 최종 리뷰 라운드 2
+519c090 fix(20) 라운드 1: NAS 빌드 커밋을 CI 통과 커밋에 고정 + /health 를 HTTP 200 으로 판정
+b98dc42 review: 티켓 20 최종 리뷰 라운드 1
+87e2b99 티켓 20 구현 증거 기록
+8798bff deploy.yml: CI 가 통과한 커밋만 Tailscale ssh 로 NAS 에 배포
+99052f3 deploy.sh: 인자 하나로 prod/develop 배포 + 가짜 NAS 명령으로 실제 실행 검증
+
+$ git status --short     # (출력 없음)
+
+$ uv run ruff check .
+All checks passed!
+
+$ TEST_DATABASE_URL="mysql+pymysql://chosung:***@127.0.0.1:3306/chosung_daily_test_t20?charset=utf8mb4" \
+  TEST_REDIS_URL="redis://127.0.0.1:6379/8" uv run pytest -q
+........................................................................ [ 31%]
+........................................................................ [ 62%]
+........................................................................ [ 93%]
+...............                                                          [100%]
+231 passed in 94.05s (0:01:34)
+
+$ uv run flask db heads
+4e72a4045fbc (head)
+
+$ git diff --check main..HEAD    # 출력 없음, exit 0
+
+$ git diff --stat main..HEAD -- migrations/   # 출력 없음 — 마이그레이션 변경 없음
+```
+
+187 → 231 은 rebase 로 들어온 티켓 21 의 테스트 + 이번 회귀 테스트 4개다. 테스트
+자원은 계속 이 티켓 전용(`chosung_daily_test_t20` / Redis DB 8,
+`chosung_daily_test_t20_migrations`)이고 공용 테스트 DB 는 건드리지 않았다.
+접속 정보 실값은 이 문서에 적지 않는다.
+
+`review/impl-review-20.md` 는 고치지 않았다(`git log main..HEAD --` 로 확인: 리뷰
+커밋 2개만 그 파일을 만진다). 실제 NAS·GitHub Actions·Tailscale 연결과 운영 컨테이너
+재기동은 여전히 금지 범위라 실행하지 않았고 `docs/RELEASE.md` D3 체크리스트의 사람
+작업으로 남아 있다. 위 Docker 사용은 (1) 이미 돌고 있는 로컬 개발 Redis 컨테이너의
+`sleep 0.2`, (2) 받아둔 로컬 이미지로 bash 5.2·shellcheck 확인뿐이고 이미지 빌드·
+`up`·`down` 은 없다.
