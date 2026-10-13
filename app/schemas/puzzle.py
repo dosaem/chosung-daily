@@ -7,6 +7,13 @@ from app.models.enums import PuzzleLanguage, WordCategory
 from app.utils.mask import MaskTile
 
 
+class AttemptView(BaseModel):
+    """시도 이력 한 행. 구분자를 뺀 글자열과 같은 길이의 피드백이다(spec §A.2)."""
+
+    guess: str
+    feedback: list[bool]
+
+
 class TodayPuzzleResponse(BaseModel):
     puzzle_id: int
     date: date
@@ -20,6 +27,11 @@ class TodayPuzzleResponse(BaseModel):
     length: int
     category: WordCategory
     attempts_left: int
+    # 제출한 순서 그대로. 웹·앱은 로컬 저장 이력을 버리고 이걸로 보드를 그린다.
+    attempts: list[AttemptView]
     status: Literal["in_progress", "success", "fail"]
+    # 힌트 미리 보기(보상형 광고)로 힌트를 연 적이 있는가. 티켓 06 에서 HintUnlock
+    # 조회로 바뀌기 전까지는 항상 false 다.
+    hint_unlocked: bool
     hint: str | None = None
     answer: str | None = None

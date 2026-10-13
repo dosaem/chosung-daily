@@ -112,12 +112,14 @@ def test_puzzle_cache_keys_are_split_by_language(client, make_today_puzzle):
 
 
 def test_stats_are_counted_per_language(client, make_today_puzzle):
-    make_today_puzzle(PuzzleLanguage.KO)
+    ko_puzzle = make_today_puzzle(PuzzleLanguage.KO)
     make_today_puzzle(PuzzleLanguage.EN, answer="apple", hint="red fruit")
 
     ko_guest = issue_guest()
     client.post(
-        "/api/v1/puzzles/today/guesses", headers=_headers(ko_guest), json={"guess": "사과"}
+        "/api/v1/puzzles/today/guesses",
+        headers=_headers(ko_guest),
+        json={"puzzle_id": ko_puzzle.id, "guess": "사과"},
     )
 
     ko_body = client.get("/api/v1/puzzles/today/stats", headers=_headers(ko_guest)).get_json()
@@ -136,7 +138,11 @@ def test_stats_keys_are_split_by_language(client, make_today_puzzle):
     today = ko_puzzle.puzzle_date.isoformat()
 
     guest = issue_guest()
-    client.post("/api/v1/puzzles/today/guesses", headers=_headers(guest), json={"guess": "사과"})
+    client.post(
+        "/api/v1/puzzles/today/guesses",
+        headers=_headers(guest),
+        json={"puzzle_id": ko_puzzle.id, "guess": "사과"},
+    )
 
     assert get_redis().hgetall(f"stats:{today}:ko") == {"1": "1"}
     assert get_redis().hgetall(f"stats:{today}:en") == {}
@@ -145,17 +151,21 @@ def test_stats_keys_are_split_by_language(client, make_today_puzzle):
 
 
 def test_leaderboard_is_separated_per_language(client, make_today_puzzle):
-    make_today_puzzle(PuzzleLanguage.KO)
-    make_today_puzzle(PuzzleLanguage.EN, answer="apple", hint="red fruit")
+    ko_puzzle = make_today_puzzle(PuzzleLanguage.KO)
+    en_puzzle = make_today_puzzle(PuzzleLanguage.EN, answer="apple", hint="red fruit")
 
     ko_guest = issue_guest()
     client.post(
-        "/api/v1/puzzles/today/guesses", headers=_headers(ko_guest), json={"guess": "사과"}
+        "/api/v1/puzzles/today/guesses",
+        headers=_headers(ko_guest),
+        json={"puzzle_id": ko_puzzle.id, "guess": "사과"},
     )
 
     en_guest = issue_guest(PuzzleLanguage.EN)
     client.post(
-        "/api/v1/puzzles/today/guesses", headers=_headers(en_guest), json={"guess": "apple"}
+        "/api/v1/puzzles/today/guesses",
+        headers=_headers(en_guest),
+        json={"puzzle_id": en_puzzle.id, "guess": "apple"},
     )
 
     ko_board = client.get(

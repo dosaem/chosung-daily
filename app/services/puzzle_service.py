@@ -5,8 +5,14 @@ from app.errors import NoPuzzleTodayError
 from app.models import DailyPuzzle, Guest, PuzzleLanguage
 from app.repositories.attempt_repository import list_for_guest_puzzle
 from app.repositories.puzzle_repository import find_by_date
-from app.schemas.puzzle import TodayPuzzleResponse
-from app.services.game_rules import MAX_ATTEMPTS, compute_reveal, summarize_attempts
+from app.schemas.puzzle import AttemptView, TodayPuzzleResponse
+from app.services.game_rules import (
+    MAX_ATTEMPTS,
+    compare_letters,
+    compute_reveal,
+    normalize_for_compare,
+    summarize_attempts,
+)
 from app.services.puzzle_cache import CachedPuzzle, cache_puzzle, get_cached_puzzle
 from app.utils.mask import mask_length, mask_to_text
 
@@ -49,6 +55,10 @@ def get_today_puzzle_view(guest: Guest) -> TodayPuzzleResponse:
     solved, wrong_count = summarize_attempts(attempts)
     finished, show_hint = compute_reveal(len(attempts), wrong_count, solved)
 
+    # 힌트 미리 보기는 티켓 06 에서 들어온다. OR 조건을 지금 써 두면 06 은 이 값을
+    # HintUnlock 조회로 바꾸기만 하면 된다(spec §A.2 "힌트 표시 규칙").
+    hint_unlocked = False
+
     if solved:
         status = "success"
     elif finished:
@@ -65,10 +75,30 @@ def get_today_puzzle_view(guest: Guest) -> TodayPuzzleResponse:
         length=mask_length(word.mask),
         category=word.category,
         attempts_left=MAX_ATTEMPTS - len(attempts),
+        attempts=_attempt_views(puzzle.language, word.answer, attempts),
         status=status,
-        hint=word.hint if show_hint else None,
+        hint_unlocked=hint_unlocked,
+        hint=word.hint if (show_hint or hint_unlocked) else None,
         answer=word.answer if finished else None,
     )
+
+
+def _attempt_views(language: PuzzleLanguage, answer: str, attempts) -> list[AttemptView]:
+    """시도 이력을 보드 한 줄씩으로 바꾼다(spec §A.2 "시도 이력 복원").
+
+    피드백은 저장하지 않고 정답과 다시 비교해서 만든다 — 같은 비교 규칙이 제출과
+    조회에 두 벌로 존재하면 언젠가 어긋난다. 정답 행은 글자가 전부 같으니 자연히
+    전부 `true` 가 된다(스펙 "미정 항목" 12 를 이 티켓에서 이렇게 확정했다).
+
+    저장된 guess 도 한 번 더 정규화한다 — 구분자 규칙이 지금과 달랐던 때의 행이
+    남아 있어도 `length` 와 같은 길이의 보드로 그려진다.
+    """
+    normalized_answer = normalize_for_compare(language, answer)
+    views = []
+    for attempt in attempts:
+        guess = normalize_for_compare(language, attempt.guess)
+        views.append(AttemptView(guess=guess, feedback=compare_letters(guess, normalized_answer)))
+    return views
 
 
 def _compat_chosung(language: PuzzleLanguage, word) -> str:

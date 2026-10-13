@@ -1,3 +1,8 @@
+import unicodedata
+
+from app.models.enums import PuzzleLanguage
+from app.utils.mask import SEPARATOR_CHARS
+
 MAX_ATTEMPTS = 5
 HINT_AFTER_WRONG = 3
 
@@ -40,3 +45,31 @@ def day_result(attempts_count: int, solved: bool) -> str:
     if attempts_count >= MAX_ATTEMPTS:
         return "fail"
     return "in_progress"
+
+
+def normalize_for_compare(language: PuzzleLanguage, text: str) -> str:
+    """정답 비교에 쓰는 글자열 — 구분자(공백·하이픈)를 빼고, en 은 대문자로 맞춘다.
+
+    가림(`mask`)이 구분자를 타일이 아닌 간격으로 보여주기 때문에(app/utils/mask.py),
+    플레이어는 "harry potter"든 "harry-potter"든 "harrypotter"든 같은 뜻으로 친다.
+    그래서 비교도 길이 검증도 `length`(= 구분자 제외 글자 수)와 같은 기준으로 한다.
+
+    en 을 대문자로 맞추는 건 비교를 대소문자 무시로 만들면서(spec §A.2) `mask` 의
+    보이는 타일(`_english_tile` 이 대문자로 통일)과 같은 모양을 쓰기 위해서다 —
+    이 함수의 결과를 `Attempt.guess` 에 그대로 저장하므로, 이력을 복원한 보드의
+    글자와 문제 타일의 글자가 한 화면에서 섞이지 않는다.
+    """
+    normalized = unicodedata.normalize("NFC", text.strip())
+    letters = "".join(ch for ch in normalized if ch not in SEPARATOR_CHARS)
+    return letters.upper() if language == PuzzleLanguage.EN else letters
+
+
+def compare_letters(guess: str, answer: str) -> list[bool]:
+    """글자별 피드백. 둘 다 `normalize_for_compare` 를 거친 글자열이어야 한다.
+
+    길이는 항상 정답 기준(= 응답의 `length`)이다. 제출 경로는 길이를 미리 검증하니
+    어차피 같지만, 시도 이력 복원은 구분자 규칙이 지금과 달랐던 옛 행도 그려야 해서
+    짧은 guess 를 빈칸으로 채워 길이를 맞춘다.
+    """
+    padded = guess.ljust(len(answer))
+    return [g == a for g, a in zip(padded, answer, strict=False)]

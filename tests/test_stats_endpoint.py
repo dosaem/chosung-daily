@@ -1,10 +1,14 @@
 from app.services.guest_service import issue_guest
 
 
-def _solve(client, token, guesses):
+def _solve(client, token, puzzle, guesses):
     headers = {"Authorization": f"Bearer {token}"}
     for g in guesses:
-        res = client.post("/api/v1/puzzles/today/guesses", headers=headers, json={"guess": g})
+        res = client.post(
+            "/api/v1/puzzles/today/guesses",
+            headers=headers,
+            json={"puzzle_id": puzzle.id, "guess": g},
+        )
     return res
 
 
@@ -19,10 +23,10 @@ def test_stats_with_no_solvers_is_all_zero(client, guest_headers, today_puzzle):
 
 def test_stats_reflects_attempt_distribution(client, today_puzzle):
     guest1 = issue_guest()
-    _solve(client, guest1.token, ["사과"])  # 1번째 시도에 정답
+    _solve(client, guest1.token, today_puzzle, ["사과"])  # 1번째 시도에 정답
 
     guest2 = issue_guest()
-    _solve(client, guest2.token, ["바바", "사과"])  # 2번째 시도에 정답
+    _solve(client, guest2.token, today_puzzle, ["바바", "사과"])  # 2번째 시도에 정답
 
     res = client.get(
         "/api/v1/puzzles/today/stats",

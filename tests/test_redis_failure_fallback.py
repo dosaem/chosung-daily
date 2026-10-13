@@ -9,7 +9,9 @@ def test_guess_submission_still_works_when_redis_is_down(
     client, guest_headers, today_puzzle, broken_redis
 ):
     res = client.post(
-        "/api/v1/puzzles/today/guesses", headers=guest_headers, json={"guess": "사과"}
+        "/api/v1/puzzles/today/guesses",
+        headers=guest_headers,
+        json={"puzzle_id": today_puzzle.id, "guess": "사과"},
     )
 
     assert res.status_code == 200
@@ -43,6 +45,8 @@ def test_rate_limit_does_not_block_when_redis_is_down(
 ):
     for _ in range(12):
         res = client.post(
-            "/api/v1/puzzles/today/guesses", headers=guest_headers, json={"guess": "바바"}
+            "/api/v1/puzzles/today/guesses",
+            headers=guest_headers,
+            json={"puzzle_id": today_puzzle.id, "guess": "바바"},
         )
         assert res.status_code != 429
