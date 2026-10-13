@@ -5,6 +5,7 @@ import json
 from app.extensions import get_redis
 from app.models import PuzzleLanguage
 from app.services.guest_service import issue_guest
+from app.services.puzzle_metrics import display_name
 
 
 def _headers(guest):
@@ -161,13 +162,13 @@ def test_leaderboard_is_separated_per_language(client, make_today_puzzle):
         "/api/v1/puzzles/today/leaderboard", headers=_headers(ko_guest)
     ).get_json()
     assert ko_board["language"] == "ko"
-    assert [e["guest_id"] for e in ko_board["entries"]] == [ko_guest.id]
+    assert [e["display"] for e in ko_board["entries"]] == [display_name(ko_guest.id)]
 
     en_board = client.get(
         "/api/v1/puzzles/today/leaderboard?language=en", headers=_headers(ko_guest)
     ).get_json()
     assert en_board["language"] == "en"
-    assert [e["guest_id"] for e in en_board["entries"]] == [en_guest.id]
+    assert [e["display"] for e in en_board["entries"]] == [display_name(en_guest.id)]
 
 
 def test_unsupported_language_query_param_is_a_validation_error(

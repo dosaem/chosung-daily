@@ -1,7 +1,7 @@
 from datetime import date, datetime
 
 from app.models import PuzzleLanguage
-from app.schemas.leaderboard import LeaderboardEntry, LeaderboardResponse
+from app.schemas.leaderboard import LeaderboardEntry, LeaderboardResponse, MyRank
 from app.schemas.stats import TodayStatsResponse
 from app.services.game_rules import MAX_ATTEMPTS
 from app.utils.redis_safe import safe_redis_call
@@ -11,6 +11,22 @@ from app.utils.redis_safe import safe_redis_call
 # 하루 안에 걸릴 수 있는 어떤 초 값보다도 압도적으로 커서, 시도 횟수가 항상
 # 먼저 비교되고 그 안에서만 걸린 시간으로 갈린다.
 SECONDS_PER_DAY = 86400
+
+# 리더보드 표시 이름의 자리수. guest.id 를 이 값으로 나눈 나머지를 16진 4자리로
+# 쓴다 — 게스트가 65536명을 넘으면 표시가 겹치지만, 이 문자열은 식별용이 아니라
+# "남"과 "나"를 구분해 보여주기 위한 라벨이라 충돌을 허용한다(스펙 US 13).
+DISPLAY_ID_MODULUS = 0x10000
+
+
+def display_name(guest_id: int) -> str:
+    """리더보드에 보여줄 익명 이름. 이메일·게스트 ID 원본은 응답에 넣지 않는다."""
+    return f"게스트 #{guest_id % DISPLAY_ID_MODULUS:04x}"
+
+
+def _split_score(score: float) -> tuple[int, int]:
+    """리더보드 점수를 (시도 횟수, 걸린 초)로 되돌린다."""
+    attempts, elapsed_seconds = divmod(int(score), SECONDS_PER_DAY)
+    return attempts, elapsed_seconds
 
 
 def stats_key(puzzle_date: date, language: PuzzleLanguage) -> str:
@@ -74,25 +90,44 @@ def get_today_stats(puzzle_date: date, language: PuzzleLanguage) -> TodayStatsRe
 def get_today_leaderboard(
     puzzle_date: date, language: PuzzleLanguage, limit: int, requesting_guest_id: int
 ) -> LeaderboardResponse:
-    raw_entries = (
-        safe_redis_call(
-            "zrange", _leaderboard_key(puzzle_date, language), 0, limit - 1, withscores=True
-        )
-        or []
-    )
+    key = _leaderboard_key(puzzle_date, language)
+    raw_entries = safe_redis_call("zrange", key, 0, limit - 1, withscores=True) or []
 
     entries = []
     for rank, (member, score) in enumerate(raw_entries, start=1):
         guest_id = int(member)
-        attempts, elapsed_seconds = divmod(int(score), SECONDS_PER_DAY)
+        attempts, elapsed_seconds = _split_score(score)
         entries.append(
             LeaderboardEntry(
                 rank=rank,
-                guest_id=guest_id,
+                display=display_name(guest_id),
                 attempts=attempts,
-                solved_in_seconds=elapsed_seconds,
+                seconds=elapsed_seconds,
                 is_me=(guest_id == requesting_guest_id),
             )
         )
 
-    return LeaderboardResponse(date=puzzle_date, language=language, entries=entries)
+    return LeaderboardResponse(
+        date=puzzle_date,
+        language=language,
+        entries=entries,
+        me=_my_rank(key, requesting_guest_id),
+    )
+
+
+def _my_rank(key: str, guest_id: int) -> MyRank | None:
+    """내 순위를 ZRANK 로 따로 읽는다 — limit 밖(예: 23위)이어도 내려줘야 한다.
+
+    아직 못 풀었으면 Sorted Set 에 멤버가 없어서 ZRANK 가 None 이고, 그때는 me 도
+    null 이다. Redis 장애 때도 safe_redis_call 이 None 을 주니 같은 길로 떨어진다.
+    """
+    rank = safe_redis_call("zrank", key, str(guest_id))
+    if rank is None:
+        return None
+
+    score = safe_redis_call("zscore", key, str(guest_id))
+    if score is None:
+        return None
+
+    attempts, elapsed_seconds = _split_score(score)
+    return MyRank(rank=rank + 1, attempts=attempts, seconds=elapsed_seconds)
