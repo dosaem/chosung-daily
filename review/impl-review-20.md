@@ -68,3 +68,111 @@
 결함 합계: BLOCKER 0, MAJOR 2, MINOR 1.
 
 판정: FAIL
+
+## 라운드 2
+
+- 검토일: 2026-10-14. 기준: 로컬 `main` (`4f9f179`) ... `HEAD` (`d82ffd5`), `origin/main` 미사용.
+- 검토 커밋: `b162115`, `751dcea`, `3a60f09`, `141bf83`, `d82ffd5` (`git log main..HEAD`). 티켓 20, 스펙 §C.27·US 64/65, CONTEXT, 전체 변경 파일, 이전 리뷰와 구현 증거를 대조했다.
+- 애플리케이션·테스트·설정·scratch 수정 없음. UI 변경 없음. NAS 접속·배포·외부 서비스 호출·push 없음. 아래 Docker 검증은 이미 실행 중인 로컬 개발 Redis 컨테이너에서 `sleep 0.2`만 실행하며 데이터·서비스 구성을 바꾸지 않는다.
+
+### 티켓 체크박스별 판정
+
+| 체크박스 | 판정 | 직접 확인한 근거 |
+|---|---|---|
+| 대상별 브랜치·디렉터리·포트·env·프로젝트 선택, Git 갱신/build/upgrade/재기동 확인/health 200, 양쪽 로컬 검증 | 미충족 | 두 대상의 dry-run·실행 테스트, 실제 Git 커밋 검사·실제 HTTP 302/200 테스트 통과. fetch + ff-only merge는 기존 pull의 갱신 역할을 수행한다. 그러나 실제 워크플로와 같은 표준입력 실행에서는 compose exec가 뒤의 서비스·health 검사를 소비하고 성공 종료한다(D-20-4). |
+| main/develop CI 성공 선행 → Tailscale → SSH, ci.yml은 develop 추가만 | 미충족 | 성공 조건·브랜치 매핑·SHA 전달·Tailscale 뒤 SSH 순서를 확인했고 ci.yml diff는 지정된 한 줄뿐이다. 다만 SSH가 쓰는 `bash -s` 경로에서 검사를 건너뛰어 장애 시 워크플로가 실패해야 한다는 동작을 충족하지 못한다(D-20-4). 실제 Actions·tailnet 연동은 금지 범위라 실행하지 않았다. |
+| secrets 표, NAS 사람 작업 D3 분리, push 금지 | 충족 | RELEASE의 티켓 20 절에 사용하는 secret 이름 4개와 D3 체크리스트가 있다. 리뷰 중 push하지 않았다. 구현자의 과거 push 여부는 로컬 기록만으로 독립 증명할 수 없다. |
+
+공유 파일 규칙: RELEASE는 충족(D-20-3 FIXED). 현재 main 기준 README 추가 위치는 설계 판단 절 끝이 아니어서 미충족(D-20-5).
+
+### 이전 결함 재판정
+
+| ID | 이전 심각도 | 판정 | 직접 확인한 근거 |
+|---|---|---|---|
+| D-20-1 | MAJOR | FIXED | `.github/workflows/deploy.yml:25,58`에서 승인 SHA를 NAS에 전달하고 `deploy/deploy.sh:109,120`에서 원격 끝·병합 후 HEAD를 비교한다. 실제 로컬 Git을 사용하는 네 회귀 테스트가 통과하며, A 승인 후 origin B 상황에서 Docker 호출 전에 중단한다. 이전 재현 조건의 결함은 해소됐다. |
+| D-20-2 | MAJOR | FIXED | `deploy/deploy.sh:156,159`에서 실제 HTTP 상태를 200과 비교한다. 실제 curl·루프백 HTTP 서버를 쓰는 302 실패/200 성공 회귀 테스트와 상태별 실패 테스트가 통과했다. 이 비교 자체는 수정됐으며, 비교에 도달하지 않는 별도 실행 경로는 D-20-4로 분리한다. |
+| D-20-3 | MINOR | FIXED | `git diff main...HEAD -- docs/RELEASE.md`에서 모든 추가가 파일 끝 `### 20.` 아래에 있고 secrets·D3는 그 하위 `####`이다. 이전 번호 없는 상위 블록 삽입은 없다. |
+
+### 직접 실행한 검증
+
+- `TEST_DATABASE_URL`은 구현 증거의 로컬 접속 형식으로 기존 `chosung_daily_test_t20`을 지정하고 `TEST_REDIS_URL=redis://127.0.0.1:6379/8`로 `uv run pytest -q` 실행 → **187 passed in 62.06s**, exit 0. 접속 정보 값은 이 문서에 기록하지 않는다. 기본 DB fallback·새 DB 생성·간헐 실패·재실행 없음. 마이그레이션 테스트도 기존 티켓 전용 파생 DB를 사용했다.
+- `uv run ruff check .` → **All checks passed!**, exit 0.
+- `bash -n deploy/deploy.sh` → exit 0.
+- `uv run flask db heads` → `4e72a4045fbc (head)` 한 줄. 티켓 diff에 마이그레이션 변경은 없다.
+- `git diff --check main...HEAD` → 출력 없음, exit 0.
+- 배포 테스트는 항상 통과하는 테스트가 아니며 실패 분기와 실제 Git/HTTP 회귀 검증이 유효하다. 다만 `FakeNas.deploy()`는 파일 인자로 Bash를 실행하고 fake Docker는 stdin을 소비하지 않아서 아래 실제 실행 방식의 결함을 놓친다.
+
+### 신규 결함
+
+#### D-20-4 — compose exec가 SSH로 전달한 스크립트 뒷부분을 소비하여 검증을 생략함
+
+- 심각도: **MAJOR**
+- 위치: `deploy/deploy.sh:129`, `.github/workflows/deploy.yml:58`; 테스트 공백: `tests/test_deploy_script.py:80`.
+- 원인: 워크플로는 `bash -s -- ...`로 스크립트를 표준입력에서 읽는데, `docker compose exec -T`도 같은 표준입력을 컨테이너로 전달한다. `-T`는 TTY만 끄며 stdin 전달을 차단하지 않는다. Bash가 아직 읽지 않은 서비스 조회·health 루프가 exec의 입력으로 소비된다.
+- 재현: 아래 명령은 레포 루트에서 실행한다. 실제 Docker의 stdin 처리를 그대로 사용하되 마이그레이션 대신 이미 실행 중인 로컬 개발 Redis 컨테이너의 무해한 `sleep 0.2`를 실행한다. 나머지 단계는 기존 fake NAS 명령을 사용하므로 실제 배포나 DB 변경은 없다.
+
+```bash
+uv run python - <<'PY'
+import importlib.util
+import pathlib
+import shutil
+import subprocess
+import tempfile
+
+spec = importlib.util.spec_from_file_location('dt', 'tests/test_deploy_script.py')
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+with tempfile.TemporaryDirectory() as directory:
+    p = pathlib.Path(directory)
+    nas = m.FakeNas(p, 'chosung-daily', fakes=('git', 'curl', 'sleep'))
+    wrapper = p / 'bin/docker'
+    compose = pathlib.Path('docker-compose.yml').resolve()
+    wrapper.write_text(
+        '#!/bin/sh\ncase "$*" in\n *"exec -T app"*) exec '
+        + shutil.which('docker') + ' compose -f ' + str(compose)
+        + ' -p chosung-daily exec -T redis sh -c "sleep 0.2" ;;\n'
+        + ' *) exec ' + str(m.FAKE_BIN / 'docker') + ' "$@" ;;\nesac\n'
+    )
+    wrapper.chmod(0o755)
+    for mode in ('file', 'stdin'):
+        cmd = (['bash', str(m.DEPLOY_SH), 'prod'] if mode == 'file'
+               else ['bash', '-s', '--', 'prod'])
+        result = subprocess.run(
+            cmd, input=m.DEPLOY_SH.read_text() if mode == 'stdin' else None,
+            env=nas.env, capture_output=True, text=True, timeout=20,
+        )
+        print(mode, 'exit', result.returncode,
+              'health called', '/health' in result.stdout,
+              'completed', '배포 완료' in result.stdout)
+PY
+```
+
+- 기대: 두 실행 방식 모두 서비스 상태와 health를 검사하고 같은 결과를 낸다. 검사되지 않은 배포가 성공으로 종료하면 안 된다.
+- 실제 직접 실행 출력:
+
+```text
+file exit 0 health called True completed True
+stdin exit 0 health called False completed False
+```
+
+- stdin 모드의 마지막 출력은 `... exec -T app uv run flask db upgrade`이며 이후 config/ps/port/curl 호출이 전부 없다. 마이그레이션 프로세스 자체가 stdin을 읽지 않는 경우도 Docker CLI가 이를 전달하면서 소비하는 문제임을 실제 Docker와 `sleep`으로 확인했다.
+- 영향: worker 미기동이나 health 실패가 있어도 자동 배포 잡이 성공으로 표시될 수 있다. 표준입력으로 실행하는 실제 진입 경로와 stdin을 처리하는 하위 프로세스를 포함한 검증이 필요하다.
+
+#### D-20-5 — README 공유 절의 끝에 추가해야 하는 규칙 위반
+
+- 심각도: **MINOR**
+- 위치: `README.md:386`.
+- 재현: `git diff main...HEAD -- README.md` 및 `rg -n '^##|^###' README.md`.
+- 기대: 티켓의 공통 규칙대로 자기 번호 `### 20.`을 현재 `설계 판단` 섹션 끝에 덧붙인다.
+- 실제: `### 20.`이 기존 `### 02. 퍼즐 언어 모델`과 `### 02. 가림(mask)`보다 앞에 삽입돼 있다. 현재 절 끝은 이 두 02 절 뒤, `## 부하 테스트 요약` 앞이다.
+- 영향: 병렬 티켓의 공유 파일 추가 경계를 위반한다. 이전 리뷰에서는 README가 절 끝이었지만 현재 로컬 main에 티켓 02가 포함된 diff에서는 중간 삽입이다. 내용이나 소제목 번호 자체의 취향 문제가 아니라 명시된 추가 위치 규칙 위반이다.
+
+### 참고 및 검증 한계
+
+- 인증·CSRF 애플리케이션 코드 변경 없음. 프로젝트명·env 선택은 prod/develop을 분리하며 볼륨 삭제 명령은 없다. 새 변경에서 운영 키·토큰·비밀번호 실값은 발견하지 않았다. 증거 문서에는 기존 개발용 DB 접속 문자열이 있으므로 운영 시크릿 부재와 모든 자격 증명 문자열 부재는 구별했다.
+- 컨테이너 build/up·실제 NAS 마이그레이션·GitHub Actions/Tailscale 전체 연결은 실행하지 않았다. 구현 증거의 과거 실행 로그를 이번 검증 결과로 대체하지 않았다.
+- 파일 인자 실행과 stdin 실행을 비교한 재현은 로컬 Docker의 실제 입력 처리를 검증한다. 운영 NAS에서 직접 재현했다는 뜻은 아니다.
+
+현재 열린 결함 합계: **BLOCKER 0, MAJOR 1, MINOR 1**. 이전 결함 3건 FIXED, REPEAT 0건.
+
+판정: FAIL
