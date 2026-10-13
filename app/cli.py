@@ -2,6 +2,7 @@ import click
 from flask.cli import with_appcontext
 
 from app.services.book_lookup_service import search_books
+from app.services.operator_alert_service import notify_operator
 from app.services.puzzle_schedule_service import schedule_puzzles
 from app.services.word_service import add_word_from_book, seed_words_from_csv
 
@@ -73,7 +74,22 @@ def search_books_command(query, size, add_index):
             click.echo(f"이미 등록돼 있음: {word.answer} (chosung={word.chosung})")
 
 
+@click.command("notify-operator-test")
+@with_appcontext
+def notify_operator_test_command():
+    """운영자 Slack 알림이 실제로 도착하는지 한 번 확인한다.
+
+    Webhook URL 은 운영자가 .env 에 넣는 값이라, 코드가 아니라 이 명령으로
+    "채널에 뜨는지" 를 확인하는 게 유일한 검증 수단이다.
+    """
+    if notify_operator("연결 테스트", "운영자 알림 경로가 살아 있습니다."):
+        click.echo("전송 완료 — Slack 채널을 확인하세요")
+    else:
+        click.echo("전송하지 않음 — SLACK_WEBHOOK_URL 설정과 서버 로그를 확인하세요")
+
+
 def register_commands(app):
     app.cli.add_command(seed_words_command)
     app.cli.add_command(schedule_puzzles_command)
     app.cli.add_command(search_books_command)
+    app.cli.add_command(notify_operator_test_command)
