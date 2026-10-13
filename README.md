@@ -282,6 +282,27 @@ provider_user_id)`)로 Guest를 건드리지 않고 위에 얹었다. 같은 pro
 후보가 없으면(예: 일요일인데 최근에 안 쓴 책 제목이 없음) 카테고리 제한을 풀고
 다시 찾아서, 빈 날짜가 생기진 않는다.
 
+### 19. prod 프로젝트명 유지 이유 (compose 파라미터화)
+
+같은 NAS 에서 prod 와 develop 을 동시에 돌리려고 `docker-compose.prod.yml` 에서
+고정 `container_name` 과 최상위 `name:` 을 지우고, 호스트 포트·env 파일을
+`${APP_PORT}`·`${ENV_FILE:-.env}` 로 뺐다. 프로젝트명은 `-p` 로 준다.
+
+여기서 바꾸지 **않은** 게 하나 있다 — prod 의 compose 프로젝트명은 기존
+`chosung-daily-prod` 를 그대로 쓴다. compose 의 named volume 실제 이름은
+`<프로젝트명>_<볼륨키>` 라서, 프로젝트명을 "더 깔끔하게" 바꾸는 순간 기존
+`chosung-daily-prod_mysql-data` 가 아니라 **빈 볼륨이 새로 생겨서 붙는다**.
+서비스는 정상적으로 뜨고 `/health` 도 ok 인데 DB 만 비어 있어서, 퍼즐 기록과
+게스트 토큰이 전부 날아간 것처럼 보인다(데이터는 옛 볼륨에 남아 있지만 아무도
+안 본다). 이름 한 줄이 데이터 손실처럼 보이는 사고로 이어지는 구조라, 이름은
+건드리지 않고 `docs/RELEASE.md` 첫 배포 체크에 "NAS 의 실제 프로젝트명·볼륨명
+확인 후 `up`" 을 넣었다.
+
+같은 이유로 `.env`/`.env.develop` 에 `COMPOSE_PROJECT_NAME` 을 넣어 둔다.
+compose 는 프로젝트 디렉터리의 `.env` 를 자동으로 읽기 때문에, 누가 `-p` 를 빼고
+`docker compose -f docker-compose.prod.yml up -d` 만 쳐도 디렉터리 이름에서
+프로젝트명을 추측하지 않고 같은 프로젝트(= 같은 볼륨)에 붙는다.
+
 ### 01. 외부 호출 래퍼와 도메인 판정 함수의 분리
 
 외부 provider(Slack, Apple, App Store, Play, Google Books) 호출은 `app/clients/<provider>.py`
@@ -313,6 +334,11 @@ provider_user_id)`)로 Guest를 건드리지 않고 위에 얹었다. 같은 pro
 자정 퍼즐 배정이나 매일 백업이라, Slack 이 죽었다고 그 작업이 깨지면 알림을 붙인 쪽이
 손해다 — Redis 장애 때 게임을 DB 로 계속 돌리는 것과 같은 판단이다.
 
+그 경고 로그에는 **예외 타입과 HTTP 상태 코드만** 넣는다. `requests` 예외는 메시지
+(`... for url: <URL>`)와 traceback 양쪽에 요청 URL 을 담는데, 여기서 URL 은 곧 비밀값이다 —
+`exc_info=True` 로 두면 운영 실패 한 번에 Webhook 비밀이 로그 수집기로 복제되고, 로그는
+회수할 수 없다. 노출 회귀는 `tests/test_slack_client.py` 가 가짜 응답에 URL 을 붙여서 잡는다.
+
 ### 01. CSRF 토큰 방식
 
 웹 폼(계정 삭제, 운영자 화면)은 쿠키 세션만으로 인증하므로, 다른 사이트가 만든 POST 에도
@@ -328,35 +354,24 @@ provider_user_id)`)로 Guest를 건드리지 않고 위에 얹었다. 같은 pro
 폼 값과 상수 시간 비교" 뿐이고, 폼 검증·필드 렌더링까지 딸려오는 확장을 들이면 면접에서
 설명할 코드보다 설명할 라이브러리 동작이 많아진다.
 
-설계상 두 가지를 의도적으로 정했다.
+설계상 세 가지를 의도적으로 정했다.
 
+- **"1회용" 은 세션이 아니라 Redis 가 보장한다.** Flask 의 기본 세션은 서명된 쿠키라서 상태가
+  전부 클라이언트에 있다. `session.pop` 은 응답 `Set-Cookie` 를 바꿀 뿐이라, 브라우저나
+  중간 프록시가 들고 있던 **옛 쿠키를 그대로 다시 보내면 세션 안의 토큰이 되살아난다**
+  (새로고침 연타·더블 클릭이 만드는 동시 제출은 애초에 전부 같은 옛 쿠키를 들고 온다).
+  그래서 검증을 통과한 토큰은 해시를 키로 `SET csrf:used:<sha256> NX` 로 Redis 에
+  기록한다 — `NX` 가 왕복 한 번의 원자적 연산이라 동시 제출 중 하나만 통과한다. TTL 은
+  `PERMANENT_SESSION_LIFETIME`: Flask 가 세션 쿠키를 풀 때 이 값을 `max_age` 로 검사하므로
+  그보다 오래된 쿠키는 애초에 세션이 안 열리고, 소비 기록을 더 들고 있을 이유가 없다.
+  기록을 못 남기면(Redis 없음·장애) 통과시키지 않고 403 이다 — 랭킹·통계와 달리 여기서는
+  "실행 못 함" 보다 **"계정 삭제가 두 번 실행됨"** 이 비싸서 폴백하지 않는다.
 - **성공한 토큰만 폐기한다.** 틀린 값을 던진 요청이 세션 토큰을 지워버리면, 아무나 잘못된
   POST 를 한 번 보내서 사용자가 열어둔 폼을 무효화할 수 있다. 검증을 통과한 다음에만 토큰을
   버려서, 새로고침 재전송(같은 삭제가 두 번)은 막고 실패 요청은 폼을 건드리지 않는다.
 - **비교는 bytes 로 한다.** `secrets.compare_digest` 는 비 ASCII 문자가 든 `str` 을 받으면
   `TypeError` 를 낸다 — 한글이 섞인 아무 값을 폼에 넣으면 403 이어야 할 요청이 500 이 된다.
   양쪽을 `encode()` 해서 넘긴다.
-
-### 19. prod 프로젝트명 유지 이유 (compose 파라미터화)
-
-같은 NAS 에서 prod 와 develop 을 동시에 돌리려고 `docker-compose.prod.yml` 에서
-고정 `container_name` 과 최상위 `name:` 을 지우고, 호스트 포트·env 파일을
-`${APP_PORT}`·`${ENV_FILE:-.env}` 로 뺐다. 프로젝트명은 `-p` 로 준다.
-
-여기서 바꾸지 **않은** 게 하나 있다 — prod 의 compose 프로젝트명은 기존
-`chosung-daily-prod` 를 그대로 쓴다. compose 의 named volume 실제 이름은
-`<프로젝트명>_<볼륨키>` 라서, 프로젝트명을 "더 깔끔하게" 바꾸는 순간 기존
-`chosung-daily-prod_mysql-data` 가 아니라 **빈 볼륨이 새로 생겨서 붙는다**.
-서비스는 정상적으로 뜨고 `/health` 도 ok 인데 DB 만 비어 있어서, 퍼즐 기록과
-게스트 토큰이 전부 날아간 것처럼 보인다(데이터는 옛 볼륨에 남아 있지만 아무도
-안 본다). 이름 한 줄이 데이터 손실처럼 보이는 사고로 이어지는 구조라, 이름은
-건드리지 않고 `docs/RELEASE.md` 첫 배포 체크에 "NAS 의 실제 프로젝트명·볼륨명
-확인 후 `up`" 을 넣었다.
-
-같은 이유로 `.env`/`.env.develop` 에 `COMPOSE_PROJECT_NAME` 을 넣어 둔다.
-compose 는 프로젝트 디렉터리의 `.env` 를 자동으로 읽기 때문에, 누가 `-p` 를 빼고
-`docker compose -f docker-compose.prod.yml up -d` 만 쳐도 디렉터리 이름에서
-프로젝트명을 추측하지 않고 같은 프로젝트(= 같은 볼륨)에 붙는다.
 
 ## 부하 테스트 요약
 

@@ -1,5 +1,8 @@
 """Slack Incoming Webhook 래퍼. 네트워크 호출은 전부 가짜 requests.post 로 대체한다."""
 
+import logging
+import traceback
+
 import pytest
 import requests
 
@@ -9,10 +12,11 @@ from app.clients import slack
 class _RecordingPost:
     """requests.post 대역. 호출 인자를 기록하고 정해둔 응답/예외를 돌려준다."""
 
-    def __init__(self, status_code=200, raises=None):
+    def __init__(self, status_code=200, raises=None, url=None):
         self.calls = []
         self._status_code = status_code
         self._raises = raises
+        self._url = url
 
     def __call__(self, url, **kwargs):
         self.calls.append((url, kwargs))
@@ -20,6 +24,9 @@ class _RecordingPost:
             raise self._raises
         response = requests.Response()
         response.status_code = self._status_code
+        # 실제 응답은 요청 URL 을 들고 있다 — raise_for_status 의 에러 메시지에
+        # 그 URL 이 들어가는 걸 재현해야 비밀 노출 회귀를 잡을 수 있다.
+        response.url = self._url if self._url is not None else url
         return response
 
 
@@ -63,3 +70,42 @@ def test_swallows_error_status(webhook_app, monkeypatch):
     monkeypatch.setattr(slack.requests, "post", post)
 
     assert slack.post_webhook_message("배정 실패") is False
+
+
+def test_failure_log_does_not_leak_webhook_url(webhook_app, monkeypatch, caplog):
+    """Incoming Webhook URL 경로 자체가 인증 비밀이다 — 실패 로그로 새면 안 된다.
+
+    실제 `Response.raise_for_status()` 가 만드는 HTTPError 는 메시지에 요청 URL 을
+    담고, traceback 에도 URL 이 들어간다. 그래서 가짜 응답에도 URL 을 붙여 둔다.
+    """
+    url = webhook_app.config["SLACK_WEBHOOK_URL"]
+    post = _RecordingPost(status_code=500, url=url)
+    monkeypatch.setattr(slack.requests, "post", post)
+
+    with caplog.at_level(logging.WARNING, logger=slack.logger.name):
+        assert slack.post_webhook_message("배정 실패") is False
+
+    assert caplog.records, "실패를 알리는 경고 로그는 남아야 한다"
+    for record in caplog.records:
+        rendered = record.getMessage()
+        if record.exc_info is not None:
+            rendered += "".join(traceback.format_exception(*record.exc_info))
+        assert url not in rendered
+        assert "T000" not in rendered
+
+
+def test_failure_log_does_not_leak_url_from_exception_message(webhook_app, monkeypatch, caplog):
+    """requests 가 던지는 예외 메시지에도 URL 이 들어온다 — 그 경로도 막아야 한다."""
+    url = webhook_app.config["SLACK_WEBHOOK_URL"]
+    post = _RecordingPost(raises=requests.Timeout(f"timed out for url: {url}"))
+    monkeypatch.setattr(slack.requests, "post", post)
+
+    with caplog.at_level(logging.WARNING, logger=slack.logger.name):
+        assert slack.post_webhook_message("배정 실패") is False
+
+    assert caplog.records
+    for record in caplog.records:
+        rendered = record.getMessage()
+        if record.exc_info is not None:
+            rendered += "".join(traceback.format_exception(*record.exc_info))
+        assert url not in rendered

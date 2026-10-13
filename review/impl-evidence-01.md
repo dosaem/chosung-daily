@@ -212,3 +212,166 @@ PRODUCT.md 에 남겼다. 코디네이터가 22~31 워커 스펙에 전달하기
   으로 갱신했다. `.scratch` 원본은 그대로 뒀다.
 - `impeccable detect` 가 Jinja `url_for` 링크를 못 푼다 — 웹 UI 티켓(15·18)은 CSS 를 인자로
   같이 주거나 렌더된 URL 을 스캔해야 한다.
+
+## 수정 라운드 1
+
+`review/impl-review-01.md` 라운드 1(판정 FAIL)의 MAJOR 2건·MINOR 1건을 받아 고쳤다. 각 결함은
+리뷰에 적힌 재현 명령으로 **먼저 재현**하고, 그 재현을 실패하는 테스트로 고정한 뒤 고쳤다.
+BLOCKER·REPEAT 는 없었다.
+
+### D-01-1 (MAJOR) — Slack 실패 로그의 Webhook 비밀 URL 노출 → 수정
+
+**원인.** `app/clients/slack.py` 가 `logger.warning(..., exc_info=True)` 로 requests 예외
+전문을 남겼다. `Response.raise_for_status()` 가 만드는 `HTTPError` 는 메시지에
+`... for url: <요청 URL>` 을 담고 traceback 에도 URL 이 들어가는데, Slack Incoming Webhook 은
+**URL 경로 자체가 인증 비밀**이다. 즉 운영 중 Slack 이 5xx 를 한 번만 돌려줘도 비밀이 로그
+수집·열람 경로로 복제되고, 로그는 회수할 수 없다. 증상(로그 한 줄)이 아니라 "예외 객체를
+그대로 로그에 넘긴다" 는 원인을 고쳤다.
+
+재현(리뷰의 명령 그대로, 수정 전):
+
+```
+result False
+url_logged True
+```
+
+**수정.** 예외를 로그에 넘기지 않고 **예외 타입 이름과 HTTP 상태 코드만** 남긴다
+(`app/clients/slack.py`). `exc_info` 와 `str(exc)` 둘 다 쓰지 않으므로 메시지 경로·traceback
+경로가 같이 막힌다. 반환값(실패 시 `False`, 호출자에게 예외 안 올림)·타임아웃 3초·빈 URL
+no-op 동작은 그대로다.
+
+**증명.** 같은 재현 명령, 수정 후:
+
+```
+result False
+url_logged False
+logged_line Slack webhook 전송 실패 (HTTPError, status=500)
+```
+
+회귀 테스트 2개를 `tests/test_slack_client.py` 에 추가했다. 리뷰가 지적한 "가짜 응답에 URL 이
+없어서 못 잡았다" 는 구멍을 먼저 메웠다 — `_RecordingPost` 가 응답에 요청 URL 을 실어주도록
+고쳐서, 가짜 응답으로도 실제 `raise_for_status()` 의 에러 메시지가 재현된다.
+
+- `test_failure_log_does_not_leak_webhook_url` — 5xx 경로. 남은 로그 레코드의
+  `getMessage()` + `exc_info` traceback 을 합쳐서 URL 과 워크스페이스 토큰(`T000`)이 없는지
+  본다. "경고 로그는 남는다" 도 같이 assert 해서, 로그를 아예 지워서 통과하는 수정은 못 한다.
+- `test_failure_log_does_not_leak_url_from_exception_message` — 예외 메시지에 URL 이 든
+  타임아웃 경로(실제 `requests` 가 이렇게 던진다).
+
+수정 전 두 테스트는 실패하고(`assert 'https://hooks.slac...' not in 'Slack webho...'`,
+HTTPError traceback 에 URL 이 그대로 보였다), 수정 후 통과한다.
+
+### D-01-2 (MAJOR) — 원래 세션 쿠키로 소비된 CSRF 토큰 재사용 가능 → 수정
+
+**원인.** Flask 기본 세션은 **서명된 쿠키**라서 상태가 전부 클라이언트에 있다.
+`session.pop(SESSION_KEY)` 은 응답 `Set-Cookie` 를 바꾸는 것뿐이고 서버에는 "이 토큰을 썼다"
+는 기록이 남지 않는다. 그래서 토큰을 담고 있던 **옛 쿠키를 그대로 다시 보내면** 세션 안의
+토큰이 되살아나 다시 통과한다. 새로고침 연타·더블 클릭이 만드는 동시 제출은 애초에 전부
+같은 옛 쿠키를 들고 오므로 응답 쿠키로는 구분할 수 없다. 쿠키 세션 안에 머무는 어떤 방법으로도
+고칠 수 없고 **서버측 상태**가 필요하다는 것이 원인 진단의 결론이다.
+
+재현(리뷰의 명령 그대로, 수정 전): `200` / `403` / **`200`** — 세 번째가 원래 쿠키 재전송.
+
+**수정.** 검증을 통과한 토큰의 소비 사실을 Redis 에 원자적으로 기록한다(`app/csrf.py`).
+
+- 키는 토큰 원문이 아니라 `csrf:used:<sha256(token)>` — 원문을 키로 쓰면 `KEYS`·`MONITOR`·
+  슬로우로그 같은 운영 경로에 아직 유효한 토큰이 남는다.
+- 연산은 `SET ... NX EX <ttl>` 하나. "없을 때만 쓰기" 를 왕복 한 번의 원자적 연산으로 하므로
+  동시 제출 중 정확히 하나만 `True` 를 받는다. `exists` → `set` 2단계로 쪼개면 둘 다 통과한다.
+- TTL 은 `PERMANENT_SESSION_LIFETIME`. Flask 는 세션 쿠키를 풀 때 이 값을 `max_age` 로
+  검사하므로(`SecureCookieSessionInterface.open_session`) 그보다 오래된 쿠키는 서명이 맞아도
+  세션이 안 열린다 — 그 시점부터는 소비 기록을 들고 있을 이유가 없다. 임의의 상수가 아니다.
+- **발급(`issue_csrf_token`)은 Redis 를 건드리지 않는다.** 소비 기록만 서버에 남기면 되고,
+  폼을 그리는 GET 이 Redis 장애로 500 이 되면 안 된다.
+- 세션 `pop` 은 남겼다 — 보장의 근거는 아니지만, 이미 쓴 토큰을 계속 쿠키에 실어 보내지 않기
+  위한 정리다.
+- 저장소 선택: 이 레포에서 쓸 수 있는 서버측 상태는 Redis(이미 캐시·레이트리밋·리더보드가
+  쓴다)와 MySQL 새 테이블뿐이다. 후자는 마이그레이션 추가라서(이 티켓은 마이그레이션 0개,
+  CI head 검사 대상) 피했다.
+- **Redis 장애 시 fail-closed(403).** `safe_redis_call` 이 `None` 을 돌려주면 "소비 기록을
+  남기지 못했다" 로 보고 통과시키지 않는다. 랭킹·통계는 폴백해서 넘기는 게 맞지만 이
+  데코레이터를 쓰는 건 계정 삭제·운영자 폼이라 **"실행 못 함" 보다 "두 번 실행됨" 이 비싸다**.
+  1회용 보장이 Redis 상태에 따라 조용히 사라지는 쪽(fail-open)은 같은 결함의 재발이라 택하지
+  않았다. 이 판단은 코디네이터에게 `orca orchestration ask` 로 확인 요청을 보냈고(A/B/C 옵션),
+  답을 기다리는 동안 추천안 A(fail-closed)로 구현했다. 반대 결정이 오면 `_claim_token` 의
+  반환 한 줄로 뒤집을 수 있다.
+
+**증명.** 같은 재현 명령, 수정 후(Redis DB 3): `200` / `403` / `403` — 기대 출력과 일치.
+
+회귀 테스트 3개를 `tests/test_csrf.py` 에 추가했다.
+
+- `test_replayed_original_cookie_cannot_reuse_a_consumed_token` — 리뷰의 재현을 그대로 고정.
+  수정 전 실패(`200` 이 와서 403 assert 가 깨짐), 수정 후 통과.
+- `test_only_one_of_several_same_cookie_submits_passes` — 같은 원래 쿠키를 든 클라이언트 3개의
+  제출 중 하나만 통과(`sorted(statuses) == [200, 403, 403]`). 리뷰가 "동시 요청 역시 소비
+  상태를 공유하지 못한다" 고 지적한 경계다. 수정 전 `[200, 200, 200]` 으로 실패, 수정 후 통과.
+- `test_submit_is_forbidden_while_redis_is_down` — `broken_redis` fixture 로 Redis 장애를 만들고
+  403 을 확인한다. fail-closed 를 테스트로 못 박아서, 나중에 조용히 fail-open 으로 바뀌면 깨진다.
+
+기존 CSRF 테스트 7개(발급·성공·누락·한글 오입력·일반 재전송·실패가 유효 토큰을 태우지 않음)는
+그대로 통과한다 — 틀린 값을 던진 요청은 비교 단계에서 막혀 소비 기록을 남기지 않는다.
+
+README `### 01. CSRF 토큰 방식` 의 설계 판단을 실제 구현에 맞게 갱신했다(서명 쿠키 세션의
+한계, `SET NX` 와 TTL 근거, fail-closed 선택). `### 01. Slack Webhook 선택 근거` 에는 실패
+로그에 URL 을 넣지 않는 이유를 한 단락 추가했다.
+
+### D-01-3 (MINOR) — 공유 파일 append 규칙 위반 → 일부 수정, 일부 반론
+
+**수정한 것(2곳).** 티켓 공통 규칙("자기 행/자기 번호 소제목만 섹션 끝에 덧붙인다")대로 옮겼다.
+
+- `.env.example`: `SLACK_WEBHOOK_URL` 블록을 Redis 설정과 도서 API 키 사이 삽입에서
+  **파일 끝**으로 이동. 다른 티켓이 건드리는 중간 영역을 더 이상 차지하지 않는다.
+- `README.md`: `### 01.` 소제목 3개를 기존 `### 19.` **뒤**(설계 판단 절 끝)로 이동. 내용은
+  그대로이고 위치만 바뀌었다. `git diff main...HEAD -- README.md` 에서 19절 내용은 변경 0줄.
+
+**고치지 않은 것(1곳) — 근거.** 설계 판단 절 머리의 공통 안내(`> 아래 ... 이 절 끝에
+덧붙인다`) 는 그대로 뒀다. 이 티켓이 그 안내를 넣으라고 **명시적으로 지시받은 작업**이기
+때문이다:
+
+- 티켓 체크박스: "README '설계 판단' 절을 `### NN.` 소제목 구조로 **시작하고** …"
+  (`.scratch/store-launch/issues/01-prefactor-lint-docs-clients.md`)
+- 같은 파일 리뷰 노트 P1-13: "병렬 티켓의 공유 파일 … 충돌 규칙은 **이 티켓이 README
+  구조(`### NN.`)로 시작하고 전 티켓 공통 규칙 줄로 반영함**"
+
+즉 "공통 위치 변경은 코디네이터에게" 라는 일반 규칙과 "01 이 이 구조를 시작한다" 는 티켓
+지시가 충돌하는 자리이고, 후자가 이 티켓에 대한 더 구체적인 지시다. 이 안내가 없으면 02 이후
+티켓들은 `### NN.` 규칙을 README 안에서 읽을 곳이 없다. 코디네이터가 다르게 판단하면 그 세
+줄만 지우면 되고 다른 변경에는 영향이 없다.
+
+### 미수정 MINOR / 리뷰어 지적에 대한 기타 메모
+
+- 리뷰 "참고 및 한계" 의 테스트 개수 불일치(`test_slack_client.py` 4개를 5개로 적음)는 이
+  문서의 수치 오류였다. 이번 라운드에서 2개를 추가해 **6개**가 됐다. 결함으로 세지 않은
+  항목이지만, 숫자를 쓰는 대신 아래 실행 출력으로 대체한다.
+- 체크박스 2(`impeccable init` 산출물)의 "증거 부족" 은 PATH 에 실행 파일이 없어 리뷰어가
+  독립 실행을 못 한 것이고, 결함으로 제기되지 않았다. 산출물(`.impeccable/config.json`,
+  `PRODUCT.md` 의 DESIGN_DIR 두 경로)은 커밋돼 있다. 이번 라운드에서 건드리지 않았다.
+- ADR 0003 도입부/후반 설명 혼재, 문서 테스트가 ADR 을 3개로 고정하는 점은 리뷰어가 이 티켓
+  결함으로 세지 않은 향후 참고 사항이라 손대지 않았다(수정 범위 초과 금지).
+
+### 수정 라운드 1 최종 검증
+
+전용 자원으로만 돌렸다: DB `chosung_daily_test_t01`, Redis DB 3. 공용 테스트 DB·Redis DB 1 은
+건드리지 않았다.
+
+```
+$ uv run ruff check .
+All checks passed!
+
+$ TEST_DATABASE_URL=...chosung_daily_test_t01... TEST_REDIS_URL=redis://127.0.0.1:6379/3 \
+    uv run pytest -q --tb=short
+108 passed in 36.08s
+
+$ ... uv run pytest -q tests/test_csrf.py tests/test_slack_client.py
+16 passed in 11.77s
+
+$ FLASK_APP=wsgi.py FLASK_ENV=testing ... ./scripts/check_migration_heads.sh
+9ec267465b4e (head)
+OK: Alembic head 1개
+```
+
+라운드 1 시작 시 103개였던 테스트가 108개다(추가 5개: Slack 2, CSRF 3). 새 마이그레이션 없음,
+`flask db heads` 1줄 유지. 로컬 `main`(`feb2553`) 위로 rebase 된 상태이고 작업 트리는 clean 이다.
+변경 파일은 `app/clients/slack.py`, `app/csrf.py`, `tests/test_slack_client.py`,
+`tests/test_csrf.py`, `README.md`, `.env.example`, 이 문서. `review/impl-review-01.md` 는
+수정하지 않았다.
