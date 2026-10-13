@@ -1,0 +1,19 @@
+#!/bin/sh
+# 가짜 docker — compose 질의에 답하고 호출을 기록한다.
+printf 'docker %s\n' "$*" >> "$FAKE_LOG"
+
+if [ -n "${FAKE_DOCKER_FAIL:-}" ]; then
+  case "$*" in
+    *"$FAKE_DOCKER_FAIL"*) echo "fake docker: $FAKE_DOCKER_FAIL 실패" >&2; exit 1 ;;
+  esac
+fi
+
+case "$*" in
+  *"config --services"*)
+    for s in ${FAKE_DOCKER_SERVICES:-mysql redis app worker beat}; do echo "$s"; done ;;
+  *"ps --services"*)
+    for s in ${FAKE_DOCKER_RUNNING:-mysql redis app worker beat}; do echo "$s"; done ;;
+  *"port app 5000"*)
+    echo "${FAKE_DOCKER_PORT:-127.0.0.1:8089}" ;;
+esac
+exit 0
