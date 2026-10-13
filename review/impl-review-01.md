@@ -109,3 +109,48 @@ PY
 `env -u TEST_DATABASE_URL TEST_REDIS_URL=redis://127.0.0.1:6379/15 uv run pytest -q --tb=short` → **103 passed in 41.17s**, exit 0. 코디네이터가 허용한 기본 로컬 테스트 DB로 1회 실행하여 통과했으며, 공유 자원 충돌로 인한 재실행은 없었다. 테스트 통과와 별개로 D-01-1·D-01-2를 독립 재현했으므로 FAIL이다.
 
 판정: FAIL
+
+## 라운드 2
+
+- 기준: 로컬 `main` = `feb2553`, 구현 HEAD = `c17379f`. `git log main..HEAD` 12커밋 및 `git diff main...HEAD` 31파일을 직접 확인했다. origin/main은 사용하지 않았다.
+- 범위: 티켓 01의 9개 체크박스, 스펙 §A.7·A.11·A.12·A.17·C.31·C.32·Further Notes, 구현 증거와 이전 리뷰. UI 변경은 없다.
+- 현재 결함: BLOCKER 0 / MAJOR 0 / MINOR 0. 이전 결함 3개는 모두 FIXED로 판정하며 새 결함은 없다.
+
+### 체크박스별 확인
+
+| # | 요구 | 결과 | 직접 확인한 근거 |
+|---|---|---|---|
+| 1 | CONTEXT/ADR 루트 이관 및 domain.md 경로 일치 | 충족 | 원본/사본과 `docs/agents/domain.md`를 대조했다. 정본 안내와 ADR 0003의 스펙 재조회 설명 외 원본 내용이 보존되고 `.scratch/` 변경은 없다. |
+| 2 | impeccable init 산출물 및 DESIGN_DIR 두 경로 | 증거 부족 | 설정과 `PRODUCT.md:76` 이후 두 경로·OVERRIDES 우선순위가 커밋되어 있다. 현재 PATH에 impeccable이 없어 init 실행 자체와 도구의 소비는 독립 검증할 수 없었다. 이전 라운드와 동일한 검증 한계이며 새 결함으로 세지 않는다. |
+| 3 | ruff PL/RUF/SIM/PT 및 기존 코드 정리 | 충족 | 규칙 추가, 두 순환 import 파일 및 테스트 매직값의 제한된 예외와 근거 주석 확인. ruff 직접 실행 통과. |
+| 4 | CI 단일 migration head 검사 | 충족 | CI가 실행 가능한 검사 스크립트를 호출한다. 실제 head 출력은 1줄이며 스크립트 exit 0. 신규 migration 없음. |
+| 5 | Slack 래퍼·3초·실패 로그·빈 URL no-op | 충족 | requests 경계만 대체하는 테스트와 구현 확인. 이전 URL 유출 재현을 다시 실행하여 실패 반환·경고 존재·URL 비노출 확인(D-01-1). |
+| 6 | notify_operator 및 monkeypatch 호출 인자 검증 | 충족 | 실제 서비스가 제목과 본문을 조립하며 래퍼 monkeypatch로 태그·제목·줄바꿈·본문과 실패 반환을 검증한다. |
+| 7 | 세션 1회용 CSRF·403 FORBIDDEN·재사용 거부 | 충족 | 비교 후 Redis `SET NX EX` 성공 시에만 실행. 원래 쿠키 재전송 회귀 검증과 별도 6개 동시 요청 확인(D-01-2). 미적용 헬퍼이며 실제 앱 라우트는 바꾸지 않았다. |
+| 8 | README 번호 구조·설계 판단 3개 | 충족 | `### 01.` 3개가 기존 19절 뒤에 추가됐다. 공통 안내는 티켓 P1-13의 명시적 구조 도입 지시로 인정(D-01-3). |
+| 9 | SLACK_WEBHOOK_URL 예시 추가·실제 환경값 불변 | 충족 | `.env.example` 끝에 빈 값 추가. `.env`·`.env.prod.example` 변경 없음. |
+
+### 이전 결함 판정
+
+- **D-01-1 — FIXED (이전 MAJOR)** — `app/clients/slack.py:28-36`. 이전 라운드의 `.invalid` URL을 가진 실제 `requests.Response(status=500)` 재현을 그대로 실행했다. 기대와 실제 모두 `result False`, `url_logged False`, `warning_present True`. 예외 원문과 traceback 대신 예외 타입/상태 코드만 기록한다. HTTP 오류 및 URL을 포함한 Timeout 회귀 테스트가 메시지와 traceback을 모두 검사한다.
+- **D-01-2 — FIXED (이전 MAJOR)** — `app/csrf.py:43-45,92-95`. 원래 쿠키를 복원하는 테스트가 403을 검증한다. 추가로 메모리 Flask 앱에 실제 헬퍼와 로컬 Redis DB 15를 연결하고, 토큰 발급 당시 쿠키를 6개 클라이언트에 복사해 `ThreadPoolExecutor(max_workers=6)`로 POST했다. 기대와 실제 정렬 상태가 모두 `[200, 403, 403, 403, 403, 403]`이고 소비 키 TTL도 양수였다. 검증 후 해당 임시 키만 삭제했다. Redis 장애 시 403으로 닫히며 오입력은 정상 토큰을 소비하지 않는다.
+- **D-01-3 — FIXED (이전 MINOR)** — `.env.example:33-36`, `README.md:306,321,342`. `git diff main...HEAD -- .env.example README.md` 재확인 결과 환경변수는 파일 끝, 01 소제목들은 기존 19절 뒤인 설계 판단 절 끝에 추가되었다. 기대 append 위치와 실제가 일치하고 19절 내용은 보존됐다. 공통 안내에 대한 이전 지적은 철회한다: 티켓 리뷰 노트 P1-13이 01에 공통 규칙 줄과 번호 구조 도입을 명시적으로 맡겼으므로 이 안내는 허용된 작업이다.
+
+### 직접 실행한 검증
+
+- `uv run ruff check .` → `All checks passed!`, exit 0.
+- `env -u TEST_DATABASE_URL FLASK_APP=wsgi.py FLASK_ENV=testing TEST_REDIS_URL=redis://127.0.0.1:6379/15 ./scripts/check_migration_heads.sh` → `9ec267465b4e (head)` 1줄 및 `OK: Alembic head 1개`, exit 0. 마이그레이션 적용 없음.
+- `env -u TEST_DATABASE_URL TEST_REDIS_URL=redis://127.0.0.1:6379/15 uv run pytest -q --tb=short` 첫 실행 → `106 passed, 3 errors in 40.72s`. Slack 테스트 teardown의 MySQL 3730 FK drop 충돌 및 stats 테스트 setup의 MySQL 1684 `definition is being modified by concurrent DDL statement` 등 공유 DB 충돌이 발생했다. 기본 DB `chosung_daily_test`를 사용했고 새 DB를 만들지 않았다. 지시에 따라 같은 명령으로 1회 재실행했다.
+
+### 참고 및 한계
+
+- `test_only_one_of_several_same_cookie_submits_passes` 자체는 순차 제출이다. 이번 리뷰에서 실제 스레드 동시 제출을 추가 확인했으므로 현재 구현 결함으로 올리지 않는다.
+- Redis에 소비 기록이 유지되는 조건에서 1회용을 보장한다. Redis 장애 시 fail-closed 선택은 구현·README·회귀 테스트가 일치한다.
+- 외부 서비스 호출, 프로덕션/NAS 접근, 배포, push 없음. 변경 파일에서 실제 시크릿 추가나 새로운 인증 우회·데이터 손상 경로를 발견하지 못했다. Slack의 테스트 주소는 가짜 값이다.
+- 애플리케이션·테스트·설정·`.scratch/`는 수정하지 않았다. 소유 파일인 이 리뷰 문서만 갱신한다.
+
+### 재실행 결과와 최종 판단
+
+동일 명령의 두 번째 실행도 공유 DB 동시 DDL 충돌이 계속되어 **`2 failed, 66 passed, 44 errors in 25.88s`**, exit 1이었다. MySQL 1684가 여러 fixture의 create/drop에서 반복되었다. 따라서 **이번 라운드에서 전체 스위트 통과는 확인하지 못했다**. 첫 실행에서 CSRF·Slack 신규 테스트 본문이 실행됐고 독립 Slack 재현 및 실제 동시 CSRF 제출은 통과했지만, 이를 전체 회귀 통과로 대체하지 않는다. 공유 DB를 독점할 수 있는 시점의 전체 재검증은 코디네이터에게 남긴다. 티켓 변경에 귀속되는 새 제품 결함은 확인되지 않았으며, PASS는 이전 결함 수정에 대한 코드 리뷰 판정이다.
+
+판정: PASS
