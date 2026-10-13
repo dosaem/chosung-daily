@@ -553,6 +553,14 @@ bash 가 본문 실행 전에 끝까지 읽으므로 표준입력을 끊어도 �
 뒤에 A 의 배포가 끝나면서 운영이 조용히 옛 커밋으로 되돌아갈 수 있어서 그렇게 하지
 않았다.
 
+**그 sha 검사는 스크립트 안에 있으니 신뢰 경계가 못 된다.** 배포 잡을 여는 조건이
+`workflow_run` 의 브랜치 이름과 성공 여부뿐이면, `ci.yml` 이 `pull_request` 에서도
+도는 탓에 **이름이 `main`/`develop` 인 PR 브랜치의 CI** 도 배포를 연다. 그러면 러너가
+그 커밋을 checkout 해서 **그 커밋의 `deploy.sh`** 를 배포 secret 으로 연 NAS 에 흘려
+보낸다 — 스크립트 안의 어떤 검사도 같은 PR 이 같이 고칠 수 있으니 소용없다. 그래서
+잡의 `if` 에서 **선행 CI 가 이 저장소의 `push` 였는지**(`workflow_run.event == 'push'`,
+`head_repository.full_name == github.repository`)를 checkout·secret 사용 전에 본다.
+
 ## 부하 테스트 요약
 
 자정 트래픽 스파이크(0→50 VU, `GET /puzzles/today` + 30% `POST .../guesses`)로

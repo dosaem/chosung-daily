@@ -15,7 +15,15 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    if: github.event.workflow_run.conclusion == 'success'
+    # 트리거의 `branches` 는 브랜치 *이름* 만 본다 — ci.yml 은 `pull_request` 에서도
+    # 돌기 때문에, 이름이 main/develop 인 PR 브랜치의 CI 가 성공하면 그것도 여기로
+    # 들어온다. 그러면 아직 병합되지 않은(그리고 fork 라면 남의) 커밋의 deploy.sh 가
+    # 배포 secret 으로 연 NAS 에서 실행된다. 스크립트 안의 검사는 그 커밋이 같이
+    # 바꿀 수 있으니 신뢰 경계가 못 된다 — checkout·secret 앞에서 막는다.
+    if: >-
+      github.event.workflow_run.conclusion == 'success'
+      && github.event.workflow_run.event == 'push'
+      && github.event.workflow_run.head_repository.full_name == github.repository
 
     # main 이 아닌 브랜치는 트리거의 branches 필터가 develop 만 통과시킨다.
     env:

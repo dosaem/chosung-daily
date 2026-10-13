@@ -75,6 +75,83 @@ def test_deploy_only_runs_when_ci_succeeded(deploy):
     assert "success" in condition
 
 
+REPO = "dosaem/chosung-daily"
+
+
+def _resolve(token, context):
+    token = token.strip()
+    if token.startswith("'") and token.endswith("'"):
+        return token[1:-1]
+    value = context
+    for part in token.split("."):
+        value = value[part]
+    return value
+
+
+def _allows(condition, context):
+    """`if:` 의 `a == b && ...` 를 컨텍스트에 대입해 평가한다.
+
+    GitHub 식을 전부 해석하진 않는다 — 배포 게이트가 쓰는 `&&` 와 `==` 만 다룬다.
+    그 밖의 연산자가 들어오면 조용히 통과시키지 않고 실패한다.
+    """
+    for term in condition.split("&&"):
+        left, operator, right = term.partition("==")
+        assert operator, f"지원하지 않는 식: {term.strip()}"
+        if _resolve(left, context) != _resolve(right, context):
+            return False
+    return True
+
+
+def _workflow_run(event, *, conclusion="success", head_repo=REPO, branch="main"):
+    """선행 CI 의 workflow_run 이벤트 페이로드."""
+    return {
+        "github": {
+            "repository": REPO,
+            "event": {
+                "workflow_run": {
+                    "event": event,
+                    "conclusion": conclusion,
+                    "head_branch": branch,
+                    "head_repository": {"full_name": head_repo},
+                }
+            },
+        }
+    }
+
+
+@pytest.mark.parametrize("branch", ["main", "develop"])
+def test_deploy_runs_for_push_ci_on_deploy_branches(deploy, branch):
+    condition = deploy["jobs"]["deploy"]["if"]
+
+    assert _allows(condition, _workflow_run("push", branch=branch))
+
+
+def test_deploy_blocks_pull_request_ci(deploy):
+    """ci.yml 은 `pull_request` 에서도 돈다 — PR 브랜치 이름이 main 이면 배포가 열린다.
+
+    열리면 러너가 PR 의 커밋을 checkout 해서 그 `deploy/deploy.sh` 를 배포 secret 으로
+    연 NAS 로 흘려보낸다. 병합 전 코드가 NAS 에서 실행되는 것이라 스크립트 안의
+    SHA 검사로는 막을 수 없다(그 검사도 PR 이 바꿀 수 있는 코드다).
+    """
+    condition = deploy["jobs"]["deploy"]["if"]
+
+    assert not _allows(condition, _workflow_run("pull_request"))
+    assert not _allows(condition, _workflow_run("pull_request", branch="develop"))
+
+
+def test_deploy_blocks_ci_from_a_forked_head_repository(deploy):
+    """fork 의 PR CI 도 같은 이름의 브랜치를 쓸 수 있다 — 저장소 출처까지 봐야 한다."""
+    condition = deploy["jobs"]["deploy"]["if"]
+
+    assert not _allows(condition, _workflow_run("push", head_repo="attacker/chosung-daily"))
+
+
+def test_deploy_blocks_failed_push_ci(deploy):
+    condition = deploy["jobs"]["deploy"]["if"]
+
+    assert not _allows(condition, _workflow_run("push", conclusion="failure"))
+
+
 def test_deploy_maps_branch_to_target(deploy):
     """main → prod, develop → develop. 푸시된 브랜치는 workflow_run 이벤트에서 읽는다."""
     flat = _flat(deploy["jobs"]["deploy"])
