@@ -12,7 +12,7 @@
 
 - [ ] 예약 계획 순수 함수: (지금, 설정{시각, 리마인더 on}, 완료한 KST 퍼즐 날짜 집합, 기기 시간대) → 원하는 (id, 발화 시각) 집합. 일일 = ID 고정 반복 1개(`matchDateTimeComponents: time`), 리마인더 = 앞으로 7일치 1회성(ID 날짜 기반), 발화 시각의 KST 날짜가 완료 집합에 있으면 제외, 일일과 같은 시각이면 제외, 총 ≤8
 - [ ] 단위 테스트: 오늘 제외·내일 유지, 미주 시간대 KST 경계, 두 언어 중 하나 완료, 7일 롤링 보충, 대기 ≤8, 시간대 변경 재계산
-- [ ] OS 대기 목록과 diff(취소/추가) 하는 동기화 함수를 앱 시작·포그라운드 복귀·퍼즐 완료·알림 탭·설정 변경·계정/백업 코드 전환(27) 에서 호출. Android `inexactAllowWhileIdle`, exact alarm 권한 매니페스트 미포함, `timezone` 로컬 존. 권한 상태는 26 의 결과 사용
+- [ ] OS 대기 목록과 diff(취소/추가) 하는 동기화 함수를 앱 시작·포그라운드 복귀·퍼즐 완료·알림 탭·설정 변경·22 의 게스트 토큰 Provider 변경(계정·백업 코드 전환, 담당 티켓 27)을 구독해서 호출 — 27 산출물에 의존하지 않고 22 의 토큰 상태만 구독한다. Android `inexactAllowWhileIdle`, exact alarm 권한 매니페스트 미포함, `timezone` 로컬 존. 권한 상태는 26 의 결과 사용
 - [ ] 탭 처리: 실행 중 `onDidReceiveNotificationResponse`, 종료 상태 `getNotificationAppLaunchDetails` → go_router 오늘 탭 + `GET /puzzles/today` 재조회
 - [ ] 25 의 S4 알림 자리를 채움: 일일 시각 picker, 리마인더 스위치, 권한 거부 시 "알림 꺼짐 — 시스템 설정에서 켜기"(설정 앱 열기). `audit.native` 통과, 목업 `e4_records` 설정 리스트 대비(알림 행은 목업 없음 — 명세+토큰)
 - [ ] 실기기 체크리스트(iOS·Android): 정답 후 같은 날 20:00 없음, 다음 날 20:00 있음, 앱 종료 상태 탭 cold/warm — `docs/RELEASE.md` 에 자기 절 추가(없으면 만든다; 실행은 사람). README Flutter 절에 "서버 푸시 대신 로컬 알림" 근거
@@ -23,3 +23,4 @@
 - P2-10: `audit.native` 완료 조건 추가
 - P1-15/P3-16: 참조 목업 명시
 - P1-13: RELEASE.md 없으면 만들고 자기 절만
+- (r2) P1-26/P3-21: 알림 재계산 연결 주체는 이 티켓이며 22 의 게스트 토큰 Provider 를 구독하므로 27 에 의존하지 않음을 명시
