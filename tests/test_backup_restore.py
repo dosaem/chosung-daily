@@ -14,10 +14,15 @@ import gzip
 import os
 import subprocess
 import time
+from datetime import date
 from pathlib import Path
 
 import pytest
 import yaml
+
+from app import create_app
+from app.extensions import get_redis
+from app.services.puzzle_cache import _cache_key, get_cached_puzzle
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS = ROOT / "scripts"
@@ -64,12 +69,14 @@ def stub(tmp_path):
             _write_stub(self.bin, name, body)
 
         def run(self, script, *args, **env):
+            # 종료 코드는 테스트가 직접 본다(실패 경로를 검증하는 테스트가 있다).
             return subprocess.run(
                 [str(SCRIPTS / script), *args],
                 capture_output=True,
                 text=True,
                 env={**self.env, **env},
                 cwd=str(ROOT),
+                check=False,
             )
 
         def args(self, name):
@@ -325,9 +332,12 @@ def test_restore_pipes_dump_into_the_project_mysql(docker_stub, dump_file):
 
     args = docker_stub.args("docker")
     assert args[:1] == ["compose"]
-    assert "-p" in args and args[args.index("-p") + 1] == "chosung-daily-develop"
+    assert "-p" in args
+    assert args[args.index("-p") + 1] == "chosung-daily-develop"
     assert args[args.index("-f") + 1] == "docker-compose.prod.yml"
-    assert "exec" in args and "-T" in args and "mysql" in args
+    assert "exec" in args
+    assert "-T" in args
+    assert "mysql" in args
     # 압축을 푼 SQL 이 컨테이너 stdin 으로 들어간다.
     assert docker_stub.call_stdin("docker", 0).startswith("DROP DATABASE IF EXISTS")
 
@@ -430,12 +440,6 @@ def test_restore_docs_do_not_sell_an_app_restart_as_cache_cleanup(doc):
 def test_restarting_the_app_does_not_clear_the_puzzle_cache(app):
     """D-21-3 의 뿌리. 앱을 새로 띄워도(= `restart app worker beat`) Redis 의
     퍼즐 캐시는 그대로 살아 있다 — 그래서 restore.sh 가 직접 지운다."""
-    from datetime import date
-
-    from app import create_app
-    from app.extensions import get_redis
-    from app.services.puzzle_cache import _cache_key, get_cached_puzzle
-
     stale_date = date(2099, 12, 21)
     get_redis().set(
         _cache_key(stale_date),
@@ -446,7 +450,8 @@ def test_restarting_the_app_does_not_clear_the_puzzle_cache(app):
     restarted = create_app("testing")
     with restarted.app_context():
         cached = get_cached_puzzle(stale_date)
-        assert cached is not None and cached.id == 212121, "재시작만으로 캐시가 지워졌다"
+        assert cached is not None, "재시작만으로 캐시가 지워졌다"
+        assert cached.id == 212121
         # restore.sh 가 하는 일: 파생 키를 직접 지운다.
         for key in get_redis().scan_iter(match="puzzle:*"):
             get_redis().delete(key)
