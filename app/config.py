@@ -46,6 +46,12 @@ class Config:
     SESSION_COOKIE_SAMESITE = "Lax"
     SESSION_COOKIE_SECURE = os.environ.get("SESSION_COOKIE_SECURE", "false").lower() == "true"
 
+    # Cloudflare Tunnel이 TLS를 엣지에서 끝내고 내부로는 평문 HTTP로 넘긴다.
+    # 이걸 모르면 url_for(..., _external=True)가 OAuth redirect_uri를 http://로
+    # 만들어버려서 구글/애플 콘솔에 등록한 https:// URI와 안 맞아 로그인이 막힌다
+    # (실제로 겪은 문제). ProxyFix가 X-Forwarded-Proto를 읽어 스킴을 바로잡는다.
+    TRUST_PROXY = False
+
 
 class DevelopmentConfig(Config):
     DEBUG = True
@@ -81,7 +87,7 @@ class TestingConfig(Config):
 
 
 class ProductionConfig(Config):
-    pass
+    TRUST_PROXY = True
 
 
 CONFIG_BY_NAME = {

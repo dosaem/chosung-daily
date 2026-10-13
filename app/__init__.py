@@ -1,4 +1,5 @@
 from flask import Flask
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from app.api import register_blueprints
 from app.cli import register_commands
@@ -15,6 +16,9 @@ def create_app(config_name: str | None = None) -> Flask:
 
     app = Flask(__name__, template_folder="../web/templates", static_folder="../web/static")
     app.config.from_object(CONFIG_BY_NAME[config_name])
+
+    if app.config["TRUST_PROXY"]:
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
 
     db.init_app(app)
     migrate.init_app(app, db)
