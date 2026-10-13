@@ -262,7 +262,7 @@ $ uv run python guarded_run.py
 
 ### rebase 후 전체 재검증
 
-로컬 `main` **4f9f179**(티켓 02·21 머지 포함) 위로 rebase 했다. 작업 트리는 clean.
+로컬 `main` **72a2a3c**(티켓 02 머지 4f9f179 + 티켓 21 머지) 위로 rebase 했다. 작업 트리는 clean.
 
 ```
 $ uv run ruff check .
