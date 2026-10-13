@@ -1,0 +1,22 @@
+{
+  "status": 2,
+  "originalTransactionId": "2000000111111111",
+  "signedTransactionInfo": {
+    "originalTransactionId": "2000000111111111",
+    "transactionId": "2000000222222222",
+    "bundleId": "com.chosungdaily.app",
+    "productId": "adfree_monthly",
+    "expiresDate": 1793491200000,
+    "purchaseDate": 1790812800000,
+    "type": "Auto-Renewable Subscription",
+    "inAppOwnershipType": "PURCHASED",
+    "environment": "Production"
+  },
+  "signedRenewalInfo": {
+    "originalTransactionId": "2000000111111111",
+    "autoRenewProductId": "adfree_monthly",
+    "productId": "adfree_monthly",
+    "autoRenewStatus": 1,
+    "environment": "Production"
+  }
+}
