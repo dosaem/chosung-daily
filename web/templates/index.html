@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="ko">
+<html lang="{{ ui_language }}">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>오늘의 초성</title>
+  <title>{{ t.app_title }}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v={{ asset_version }}" />
 </head>
 <body>
@@ -19,53 +19,67 @@
     {% endwith %}
 
     <header class="header">
-      <h1>오늘의 초성</h1>
-      <p id="streak" class="streak">🔥 -</p>
+      <h1>{{ t.app_title }}</h1>
+      <p id="streak" class="streak">{{ t.streak_loading }}</p>
     </header>
 
     <section class="account">
       <p id="linked-account" class="linked-account hidden"></p>
-      <button id="google-login-button" type="button" class="link-button">구글로 로그인</button>
-      <button id="apple-login-button" type="button" class="link-button">Apple로 로그인</button>
-      <button id="backup-button" type="button" class="link-button">내 기록 백업</button>
-      <button id="restore-button" type="button" class="link-button">다른 기기 기록 불러오기</button>
+      <button id="google-login-button" type="button" class="link-button">{{ t.login_google }}</button>
+      <button id="apple-login-button" type="button" class="link-button">{{ t.login_apple }}</button>
+      <button id="backup-button" type="button" class="link-button">{{ t.backup_open }}</button>
+      <button id="restore-button" type="button" class="link-button">{{ t.restore_open }}</button>
     </section>
 
     <div id="backup-panel" class="panel hidden">
-      <p class="panel-desc">이 코드를 저장해두면 다른 기기에서도 같은 기록으로 이어할 수 있어요.</p>
+      <p class="panel-desc">{{ t.backup_desc }}</p>
       <div class="token-row">
         <input id="token-display" type="text" readonly />
-        <button id="copy-token-button" type="button">복사</button>
+        <button id="copy-token-button" type="button">{{ t.copy }}</button>
       </div>
-      <p id="copy-token-done" class="copied hidden">복사했어요!</p>
+      <p id="copy-token-done" class="copied hidden">{{ t.copied }}</p>
     </div>
 
     <div id="restore-panel" class="panel hidden">
-      <p class="panel-desc">백업해둔 코드를 붙여넣으면 그 기록을 이 기기로 가져와요.</p>
+      <p class="panel-desc">{{ t.restore_desc }}</p>
       <div class="token-row">
-        <input id="token-input" type="text" placeholder="백업 코드 붙여넣기" autocomplete="off" />
-        <button id="restore-submit-button" type="button">불러오기</button>
+        <input
+          id="token-input"
+          type="text"
+          placeholder="{{ t.backup_code_placeholder }}"
+          autocomplete="off"
+        />
+        <button id="restore-submit-button" type="button">{{ t.restore_submit }}</button>
       </div>
       <p id="restore-message" class="message"></p>
     </div>
 
+    {# 퍼즐 언어 칩. UI 언어와 별개로, 어떤 언어의 문제를 풀지 고른다. #}
+    <section class="language-chips" aria-label="{{ t.puzzle_language_label }}">
+      <span class="language-label">{{ t.puzzle_language_label }}</span>
+      <button type="button" class="chip" data-puzzle-language="ko" aria-pressed="false">
+        {{ t.puzzle_language_ko }}
+      </button>
+      <button type="button" class="chip" data-puzzle-language="en" aria-pressed="false">
+        {{ t.puzzle_language_en }}
+      </button>
+    </section>
+
     <section id="puzzle" class="puzzle">
       <p id="date" class="date"></p>
       <p id="category" class="category"></p>
-      <p id="chosung" class="chosung">...</p>
+      {# 가림 타일 행. 서버 `mask` 로만 그린다 (r 글자 / h 빈 타일 / s 간격). #}
+      <div id="mask-row" class="tile-row mask-row"></div>
+      <p id="length-caption" class="length-caption"></p>
       <p id="attempts-left" class="attempts-left"></p>
     </section>
 
-    <section id="history" class="history"></section>
+    {# 시도 보드. 로컬 저장이 아니라 서버 `attempts` 로 복원한다. #}
+    <section id="board" class="board"></section>
 
     <form id="guess-form" class="guess-form">
-      <input
-        id="guess-input"
-        type="text"
-        autocomplete="off"
-        placeholder="정답을 입력하세요"
-      />
-      <button type="submit">제출</button>
+      <input id="guess-input" type="text" autocomplete="off" placeholder="{{ t.guess_placeholder }}" />
+      <button type="submit">{{ t.submit }}</button>
     </form>
 
     <p id="hint" class="hint"></p>
@@ -73,11 +87,22 @@
 
     <section id="result" class="result hidden">
       <p id="result-text" class="result-text"></p>
-      <button id="share-button" type="button">결과 공유하기</button>
-      <p id="share-copied" class="copied hidden">클립보드에 복사했어요!</p>
+      <button id="share-button" type="button">{{ t.share_open }}</button>
+      <p id="share-copied" class="copied hidden">{{ t.share_copied }}</p>
+    </section>
+
+    {# 순위 섹션. 섹션 전환 링크("순위 · 내 기록" 토글) 디자인은 티켓 18. #}
+    <section id="leaderboard-section" class="leaderboard">
+      <h2>{{ t.leaderboard_heading }}</h2>
+      <p id="my-rank" class="my-rank"></p>
+      <ol id="leaderboard-entries" class="leaderboard-entries"></ol>
+      <p id="leaderboard-message" class="leaderboard-message"></p>
+      <h3>{{ t.stats_heading }}</h3>
+      <ul id="today-stats" class="today-stats"></ul>
     </section>
   </main>
 
+  <script id="ui-strings" type="application/json">{{ t | tojson }}</script>
   <script src="{{ url_for('static', filename='app.js') }}?v={{ asset_version }}"></script>
 </body>
 </html>

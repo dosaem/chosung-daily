@@ -1,15 +1,38 @@
-"""웹 프론트(Jinja 1장 + vanilla JS)의 계약.
+"""웹 메인 페이지 렌더 + 번들 계약.
 
-JS 테스트 러너가 없어서 번들 내용으로 확인하는 테스트와, 실제 `app.js` 를 Node
-`vm` 에서 실행해 동작으로 확인하는 테스트가 같이 있다.
+JS 테스트 러너는 안 들인다(스펙 "미정 항목" 5: Playwright 보류). 그래서 서버가
+책임지는 부분(문구 사전, 기기 언어, 섹션 마크업)은 실제 요청으로 검증하고, JS 쪽
+계약은 번들 내용으로 회귀만 막는다 — 손으로 확인할 것은 README "웹 수동 체크리스트".
+
+번들 문자열만 보면 "있는 코드가 맞게 동작하는가"를 못 본다(티켓 14 D-14-1). 그래서
+삭제 신호 처리는 실제 `app.js` 를 Node `vm` 에서 실행해 동작으로 고정한다. 티켓 17
+이 더한 실행 테스트는 `tests/test_web_js.py` 에 있다.
 """
 
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
+
+from app.utils.ui_strings import UI_STRINGS
+
+BUNDLE = Path(__file__).resolve().parent.parent / "web" / "static" / "app.js"
+
+
+def _bundle() -> str:
+    return BUNDLE.read_text(encoding="utf-8")
+
+
+def _embedded_strings(html: str) -> dict:
+    """페이지에 인라인으로 심긴 UI 문자열 사전을 꺼낸다 (JS 가 읽는 그 JSON)."""
+    match = re.search(
+        r'<script id="ui-strings" type="application/json">(.*?)</script>', html, re.S
+    )
+    assert match, "페이지에 ui-strings JSON 이 없다"
+    return json.loads(match.group(1))
 
 
 def test_index_page_renders(client):
@@ -26,16 +49,206 @@ def test_static_js_is_served(client):
     assert b"API_BASE" in res.data
 
 
-def test_static_js_sends_puzzle_id_with_a_guess(client):
-    """현행 웹도 퍼즐 고정 규칙을 지켜야 제출이 409 로 막히지 않는다.
+# --- UI 문자열 ko/en + 기기 언어 감지 -----------------------------------------
 
-    JS 테스트 러너가 없어서 번들 내용으로 확인한다 — 웹 개편(티켓 17·18)에서
-    제출 코드를 다시 쓸 때 이 한 줄이 빠지면 바로 걸린다.
-    """
-    res = client.get("/static/app.js")
 
-    assert b"puzzle_id: state.puzzleId" in res.data
-    assert b"state.puzzleId = puzzle.puzzle_id" in res.data
+def test_korean_device_gets_korean_ui(client):
+    res = client.get("/", headers={"Accept-Language": "ko-KR,ko;q=0.9"})
+    html = res.data.decode()
+
+    assert 'lang="ko"' in html
+    assert UI_STRINGS["ko"]["app_title"] in html
+    assert UI_STRINGS["ko"]["submit"] in html
+
+
+def test_english_device_gets_english_ui(client):
+    res = client.get("/", headers={"Accept-Language": "en-US,en;q=0.9"})
+    html = res.data.decode()
+
+    assert 'lang="en"' in html
+    assert UI_STRINGS["en"]["app_title"] in html
+    assert UI_STRINGS["en"]["submit"] in html
+    # 한글 문구가 한 줄이라도 남아 있으면 사전으로 안 옮긴 하드코딩이다.
+    assert not re.search(r"[가-힣]", html), re.findall(r"[가-힣 ]+", html)[:5]
+
+
+def test_ui_language_is_independent_of_puzzle_language(client, guest_headers):
+    """기기 언어가 en 이어도 퍼즐 언어 기본값(ko)은 그대로다 (CONTEXT.md "UI 언어")."""
+    res = client.get("/", headers={"Accept-Language": "en-US"})
+
+    assert 'lang="en"' in res.data.decode()
+    assert client.get("/api/v1/me/stats", headers=guest_headers).json["puzzle_language"] == "ko"
+
+
+def test_page_varies_on_accept_language(client):
+    """프록시·CDN 이 ko 페이지를 en 방문자에게 주지 않게 한다."""
+    res = client.get("/")
+
+    assert "Accept-Language" in res.headers.get("Vary", "")
+    assert res.headers.get("Content-Language") == "ko"
+
+
+def test_lang_query_param_overrides_the_device_language(client):
+    """법적 문서 페이지와 같은 규칙(`?lang=` > Accept-Language) 을 쓴다."""
+    res = client.get("/?lang=en", headers={"Accept-Language": "ko-KR,ko;q=0.9"})
+
+    assert 'lang="en"' in res.data.decode()
+    assert res.headers.get("Content-Language") == "en"
+
+
+def test_js_reads_strings_from_the_embedded_dictionary(client):
+    res = client.get("/", headers={"Accept-Language": "en"})
+    strings = _embedded_strings(res.data.decode())
+
+    assert strings == UI_STRINGS["en"]
+    assert 'getElementById("ui-strings")' in _bundle()
+
+
+# --- 퍼즐 언어 칩 --------------------------------------------------------------
+
+
+def test_language_chips_are_rendered_for_both_puzzle_languages(client):
+    html = client.get("/").data.decode()
+
+    assert 'data-puzzle-language="ko"' in html
+    assert 'data-puzzle-language="en"' in html
+
+
+def test_js_changes_puzzle_language_with_patch_me_and_refetches(client):
+    bundle = _bundle()
+
+    assert '`${API_BASE}/me`' in bundle
+    assert '"PATCH"' in bundle
+    assert "puzzle_language" in bundle
+
+
+# --- mask 기반 타일 렌더 (chosung 의존 제거) ----------------------------------
+
+
+def test_js_renders_tiles_from_mask_not_chosung(client):
+    bundle = _bundle()
+
+    assert "puzzle.mask" in bundle
+    # `chosung` 은 ko 호환 필드라 en 퍼즐에선 쓸 수 없다 — 응답에서 읽지 않아야 한다
+    # (localStorage 키 이름의 "chosung" 은 제품 이름이라 별개다).
+    assert "puzzle.chosung" not in bundle
+    assert "state.chosung" not in bundle
+
+
+def test_js_reinserts_separator_gaps_from_the_mask(client):
+    """서버 `attempts[].guess` 는 구분자를 뺀 글자열이라 간격은 클라이언트가 끼운다
+    (스펙 "미정 항목" 13)."""
+    bundle = _bundle()
+
+    assert "withSeparatorSlots" in bundle
+    assert "SEPARATOR" in bundle
+
+
+# --- 보드 복원은 서버 attempts, 로컬 history 키는 제거 -------------------------
+
+
+def test_js_restores_the_board_from_server_attempts(client):
+    bundle = _bundle()
+
+    assert "puzzle.attempts" in bundle
+    assert "localStorage" in bundle  # 토큰 저장은 남아 있어야 한다
+    assert "chosung_history_" in bundle  # 옛 키를 지우는 코드로만 등장한다
+    assert "saveHistory" not in bundle
+    assert "loadHistory" not in bundle
+
+
+def test_backup_and_restore_panel_is_kept(client):
+    html = client.get("/").data.decode()
+    bundle = _bundle()
+
+    assert 'id="backup-panel"' in html
+    assert 'id="restore-panel"' in html
+    assert 'id="token-input"' in html
+    assert 'const TOKEN_KEY = "chosung_token"' in bundle
+
+
+# --- puzzle_id 동봉 · 409 PUZZLE_CHANGED --------------------------------------
+
+
+def test_js_sends_puzzle_id_with_a_guess(client):
+    bundle = _bundle()
+
+    assert "puzzle_id: state.puzzleId" in bundle
+    assert "state.puzzleId = puzzle.puzzle_id" in bundle
+
+
+def test_js_handles_puzzle_changed_with_an_inline_message_and_refetch(client):
+    bundle = _bundle()
+
+    assert "PUZZLE_CHANGED" in bundle
+    assert 't("puzzle_changed")' in bundle
+    assert "reloadPuzzle" in bundle
+
+
+def test_js_shows_the_puzzle_changed_notice_after_the_refetch(client):
+    """재조회가 화면을 비우면서 #message 도 지우니, 안내는 그 뒤에 띄워야 남는다."""
+    branch = _bundle().split('data.code === "PUZZLE_CHANGED"')[1].split("return;")[0]
+
+    assert branch.index("await reloadPuzzle()") < branch.index('showMessage(t("puzzle_changed"))')
+
+
+def test_js_submits_the_same_letters_it_draws_on_the_board(client):
+    """보드 한 줄은 서버가 저장한 글자열(구분자 제거·en 대문자)과 같아야 한다."""
+    bundle = _bundle()
+
+    assert "function normalizeGuess(" in bundle
+    assert "const guess = normalizeGuess(raw);" in bundle
+    # 입력창 제한이 타일 수면 `harry-potter`(구분자 포함)를 칠 수가 없다.
+    assert "maxLength = puzzle.mask.length" in bundle
+
+
+def test_js_discards_local_play_state_on_language_and_account_switch(client):
+    bundle = _bundle()
+
+    assert "discardLocalPlayState" in bundle
+    assert "clearStoredHistory" in bundle
+
+
+# --- 리더보드 섹션 -------------------------------------------------------------
+
+
+def test_leaderboard_section_is_rendered(client):
+    html = client.get("/").data.decode()
+
+    assert 'id="leaderboard-section"' in html
+    assert 'id="my-rank"' in html
+    assert 'id="leaderboard-entries"' in html
+    assert 'id="today-stats"' in html
+
+
+def test_js_renders_leaderboard_display_is_me_and_my_rank(client):
+    bundle = _bundle()
+
+    assert "entry.display" in bundle
+    assert "entry.is_me" in bundle
+    assert "data.me" in bundle
+
+
+def test_js_asks_leaderboard_and_stats_for_an_explicit_language(client):
+    """통계·리더보드는 "내가 안 고른 언어"도 볼 수 있는 엔드포인트라 언어를 명시한다."""
+    bundle = _bundle()
+
+    assert "/puzzles/today/leaderboard?language=" in bundle
+    assert "/puzzles/today/stats?language=" in bundle
+
+
+# --- 수동 체크리스트 -----------------------------------------------------------
+
+
+def test_manual_checklist_is_documented():
+    readme = (Path(__file__).resolve().parent.parent / "README.md").read_text(encoding="utf-8")
+
+    assert "## 웹 수동 체크리스트" in readme
+    for item in ["퍼즐 언어 전환", "새 탭", "자정 경과", "계정 전환", "백업 코드"]:
+        assert item in readme, item
+
+
+# --- 계정 삭제 신호(티켓 14) ------------------------------------------------
 
 
 def test_static_js_discards_the_token_after_account_deletion(client):
@@ -67,7 +280,7 @@ def _run_deleted_signal(scenario: str) -> dict:
         pytest.skip("node 가 없어서 app.js 동작 테스트를 건너뛴다")
 
     result = subprocess.run(
-        [node, str(JS_HARNESS), scenario],
+        [node, str(JS_HARNESS), scenario, json.dumps(UI_STRINGS["ko"])],
         capture_output=True,
         text=True,
         check=False,

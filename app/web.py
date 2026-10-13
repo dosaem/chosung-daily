@@ -8,6 +8,7 @@ from app.extensions import db
 from app.models import Guest
 from app.services.account_deletion_service import delete_guest_account
 from app.utils.ui_language import resolve_ui_language
+from app.utils.ui_strings import strings_for
 
 bp = Blueprint("web", __name__)
 
@@ -35,9 +36,17 @@ LEGAL_BUSINESS_FIELDS = (
 
 @bp.get("/")
 def index():
-    """게임 화면. 정적 틀만 서버에서 내려주고, 나머지는 vanilla JS가
-    /api/v1/*를 호출해서 채운다 (web/static/app.js)."""
-    return render_template("index.html")
+    """게임 화면. 정적 틀과 UI 문구만 서버에서 내려주고, 나머지는 vanilla JS가
+    /api/v1/*를 호출해서 채운다 (web/static/app.js).
+
+    문구는 UI 언어로 고른 한 벌만 내려간다 — 템플릿은 `t.key` 로, JS 는 같은 사전을
+    인라인 JSON(`#ui-strings`)에서 읽는다. 언어 판정은 법적 문서 페이지와 같은
+    `resolve_ui_language` 다(`?lang=` > Accept-Language > ko).
+    """
+    language = _requested_ui_language()
+    html = render_template("index.html", ui_language=language, t=strings_for(language))
+    # 프록시·CDN 이 ko 로 그려진 페이지를 en 방문자에게 주지 않게 한다.
+    return html, 200, {"Content-Language": language, "Vary": "Accept-Language"}
 
 
 @bp.get("/privacy")

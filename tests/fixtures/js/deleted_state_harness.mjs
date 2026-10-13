@@ -6,7 +6,8 @@
 // 대역은 브라우저 바깥(localStorage·DOM·fetch·location)뿐이다. app.js 는 한 줄도
 // 고치지 않고, 파일 끝의 자동 `init()` 호출만 떼어낸다(DOM 전체가 필요해진다).
 //
-// 사용법: node deleted_state_harness.mjs <시나리오> → 결과 JSON 을 stdout 으로.
+// 사용법: node deleted_state_harness.mjs <시나리오> <UI문구사전 JSON>
+//         → 결과 JSON 을 stdout 으로.
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -33,28 +34,32 @@ const SCENARIOS = {
 const scenario = SCENARIOS[process.argv[2]];
 if (!scenario) throw new Error(`알 수 없는 시나리오: ${process.argv[2]}`);
 
+// 티켓 17 부터 app.js 는 로드 시점에 `#ui-strings` 의 인라인 JSON 을 읽어 문구
+// 사전을 만든다 — 대역이 그걸 안 주면 번들이 뜨다가 죽는다. 사전은 파이썬 쪽
+// 진짜 UI_STRINGS 를 그대로 넘겨받는다(tests/test_web.py).
+const UI_STRINGS = JSON.parse(process.argv[3]);
+
+// 브라우저 localStorage 는 표준 API(length·key·getItem…)와 **열거 가능한 자기
+// 키**를 둘 다 노출한다 — `Object.keys(localStorage)` 가 그래서 동작하고, 티켓 17
+// 의 `clearStoredHistory` 가 그 방식을 쓴다. 대역도 둘 다 갖춘다.
 function makeStorage(entries) {
-  const map = new Map(Object.entries(entries));
-  return {
-    get length() {
-      return map.size;
-    },
-    key(index) {
-      return [...map.keys()][index] ?? null;
-    },
-    getItem(key) {
-      return map.has(key) ? map.get(key) : null;
-    },
-    setItem(key, value) {
-      map.set(key, String(value));
-    },
-    removeItem(key) {
-      map.delete(key);
-    },
-    snapshot() {
-      return Object.fromEntries(map);
-    },
-  };
+  const store = { ...entries };
+  const define = (name, value) =>
+    Object.defineProperty(store, name, { value, enumerable: false, configurable: true });
+  Object.defineProperty(store, "length", {
+    get: () => Object.keys(store).length,
+    enumerable: false,
+  });
+  define("key", (index) => Object.keys(store)[index] ?? null);
+  define("getItem", (key) => (key in store ? store[key] : null));
+  define("setItem", (key, value) => {
+    store[key] = String(value);
+  });
+  define("removeItem", (key) => {
+    delete store[key];
+  });
+  define("snapshot", () => ({ ...store }));
+  return store;
 }
 
 const localStorage = makeStorage({ [TOKEN_KEY]: STORED_TOKEN, [HISTORY_KEY]: '[{"guess":"사과"}]' });
@@ -79,7 +84,10 @@ const element = {
   appendChild() {},
 };
 const document = {
+  // 티켓 17 의 ensureToken 은 새 게스트의 퍼즐 언어 기본값으로 기기 언어를 보낸다.
+  documentElement: { lang: "ko" },
   getElementById(id) {
+    if (id === "ui-strings") return { ...element, textContent: JSON.stringify(UI_STRINGS) };
     return {
       ...element,
       set textContent(text) {
