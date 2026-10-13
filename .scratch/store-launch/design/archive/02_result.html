@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="ko"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>초성 단어</title>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "error-container": "#93000a",
+            "surface-tint": "#bec6e0",
+            "error": "#ffb4ab",
+            "on-secondary-fixed-variant": "#783200",
+            "on-secondary-container": "#4a1c00",
+            "on-error-container": "#ffdad6",
+            "secondary-container": "#ec6a06",
+            "primary": "#bec6e0",
+            "on-primary-container": "#798098",
+            "on-tertiary": "#3e2d11",
+            "tertiary": "#dec29a",
+            "surface-container-low": "#0d1c2f",
+            "on-surface": "#d5e3fd",
+            "tertiary-fixed-dim": "#dec29a",
+            "surface-variant": "#273649",
+            "primary-container": "#0f172a",
+            "on-tertiary-fixed": "#271901",
+            "secondary-fixed": "#ffdbca",
+            "inverse-primary": "#565e74",
+            "on-primary-fixed": "#131b2e",
+            "on-secondary-fixed": "#341100",
+            "secondary-fixed-dim": "#ffb690",
+            "secondary": "#ffb690",
+            "on-tertiary-fixed-variant": "#574425",
+            "on-surface-variant": "#c6c6cd",
+            "background": "#051426",
+            "surface": "#051426",
+            "outline-variant": "#45464d",
+            "tertiary-container": "#231500",
+            "on-secondary": "#552100",
+            "surface-container": "#122033",
+            "surface-dim": "#051426",
+            "primary-fixed-dim": "#bec6e0",
+            "on-tertiary-container": "#957d5a",
+            "on-background": "#d5e3fd",
+            "surface-container-high": "#1c2b3e",
+            "inverse-surface": "#d5e3fd",
+            "tertiary-fixed": "#fcdeb5",
+            "surface-container-lowest": "#010f21",
+            "surface-bright": "#2c3a4e",
+            "on-primary-fixed-variant": "#3f465c",
+            "on-primary": "#283044",
+            "on-error": "#690005",
+            "primary-fixed": "#dae2fd",
+            "surface-container-highest": "#273649",
+            "outline": "#909097",
+            "inverse-on-surface": "#233144",
+            "warm-orange": "#F97316",
+            "puzzle-green": "#22C55E",
+            "slate-border": "#334155",
+            "card-bg": "#111827",
+            "muted-bg": "#1E293B"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.25rem",
+            "lg": "0.5rem",
+            "xl": "0.75rem",
+            "full": "9999px"
+          },
+          "spacing": {
+            "space-xs": "0.25rem",
+            "space-sm": "0.5rem",
+            "space-lg": "1.5rem",
+            "gutter": "1rem",
+            "space-xl": "2rem",
+            "space-md": "1rem",
+            "margin": "1.5rem"
+          },
+          "fontFamily": {
+            "headline-md": ["Inter"],
+            "body-md": ["Inter"],
+            "label-md": ["Inter"],
+            "body-lg": ["Inter"],
+            "label-lg": ["Inter"],
+            "jamo-display": ["Inter"],
+            "headline-sm": ["Inter"],
+            "headline-lg": ["Inter"]
+          },
+          "fontSize": {
+            "headline-md": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+            "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+            "label-md": ["12px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "500" }],
+            "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+            "label-lg": ["14px", { "lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "500" }],
+            "jamo-display": ["48px", { "lineHeight": "56px", "fontWeight": "700" }],
+            "headline-sm": ["18px", { "lineHeight": "24px", "fontWeight": "600" }],
+            "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }]
+          }
+        }
+      }
+    }
+  </script>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-on-background font-body-md antialiased flex flex-col items-center min-h-screen">
+<div class="w-full max-w-[480px] min-h-screen flex flex-col bg-surface relative overflow-hidden border-x border-slate-border">
+<!-- TopAppBar -->
+<header class="flex justify-between items-center w-full max-w-[480px] mx-auto px-margin h-14 bg-surface text-on-surface">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-on-surface-variant cursor-pointer">help</span>
+<h1 class="font-headline-md text-headline-md font-bold tracking-tight text-on-surface">초성 단어</h1>
+</div>
+<div class="text-warm-orange font-semibold text-body-md flex items-center gap-1">
+<span>7일</span> <span class="material-symbols-outlined text-warm-orange" style="font-variation-settings: 'FILL' 1;">local_fire_department</span>
+</div>
+</header>
+<!-- Main Game Canvas (Dimmed background) -->
+<main class="flex-1 flex flex-col px-margin py-space-md opacity-30 pointer-events-none select-none">
+<div class="text-center my-space-lg">
+<p class="text-on-surface-variant text-body-sm">오늘의 퍼즐 #142</p>
+<h2 class="text-jamo-display text-on-surface font-jamo-display mt-space-xs">ㅈㅎㅊㅇ</h2>
+</div>
+<div class="grid grid-cols-3 gap-2 my-space-md">
+<div class="h-16 bg-muted-bg border border-slate-border rounded-lg flex items-center justify-center text-headline-sm text-on-surface">ㅈ</div>
+<div class="h-16 bg-muted-bg border border-slate-border rounded-lg flex items-center justify-center text-headline-sm text-on-surface">ㅗ</div>
+<div class="h-16 bg-muted-bg border border-slate-border rounded-lg flex items-center justify-center text-headline-sm text-on-surface">ㄴ</div>
+</div>
+</main>
+<!-- Bottom Navigation Bar -->
+<nav class="fixed bottom-[50px] left-0 w-full z-40 flex justify-around items-center px-margin py-space-xs max-w-[480px] mx-auto bg-surface-container border-t border-slate-border">
+<a class="flex flex-col items-center justify-center text-warm-orange font-semibold py-space-xs" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">grid_view</span>
+<span class="text-label-md mt-0.5">오늘</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant hover:text-on-surface py-space-xs transition-colors duration-150" href="#">
+<span class="material-symbols-outlined">leaderboard</span>
+<span class="text-label-md mt-0.5">순위</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant hover:text-on-surface py-space-xs transition-colors duration-150" href="#">
+<span class="material-symbols-outlined">inventory_2</span>
+<span class="text-label-md mt-0.5">내 기록</span>
+</a>
+</nav>
+<!-- Banner Ad Slot (Reserved 50px) -->
+<div class="fixed bottom-0 left-0 w-full max-w-[480px] h-[50px] bg-muted-bg border-t border-slate-border flex items-center justify-center z-40">
+<span class="text-on-surface-variant text-label-md">광고</span>
+</div>
+<!-- Dimmed Overlay -->
+<div class="absolute inset-0 bg-black/60 z-40"></div>
+<!-- Success Result Bottom Sheet S2 -->
+<div class="absolute bottom-0 left-0 w-full max-w-[480px] bg-card-bg border-t border-x border-slate-border rounded-t-[20px] z-50 flex flex-col max-h-[751px] overflow-y-auto">
+<!-- Drag Handle -->
+<div class="w-full flex justify-center pt-3 pb-1">
+<div class="w-10 h-1 bg-slate-border rounded-full"></div>
+</div>
+<div class="px-6 pb-8 pt-2 flex flex-col gap-6">
+<!-- Large Title -->
+<div class="text-center">
+<span class="text-puzzle-green text-label-lg font-semibold block mb-1">SUCCESS! 3회 만에 성공</span>
+<h2 class="text-headline-lg text-on-surface font-bold">정답은 지하철역!</h2>
+</div>
+<!-- Attempt Rows -->
+<div class="flex flex-col gap-2 bg-muted-bg p-3 rounded-xl border border-slate-border">
+<!-- Row 1 -->
+<div class="flex gap-2 justify-center">
+<div class="w-10 h-10 bg-surface-variant border border-slate-border rounded-[8px] flex items-center justify-center text-on-surface-variant text-body-lg font-bold">ㅈ</div>
+<div class="w-10 h-10 bg-surface-variant border border-slate-border rounded-[8px] flex items-center justify-center text-on-surface-variant text-body-lg font-bold">ㅏ</div>
+<div class="w-10 h-10 bg-surface-variant border border-slate-border rounded-[8px] flex items-center justify-center text-on-surface-variant text-body-lg font-bold">ㅇ</div>
+</div>
+<!-- Row 2 -->
+<div class="flex gap-2 justify-center">
+<div class="w-10 h-10 bg-surface-variant border border-slate-border rounded-[8px] flex items-center justify-center text-on-surface-variant text-body-lg font-bold">ㅈ</div>
+<div class="w-10 h-10 bg-surface-variant border border-slate-border rounded-[8px] flex items-center justify-center text-on-surface-variant text-body-lg font-bold">ㅗ</div>
+<div class="w-10 h-10 bg-surface-variant border border-slate-border rounded-[8px] flex items-center justify-center text-on-surface-variant text-body-lg font-bold">ㅁ</div>
+</div>
+<!-- Row 3 (Correct) -->
+<div class="flex gap-2 justify-center">
+<div class="w-10 h-10 bg-puzzle-green border border-puzzle-green rounded-[8px] flex items-center justify-center text-on-primary text-body-lg font-bold">ㅈ</div>
+<div class="w-10 h-10 bg-puzzle-green border border-puzzle-green rounded-[8px] flex items-center justify-center text-on-primary text-body-lg font-bold">ㅎ</div>
+<div class="w-10 h-10 bg-puzzle-green border border-puzzle-green rounded-[8px] flex items-center justify-center text-on-primary text-body-lg font-bold">ㅊ</div>
+</div>
+</div>
+<!-- 오늘의 통계 Section -->
+<div class="flex flex-col gap-2">
+<h3 class="text-headline-sm text-on-surface">오늘의 통계</h3>
+<div class="flex flex-col gap-1.5">
+<!-- 1회 -->
+<div class="flex items-center gap-2 text-body-md text-on-surface-variant">
+<span class="w-6 text-right">1회</span>
+<div class="flex-1 bg-muted-bg h-5 rounded-[4px] overflow-hidden border border-slate-border flex">
+<div class="bg-surface-variant h-full" style="width: 8%;"></div>
+</div>
+<span class="w-8 text-right text-on-surface">8%</span>
+</div>
+<!-- 2회 -->
+<div class="flex items-center gap-2 text-body-md text-on-surface-variant">
+<span class="w-6 text-right">2회</span>
+<div class="flex-1 bg-muted-bg h-5 rounded-[4px] overflow-hidden border border-slate-border flex">
+<div class="bg-surface-variant h-full" style="width: 31%;"></div>
+</div>
+<span class="w-8 text-right text-on-surface">31%</span>
+</div>
+<!-- 3회 (Highlighted) -->
+<div class="flex items-center gap-2 text-body-md text-on-surface">
+<span class="w-6 text-right font-bold text-warm-orange">3회</span>
+<div class="flex-1 bg-muted-bg h-5 rounded-[4px] overflow-hidden border border-warm-orange flex">
+<div class="bg-warm-orange h-full" style="width: 40%;"></div>
+</div>
+<span class="w-8 text-right font-bold text-warm-orange">40%</span>
+</div>
+<!-- 4회 -->
+<div class="flex items-center gap-2 text-body-md text-on-surface-variant">
+<span class="w-6 text-right">4회</span>
+<div class="flex-1 bg-muted-bg h-5 rounded-[4px] overflow-hidden border border-slate-border flex">
+<div class="bg-surface-variant h-full" style="width: 15%;"></div>
+</div>
+<span class="w-8 text-right text-on-surface">15%</span>
+</div>
+<!-- 5회 -->
+<div class="flex items-center gap-2 text-body-md text-on-surface-variant">
+<span class="w-6 text-right">5회</span>
+<div class="flex-1 bg-muted-bg h-5 rounded-[4px] overflow-hidden border border-slate-border flex">
+<div class="bg-surface-variant h-full" style="width: 6%;"></div>
+</div>
+<span class="w-8 text-right text-on-surface">6%</span>
+</div>
+</div>
+</div>
+<!-- Countdown Timer -->
+<div class="flex items-center justify-center gap-2 bg-muted-bg py-3 px-4 rounded-xl border border-slate-border">
+<span class="material-symbols-outlined text-warm-orange">schedule</span>
+<span class="text-body-md text-on-surface">다음 퍼즐까지 <strong class="font-bold text-on-surface">07:12:33</strong></span>
+</div>
+<!-- Action Buttons -->
+<div class="flex flex-col gap-3">
+<button class="w-full h-12 bg-warm-orange text-on-primary rounded-[10px] font-semibold flex items-center justify-center gap-2 hover:opacity-90 transition-opacity">
+<span class="material-symbols-outlined">share</span>
+<span>결과 공유</span>
+</button>
+<button class="w-full h-12 bg-transparent border border-slate-border text-on-surface rounded-[10px] font-semibold flex items-center justify-center gap-2 hover:bg-muted-bg transition-colors">
+<span class="material-symbols-outlined">leaderboard</span>
+<span>순위 보기</span>
+</button>
+</div>
+<!-- Dismissible Bottom Notice -->
+<div class="flex items-center justify-center gap-1.5 pt-2 text-secondary text-label-md cursor-pointer hover:underline">
+<span class="material-symbols-outlined text-sm">account_circle</span>
+<span>기록을 지키려면 계정을 연결하세요 →</span>
+</div>
+</div>
+</div>
+</div>
+</body></html>

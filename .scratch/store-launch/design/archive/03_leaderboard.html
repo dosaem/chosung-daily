@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="ko"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>순위 - 오늘의 초성</title>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "tertiary": "#dec29a",
+            "on-tertiary-container": "#957d5a",
+            "on-tertiary": "#3e2d11",
+            "surface-container-low": "#0d1c2f",
+            "surface": "#051426",
+            "on-tertiary-fixed": "#271901",
+            "tertiary-fixed": "#fcdeb5",
+            "outline": "#909097",
+            "on-background": "#d5e3fd",
+            "on-surface": "#d5e3fd",
+            "surface-variant": "#273649",
+            "on-tertiary-fixed-variant": "#574425",
+            "secondary-container": "#ec6a06",
+            "surface-dim": "#051426",
+            "on-secondary-fixed-variant": "#783200",
+            "on-primary-fixed-variant": "#3f465c",
+            "primary-fixed-dim": "#bec6e0",
+            "on-secondary-fixed": "#341100",
+            "on-primary-container": "#798098",
+            "outline-variant": "#45464d",
+            "on-secondary": "#552100",
+            "on-secondary-container": "#4a1c00",
+            "inverse-primary": "#565e74",
+            "surface-container-lowest": "#010f21",
+            "surface-container": "#122033",
+            "surface-bright": "#2c3a4e",
+            "on-primary-fixed": "#131b2e",
+            "on-error-container": "#ffdad6",
+            "tertiary-container": "#231500",
+            "secondary-fixed": "#ffdbca",
+            "on-primary": "#283044",
+            "inverse-surface": "#d5e3fd",
+            "secondary": "#ffb690",
+            "surface-container-high": "#1c2b3e",
+            "error": "#ffb4ab",
+            "surface-tint": "#bec6e0",
+            "inverse-on-surface": "#233144",
+            "background": "#051426",
+            "tertiary-fixed-dim": "#dec29a",
+            "surface-container-highest": "#273649",
+            "secondary-fixed-dim": "#ffb690",
+            "primary-container": "#0f172a",
+            "on-error": "#690005",
+            "error-container": "#93000a",
+            "primary-fixed": "#dae2fd",
+            "primary": "#bec6e0",
+            "on-surface-variant": "#c6c6cd"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.25rem",
+            "lg": "0.5rem",
+            "xl": "0.75rem",
+            "full": "9999px"
+          },
+          "spacing": {
+            "space-xs": "0.25rem",
+            "space-xl": "2rem",
+            "space-md": "1rem",
+            "gutter": "1rem",
+            "space-sm": "0.5rem",
+            "margin": "1.5rem",
+            "space-lg": "1.5rem"
+          },
+          "fontFamily": {
+            "headline-md": ["Inter", "sans-serif"],
+            "headline-lg": ["Inter", "sans-serif"],
+            "body-lg": ["Inter", "sans-serif"],
+            "label-md": ["Inter", "sans-serif"],
+            "headline-sm": ["Inter", "sans-serif"],
+            "label-lg": ["Inter", "sans-serif"],
+            "jamo-display": ["Inter", "sans-serif"],
+            "body-md": ["Inter", "sans-serif"]
+          },
+          "fontSize": {
+            "headline-md": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+            "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+            "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+            "label-md": ["12px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "500" }],
+            "headline-sm": ["18px", { "lineHeight": "24px", "fontWeight": "600" }],
+            "label-lg": ["14px", { "lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "500" }],
+            "jamo-display": ["48px", { "lineHeight": "56px", "fontWeight": "700" }],
+            "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }]
+          }
+        }
+      }
+    }
+  </script>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-on-background font-body-md antialiased min-h-screen flex flex-col items-center pb-32">
+<!-- TopAppBar -->
+<header class="sticky top-0 z-40 w-full max-w-[480px] bg-surface dark:bg-surface flex justify-between items-center px-space-md py-space-sm transition-colors duration-200">
+<div class="flex items-center space-x-2">
+<span class="material-symbols-outlined text-primary dark:text-primary">trophy</span>
+<h1 class="font-headline-md text-headline-md text-on-surface dark:text-on-surface">순위</h1>
+</div>
+<button aria-label="Settings" class="p-space-xs rounded hover:bg-surface-variant dark:hover:bg-surface-variant transition-colors duration-200">
+<span class="material-symbols-outlined text-on-surface-variant dark:text-on-surface-variant">settings</span>
+</button>
+</header>
+<!-- Main Content Container -->
+<main class="w-full max-w-[480px] px-space-md pt-space-md flex flex-col gap-space-md">
+<!-- Header Sub-info -->
+<div class="flex justify-between items-center">
+<div class="flex items-center gap-space-sm">
+<span class="font-headline-sm text-headline-sm text-on-surface">10월 13일</span>
+<span class="text-xs px-2 py-0.5 rounded bg-surface-variant text-on-surface-variant border border-[#334155]">한국어</span>
+</div>
+</div>
+<!-- Pinned My Rank Card -->
+<div class="bg-[#111827] rounded-xl p-space-md border border-[#334155] flex items-center justify-between">
+<div class="flex flex-col">
+<span class="text-xs text-on-surface-variant mb-1">내 순위</span>
+<span class="font-headline-sm text-headline-sm text-[#F97316]">#12</span>
+</div>
+<div class="flex items-center gap-space-lg text-right">
+<div>
+<span class="text-xs text-on-surface-variant block">시도</span>
+<span class="text-sm font-medium text-[#F8FAFC]">2회</span>
+</div>
+<div>
+<span class="text-xs text-on-surface-variant block">소요 시간</span>
+<span class="text-sm font-medium text-[#F8FAFC]">03:41</span>
+</div>
+</div>
+</div>
+<!-- Leaderboard Rows -->
+<div class="bg-[#111827] rounded-xl border border-[#334155] divide-y divide-[#334155]">
+<!-- Rank 1 -->
+<div class="flex items-center justify-between px-space-md py-3">
+<div class="flex items-center gap-space-md">
+<span class="font-headline-sm text-headline-sm text-[#F97316] w-8">1</span>
+<span class="text-sm font-medium text-[#F8FAFC]">hs***@gmail.com</span>
+</div>
+<div class="flex items-center gap-space-lg text-right">
+<span class="text-xs text-[#CBD5E1]">1회</span>
+<span class="text-xs font-mono text-[#CBD5E1]">00:01:12</span>
+</div>
+</div>
+<!-- Rank 2 -->
+<div class="flex items-center justify-between px-space-md py-3">
+<div class="flex items-center gap-space-md">
+<span class="font-headline-sm text-headline-sm text-[#F97316] w-8">2</span>
+<span class="text-sm font-medium text-[#F8FAFC]">게스트 #a3f1</span>
+</div>
+<div class="flex items-center gap-space-lg text-right">
+<span class="text-xs text-[#CBD5E1]">1회</span>
+<span class="text-xs font-mono text-[#CBD5E1]">00:01:25</span>
+</div>
+</div>
+<!-- Rank 3 -->
+<div class="flex items-center justify-between px-space-md py-3">
+<div class="flex items-center gap-space-md">
+<span class="font-headline-sm text-headline-sm text-[#F97316] w-8">3</span>
+<span class="text-sm font-medium text-[#F8FAFC]">kim***@naver.com</span>
+</div>
+<div class="flex items-center gap-space-lg text-right">
+<span class="text-xs text-[#CBD5E1]">1회</span>
+<span class="text-xs font-mono text-[#CBD5E1]">00:01:40</span>
+</div>
+</div>
+<!-- Rank 4 -->
+<div class="flex items-center justify-between px-space-md py-3">
+<div class="flex items-center gap-space-md">
+<span class="font-headline-sm text-headline-sm text-on-surface-variant w-8">4</span>
+<span class="text-sm font-medium text-[#F8FAFC]">게스트 #88b2</span>
+</div>
+<div class="flex items-center gap-space-lg text-right">
+<span class="text-xs text-[#CBD5E1]">1회</span>
+<span class="text-xs font-mono text-[#CBD5E1]">00:01:55</span>
+</div>
+</div>
+<!-- Rank 5 -->
+<div class="flex items-center justify-between px-space-md py-3">
+<div class="flex items-center gap-space-md">
+<span class="font-headline-sm text-headline-sm text-on-surface-variant w-8">5</span>
+<span class="text-sm font-medium text-[#F8FAFC]">lee***@daum.net</span>
+</div>
+<div class="flex items-center gap-space-lg text-right">
+<span class="text-xs text-[#CBD5E1]">2회</span>
+<span class="text-xs font-mono text-[#CBD5E1]">00:02:04</span>
+</div>
+</div>
+<!-- Rank 6 -->
+<div class="flex items-center justify-between px-space-md py-3">
+<div class="flex items-center gap-space-md">
+<span class="font-headline-sm text-headline-sm text-on-surface-variant w-8">6</span>
+<span class="text-sm font-medium text-[#F8FAFC]">게스트 #99cc</span>
+</div>
+<div class="flex items-center gap-space-lg text-right">
+<span class="text-xs text-[#CBD5E1]">1회</span>
+<span class="text-xs font-mono text-[#CBD5E1]">00:02:10</span>
+</div>
+</div>
+<!-- Rank 7 -->
+<div class="flex items-center justify-between px-space-md py-3">
+<div class="flex items-center gap-space-md">
+<span class="font-headline-sm text-headline-sm text-on-surface-variant w-8">7</span>
+<span class="text-sm font-medium text-[#F8FAFC]">park***@gmail.com</span>
+</div>
+<div class="flex items-center gap-space-lg text-right">
+<span class="text-xs text-[#CBD5E1]">2회</span>
+<span class="text-xs font-mono text-[#CBD5E1]">00:02:15</span>
+</div>
+</div>
+<!-- Rank 8 -->
+<div class="flex items-center justify-between px-space-md py-3">
+<div class="flex items-center gap-space-md">
+<span class="font-headline-sm text-headline-sm text-on-surface-variant w-8">8</span>
+<span class="text-sm font-medium text-[#F8FAFC]">choi***@naver.com</span>
+</div>
+<div class="flex items-center gap-space-lg text-right">
+<span class="text-xs text-[#CBD5E1]">1회</span>
+<span class="text-xs font-mono text-[#CBD5E1]">00:02:30</span>
+</div>
+</div>
+<!-- Rank 9 -->
+<div class="flex items-center justify-between px-space-md py-3">
+<div class="flex items-center gap-space-md">
+<span class="font-headline-sm text-headline-sm text-on-surface-variant w-8">9</span>
+<span class="text-sm font-medium text-[#F8FAFC]">게스트 #11aa</span>
+</div>
+<div class="flex items-center gap-space-lg text-right">
+<span class="text-xs text-[#CBD5E1]">2회</span>
+<span class="text-xs font-mono text-[#CBD5E1]">00:02:45</span>
+</div>
+</div>
+<!-- Rank 10 -->
+<div class="flex items-center justify-between px-space-md py-3">
+<div class="flex items-center gap-space-md">
+<span class="font-headline-sm text-headline-sm text-on-surface-variant w-8">10</span>
+<span class="text-sm font-medium text-[#F8FAFC]">jung***@gmail.com</span>
+</div>
+<div class="flex items-center gap-space-lg text-right">
+<span class="text-xs text-[#CBD5E1]">3회</span>
+<span class="text-xs font-mono text-[#CBD5E1]">00:03:00</span>
+</div>
+</div>
+<!-- Rank 11 -->
+<div class="flex items-center justify-between px-space-md py-3">
+<div class="flex items-center gap-space-md">
+<span class="font-headline-sm text-headline-sm text-on-surface-variant w-8">11</span>
+<span class="text-sm font-medium text-[#F8FAFC]">kang***@naver.com</span>
+</div>
+<div class="flex items-center gap-space-lg text-right">
+<span class="text-xs text-[#CBD5E1]">2회</span>
+<span class="text-xs font-mono text-[#CBD5E1]">00:03:20</span>
+</div>
+</div>
+<!-- Rank 12 (My Rank Highlighted) -->
+<div class="flex items-center justify-between px-space-md py-3 bg-[#1E293B]">
+<div class="flex items-center gap-space-md">
+<span class="font-headline-sm text-headline-sm text-[#F97316] w-8">12</span>
+<span class="text-sm font-semibold text-[#F8FAFC]">나 (hs***)</span>
+</div>
+<div class="flex items-center gap-space-lg text-right">
+<span class="text-xs text-[#CBD5E1]">2회</span>
+<span class="text-xs font-mono text-[#CBD5E1]">00:03:41</span>
+</div>
+</div>
+<!-- Rank 13 -->
+<div class="flex items-center justify-between px-space-md py-3">
+<div class="flex items-center gap-space-md">
+<span class="font-headline-sm text-headline-sm text-on-surface-variant w-8">13</span>
+<span class="text-sm font-medium text-[#F8FAFC]">cho***@daum.net</span>
+</div>
+<div class="flex items-center gap-space-lg text-right">
+<span class="text-xs text-[#CBD5E1]">3회</span>
+<span class="text-xs font-mono text-[#CBD5E1]">00:03:55</span>
+</div>
+</div>
+<!-- Rank 14 -->
+<div class="flex items-center justify-between px-space-md py-3">
+<div class="flex items-center gap-space-md">
+<span class="font-headline-sm text-headline-sm text-on-surface-variant w-8">14</span>
+<span class="text-sm font-medium text-[#F8FAFC]">윤***@gmail.com</span>
+</div>
+<div class="flex items-center gap-space-lg text-right">
+<span class="text-xs text-[#CBD5E1]">2회</span>
+<span class="text-xs font-mono text-[#CBD5E1]">00:04:10</span>
+</div>
+</div>
+<!-- Rank 15 -->
+<div class="flex items-center justify-between px-space-md py-3">
+<div class="flex items-center gap-space-md">
+<span class="font-headline-sm text-headline-sm text-on-surface-variant w-8">15</span>
+<span class="text-sm font-medium text-[#F8FAFC]">게스트 #55ff</span>
+</div>
+<div class="flex items-center gap-space-lg text-right">
+<span class="text-xs text-[#CBD5E1]">4회</span>
+<span class="text-xs font-mono text-[#CBD5E1]">00:04:30</span>
+</div>
+</div>
+<!-- Rank 16 -->
+<div class="flex items-center justify-between px-space-md py-3">
+<div class="flex items-center gap-space-md">
+<span class="font-headline-sm text-headline-sm text-on-surface-variant w-8">16</span>
+<span class="text-sm font-medium text-[#F8FAFC]">임***@naver.com</span>
+</div>
+<div class="flex items-center gap-space-lg text-right">
+<span class="text-xs text-[#CBD5E1]">3회</span>
+<span class="text-xs font-mono text-[#CBD5E1]">00:04:50</span>
+</div>
+</div>
+<!-- Rank 17 -->
+<div class="flex items-center justify-between px-space-md py-3">
+<div class="flex items-center gap-space-md">
+<span class="font-headline-sm text-headline-sm text-on-surface-variant w-8">17</span>
+<span class="text-sm font-medium text-[#F8FAFC]">한***@gmail.com</span>
+</div>
+<div class="flex items-center gap-space-lg text-right">
+<span class="text-xs text-[#CBD5E1]">3회</span>
+<span class="text-xs font-mono text-[#CBD5E1]">00:05:12</span>
+</div>
+</div>
+<!-- Rank 18 -->
+<div class="flex items-center justify-between px-space-md py-3">
+<div class="flex items-center gap-space-md">
+<span class="font-headline-sm text-headline-sm text-on-surface-variant w-8">18</span>
+<span class="text-sm font-medium text-[#F8FAFC]">오***@daum.net</span>
+</div>
+<div class="flex items-center gap-space-lg text-right">
+<span class="text-xs text-[#CBD5E1]">4회</span>
+<span class="text-xs font-mono text-[#CBD5E1]">00:05:40</span>
+</div>
+</div>
+<!-- Rank 19 -->
+<div class="flex items-center justify-between px-space-md py-3">
+<div class="flex items-center gap-space-md">
+<span class="font-headline-sm text-headline-sm text-on-surface-variant w-8">19</span>
+<span class="text-sm font-medium text-[#F8FAFC]">서***@naver.com</span>
+</div>
+<div class="flex items-center gap-space-lg text-right">
+<span class="text-xs text-[#CBD5E1]">5회</span>
+<span class="text-xs font-mono text-[#CBD5E1]">00:06:15</span>
+</div>
+</div>
+<!-- Rank 20 -->
+<div class="flex items-center justify-between px-space-md py-3">
+<div class="flex items-center gap-space-md">
+<span class="font-headline-sm text-headline-sm text-on-surface-variant w-8">20</span>
+<span class="text-sm font-medium text-[#F8FAFC]">게스트 #7777</span>
+</div>
+<div class="flex items-center gap-space-lg text-right">
+<span class="text-xs text-[#CBD5E1]">4회</span>
+<span class="text-xs font-mono text-[#CBD5E1]">00:07:00</span>
+</div>
+</div>
+</div>
+</main>
+<!-- Navigation Shell & Ad Banner (Fixed Bottom Container) -->
+<div class="fixed bottom-0 left-0 w-full z-50 flex flex-col items-center">
+<!-- Banner Ad Slot (50px height) -->
+<div class="w-full max-w-[480px] h-[50px] bg-[#1E293B] border-t border-[#334155] flex items-center justify-center text-xs text-on-surface-variant">
+      광고
+    </div>
+<!-- BottomNavBar -->
+<nav class="w-full max-w-[480px] bg-surface dark:bg-surface flex justify-around items-center px-space-md py-space-xs transition-all duration-200">
+<!-- Inactive Tab: 오늘 -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant p-space-xs hover:text-on-surface dark:hover:text-on-surface transition-all duration-200" href="#">
+<span class="material-symbols-outlined">today</span>
+<span class="font-label-md text-label-md mt-1">오늘</span>
+</a>
+<!-- Active Tab: 순위 -->
+<a class="flex flex-col items-center justify-center bg-secondary-container text-on-secondary-container rounded-xl p-space-xs transition-all duration-200" href="#">
+<span class="material-symbols-outlined">leaderboard</span>
+<span class="font-label-md text-label-md mt-1">순위</span>
+</a>
+<!-- Inactive Tab: 내 기록 -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant p-space-xs hover:text-on-surface dark:hover:text-on-surface transition-all duration-200" href="#">
+<span class="material-symbols-outlined">person</span>
+<span class="font-label-md text-label-md mt-1">내 기록</span>
+</a>
+</nav>
+</div>
+</body></html>

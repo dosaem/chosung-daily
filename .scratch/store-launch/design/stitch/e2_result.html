@@ -1,0 +1,262 @@
+<!doctype html>
+<html class="h-full"><head>
+<meta charset="utf-8"/>
+<title>오늘의 초성 - 결과</title>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "surface-container-lowest": "#ffffff",
+            "inverse-surface": "#2f3130",
+            "secondary-fixed": "#ffdbce",
+            "surface-bright": "#f9f9f8",
+            "on-tertiary-container": "#009842",
+            "inverse-primary": "#bec6e0",
+            "surface-dim": "#dadad9",
+            "error-container": "#ffdad6",
+            "surface-container-low": "#f3f4f3",
+            "primary-container": "#131b2e",
+            "outline-variant": "#c6c6cd",
+            "primary-fixed-dim": "#bec6e0",
+            "surface": "#f9f9f8",
+            "secondary": "#a73a00",
+            "secondary-fixed-dim": "#ffb599",
+            "on-secondary": "#ffffff",
+            "primary": "#000000",
+            "on-primary-fixed": "#131b2e",
+            "background": "#f9f9f8",
+            "surface-container-high": "#e8e8e7",
+            "secondary-container": "#fd651e",
+            "outline": "#76777d",
+            "surface-container": "#eeeeed",
+            "on-tertiary-fixed": "#002109",
+            "tertiary-fixed-dim": "#62df7d",
+            "on-secondary-fixed": "#370e00",
+            "surface-variant": "#e2e2e2",
+            "on-surface-variant": "#45464d",
+            "tertiary-fixed": "#7ffc97",
+            "on-primary": "#ffffff",
+            "on-error-container": "#93000a",
+            "on-secondary-fixed-variant": "#7f2b00",
+            "surface-tint": "#565e74",
+            "on-error": "#ffffff",
+            "on-background": "#1a1c1c",
+            "on-surface": "#1a1c1c",
+            "on-tertiary-fixed-variant": "#005320",
+            "tertiary": "#000000",
+            "on-secondary-container": "#571a00",
+            "on-primary-container": "#7c839b",
+            "tertiary-container": "#002109",
+            "on-tertiary": "#ffffff",
+            "primary-fixed": "#dae2fd",
+            "on-primary-fixed-variant": "#3f465c",
+            "error": "#ba1a1a",
+            "surface-container-highest": "#e2e2e2",
+            "inverse-on-surface": "#f1f1f0"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.125rem",
+            "lg": "0.25rem",
+            "xl": "0.5rem",
+            "full": "0.75rem"
+          },
+          "spacing": {
+            "space-xs": "0.25rem",
+            "space-md": "1rem",
+            "margin": "2rem",
+            "space-xl": "3rem",
+            "space-sm": "0.5rem",
+            "space-lg": "1.5rem",
+            "gutter": "1.5rem"
+          },
+          "fontFamily": {
+            "headline-lg": ["Pretendard", "Inter", "Newsreader"],
+            "label-sm": ["Pretendard", "Inter"],
+            "label-lg": ["Pretendard", "Inter"],
+            "body-md": ["Pretendard", "Inter"],
+            "headline-sm": ["Pretendard", "Inter", "Newsreader"],
+            "body-lg": ["Pretendard", "Inter"],
+            "label-md": ["Pretendard", "Inter"],
+            "headline-xl": ["Pretendard", "Inter", "Newsreader"],
+            "headline-md": ["Pretendard", "Inter", "Newsreader"],
+            "body-sm": ["Pretendard", "Inter"]
+          },
+          "fontSize": {
+            "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+            "label-sm": ["12px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "500" }],
+            "label-lg": ["16px", { "lineHeight": "24px", "letterSpacing": "0.05em", "fontWeight": "600" }],
+            "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+            "headline-sm": ["20px", { "lineHeight": "28px", "fontWeight": "500" }],
+            "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "400" }],
+            "label-md": ["14px", { "lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "500" }],
+            "headline-xl": ["40px", { "lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "600" }],
+            "headline-md": ["24px", { "lineHeight": "32px", "fontWeight": "500" }],
+            "body-sm": ["14px", { "lineHeight": "20px", "fontWeight": "400" }]
+          }
+        }
+      }
+    }
+  </script>
+<style>
+    body {
+      font-family: 'Pretendard', sans-serif;
+      background-color: #FAFAF9;
+      color: #0F172A;
+    }
+  </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="h-full flex flex-col justify-between overflow-hidden m-0">
+<!-- TopAppBar -->
+<header class="flex justify-between items-center w-full max-w-[480px] mx-auto px-margin h-14 bg-surface text-on-surface">
+<button class="p-2 hover:bg-surface-container transition-colors duration-150">
+<span class="material-symbols-outlined">help</span>
+</button>
+<h1 class="font-headline-md font-bold tracking-tight">초성 단어</h1>
+<div class="flex items-center space-x-1 text-on-surface font-semibold text-label-md">
+<span class="material-symbols-outlined text-[#EA580C]" style="font-variation-settings: 'FILL' 1;">local_fire_department</span>
+<span>7일 ♨</span>
+</div>
+</header>
+<!-- Dimmed Background Game Canvas (Mocked) -->
+<main class="flex-1 max-w-[480px] w-full mx-auto px-margin flex flex-col justify-center items-center opacity-40 select-none pointer-events-none">
+<div class="text-center mb-6">
+<div class="text-label-sm text-[#57534E] mb-1">오늘의 초성</div>
+<div class="text-headline-lg font-bold">ㅈ ㅇ ㅎ ㅇ</div>
+</div>
+<div class="grid grid-cols-4 gap-2 mb-8">
+<div class="w-12 h-12 bg-[#F5F5F4] flex items-center justify-center font-bold text-lg">지</div>
+<div class="w-12 h-12 bg-[#F5F5F4] flex items-center justify-center font-bold text-lg">하</div>
+<div class="w-12 h-12 bg-[#16A34A] text-white flex items-center justify-center font-bold text-lg">철</div>
+<div class="w-12 h-12 bg-[#F5F5F4] flex items-center justify-center font-bold text-lg">역</div>
+</div>
+</main>
+<!-- Bottom Sheet Overlay -->
+<div class="fixed inset-0 bg-black/40 z-40 flex justify-center items-end max-w-[480px] mx-auto">
+<div class="w-full h-[80%] bg-white rounded-t-[20px] flex flex-col justify-between overflow-y-auto px-6 py-6 shadow-none border-t border-[#E7E5E4]">
+<!-- Sheet Header -->
+<div>
+<div class="w-12 h-1 bg-[#E7E5E4] rounded-full mx-auto mb-4"></div>
+<div class="text-center mb-6">
+<h2 class="text-headline-md font-bold text-[#0F172A] mb-1">정답은 지하철역!</h2>
+<p class="text-body-sm text-[#57534E]">3번째 시도만에 성공하셨습니다</p>
+</div>
+<!-- Attempt Rows (Mini Tiles) -->
+<div class="flex flex-col items-center gap-2 mb-6">
+<!-- Row 1 -->
+<div class="flex gap-1.5">
+<div class="w-8 h-8 bg-[#D6D3D1] text-[#0F172A] flex items-center justify-center font-bold text-xs">ㅈ</div>
+<div class="w-8 h-8 bg-[#D6D3D1] text-[#0F172A] flex items-center justify-center font-bold text-xs">ㅣ</div>
+<div class="w-8 h-8 bg-[#16A34A] text-white flex items-center justify-center font-bold text-xs">ㅊ</div>
+<div class="w-8 h-8 bg-[#D6D3D1] text-[#0F172A] flex items-center justify-center font-bold text-xs">ㅓ</div>
+</div>
+<!-- Row 2 -->
+<div class="flex gap-1.5">
+<div class="w-8 h-8 bg-[#16A34A] text-white flex items-center justify-center font-bold text-xs">ㅈ</div>
+<div class="w-8 h-8 bg-[#16A34A] text-white flex items-center justify-center font-bold text-xs">ㅎ</div>
+<div class="w-8 h-8 bg-[#16A34A] text-white flex items-center justify-center font-bold text-xs">ㅁ</div>
+<div class="w-8 h-8 bg-[#D6D3D1] text-[#0F172A] flex items-center justify-center font-bold text-xs">ㅡ</div>
+</div>
+<!-- Row 3 (Success) -->
+<div class="flex gap-1.5">
+<div class="w-8 h-8 bg-[#16A34A] text-white flex items-center justify-center font-bold text-xs">ㅈ</div>
+<div class="w-8 h-8 bg-[#16A34A] text-white flex items-center justify-center font-bold text-xs">ㅎ</div>
+<div class="w-8 h-8 bg-[#16A34A] text-white flex items-center justify-center font-bold text-xs">ㅊ</div>
+<div class="w-8 h-8 bg-[#16A34A] text-white flex items-center justify-center font-bold text-xs">역</div>
+</div>
+</div>
+<div class="w-full h-[1px] bg-[#E7E5E4] my-4"></div>
+<!-- 오늘의 통계 -->
+<div class="mb-6">
+<h3 class="text-label-lg font-bold text-[#0F172A] mb-3">오늘의 통계</h3>
+<div class="flex flex-col gap-2 text-body-sm">
+<div class="flex items-center gap-2">
+<span class="w-6 text-right text-[#57534E]">1회</span>
+<div class="flex-1 bg-[#E7E5E4] h-5 relative"><div class="bg-[#E7E5E4] h-full" style="width: 8%;"></div></div>
+<span class="w-8 text-right text-[#57534E]">8%</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="w-6 text-right text-[#57534E]">2회</span>
+<div class="flex-1 bg-[#E7E5E4] h-5 relative"><div class="bg-[#E7E5E4] h-full" style="width: 31%;"></div></div>
+<span class="w-8 text-right text-[#57534E]">31%</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="w-6 text-right font-bold text-[#0F172A]">3회</span>
+<div class="flex-1 bg-[#E7E5E4] h-5 relative"><div class="bg-[#0F172A] h-full" style="width: 40%;"></div></div>
+<span class="w-8 text-right font-bold text-[#0F172A]">40%</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="w-6 text-right text-[#57534E]">4회</span>
+<div class="flex-1 bg-[#E7E5E4] h-5 relative"><div class="bg-[#E7E5E4] h-full" style="width: 15%;"></div></div>
+<span class="w-8 text-right text-[#57534E]">15%</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="w-6 text-right text-[#57534E]">5회</span>
+<div class="flex-1 bg-[#E7E5E4] h-5 relative"><div class="bg-[#E7E5E4] h-full" style="width: 6%;"></div></div>
+<span class="w-8 text-right text-[#57534E]">6%</span>
+</div>
+</div>
+</div>
+<!-- Countdown Line -->
+<div class="flex items-center justify-center gap-2 text-body-sm text-[#57534E] mb-6">
+<span class="material-symbols-outlined text-sm">schedule</span>
+<span>다음 퍼즐까지 <span class="font-mono font-semibold">07:12:33</span></span>
+</div>
+<!-- Action Buttons -->
+<div class="flex flex-col gap-3">
+<button class="w-full bg-[#0F172A] text-white py-3 rounded-lg font-label-lg flex items-center justify-center gap-2 hover:bg-[#1E293B] transition-colors">
+<span class="material-symbols-outlined text-sm">share</span>
+            결과 공유
+          </button>
+<button class="w-full bg-transparent text-[#0F172A] border border-[#E7E5E4] py-3 rounded-lg font-label-lg flex items-center justify-center hover:bg-[#F5F5F4] transition-colors">
+            순위 보기
+          </button>
+</div>
+</div>
+<!-- Dismissible Notice at bottom of sheet -->
+<div class="mt-6 pt-3 border-t border-[#E7E5E4] flex items-center justify-between text-body-sm text-[#57534E]">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-sm">account_circle</span>
+<span>기록을 지키려면 계정을 연결하세요 →</span>
+</div>
+<button class="text-xs hover:text-[#0F172A]">✕</button>
+</div>
+</div>
+</div>
+<!-- Bottom Navigation & Ad Banner Container -->
+<nav class="w-full max-w-[480px] mx-auto bg-[#EEEEED] z-30">
+<!-- BottomNavBar -->
+<div class="flex justify-around items-center px-margin py-space-xs">
+<!-- Active Item -->
+<div class="flex flex-col items-center justify-center text-[#0F172A] font-semibold py-space-xs relative">
+<span class="material-symbols-outlined">grid_view</span>
+<span class="text-label-md mt-0.5">오늘</span>
+<div class="absolute bottom-0 w-full h-[2px] bg-[#EA580C]"></div>
+</div>
+<!-- Inactive Item 1 -->
+<div class="flex flex-col items-center justify-center text-[#45464D] py-space-xs hover:text-on-surface transition-colors duration-150">
+<span class="material-symbols-outlined">leaderboard</span>
+<span class="text-label-md mt-0.5">순위</span>
+</div>
+<!-- Inactive Item 2 -->
+<div class="flex flex-col items-center justify-center text-[#45464D] py-space-xs hover:text-on-surface transition-colors duration-150">
+<span class="material-symbols-outlined">inventory_2</span>
+<span class="text-label-md mt-0.5">내 기록</span>
+</div>
+</div>
+<!-- Reserved Ad Banner Area -->
+<div class="w-full h-[50px] bg-[#F5F5F4] border-t border-[#E7E5E4] flex items-center justify-center px-4">
+<span class="text-[11px] text-[#76777D] tracking-wider uppercase">광고</span>
+</div>
+</nav>
+</body></html>

@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="ko"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>한글 퍼즐</title>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "tertiary-fixed": "#fcdeb5",
+            "surface-bright": "#2c3a4e",
+            "secondary-fixed": "#ffdbca",
+            "tertiary-fixed-dim": "#dec29a",
+            "on-secondary": "#552100",
+            "tertiary": "#dec29a",
+            "on-secondary-fixed": "#341100",
+            "surface-container-highest": "#273649",
+            "surface": "#051426",
+            "error-container": "#93000a",
+            "on-tertiary": "#3e2d11",
+            "on-tertiary-fixed": "#271901",
+            "surface-container-low": "#0d1c2f",
+            "inverse-on-surface": "#233144",
+            "surface-container-high": "#1c2b3e",
+            "inverse-surface": "#d5e3fd",
+            "on-tertiary-container": "#957d5a",
+            "primary": "#bec6e0",
+            "secondary-fixed-dim": "#ffb690",
+            "on-primary-fixed-variant": "#3f465c",
+            "background": "#051426",
+            "surface-container-lowest": "#010f21",
+            "primary-container": "#0f172a",
+            "on-primary-container": "#798098",
+            "primary-fixed": "#dae2fd",
+            "inverse-primary": "#565e74",
+            "error": "#ffb4ab",
+            "surface-variant": "#273649",
+            "secondary-container": "#ec6a06",
+            "secondary": "#ffb690",
+            "on-secondary-fixed-variant": "#783200",
+            "surface-container": "#122033",
+            "on-tertiary-fixed-variant": "#574425",
+            "on-surface-variant": "#c6c6cd",
+            "outline": "#909097",
+            "on-background": "#d5e3fd",
+            "on-error-container": "#ffdad6",
+            "on-primary": "#283044",
+            "on-surface": "#d5e3fd",
+            "on-secondary-container": "#4a1c00",
+            "surface-tint": "#bec6e0",
+            "on-error": "#690005",
+            "surface-dim": "#051426",
+            "primary-fixed-dim": "#bec6e0",
+            "tertiary-container": "#231500",
+            "on-primary-fixed": "#131b2e",
+            "outline-variant": "#45464d"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.25rem",
+            "lg": "0.5rem",
+            "xl": "0.75rem",
+            "full": "9999px"
+          },
+          "spacing": {
+            "space-md": "1rem",
+            "space-xl": "2rem",
+            "gutter": "1rem",
+            "space-sm": "0.5rem",
+            "space-lg": "1.5rem",
+            "margin": "1.5rem",
+            "space-xs": "0.25rem"
+          },
+          "fontFamily": {
+            "headline-md": ["Inter"],
+            "body-lg": ["Inter"],
+            "headline-lg": ["Inter"],
+            "label-md": ["Inter"],
+            "label-lg": ["Inter"],
+            "jamo-display": ["Inter"],
+            "body-md": ["Inter"],
+            "headline-sm": ["Inter"]
+          },
+          "fontSize": {
+            "headline-md": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+            "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+            "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+            "label-md": ["12px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "500" }],
+            "label-lg": ["14px", { "lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "500" }],
+            "jamo-display": ["48px", { "lineHeight": "56px", "fontWeight": "700" }],
+            "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+            "headline-sm": ["18px", { "lineHeight": "24px", "fontWeight": "600" }]
+          }
+        }
+      }
+    }
+  </script>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-surface text-on-surface font-body-md antialiased min-h-screen flex flex-col items-center justify-start selection:bg-secondary-container selection:text-on-secondary-container">
+<!-- Mobile Container Wrapper -->
+<div class="w-full max-w-[480px] min-h-screen flex flex-col bg-surface relative pb-28">
+<!-- Top App Bar -->
+<header class="bg-surface text-primary text-headline-md font-headline-md docked full-width top flex justify-between items-center w-full px-space-md py-space-sm sticky top-0 z-40">
+<button aria-label="help" class="text-on-surface-variant hover:text-on-surface transition-all duration-200 active:scale-98 flex items-center justify-center p-space-xs">
+<span class="material-symbols-outlined text-[24px]">help</span>
+</button>
+<h1 class="text-on-surface font-headline-md text-headline-md tracking-tight">한글 퍼즐</h1>
+<div class="text-on-surface font-label-lg font-bold bg-surface-container-high px-space-sm py-space-xs rounded-lg flex items-center gap-1">
+        🔥 5
+      </div>
+</header>
+<!-- Main Content Area -->
+<main class="flex-1 flex flex-col px-space-md py-space-md gap-space-md w-full">
+<!-- Date Header -->
+<div class="flex flex-col gap-space-xs">
+<div class="flex justify-between items-baseline">
+<h2 class="text-on-surface font-headline-sm text-headline-sm">10월 13일 · 일반 단어</h2>
+<span class="text-on-surface-variant text-label-md">남은 기회 3/5</span>
+</div>
+<p class="text-on-surface-variant text-body-md">KST 00:00에 새 퍼즐</p>
+</div>
+<!-- Consonant Clues (초성 퍼즐) -->
+<div class="bg-surface-container-low border border-outline-variant rounded-xl p-space-md flex flex-col items-center gap-space-sm">
+<div class="flex gap-space-sm w-full justify-center">
+<div class="w-14 h-14 bg-surface-container border border-outline-variant rounded-lg flex items-center justify-center text-jamo-display font-jamo-display text-on-surface">ㅈ</div>
+<div class="w-14 h-14 bg-surface-container border border-outline-variant rounded-lg flex items-center justify-center text-jamo-display font-jamo-display text-on-surface">ㅎ</div>
+<div class="w-14 h-14 bg-surface-container border border-outline-variant rounded-lg flex items-center justify-center text-jamo-display font-jamo-display text-on-surface">ㅊ</div>
+<div class="w-14 h-14 bg-surface-container border border-outline-variant rounded-lg flex items-center justify-center text-jamo-display font-jamo-display text-on-surface">ㅇ</div>
+</div>
+<span class="text-on-surface-variant text-label-md">4글자</span>
+</div>
+<!-- Attempt Rows -->
+<div class="flex flex-col gap-space-xs">
+<!-- Row 1 -->
+<div class="grid grid-cols-4 gap-space-xs">
+<div class="h-12 bg-emerald-950/40 border border-emerald-600/60 rounded flex items-center justify-center text-body-lg font-bold text-emerald-300 relative">
+            지
+            <span class="material-symbols-outlined text-[14px] absolute top-1 right-1 text-emerald-400">check</span>
+</div>
+<div class="h-12 bg-emerald-950/40 border border-emerald-600/60 rounded flex items-center justify-center text-body-lg font-bold text-emerald-300 relative">
+            하
+            <span class="material-symbols-outlined text-[14px] absolute top-1 right-1 text-emerald-400">check</span>
+</div>
+<div class="h-12 bg-surface-container border border-outline-variant rounded flex items-center justify-center text-body-lg text-on-surface-variant">철</div>
+<div class="h-12 bg-surface-container border border-outline-variant rounded flex items-center justify-center text-body-lg text-on-surface-variant">역</div>
+</div>
+<!-- Row 2 -->
+<div class="grid grid-cols-4 gap-space-xs">
+<div class="h-12 bg-emerald-950/40 border border-emerald-600/60 rounded flex items-center justify-center text-body-lg font-bold text-emerald-300 relative">
+            자
+            <span class="material-symbols-outlined text-[14px] absolute top-1 right-1 text-emerald-400">check</span>
+</div>
+<div class="h-12 bg-surface-container border border-outline-variant rounded flex items-center justify-center text-body-lg text-on-surface-variant">하</div>
+<div class="h-12 bg-surface-container border border-outline-variant rounded flex items-center justify-center text-body-lg text-on-surface-variant">촌</div>
+<div class="h-12 bg-emerald-950/40 border border-emerald-600/60 rounded flex items-center justify-center text-body-lg font-bold text-emerald-300 relative">
+            역
+            <span class="material-symbols-outlined text-[14px] absolute top-1 right-1 text-emerald-400">check</span>
+</div>
+</div>
+<!-- Row 3 (Empty Dashed) -->
+<div class="grid grid-cols-4 gap-space-xs">
+<div class="h-12 border border-dashed border-outline-variant rounded flex items-center justify-center text-body-lg text-outline"></div>
+<div class="h-12 border border-dashed border-outline-variant rounded flex items-center justify-center text-body-lg text-outline"></div>
+<div class="h-12 border border-dashed border-outline-variant rounded flex items-center justify-center text-body-lg text-outline"></div>
+<div class="h-12 border border-dashed border-outline-variant rounded flex items-center justify-center text-body-lg text-outline"></div>
+</div>
+<!-- Row 4 (Empty Dashed) -->
+<div class="grid grid-cols-4 gap-space-xs">
+<div class="h-12 border border-dashed border-outline-variant rounded flex items-center justify-center text-body-lg text-outline"></div>
+<div class="h-12 border border-dashed border-outline-variant rounded flex items-center justify-center text-body-lg text-outline"></div>
+<div class="h-12 border border-dashed border-outline-variant rounded flex items-center justify-center text-body-lg text-outline"></div>
+<div class="h-12 border border-dashed border-outline-variant rounded flex items-center justify-center text-body-lg text-outline"></div>
+</div>
+<!-- Row 5 (Empty Dashed) -->
+<div class="grid grid-cols-4 gap-space-xs">
+<div class="h-12 border border-dashed border-outline-variant rounded flex items-center justify-center text-body-lg text-outline"></div>
+<div class="h-12 border border-dashed border-outline-variant rounded flex items-center justify-center text-body-lg text-outline"></div>
+<div class="h-12 border border-dashed border-outline-variant rounded flex items-center justify-center text-body-lg text-outline"></div>
+<div class="h-12 border border-dashed border-outline-variant rounded flex items-center justify-center text-body-lg text-outline"></div>
+</div>
+</div>
+<!-- Hint Card -->
+<div class="bg-surface-container border border-outline-variant rounded-xl p-space-md flex items-center justify-between">
+<span class="text-on-surface-variant text-body-md">힌트는 3번째 오답 후 열려요</span>
+<button class="bg-surface-variant text-on-surface text-label-lg font-bold px-space-md py-space-sm rounded-lg hover:bg-surface-bright transition-all duration-200 active:scale-98">
+          광고 보고 미리 보기
+        </button>
+</div>
+<!-- Input and Submit Area -->
+<div class="flex flex-col gap-space-sm mt-auto">
+<div class="relative flex items-center">
+<input class="w-full bg-surface-container border border-outline-variant rounded-lg px-space-md py-3 text-on-surface placeholder-outline focus:outline-none focus:border-secondary-container transition-all text-body-lg" maxlength="4" placeholder="정답을 입력하세요" type="text"/>
+<span class="absolute right-3 text-on-surface-variant text-label-md">0/4</span>
+</div>
+<button class="w-full bg-secondary-container text-on-secondary-container font-headline-sm text-headline-sm py-3 rounded-lg hover:opacity-90 transition-all duration-200 active:scale-98 flex items-center justify-center">
+          제출
+        </button>
+</div>
+</main>
+<!-- Bottom Nav Bar -->
+<nav class="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[480px] z-50 flex justify-around items-center px-space-sm py-space-xs bg-surface border-t border-outline-variant">
+<!-- Active Tab -->
+<a class="flex flex-col items-center justify-center bg-secondary-container text-on-secondary-container rounded-lg p-space-xs transition-all duration-200 active:scale-98 flex-1" href="#">
+<span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">grid_view</span>
+<span class="text-label-md font-label-md mt-0.5">오늘의 퍼즐</span>
+</a>
+<!-- Inactive Tabs -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant hover:text-on-surface p-space-xs transition-all duration-200 active:scale-98 flex-1" href="#">
+<span class="material-symbols-outlined text-[20px]">inventory_2</span>
+<span class="text-label-md font-label-md mt-0.5">보관함</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant hover:text-on-surface p-space-xs transition-all duration-200 active:scale-98 flex-1" href="#">
+<span class="material-symbols-outlined text-[20px]">bar_chart</span>
+<span class="text-label-md font-label-md mt-0.5">통계</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant hover:text-on-surface p-space-xs transition-all duration-200 active:scale-98 flex-1" href="#">
+<span class="material-symbols-outlined text-[20px]">settings</span>
+<span class="text-label-md font-label-md mt-0.5">설정</span>
+</a>
+</nav>
+<!-- Bottom Banner Ad Slot -->
+<div class="w-full bg-surface-container-highest border-t border-outline-variant py-2 px-space-md flex items-center justify-center text-center text-label-md text-on-surface-variant fixed bottom-[52px] left-1/2 -translate-x-1/2 max-w-[480px] z-40">
+<span>ADVERTISEMENT BANNER SLOT</span>
+</div>
+</div>
+</body></html>

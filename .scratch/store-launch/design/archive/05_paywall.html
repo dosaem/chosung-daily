@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="ko"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>S5 구독 - 오늘의 초성</title>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+              "on-primary-container": "#798098",
+              "primary-fixed-dim": "#bec6e0",
+              "secondary-container": "#ec6a06",
+              "error": "#ffb4ab",
+              "surface-tint": "#bec6e0",
+              "on-primary-fixed-variant": "#3f465c",
+              "primary-container": "#0f172a",
+              "inverse-on-surface": "#233144",
+              "error-container": "#93000a",
+              "tertiary": "#dec29a",
+              "tertiary-container": "#231500",
+              "surface-container-lowest": "#010f21",
+              "secondary": "#ffb690",
+              "surface": "#051426",
+              "on-tertiary-fixed": "#271901",
+              "surface-container": "#122033",
+              "secondary-fixed": "#ffdbca",
+              "on-primary-fixed": "#131b2e",
+              "on-error-container": "#ffdad6",
+              "inverse-surface": "#d5e3fd",
+              "on-surface-variant": "#c6c6cd",
+              "surface-dim": "#051426",
+              "primary-fixed": "#dae2fd",
+              "on-secondary-fixed": "#341100",
+              "on-error": "#690005",
+              "outline": "#909097",
+              "background": "#051426",
+              "on-tertiary-container": "#957d5a",
+              "secondary-fixed-dim": "#ffb690",
+              "inverse-primary": "#565e74",
+              "on-tertiary": "#3e2d11",
+              "outline-variant": "#45464d",
+              "surface-container-low": "#0d1c2f",
+              "on-secondary-fixed-variant": "#783200",
+              "tertiary-fixed": "#fcdeb5",
+              "on-tertiary-fixed-variant": "#574425",
+              "on-primary": "#283044",
+              "surface-variant": "#273649",
+              "surface-container-highest": "#273649",
+              "surface-container-high": "#1c2b3e",
+              "on-surface": "#d5e3fd",
+              "tertiary-fixed-dim": "#dec29a",
+              "on-background": "#d5e3fd",
+              "on-secondary-container": "#4a1c00",
+              "primary": "#bec6e0",
+              "on-secondary": "#552100",
+              "surface-bright": "#2c3a4e"
+            },
+            "borderRadius": {
+              "DEFAULT": "0.25rem",
+              "lg": "0.5rem",
+              "xl": "0.75rem",
+              "full": "9999px"
+            },
+            "spacing": {
+              "space-xl": "2rem",
+              "margin": "1.5rem",
+              "space-xs": "0.25rem",
+              "space-md": "1rem",
+              "space-sm": "0.5rem",
+              "gutter": "1rem",
+              "space-lg": "1.5rem"
+            },
+            "fontFamily": {
+              "headline-lg": ["Inter"],
+              "body-lg": ["Inter"],
+              "label-lg": ["Inter"],
+              "headline-sm": ["Inter"],
+              "label-md": ["Inter"],
+              "jamo-display": ["Inter"],
+              "body-md": ["Inter"],
+              "headline-md": ["Inter"]
+            }
+          }
+        }
+      }
+    </script>
+<style>
+      body {
+        background-color: #0F172A;
+        color: #F8FAFC;
+        font-family: 'Inter', sans-serif;
+      }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-[#0F172A] text-[#F8FAFC] antialiased min-h-screen flex items-center justify-center p-0 md:p-4">
+<!-- TopAppBar from JSON Specification -->
+<div class="fixed top-0 left-0 w-full z-50 bg-surface dark:bg-surface border-b border-outline-variant flex justify-between items-center px-space-md py-space-sm md:hidden">
+<div class="flex items-center gap-2">
+<button aria-label="help" class="text-on-surface-variant dark:text-on-surface-variant hover:bg-surface-variant p-2 rounded-lg transition-all duration-200">
+<span class="material-symbols-outlined">help</span>
+</button>
+<span class="text-headline-md font-semibold text-on-surface dark:text-on-surface tracking-tight">한글 퍼즐</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="text-headline-md font-semibold text-on-surface dark:text-on-surface">🔥 5</span>
+</div>
+</div>
+<!-- Main Container Sheet (Full-screen overlay style, max-w-[480px]) -->
+<main class="w-full max-w-[480px] min-h-screen md:min-h-0 bg-[#0F172A] border-0 md:border md:border-[#334155] rounded-none md:rounded-[16px] flex flex-col justify-between p-6 pt-16 md:pt-6 relative">
+<!-- Top Section: Close Button & Header -->
+<div>
+<div class="flex justify-end mb-4">
+<button aria-label="닫기" class="w-10 h-10 flex items-center justify-center rounded-[10px] bg-[#1E293B] border border-[#334155] text-[#CBD5E1] hover:text-[#F8FAFC] transition-colors" onclick="history.back()">
+<span class="material-symbols-outlined">close</span>
+</button>
+</div>
+<div class="mb-8">
+<h1 class="text-2xl font-bold text-[#F8FAFC] tracking-tight mb-2">광고 없이, 매일 30초</h1>
+<p class="text-[#CBD5E1] text-sm">하루 한 문제에만 집중하세요</p>
+</div>
+<!-- Benefit Rows -->
+<div class="space-y-4 mb-8">
+<div class="flex items-center gap-3 bg-[#111827] border border-[#334155] p-4 rounded-[16px]">
+<div class="w-8 h-8 rounded-[8px] bg-[#F97316]/10 flex items-center justify-center text-[#F97316] shrink-0">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">check</span>
+</div>
+<span class="text-[#F8FAFC] font-medium text-sm">배너·전면 광고 제거</span>
+</div>
+<div class="flex items-center gap-3 bg-[#111827] border border-[#334155] p-4 rounded-[16px]">
+<div class="w-8 h-8 rounded-[8px] bg-[#F97316]/10 flex items-center justify-center text-[#F97316] shrink-0">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">check</span>
+</div>
+<span class="text-[#F8FAFC] font-medium text-sm">힌트 미리 보기 무제한</span>
+</div>
+<div class="flex items-center gap-3 bg-[#111827] border border-[#334155] p-4 rounded-[16px]">
+<div class="w-8 h-8 rounded-[8px] bg-[#F97316]/10 flex items-center justify-center text-[#F97316] shrink-0">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">check</span>
+</div>
+<span class="text-[#F8FAFC] font-medium text-sm">어느 기기에서든 유지</span>
+</div>
+</div>
+<!-- Price Card with 1px Orange Border -->
+<div class="bg-[#111827] border border-[#F97316] p-5 rounded-[16px] text-center mb-6">
+<div class="text-2xl font-bold text-[#F8FAFC] mb-1">월 ₩1,500</div>
+<div class="text-xs text-[#CBD5E1]">자동 갱신 · 언제든 해지</div>
+</div>
+</div>
+<!-- Bottom Actions & Footer -->
+<div class="space-y-4 pb-6 md:pb-0">
+<!-- Full-width warm orange button -->
+<button class="w-full bg-[#F97316] hover:bg-[#EA580C] text-white font-bold py-3.5 px-4 rounded-[10px] transition-colors text-center shadow-none">
+                구독 시작
+            </button>
+<!-- Text button: Purchase Restore -->
+<div class="text-center">
+<button class="text-xs text-[#CBD5E1] hover:text-[#F8FAFC] underline underline-offset-4 py-1 transition-colors">
+                    구매 복원
+                </button>
+</div>
+<!-- Tiny footer links -->
+<div class="text-center pt-2">
+<p class="text-[11px] text-[#909097] tracking-tight">
+                    이용약관  ·  개인정보처리방침
+                </p>
+</div>
+</div>
+</main>
+</body></html>

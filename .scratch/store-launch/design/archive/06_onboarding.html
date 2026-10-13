@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="ko"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>오늘의 초성 - S6 온보딩</title>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+              "on-secondary-fixed": "#341100",
+              "primary-fixed-dim": "#bec6e0",
+              "surface-container-low": "#0d1c2f",
+              "inverse-primary": "#565e74",
+              "on-surface-variant": "#c6c6cd",
+              "on-tertiary": "#3e2d11",
+              "surface-dim": "#051426",
+              "surface-variant": "#273649",
+              "surface-tint": "#bec6e0",
+              "on-tertiary-fixed": "#271901",
+              "on-primary-fixed": "#131b2e",
+              "on-tertiary-fixed-variant": "#574425",
+              "error": "#ffb4ab",
+              "surface-container-high": "#1c2b3e",
+              "on-secondary-container": "#4a1c00",
+              "outline": "#909097",
+              "inverse-on-surface": "#233144",
+              "secondary": "#ffb690",
+              "on-primary-fixed-variant": "#3f465c",
+              "background": "#051426",
+              "on-primary-container": "#798098",
+              "surface": "#051426",
+              "inverse-surface": "#d5e3fd",
+              "on-error": "#690005",
+              "outline-variant": "#45464d",
+              "tertiary": "#dec29a",
+              "error-container": "#93000a",
+              "tertiary-fixed": "#fcdeb5",
+              "tertiary-container": "#231500",
+              "secondary-fixed": "#ffdbca",
+              "on-secondary": "#552100",
+              "primary-container": "#0f172a",
+              "on-error-container": "#ffdad6",
+              "on-tertiary-container": "#957d5a",
+              "on-background": "#d5e3fd",
+              "surface-container": "#122033",
+              "primary-fixed": "#dae2fd",
+              "on-primary": "#283044",
+              "surface-container-lowest": "#010f21",
+              "secondary-container": "#ec6a06",
+              "primary": "#bec6e0",
+              "on-secondary-fixed-variant": "#783200",
+              "surface-container-highest": "#273649",
+              "surface-bright": "#2c3a4e",
+              "secondary-fixed-dim": "#ffb690",
+              "tertiary-fixed-dim": "#dec29a",
+              "on-surface": "#d5e3fd",
+              "orange-primary": "#F97316"
+            },
+            "borderRadius": {
+              "DEFAULT": "0.25rem",
+              "lg": "0.5rem",
+              "xl": "0.75rem",
+              "full": "9999px"
+            },
+            "spacing": {
+              "space-md": "1rem",
+              "margin": "1.5rem",
+              "space-xs": "0.25rem",
+              "space-xl": "2rem",
+              "space-lg": "1.5rem",
+              "space-sm": "0.5rem",
+              "gutter": "1rem"
+            },
+            "fontFamily": {
+              "headline-sm": ["Inter"],
+              "jamo-display": ["Inter"],
+              "body-md": ["Inter"],
+              "label-md": ["Inter"],
+              "label-lg": ["Inter"],
+              "headline-md": ["Inter"],
+              "headline-lg": ["Inter"],
+              "body-lg": ["Inter"]
+            },
+            "fontSize": {
+              "headline-sm": ["18px", { "lineHeight": "24px", "fontWeight": "600" }],
+              "jamo-display": ["48px", { "lineHeight": "56px", "fontWeight": "700" }],
+              "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+              "label-md": ["12px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "500" }],
+              "label-lg": ["14px", { "lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "500" }],
+              "headline-md": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+              "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+              "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-[#0F172A] text-[#F8FAFC] font-body-md antialiased min-h-screen flex flex-col items-center justify-between">
+<div class="w-full max-w-[480px] min-h-screen flex flex-col justify-between p-6 mx-auto bg-[#0F172A]">
+<!-- Header: Language Selector & Skip -->
+<header class="flex justify-between items-center w-full pt-2">
+<div class="flex gap-2">
+<button class="px-3 py-1 rounded-[10px] text-label-md font-label-md text-[#F8FAFC] border border-[#F97316] bg-[#111827] focus:outline-none">한국어</button>
+<button class="px-3 py-1 rounded-[10px] text-label-md font-label-md text-[#CBD5E1] border border-[#334155] bg-[#111827] focus:outline-none hover:border-[#F97316] transition-colors">English</button>
+</div>
+<button class="text-label-md font-label-md text-[#CBD5E1] hover:text-[#F8FAFC] transition-colors focus:outline-none">건너뛰기</button>
+</header>
+<!-- Center Content: Tiles & Typography -->
+<main class="flex flex-col items-center justify-center my-auto w-full py-8">
+<!-- 4 Large Bold Jamo Tiles -->
+<div class="grid grid-cols-4 gap-3 w-full mb-8">
+<div class="aspect-square bg-[#111827] border border-[#334155] rounded-[8px] flex items-center justify-center text-[32px] font-bold text-[#F8FAFC]">
+                    ㅈ
+                </div>
+<div class="aspect-square bg-[#111827] border border-[#334155] rounded-[8px] flex items-center justify-center text-[32px] font-bold text-[#F8FAFC]">
+                    ㅎ
+                </div>
+<div class="aspect-square bg-[#111827] border border-[#334155] rounded-[8px] flex items-center justify-center text-[32px] font-bold text-[#F8FAFC]">
+                    ㅊ
+                </div>
+<div class="aspect-square bg-[#111827] border border-[#334155] rounded-[8px] flex items-center justify-center text-[32px] font-bold text-[#F8FAFC]">
+                    ㅇ
+                </div>
+</div>
+<!-- Headline & Body -->
+<h1 class="font-headline-lg text-headline-lg text-center mb-3 text-[#F8FAFC] tracking-tight">하루 한 문제</h1>
+<p class="font-body-lg text-body-lg text-center text-[#CBD5E1] max-w-[320px]">
+                초성만 보고 단어를 맞춰요.<br/>매일 KST 자정에 새 문제
+            </p>
+</main>
+<!-- Footer: Pagination Dots & Action Button -->
+<footer class="flex flex-col w-full pb-4 gap-6">
+<!-- Page Dots -->
+<div class="flex justify-center items-center gap-2">
+<span class="w-6 h-2 bg-[#F97316] rounded-full transition-all"></span>
+<span class="w-2 h-2 bg-[#334155] rounded-full transition-all"></span>
+<span class="w-2 h-2 bg-[#334155] rounded-full transition-all"></span>
+</div>
+<!-- Full-width Primary Button -->
+<button class="w-full h-12 bg-[#F97316] text-[#F8FAFC] font-headline-sm rounded-[10px] flex items-center justify-center transition-opacity hover:opacity-90 active:opacity-80 focus:outline-none">
+                다음
+            </button>
+</footer>
+</div>
+</body></html>

@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="ko"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
+<title>오늘의 초성</title>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter,+Pretendard,+system-ui,+sans-serif:wght@100..900&display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "on-secondary-fixed": "#002109",
+            "outline-variant": "#334155",
+            "on-secondary-fixed-variant": "#005321",
+            "on-secondary": "#003915",
+            "tertiary-fixed": "#cde5ff",
+            "on-surface": "#F8FAFC",
+            "on-secondary-container": "#004119",
+            "surface-container-high": "#222a3d",
+            "on-primary-fixed": "#341100",
+            "on-error": "#690005",
+            "surface-container-highest": "#2d3449",
+            "on-tertiary-container": "#003554",
+            "tertiary-container": "#00a2f4",
+            "surface-container-low": "#131b2e",
+            "on-primary-fixed-variant": "#783200",
+            "primary-fixed-dim": "#ffb690",
+            "surface": "#0F172A",
+            "on-primary-container": "#582200",
+            "primary-fixed": "#ffdbca",
+            "tertiary-fixed-dim": "#93ccff",
+            "on-tertiary": "#003351",
+            "primary-container": "#f97316",
+            "error": "#ffb4ab",
+            "tertiary": "#93ccff",
+            "surface-tint": "#ffb690",
+            "primary": "#F97316",
+            "on-tertiary-fixed-variant": "#004b74",
+            "secondary-fixed": "#6bff8f",
+            "inverse-on-surface": "#283044",
+            "background": "#0F172A",
+            "surface-container-lowest": "#060e20",
+            "on-tertiary-fixed": "#001d32",
+            "on-error-container": "#ffdad6",
+            "inverse-primary": "#9d4300",
+            "secondary-container": "#00b954",
+            "error-container": "#93000a",
+            "secondary-fixed-dim": "#4ae176",
+            "surface-bright": "#31394d",
+            "surface-dim": "#0b1326",
+            "outline": "#334155",
+            "surface-container": "#111827",
+            "on-primary": "#0F172A",
+            "on-surface-variant": "#CBD5E1",
+            "inverse-surface": "#dae2fd",
+            "surface-variant": "#1E293B",
+            "secondary": "#22C55E",
+            "on-background": "#F8FAFC"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.125rem",
+            "lg": "0.25rem",
+            "xl": "0.5rem",
+            "full": "0.75rem"
+          },
+          "spacing": {
+            "space-md": "0.75rem",
+            "margin-desktop": "2.5rem",
+            "gutter-desktop": "1rem",
+            "space-xs": "0.25rem",
+            "space-xl": "1.5rem",
+            "space-lg": "1rem",
+            "gutter": "0.75rem",
+            "space-sm": "0.5rem",
+            "margin": "1rem"
+          },
+          "fontFamily": {
+            "headline-md": ["\"Inter, Pretendard, system-ui, sans-serif\""],
+            "headline-lg": ["\"Inter, Pretendard, system-ui, sans-serif\""],
+            "keycap-display": ["\"Inter, Pretendard, system-ui, sans-serif\""],
+            "headline-xl": ["\"Inter, Pretendard, system-ui, sans-serif\""],
+            "body-lg": ["\"Inter, Pretendard, system-ui, sans-serif\""],
+            "headline-xl-mobile": ["\"Inter, Pretendard, system-ui, sans-serif\""],
+            "headline-lg-mobile": ["\"Inter, Pretendard, system-ui, sans-serif\""],
+            "tile-display": ["\"Inter, Pretendard, system-ui, sans-serif\""],
+            "label-md": ["\"Inter, Pretendard, system-ui, sans-serif\""],
+            "label-lg": ["\"Inter, Pretendard, system-ui, sans-serif\""],
+            "body-md": ["\"Inter, Pretendard, system-ui, sans-serif\""]
+          },
+          "fontSize": {
+            "headline-md": ["20px", { "lineHeight": "28px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+            "headline-lg": ["28px", { "lineHeight": "36px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+            "keycap-display": ["18px", { "lineHeight": "22px", "fontWeight": "500" }],
+            "headline-xl": ["40px", { "lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+            "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+            "headline-xl-mobile": ["30px", { "lineHeight": "36px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+            "headline-lg-mobile": ["22px", { "lineHeight": "28px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+            "tile-display": ["32px", { "lineHeight": "32px", "fontWeight": "700" }],
+            "label-md": ["12px", { "lineHeight": "16px", "letterSpacing": "0.04em", "fontWeight": "600" }],
+            "label-lg": ["14px", { "lineHeight": "18px", "letterSpacing": "0.02em", "fontWeight": "600" }],
+            "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }]
+          }
+        }
+      }
+    }
+  </script>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-surface text-on-surface font-body-md antialiased selection:bg-primary selection:text-on-primary">
+<div class="min-h-screen flex flex-col max-w-[480px] mx-auto pb-32">
+<!-- TopAppBar -->
+<header class="bg-surface text-on-surface font-headline-md text-headline-md docked full-width top-0 border-b border-outline-variant flex justify-between items-center w-full max-w-[480px] mx-auto px-margin h-14 z-40 sticky">
+<div class="font-headline-md text-headline-md font-bold text-on-surface tracking-tight">오늘의 초성</div>
+<div class="flex items-center gap-1.5 bg-surface-variant px-3 py-1 rounded-full border border-outline-variant">
+<span class="material-symbols-outlined text-primary text-sm" style="font-variation-settings: 'FILL' 1;">local_fire_department</span>
+<span class="font-label-lg text-label-lg text-on-surface font-bold">7일</span>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="flex-1 px-margin py-space-lg flex flex-col gap-space-lg">
+<!-- Date Line & Chip -->
+<div class="flex items-center justify-between">
+<div class="font-body-md text-on-surface-variant font-medium">10월 13일 · 일반 단어</div>
+<div class="bg-surface-variant border border-outline-variant px-2.5 py-1 rounded-md text-[11px] font-semibold text-on-surface-variant tracking-wider">
+          KST 00:00 새 퍼즐
+        </div>
+</div>
+<!-- Puzzle Header Row -->
+<div class="bg-surface-container border border-outline-variant rounded-[16px] p-space-lg flex flex-col items-center gap-space-md">
+<div class="text-xs font-semibold text-on-surface-variant uppercase tracking-wider">오늘의 초성 퀴즈</div>
+<div class="flex gap-2">
+<div class="w-12 h-12 rounded-[8px] bg-surface-variant border border-outline-variant flex items-center justify-center font-tile-display text-[28px] text-on-surface">ㅈ</div>
+<div class="w-12 h-12 rounded-[8px] bg-surface-variant border border-outline-variant flex items-center justify-center font-tile-display text-[28px] text-on-surface">ㅎ</div>
+<div class="w-12 h-12 rounded-[8px] bg-surface-variant border border-outline-variant flex items-center justify-center font-tile-display text-[28px] text-on-surface">ㅊ</div>
+<div class="w-12 h-12 rounded-[8px] bg-surface-variant border border-outline-variant flex items-center justify-center font-tile-display text-[28px] text-on-surface">ㅇ</div>
+</div>
+<div class="text-xs text-on-surface-variant font-medium">4글자</div>
+</div>
+<!-- Attempt Rows -->
+<div class="flex flex-col gap-space-sm">
+<!-- Row 1:지하철역 (1-2 green, 3-4 gray) -->
+<div class="grid grid-cols-4 gap-2">
+<div class="h-12 rounded-[8px] bg-secondary border border-secondary flex items-center justify-center font-tile-display text-[20px] text-surface font-bold relative">
+            지
+            <span class="absolute top-1 right-1 material-symbols-outlined text-surface text-[14px]">check</span>
+</div>
+<div class="h-12 rounded-[8px] bg-secondary border border-secondary flex items-center justify-center font-tile-display text-[20px] text-surface font-bold relative">
+            하
+            <span class="absolute top-1 right-1 material-symbols-outlined text-surface text-[14px]">check</span>
+</div>
+<div class="h-12 rounded-[8px] bg-surface-variant border border-outline-variant flex items-center justify-center font-tile-display text-[20px] text-[#475569]">철</div>
+<div class="h-12 rounded-[8px] bg-surface-variant border border-outline-variant flex items-center justify-center font-tile-display text-[20px] text-[#475569]">역</div>
+</div>
+<!-- Row 2:자하촌역 (1, 4 green) -->
+<div class="grid grid-cols-4 gap-2">
+<div class="h-12 rounded-[8px] bg-secondary border border-secondary flex items-center justify-center font-tile-display text-[20px] text-surface font-bold relative">
+            자
+            <span class="absolute top-1 right-1 material-symbols-outlined text-surface text-[14px]">check</span>
+</div>
+<div class="h-12 rounded-[8px] bg-surface-variant border border-outline-variant flex items-center justify-center font-tile-display text-[20px] text-[#475569]">하</div>
+<div class="h-12 rounded-[8px] bg-surface-variant border border-outline-variant flex items-center justify-center font-tile-display text-[20px] text-[#475569]">촌</div>
+<div class="h-12 rounded-[8px] bg-secondary border border-secondary flex items-center justify-center font-tile-display text-[20px] text-surface font-bold relative">
+            역
+            <span class="absolute top-1 right-1 material-symbols-outlined text-surface text-[14px]">check</span>
+</div>
+</div>
+<!-- Row 3: empty dashed -->
+<div class="grid grid-cols-4 gap-2">
+<div class="h-12 rounded-[8px] bg-surface-variant border border-dashed border-outline-variant"></div>
+<div class="h-12 rounded-[8px] bg-surface-variant border border-dashed border-outline-variant"></div>
+<div class="h-12 rounded-[8px] bg-surface-variant border border-dashed border-outline-variant"></div>
+<div class="h-12 rounded-[8px] bg-surface-variant border border-dashed border-outline-variant"></div>
+</div>
+<!-- Row 4: empty dashed -->
+<div class="grid grid-cols-4 gap-2">
+<div class="h-12 rounded-[8px] bg-surface-variant border border-dashed border-outline-variant"></div>
+<div class="h-12 rounded-[8px] bg-surface-variant border border-dashed border-outline-variant"></div>
+<div class="h-12 rounded-[8px] bg-surface-variant border border-dashed border-outline-variant"></div>
+<div class="h-12 rounded-[8px] bg-surface-variant border border-dashed border-outline-variant"></div>
+</div>
+<!-- Row 5: empty dashed -->
+<div class="grid grid-cols-4 gap-2">
+<div class="h-12 rounded-[8px] bg-surface-variant border border-dashed border-outline-variant"></div>
+<div class="h-12 rounded-[8px] bg-surface-variant border border-dashed border-outline-variant"></div>
+<div class="h-12 rounded-[8px] bg-surface-variant border border-dashed border-outline-variant"></div>
+<div class="h-12 rounded-[8px] bg-surface-variant border border-dashed border-outline-variant"></div>
+</div>
+</div>
+<!-- Hint Card -->
+<div class="bg-surface-container border border-outline-variant rounded-[16px] p-space-lg flex flex-col gap-space-md">
+<div class="flex items-center gap-space-sm text-on-surface-variant">
+<span class="material-symbols-outlined text-base">lock</span>
+<span class="font-body-md text-on-surface-variant font-medium">힌트는 3번째 오답 후 열려요</span>
+</div>
+<button class="w-full py-2.5 px-4 rounded-[10px] border border-outline-variant bg-transparent text-on-surface font-label-lg flex items-center justify-center gap-2 hover:bg-surface-variant transition-colors">
+<span class="material-symbols-outlined text-sm">play_arrow</span>
+          광고 보고 힌트 미리 보기
+        </button>
+</div>
+<!-- Input Area & Submit -->
+<div class="flex flex-col gap-space-sm">
+<div class="relative flex items-center">
+<input class="w-full bg-surface-variant border border-outline-variant rounded-[10px] px-4 py-3 text-on-surface placeholder:text-outline focus:border-primary focus:outline-none font-body-lg" maxlength="4" placeholder="정답을 입력하세요" type="text"/>
+<span class="absolute right-4 text-xs font-semibold text-on-surface-variant">0/4</span>
+</div>
+<div class="flex items-center justify-between text-xs text-on-surface-variant px-1">
+<span>남은 기회 3/5</span>
+<span class="text-primary font-medium">초성 맞추기</span>
+</div>
+<button class="w-full bg-primary text-on-primary font-headline-md py-3.5 rounded-[10px] font-bold tracking-tight hover:bg-opacity-90 transition-colors mt-1">
+          제출
+        </button>
+</div>
+</main>
+<!-- Fixed Bottom Navigation & Ad Banner Container -->
+<div class="fixed bottom-0 left-0 w-full z-50 flex flex-col max-w-[480px] right-0 mx-auto">
+<!-- Reserved 50px banner ad slot -->
+<div class="w-full h-[50px] bg-surface-variant border-t border-outline-variant flex items-center justify-center">
+<span class="text-xs text-outline font-medium tracking-widest uppercase">광고</span>
+</div>
+<!-- BottomNavBar -->
+<nav class="bg-surface-container border-t border-outline-variant flex justify-around items-center px-margin py-space-xs">
+<!-- Tab 1: 오늘의 퍼즐 (Active) -->
+<a class="flex flex-col items-center justify-center text-primary font-semibold py-space-xs flex-1" href="#">
+<span class="material-symbols-outlined text-xl" style="font-variation-settings: 'FILL' 1;">grid_view</span>
+<span class="font-label-md text-label-md mt-1">오늘의 퍼즐</span>
+</a>
+<!-- Tab 2: 순위 -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant hover:text-on-surface transition-colors py-space-xs flex-1" href="#">
+<span class="material-symbols-outlined text-xl">leaderboard</span>
+<span class="font-label-md text-label-md mt-1">순위</span>
+</a>
+<!-- Tab 3: 내 기록 -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant hover:text-on-surface transition-colors py-space-xs flex-1" href="#">
+<span class="material-symbols-outlined text-xl">inventory_2</span>
+<span class="font-label-md text-label-md mt-1">내 기록</span>
+</a>
+<!-- Tab 4: 설정 (As requested in JSON schema completeness) -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant hover:text-on-surface transition-colors py-space-xs flex-1" href="#">
+<span class="material-symbols-outlined text-xl">settings</span>
+<span class="font-label-md text-label-md mt-1">설정</span>
+</a>
+</nav>
+</div>
+</div>
+</body></html>

@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+
+<html lang="ko"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>오늘의 초성 - 순위</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Newsreader:ital,opsz,wght@0,6..72,400..700;1,6..72,400..700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "background": "#f9f9f8",
+            "on-primary-fixed-variant": "#3f465c",
+            "secondary-container": "#fd651e",
+            "error": "#ba1a1a",
+            "tertiary-fixed": "#7ffc97",
+            "surface-container-lowest": "#ffffff",
+            "secondary": "#a73a00",
+            "on-secondary-fixed": "#370e00",
+            "on-tertiary-fixed": "#002109",
+            "surface-container-highest": "#e2e2e2",
+            "error-container": "#ffdad6",
+            "primary-fixed": "#dae2fd",
+            "on-primary": "#ffffff",
+            "primary": "#000000",
+            "on-secondary": "#ffffff",
+            "surface-container": "#eeeeed",
+            "secondary-fixed": "#ffdbce",
+            "inverse-surface": "#2f3130",
+            "on-error": "#ffffff",
+            "on-secondary-container": "#571a00",
+            "on-primary-container": "#7c839b",
+            "surface-bright": "#f9f9f8",
+            "primary-fixed-dim": "#bec6e0",
+            "on-surface-variant": "#45464d",
+            "surface-tint": "#565e74",
+            "secondary-fixed-dim": "#ffb599",
+            "on-surface": "#1a1c1c",
+            "on-primary-fixed": "#131b2e",
+            "surface-container-high": "#e8e8e7",
+            "outline": "#76777d",
+            "inverse-primary": "#bec6e0",
+            "surface-dim": "#dadad9",
+            "surface": "#f9f9f8",
+            "tertiary-fixed-dim": "#62df7d",
+            "tertiary": "#000000",
+            "outline-variant": "#c6c6cd",
+            "inverse-on-surface": "#f1f1f0",
+            "on-tertiary-container": "#009842",
+            "on-tertiary-fixed-variant": "#005320",
+            "surface-container-low": "#f3f4f3",
+            "on-tertiary": "#ffffff",
+            "on-background": "#1a1c1c",
+            "on-secondary-fixed-variant": "#7f2b00",
+            "primary-container": "#131b2e",
+            "surface-variant": "#e2e2e2",
+            "tertiary-container": "#002109",
+            "on-error-container": "#93000a",
+            "orange-accent": "#EA580C",
+            "hairline": "#E7E5E4"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.125rem",
+            "lg": "0.25rem",
+            "xl": "0.5rem",
+            "full": "0.75rem"
+          },
+          "spacing": {
+            "space-lg": "1.5rem",
+            "space-sm": "0.5rem",
+            "gutter": "1.5rem",
+            "space-xl": "3rem",
+            "space-md": "1rem",
+            "space-xs": "0.25rem",
+            "margin": "2rem"
+          },
+          "fontFamily": {
+            "body-md": ["Inter"],
+            "label-lg": ["Inter"],
+            "label-sm": ["Inter"],
+            "label-md": ["Inter"],
+            "headline-sm": ["Newsreader"],
+            "body-sm": ["Inter"],
+            "body-lg": ["Inter"],
+            "headline-lg": ["Newsreader"],
+            "headline-md": ["Newsreader"],
+            "headline-xl": ["Newsreader"]
+          },
+          "fontSize": {
+            "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+            "label-lg": ["16px", { "lineHeight": "24px", "letterSpacing": "0.05em", "fontWeight": "600" }],
+            "label-sm": ["12px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "500" }],
+            "label-md": ["14px", { "lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "500" }],
+            "headline-sm": ["20px", { "lineHeight": "28px", "fontWeight": "500" }],
+            "body-sm": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+            "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "400" }],
+            "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+            "headline-md": ["24px", { "lineHeight": "32px", "fontWeight": "500" }],
+            "headline-xl": ["40px", { "lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "600" }]
+          }
+        }
+      }
+    }
+  </script>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-[#0F172A] font-body-md antialiased min-h-screen flex flex-col justify-between selection:bg-[#EA580C] selection:text-white pb-36">
+<!-- TopAppBar Component -->
+<header class="bg-surface text-primary font-headline-md text-headline-md sticky top-0 z-40 flex justify-between items-center w-full px-space-md py-space-sm border-b border-[#E7E5E4]">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary" style="font-variation-settings: 'FILL' 1;">trophy</span>
+<h1 class="font-headline-md text-headline-md font-bold tracking-tight text-[#0F172A]">순위</h1>
+</div>
+<div class="flex items-center gap-3">
+<span class="text-xs font-label-sm px-2 py-1 border border-[#E7E5E4] rounded text-[#57534E]">한국어</span>
+<button aria-label="Settings" class="text-primary hover:bg-surface-variant transition-colors duration-200 p-1 rounded">
+<span class="material-symbols-outlined">settings</span>
+</button>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="w-full max-w-md mx-auto px-space-md pt-space-md flex-grow">
+<!-- Date Header & Subtitle -->
+<div class="flex justify-between items-baseline mb-space-md">
+<div>
+<span class="text-xs text-[#57534E] font-label-sm tracking-widest uppercase block mb-1">데일리 초성 퍼즐</span>
+<h2 class="font-headline-lg text-headline-lg text-[#0F172A]">10월 13일</h2>
+</div>
+<div class="text-right">
+<span class="text-xs text-[#57534E]">참여 인원</span>
+<p class="font-bold text-[#0F172A]">1,428명</p>
+</div>
+</div>
+<!-- Pinned '내 순위' Banner -->
+<div class="bg-surface border border-[#E7E5E4] p-space-md mb-space-lg rounded">
+<div class="flex justify-between items-center mb-space-xs">
+<span class="text-xs font-semibold tracking-wide text-[#57534E] uppercase">내 순위 기록</span>
+<span class="text-xs text-[#EA580C] font-semibold flex items-center gap-1">
+<span class="material-symbols-outlined text-sm" style="font-variation-settings: 'FILL' 1;">local_fire_department</span>
+          상위 1%
+        </span>
+</div>
+<div class="grid grid-cols-4 gap-2 items-center pt-2 border-t border-[#E7E5E4]">
+<div>
+<span class="text-[11px] text-[#57534E] block">순위</span>
+<span class="font-headline-md font-bold text-[#EA580C]">#12</span>
+</div>
+<div>
+<span class="text-[11px] text-[#57534E] block">시도 횟수</span>
+<span class="font-medium text-[#0F172A]">2회</span>
+</div>
+<div class="col-span-2 text-right">
+<span class="text-[11px] text-[#57534E] block">소요 시간</span>
+<span class="font-mono font-medium text-[#0F172A]">03:41</span>
+</div>
+</div>
+</div>
+<!-- Scrollable Leaderboard List -->
+<div class="bg-surface border border-[#E7E5E4] rounded overflow-hidden">
+<div class="grid grid-cols-12 px-space-md py-3 bg-[#F5F5F4] border-b border-[#E7E5E4] text-xs font-semibold text-[#57534E]">
+<div class="col-span-2">순위</div>
+<div class="col-span-5">사용자</div>
+<div class="col-span-2 text-center">시도</div>
+<div class="col-span-3 text-right">시간</div>
+</div>
+<div class="divide-y divide-[#E7E5E4]">
+<!-- Rank 1 -->
+<div class="grid grid-cols-12 px-space-md py-3 items-center hover:bg-[#F5F5F4] transition-colors">
+<div class="col-span-2 font-bold text-[#EA580C] flex items-center gap-1">
+<span>1</span>
+<span class="material-symbols-outlined text-xs" style="font-variation-settings: 'FILL' 1;">workspace_premium</span>
+</div>
+<div class="col-span-5 font-medium text-[#0F172A] truncate">kim***@naver.com</div>
+<div class="col-span-2 text-center text-sm text-[#57534E]">1회</div>
+<div class="col-span-3 text-right font-mono text-sm text-[#0F172A]">00:00:45</div>
+</div>
+<!-- Rank 2 -->
+<div class="grid grid-cols-12 px-space-md py-3 items-center hover:bg-[#F5F5F4] transition-colors">
+<div class="col-span-2 font-bold text-[#EA580C]">2</div>
+<div class="col-span-5 font-medium text-[#0F172A] truncate">lee***@gmail.com</div>
+<div class="col-span-2 text-center text-sm text-[#57534E]">1회</div>
+<div class="col-span-3 text-right font-mono text-sm text-[#0F172A]">00:01:02</div>
+</div>
+<!-- Rank 3 -->
+<div class="grid grid-cols-12 px-space-md py-3 items-center hover:bg-[#F5F5F4] transition-colors">
+<div class="col-span-2 font-bold text-[#EA580C]">3</div>
+<div class="col-span-5 font-medium text-[#0F172A] truncate">park_wordle</div>
+<div class="col-span-2 text-center text-sm text-[#57534E]">1회</div>
+<div class="col-span-3 text-right font-mono text-sm text-[#0F172A]">00:01:12</div>
+</div>
+<!-- Rank 4 -->
+<div class="grid grid-cols-12 px-space-md py-3 items-center hover:bg-[#F5F5F4] transition-colors">
+<div class="col-span-2 font-semibold text-[#0F172A]">4</div>
+<div class="col-span-5 font-medium text-[#0F172A] truncate">choi***@daum.net</div>
+<div class="col-span-2 text-center text-sm text-[#57534E]">2회</div>
+<div class="col-span-3 text-right font-mono text-sm text-[#0F172A]">00:01:25</div>
+</div>
+<!-- Rank 5 -->
+<div class="grid grid-cols-12 px-space-md py-3 items-center hover:bg-[#F5F5F4] transition-colors">
+<div class="col-span-2 font-semibold text-[#0F172A]">5</div>
+<div class="col-span-5 font-medium text-[#0F172A] truncate">게스트 #a3f1</div>
+<div class="col-span-2 text-center text-sm text-[#57534E]">1회</div>
+<div class="col-span-3 text-right font-mono text-sm text-[#0F172A]">00:01:34</div>
+</div>
+<!-- Rank 6 -->
+<div class="grid grid-cols-12 px-space-md py-3 items-center hover:bg-[#F5F5F4] transition-colors">
+<div class="col-span-2 font-semibold text-[#0F172A]">6</div>
+<div class="col-span-5 font-medium text-[#0F172A] truncate">hs***@gmail.com</div>
+<div class="col-span-2 text-center text-sm text-[#57534E]">2회</div>
+<div class="col-span-3 text-right font-mono text-sm text-[#0F172A]">00:01:50</div>
+</div>
+<!-- Rank 7 -->
+<div class="grid grid-cols-12 px-space-md py-3 items-center hover:bg-[#F5F5F4] transition-colors">
+<div class="col-span-2 font-semibold text-[#0F172A]">7</div>
+<div class="col-span-5 font-medium text-[#0F172A] truncate">puzzle_master</div>
+<div class="col-span-2 text-center text-sm text-[#57534E]">2회</div>
+<div class="col-span-3 text-right font-mono text-sm text-[#0F172A]">00:02:05</div>
+</div>
+<!-- Rank 8 -->
+<div class="grid grid-cols-12 px-space-md py-3 items-center hover:bg-[#F5F5F4] transition-colors">
+<div class="col-span-2 font-semibold text-[#0F172A]">8</div>
+<div class="col-span-5 font-medium text-[#0F172A] truncate">kang***@naver.com</div>
+<div class="col-span-2 text-center text-sm text-[#57534E]">3회</div>
+<div class="col-span-3 text-right font-mono text-sm text-[#0F172A]">00:02:18</div>
+</div>
+<!-- Rank 9 -->
+<div class="grid grid-cols-12 px-space-md py-3 items-center hover:bg-[#F5F5F4] transition-colors">
+<div class="col-span-2 font-semibold text-[#0F172A]">9</div>
+<div class="col-span-5 font-medium text-[#0F172A] truncate">song***@kakao.com</div>
+<div class="col-span-2 text-center text-sm text-[#57534E]">2회</div>
+<div class="col-span-3 text-right font-mono text-sm text-[#0F172A]">00:02:30</div>
+</div>
+<!-- Rank 10 -->
+<div class="grid grid-cols-12 px-space-md py-3 items-center hover:bg-[#F5F5F4] transition-colors">
+<div class="col-span-2 font-semibold text-[#0F172A]">10</div>
+<div class="col-span-5 font-medium text-[#0F172A] truncate">lim***@gmail.com</div>
+<div class="col-span-2 text-center text-sm text-[#57534E]">3회</div>
+<div class="col-span-3 text-right font-mono text-sm text-[#0F172A]">00:02:45</div>
+</div>
+<!-- Rank 11 -->
+<div class="grid grid-cols-12 px-space-md py-3 items-center hover:bg-[#F5F5F4] transition-colors">
+<div class="col-span-2 font-semibold text-[#0F172A]">11</div>
+<div class="col-span-5 font-medium text-[#0F172A] truncate">han***@naver.com</div>
+<div class="col-span-2 text-center text-sm text-[#57534E]">2회</div>
+<div class="col-span-3 text-right font-mono text-sm text-[#0F172A]">00:03:10</div>
+</div>
+<!-- Rank 12 (Current User Highlighted) -->
+<div class="grid grid-cols-12 px-space-md py-3 items-center bg-[#F5F5F4] border-l-2 border-[#EA580C]">
+<div class="col-span-2 font-bold text-[#EA580C]">12</div>
+<div class="col-span-5 font-bold text-[#0F172A] truncate">나 (Guest)</div>
+<div class="col-span-2 text-center text-sm text-[#0F172A] font-semibold">2회</div>
+<div class="col-span-3 text-right font-mono text-sm font-bold text-[#0F172A]">03:41</div>
+</div>
+<!-- Rank 13 -->
+<div class="grid grid-cols-12 px-space-md py-3 items-center hover:bg-[#F5F5F4] transition-colors">
+<div class="col-span-2 font-semibold text-[#0F172A]">13</div>
+<div class="col-span-5 font-medium text-[#0F172A] truncate">oh***@daum.net</div>
+<div class="col-span-2 text-center text-sm text-[#57534E]">3회</div>
+<div class="col-span-3 text-right font-mono text-sm text-[#0F172A]">00:03:55</div>
+</div>
+<!-- Rank 14 -->
+<div class="grid grid-cols-12 px-space-md py-3 items-center hover:bg-[#F5F5F4] transition-colors">
+<div class="col-span-2 font-semibold text-[#0F172A]">14</div>
+<div class="col-span-5 font-medium text-[#0F172A] truncate">seo***@gmail.com</div>
+<div class="col-span-2 text-center text-sm text-[#57534E]">4회</div>
+<div class="col-span-3 text-right font-mono text-sm text-[#0F172A]">00:04:12</div>
+</div>
+<!-- Rank 15 -->
+<div class="grid grid-cols-12 px-space-md py-3 items-center hover:bg-[#F5F5F4] transition-colors">
+<div class="col-span-2 font-semibold text-[#0F172A]">15</div>
+<div class="col-span-5 font-medium text-[#0F172A] truncate">shin***@naver.com</div>
+<div class="col-span-2 text-center text-sm text-[#57534E]">3회</div>
+<div class="col-span-3 text-right font-mono text-sm text-[#0F172A]">00:04:30</div>
+</div>
+<!-- Rank 16 -->
+<div class="grid grid-cols-12 px-space-md py-3 items-center hover:bg-[#F5F5F4] transition-colors">
+<div class="col-span-2 font-semibold text-[#0F172A]">16</div>
+<div class="col-span-5 font-medium text-[#0F172A] truncate">kwon***@kakao.com</div>
+<div class="col-span-2 text-center text-sm text-[#57534E]">4회</div>
+<div class="col-span-3 text-right font-mono text-sm text-[#0F172A]">00:04:55</div>
+</div>
+<!-- Rank 17 -->
+<div class="grid grid-cols-12 px-space-md py-3 items-center hover:bg-[#F5F5F4] transition-colors">
+<div class="col-span-2 font-semibold text-[#0F172A]">17</div>
+<div class="col-span-5 font-medium text-[#0F172A] truncate">hwang***@gmail.com</div>
+<div class="col-span-2 text-center text-sm text-[#57534E]">4회</div>
+<div class="col-span-3 text-right font-mono text-sm text-[#0F172A]">00:05:20</div>
+</div>
+<!-- Rank 18 -->
+<div class="grid grid-cols-12 px-space-md py-3 items-center hover:bg-[#F5F5F4] transition-colors">
+<div class="col-span-2 font-semibold text-[#0F172A]">18</div>
+<div class="col-span-5 font-medium text-[#0F172A] truncate">an***@naver.com</div>
+<div class="col-span-2 text-center text-sm text-[#57534E]">5회</div>
+<div class="col-span-3 text-right font-mono text-sm text-[#0F172A]">00:05:45</div>
+</div>
+<!-- Rank 19 -->
+<div class="grid grid-cols-12 px-space-md py-3 items-center hover:bg-[#F5F5F4] transition-colors">
+<div class="col-span-2 font-semibold text-[#0F172A]">19</div>
+<div class="col-span-5 font-medium text-[#0F172A] truncate">jeon***@daum.net</div>
+<div class="col-span-2 text-center text-sm text-[#57534E]">5회</div>
+<div class="col-span-3 text-right font-mono text-sm text-[#0F172A]">00:06:10</div>
+</div>
+<!-- Rank 20 -->
+<div class="grid grid-cols-12 px-space-md py-3 items-center hover:bg-[#F5F5F4] transition-colors">
+<div class="col-span-2 font-semibold text-[#0F172A]">20</div>
+<div class="col-span-5 font-medium text-[#0F172A] truncate">ryu***@gmail.com</div>
+<div class="col-span-2 text-center text-sm text-[#57534E]">5회</div>
+<div class="col-span-3 text-right font-mono text-sm text-[#0F172A]">00:06:50</div>
+</div>
+</div>
+</div>
+</main>
+<!-- Bottom Nav & Ad Banner Container (Fixed Bottom) -->
+<div class="fixed bottom-0 left-0 w-full z-50 bg-surface">
+<!-- BottomNavBar Component -->
+<nav class="flex justify-around items-center px-space-md py-space-xs bg-surface text-label-md transition-all duration-200">
+<!-- Inactive Item: 오늘 -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant p-space-xs hover:text-on-surface transition-all duration-200" href="#">
+<span class="material-symbols-outlined">today</span>
+<span class="text-xs mt-0.5">오늘</span>
+</a>
+<!-- Active Item: 순위 -->
+<a class="flex flex-col items-center justify-center bg-secondary-container text-on-secondary-container rounded-xl p-space-xs relative transition-all duration-200" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">leaderboard</span>
+<span class="text-xs mt-0.5 font-bold">순위</span>
+<!-- Thin orange underline anchor -->
+<div class="absolute bottom-0 w-6 h-[2px] bg-[#EA580C]"></div>
+</a>
+<!-- Inactive Item: 내 기록 -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant p-space-xs hover:text-on-surface transition-all duration-200" href="#">
+<span class="material-symbols-outlined">person</span>
+<span class="text-xs mt-0.5">내 기록</span>
+</a>
+</nav>
+<!-- Reserved 50px Ad Banner Area -->
+<div class="w-full h-[50px] bg-[#F5F5F4] border-t border-[#E7E5E4] flex items-center justify-between px-4">
+<span class="text-[10px] text-[#76777D] tracking-wider uppercase">광고</span>
+<div class="text-xs text-[#45464D] truncate font-medium">
+        매일 자정 갱신되는 오늘의 초성 퍼즐에 도전하세요!
+      </div>
+<span class="text-[10px] border border-[#76777D] text-[#76777D] px-1.5 py-0.5 rounded">Ad</span>
+</div>
+</div>
+</body></html>

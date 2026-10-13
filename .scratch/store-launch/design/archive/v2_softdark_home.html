@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="ko"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>오늘의 초성</title>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "surface-container-lowest": "#010f1f",
+            "surface": "#051424",
+            "on-primary-fixed": "#161c28",
+            "on-tertiary": "#611200",
+            "secondary": "#bfc6da",
+            "on-primary": "#2a303d",
+            "tertiary": "#ffb4a1",
+            "inverse-surface": "#d4e4fa",
+            "secondary-fixed": "#dbe2f7",
+            "primary-fixed-dim": "#c1c6d7",
+            "surface-container": "#122131",
+            "on-surface-variant": "#c6c6cc",
+            "on-surface": "#d4e4fa",
+            "primary": "#c1c6d7",
+            "surface-dim": "#051424",
+            "tertiary-container": "#390700",
+            "surface-variant": "#273647",
+            "on-error-container": "#ffdad6",
+            "inverse-primary": "#585e6d",
+            "surface-tint": "#c1c6d7",
+            "tertiary-fixed": "#ffdbd2",
+            "on-tertiary-fixed-variant": "#82280f",
+            "secondary-fixed-dim": "#bfc6da",
+            "error-container": "#93000a",
+            "surface-container-highest": "#273647",
+            "on-secondary-container": "#b0b8cc",
+            "surface-container-high": "#1c2b3c",
+            "on-background": "#d4e4fa",
+            "background": "#141A26",
+            "on-error": "#690005",
+            "secondary-container": "#41495a",
+            "on-secondary-fixed-variant": "#3f4757",
+            "on-primary-fixed-variant": "#414754",
+            "outline": "#909096",
+            "on-primary-container": "#7d8292",
+            "error": "#ffb4ab",
+            "surface-container-low": "#0d1c2d",
+            "inverse-on-surface": "#233143",
+            "outline-variant": "#45474c",
+            "tertiary-fixed-dim": "#ffb4a1",
+            "on-tertiary-fixed": "#3c0800",
+            "on-secondary": "#293140",
+            "primary-fixed": "#dde2f3",
+            "on-tertiary-container": "#d16144",
+            "on-secondary-fixed": "#141c2a",
+            "primary-container": "#141a26",
+            "surface-bright": "#2c3a4c"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.25rem",
+            "lg": "0.5rem",
+            "xl": "0.75rem",
+            "full": "9999px"
+          },
+          "spacing": {
+            "space-md": "1rem",
+            "space-xl": "2.5rem",
+            "space-sm": "0.5rem",
+            "space-xs": "0.25rem",
+            "gutter": "1rem",
+            "space-lg": "1.5rem",
+            "margin": "1.5rem"
+          },
+          "fontFamily": {
+            "headline-sm": ["Inter"],
+            "label-md": ["Inter"],
+            "headline-md": ["Inter"],
+            "body-lg": ["Inter"],
+            "body-sm": ["Inter"],
+            "label-sm": ["Inter"],
+            "headline-lg": ["Inter"],
+            "body-md": ["Inter"],
+            "label-lg": ["Inter"],
+            "headline-lg-mobile": ["Inter"]
+          },
+          "fontSize": {
+            "headline-sm": ["18px", {"lineHeight": "24px", "fontWeight": "500"}],
+            "label-md": ["12px", {"lineHeight": "16px", "fontWeight": "500"}],
+            "headline-md": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+            "body-lg": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+            "body-sm": ["12px", {"lineHeight": "16px", "fontWeight": "400"}],
+            "label-sm": ["11px", {"lineHeight": "14px", "fontWeight": "500"}],
+            "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "600"}],
+            "body-md": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+            "label-lg": ["14px", {"lineHeight": "20px", "fontWeight": "500"}],
+            "headline-lg-mobile": ["26px", {"lineHeight": "32px", "letterSpacing": "-0.02em", "fontWeight": "600"}]
+          }
+        }
+      }
+    }
+  </script>
+<style>
+    body {
+      background-color: #141A26;
+      color: #F1F5F9;
+      font-family: 'Inter', sans-serif;
+    }
+    .custom-accent {
+      color: #F0795A;
+    }
+    .custom-accent-bg {
+      background-color: #F0795A;
+    }
+    .custom-surface {
+      background-color: #1C2433;
+    }
+    .custom-tile {
+      background-color: #253044;
+    }
+    .custom-muted-green {
+      background-color: #3FA66B;
+    }
+    .custom-secondary-text {
+      color: #94A3B8;
+    }
+  </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-[#141A26] text-[#F1F5F9] min-h-screen flex flex-col justify-between pb-[110px]">
+<!-- TopAppBar -->
+<header class="bg-surface dark:bg-surface text-primary dark:text-primary font-headline-md text-headline-md docked full-width top bg-surface dark:bg-surface flat no shadows transition-all duration-200">
+<div class="flex justify-between items-center w-full px-6 py-4 max-w-7xl mx-auto">
+<div class="flex items-center gap-3">
+<button aria-label="메뉴" class="text-on-surface dark:text-on-surface hover:text-on-surface dark:hover:text-on-surface transition-all duration-200">
+<span class="material-symbols-outlined text-[24px]">menu</span>
+</button>
+<span class="font-headline-md text-headline-md text-on-surface dark:text-on-surface">오늘의 초성</span>
+</div>
+<div class="flex items-center gap-1.5 custom-accent font-semibold text-sm">
+<span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">local_fire_department</span>
+<span>7</span>
+</div>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="w-full px-6 max-w-md mx-auto flex flex-col pt-4 pb-8">
+<!-- Date Line -->
+<div class="text-sm custom-secondary-text mb-6">
+      10월 13일 · 일반 단어
+    </div>
+<!-- Puzzle Row -->
+<div class="flex flex-col items-center mb-8">
+<div class="grid grid-cols-4 gap-3 w-full mb-2">
+<div class="custom-tile h-[60px] rounded-lg flex items-center justify-center text-[32px] font-bold text-[#F1F5F9]">ㅈ</div>
+<div class="custom-tile h-[60px] rounded-lg flex items-center justify-center text-[32px] font-bold text-[#F1F5F9]">ㅎ</div>
+<div class="custom-tile h-[60px] rounded-lg flex items-center justify-center text-[32px] font-bold text-[#F1F5F9]">ㅊ</div>
+<div class="custom-tile h-[60px] rounded-lg flex items-center justify-center text-[32px] font-bold text-[#F1F5F9]">ㅇ</div>
+</div>
+<span class="text-xs custom-secondary-text">4글자</span>
+</div>
+<!-- Attempt Rows -->
+<div class="flex flex-col gap-2.5 mb-8">
+<!-- Row 1 -->
+<div class="grid grid-cols-4 gap-3">
+<div class="custom-muted-green h-[50px] rounded-lg flex items-center justify-center text-[22px] font-bold text-[#141A26]">지</div>
+<div class="custom-muted-green h-[50px] rounded-lg flex items-center justify-center text-[22px] font-bold text-[#141A26]">하</div>
+<div class="bg-[#2E3A4E] h-[50px] rounded-lg flex items-center justify-center text-[22px] font-bold text-slate-500">철</div>
+<div class="bg-[#2E3A4E] h-[50px] rounded-lg flex items-center justify-center text-[22px] font-bold text-slate-500">역</div>
+</div>
+<!-- Row 2 -->
+<div class="grid grid-cols-4 gap-3">
+<div class="custom-muted-green h-[50px] rounded-lg flex items-center justify-center text-[22px] font-bold text-[#141A26]">자</div>
+<div class="bg-[#2E3A4E] h-[50px] rounded-lg flex items-center justify-center text-[22px] font-bold text-slate-500">하</div>
+<div class="bg-[#2E3A4E] h-[50px] rounded-lg flex items-center justify-center text-[22px] font-bold text-slate-500">촌</div>
+<div class="custom-muted-green h-[50px] rounded-lg flex items-center justify-center text-[22px] font-bold text-[#141A26]">역</div>
+</div>
+<!-- Row 3 -->
+<div class="grid grid-cols-4 gap-3">
+<div class="custom-surface h-[50px] rounded-lg"></div>
+<div class="custom-surface h-[50px] rounded-lg"></div>
+<div class="custom-surface h-[50px] rounded-lg"></div>
+<div class="custom-surface h-[50px] rounded-lg"></div>
+</div>
+<!-- Row 4 -->
+<div class="grid grid-cols-4 gap-3">
+<div class="custom-surface h-[50px] rounded-lg"></div>
+<div class="custom-surface h-[50px] rounded-lg"></div>
+<div class="custom-surface h-[50px] rounded-lg"></div>
+<div class="custom-surface h-[50px] rounded-lg"></div>
+</div>
+<!-- Row 5 -->
+<div class="grid grid-cols-4 gap-3">
+<div class="custom-surface h-[50px] rounded-lg"></div>
+<div class="custom-surface h-[50px] rounded-lg"></div>
+<div class="custom-surface h-[50px] rounded-lg"></div>
+<div class="custom-surface h-[50px] rounded-lg"></div>
+</div>
+</div>
+<!-- Hint Section -->
+<div class="flex flex-col gap-2 mb-6">
+<div class="flex items-center gap-2 text-xs custom-secondary-text">
+<span class="material-symbols-outlined text-[16px]">lock</span>
+<span>힌트는 3번째 오답 후 열려요</span>
+</div>
+<div class="flex items-center gap-1.5 text-xs custom-accent cursor-pointer font-medium">
+<span class="material-symbols-outlined text-[16px]">play_arrow</span>
+<span>광고 보고 힌트 미리 보기</span>
+</div>
+</div>
+<!-- Input Area & Submit -->
+<div class="flex flex-col gap-3">
+<div class="flex items-center custom-surface rounded-lg px-4 py-3 justify-between">
+<span class="custom-secondary-text text-sm">정답을 입력하세요</span>
+<span class="text-xs custom-secondary-text">0/4</span>
+</div>
+<button class="custom-accent-bg text-[#141A26] font-semibold py-3.5 rounded-lg w-full text-center transition-all duration-200">
+        제출
+      </button>
+<div class="text-center text-xs custom-secondary-text mt-1">
+        남은 기회 3/5
+      </div>
+</div>
+</main>
+<!-- BottomNavBar -->
+<nav class="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-2 pb-safe bg-surface dark:bg-surface text-primary dark:text-primary font-label-md text-label-md docked full-width bottom-0 bg-surface dark:bg-surface flat no shadows transition-all duration-200">
+<a class="flex flex-col items-center justify-center text-tertiary-fixed-dim dark:text-tertiary-fixed-dim font-bold p-2 transition-all duration-200" href="#">
+<span class="material-symbols-outlined text-[24px]">today</span>
+<span class="mt-1">오늘</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant dark:text-on-surface-variant p-2 hover:text-on-surface dark:hover:text-on-surface transition-all duration-200" href="#">
+<span class="material-symbols-outlined text-[24px]">leaderboard</span>
+<span class="mt-1">순위</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant dark:text-on-surface-variant p-2 hover:text-on-surface dark:hover:text-on-surface transition-all duration-200" href="#">
+<span class="material-symbols-outlined text-[24px]">person</span>
+<span class="mt-1">내 기록</span>
+</a>
+</nav>
+<!-- Reserved Ad Banner Area -->
+<div class="fixed bottom-0 left-0 w-full h-[30px] bg-[#1C2433] flex items-center justify-center z-40 pointer-events-none">
+<span class="text-[10px] text-slate-500 tracking-wider">광고</span>
+</div>
+</body></html>
