@@ -31,7 +31,11 @@ def test_leaderboard_returns_empty_instead_of_erroring_when_redis_is_down(
     res = client.get("/api/v1/puzzles/today/leaderboard", headers=guest_headers)
 
     assert res.status_code == 200
-    assert res.get_json()["entries"] == []
+    body = res.get_json()
+    assert body["entries"] == []
+    # ZRANK 도 같은 safe_redis_call 을 타서 None 으로 떨어진다 — 내 순위 칸은 비고,
+    # 응답 자체는 200 이다.
+    assert body["me"] is None
 
 
 def test_rate_limit_does_not_block_when_redis_is_down(
