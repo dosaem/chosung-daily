@@ -384,3 +384,192 @@ All checks passed!
 - 티켓 12 테스트 수: 순수 함수 21 + 래퍼 29 + 엔드포인트 36 = 86개.
 - 리뷰 범위를 넘는 리팩토링·기능 추가는 하지 않았다. `review/impl-review-12.md`
   는 수정하지 않았다.
+
+## 수정 라운드 2
+
+라운드 2 리뷰(Codex, FAIL)의 미해결 결함은 **MAJOR 1건(D-12-5)** 뿐이었다.
+그 1건을 고치고, 코디네이터가 추가로 지시한 "같은 종류의 누락이 다시 나오지
+않게 Apple·Google 두 래퍼의 예외 계열 → 400/503 표를 테스트로 고정하고 경계를
+한 곳에 둔다" 를 함께 했다.
+
+### D-12-5 — MAJOR — Google DNS 장애가 STORE_UNAVAILABLE 대신 500
+
+**재현(수정 전).** 리뷰에 적힌 재현 명령을 그대로 실행했다.
+
+```
+$ <ENV> uv run python - <<'PY'   # 리뷰 라운드 2 의 재현 스크립트 그대로
+...
+httplib2.error.ServerNotFoundError: Unable to find the server at androidpublisher.googleapis.com
+OBSERVED: 500 INTERNAL_ERROR
+```
+
+**원인.** `app/clients/play.py` 의 except 절이 `HttpError`·`GoogleAuthError`·
+`OSError` 세 계열만 잡는데, 공식 SDK 가 쓰는 httplib2 는 전송 단계 실패를
+**자기 예외 계층으로 바꿔서** 던진다. DNS 의 `socket.gaierror` 는
+`httplib2/__init__.py:1404` 에서 `ServerNotFoundError` 로 감싸지고, 이 클래스의
+MRO 는 `ServerNotFoundError → HttpLib2Error → Exception` 이다 — `OSError` 가
+아니다. 직접 확인:
+
+```
+$ uv run python -c "import httplib2; print(httplib2.ServerNotFoundError.__mro__)"
+(<class 'httplib2.error.ServerNotFoundError'>, <class 'httplib2.error.HttpLib2Error'>, <class 'Exception'>, <class 'BaseException'>, <class 'object'>)
+```
+
+`.execute(num_retries=0)` 도 이 예외를 다시 던지므로 래퍼·서비스를 그대로
+빠져나가 Flask 기본 핸들러의 500 이 된다. 기존 타임아웃 테스트는 `_service`
+전체를 가짜로 바꾸고 `TimeoutError` 만 주입해서 이 변환 공백을 지나쳤다 —
+리뷰어 지적이 맞다.
+
+**수정.**
+
+1. `app/clients/play.py:68` — 네트워크 실패 절에 `httplib2.HttpLib2Error` 를
+   추가했다(`except (GoogleAuthError, httplib2.HttpLib2Error, OSError)`).
+   DNS 뿐 아니라 `ProxiesUnavailableError`·`RedirectLimit` 등 httplib2 가
+   전송 단계에서 던지는 계열 전체가 503 이 된다.
+2. `app/clients/store_boundary.py` (신규) — 두 래퍼의 공개 함수를 감싸는
+   데코레이터 `translating_store_failures`. 이미 우리 계약으로 변환된
+   `AppError` 는 그대로 통과시키고, 그 밖의 예외는 **ERROR + 스택**으로 남기고
+   503 으로 바꾼다. 분류가 빠진 예외를 조용히 묻지 않으면서(로그에서 바로
+   보인다) 사용자의 구매를 우리 쪽 버그로 잃게 하지 않으려는 선택이다.
+   `app/clients/app_store.py:101`·`app/clients/play.py:42` 에 붙였다.
+
+증상(500)만 가리지 않고 원인(라이브러리별 예외 계열 변환 누락)을 고쳤고,
+같은 공백이 다시 생기지 않게 마지막 그물을 한 곳에 뒀다.
+
+**증명.** 먼저 실패하는 테스트를 넣어 빨간 것을 확인한 뒤 고쳤다.
+
+`tests/test_subscription_verify.py` 의 신규 fixture `play_network_boundary` 는
+`fetch_subscription` 을 대체하지 않고 **DNS 경계만** 막는다(httplib2 의 HTTPS
+연결만 끊으므로 DB·Redis 연결에는 영향이 없다). 실제 Google SDK 의 정적
+discovery 와 httplib2 요청 경로를 그대로 지나간다.
+
+수정 전:
+
+```
+$ <ENV> uv run pytest tests/test_subscription_verify.py -k dns -q
+E               httplib2.error.ServerNotFoundError: Unable to find the server at androidpublisher.googleapis.com
+FAILED tests/test_subscription_verify.py::test_a_google_dns_outage_is_a_store_outage
+1 failed, 36 deselected in 1.48s
+```
+
+수정 후 — 리뷰어의 재현 스크립트와 신규 테스트 모두:
+
+```
+$ <ENV> uv run python - <<'PY'   # 리뷰 라운드 2 의 재현 스크립트 그대로
+Play 인증·네트워크 실패 (ServerNotFoundError)
+REVIEWER REPRO: 503 STORE_UNAVAILABLE
+```
+
+```
+$ <ENV> uv run pytest tests/test_store_clients.py tests/test_subscription_verify.py tests/test_subscription_status.py -q
+113 passed in 69.65s (0:01:09)
+```
+
+### 예외 계열 → 우리 계약(400/503) 표
+
+코디네이터 지시로 두 래퍼가 받을 수 있는 예외 계열을 한 표로 정리하고
+`tests/test_store_clients.py` 의 `test_apple_failures_all_become_our_contract`·
+`test_play_failures_all_become_our_contract` 로 고정했다(파라미터 id 가 아래
+"계열" 칸이다). 엔드포인트 계약에는 400 `RECEIPT_INVALID` 와 503
+`STORE_UNAVAILABLE` 둘뿐이고 500 은 없다(티켓 12 4번째 체크박스, 스펙 §A' 표).
+
+| 계열 | Apple 래퍼에 들어오는 예외 | → | Google 래퍼에 들어오는 예외 | → |
+|---|---|---|---|---|
+| 연결 실패 | `requests.ConnectionError` | 503 | `OSError` | 503 |
+| DNS | `requests.ConnectionError` | 503 | `httplib2.ServerNotFoundError` **(D-12-5)** | 503 |
+| 타임아웃 | `requests.Timeout` | 503 | `TimeoutError`(= `socket.timeout`) | 503 |
+| TLS | `requests.exceptions.SSLError` | 503 | `ssl.SSLError` | 503 |
+| 프록시 불가 | — | — | `httplib2.ProxiesUnavailableError` | 503 |
+| HTTP 5xx | `APIException(503)` | 503 | `HttpError(503)` | 503 |
+| 레이트 리밋 | `APIException(429, 4290000)` | 503 | `HttpError(429)` | 503 |
+| 인증 실패 | `APIException(401, 4010000)` | 503 | `RefreshError` | 503 |
+| 토큰 발급 실패 | — | — | `GoogleAuthError` | 503 |
+| 영수증이 우리 것이 아님 | `APIException(404, 4040010)`(양 환경) | **400** | `HttpError(400·404·410)` | **400** |
+| 영수증 서명·모양 불량 † | `VerificationException`, JWS 파싱 실패 | **400** | — (Play 토큰은 서명이 없다) | — |
+| 응답 파싱 실패 | 어느 계열에도 없음 → `store_boundary` | 503 | 어느 계열에도 없음 → `store_boundary` | 503 |
+| 알 수 없음(라이브러리 새 예외) | 어느 계열에도 없음 → `store_boundary` | 503 | 어느 계열에도 없음 → `store_boundary` | 503 |
+
+† 이 행만 파라미터 표 밖이다 — 조회 호출이 아니라 검증기에서 나오는 예외라
+주입 지점이 달라서, 기존 테스트가 그대로 고정한다
+(`test_apple_sandbox_miss_does_not_loop_back`,
+`test_a_jws_payload_that_is_not_an_object_is_a_bad_receipt`, D-12-4 회귀).
+
+표를 테스트로 넣었을 때 **마지막 두 행(응답 파싱 실패·알 수 없음) 4건이
+빨갛게** 떴다 — D-12-5 와 같은 종류의 공백이 두 래퍼에 각각 남아 있었다는
+뜻이다:
+
+```
+$ <ENV> uv run pytest tests/test_store_clients.py -q -k "all_become"
+FAILED tests/test_store_clients.py::test_apple_failures_all_become_our_contract[응답 파싱 실패]
+FAILED tests/test_store_clients.py::test_apple_failures_all_become_our_contract[알 수 없음]
+FAILED tests/test_store_clients.py::test_play_failures_all_become_our_contract[응답 파싱 실패]
+FAILED tests/test_store_clients.py::test_play_failures_all_become_our_contract[알 수 없음]
+4 failed, 18 passed, 32 deselected in 17.38s
+```
+
+`store_boundary` 를 붙인 뒤 22건 전부 통과한다. 엔드포인트 쪽에서도
+`test_apple_store_failures_become_the_contracted_errors` 에 "알 수 없는 예외
+→ 503" 행을 추가해 오류 핸들러·HTTP 응답까지 포함해 고정했다.
+
+### 미수정 MINOR
+
+없다 — 라운드 2 리뷰의 미해결 MINOR 는 0건이었다(D-12-4 는 FIXED 판정).
+
+### 리뷰어 지적 중 반박한 것
+
+없다. D-12-5 는 재현했고 지적이 정확했다.
+
+### rebase 후 최종 검증
+
+작업 중 로컬 `main` 이 두 번 움직였다(`8115301` 티켓 04 머지 → `b43567e`
+티켓 11 머지). **마지막 상태 `b43567e` 위로 다시 rebase 해서** 아래 수치를
+전부 다시 받았다.
+
+`8115301` rebase 때 스펙 `.scratch/store-launch/spec.md` 의 "미정" 목록에서
+충돌 1건 — main 이 새로 넣은 `12. 확정(티켓 04)` 줄과 티켓 12 가 고쳐 쓴
+`14.` 줄이 같은 구역이었다. **두 줄을 모두 살려서** 해결했다(남의 티켓 기록을
+지우지 않는다). `b43567e` rebase 는 충돌 없음. 마이그레이션은
+`down_revision = 'ff06a1bf5afc'` 그대로, head 는 한 줄이다.
+
+```
+$ <ENV> FLASK_APP=wsgi.py uv run flask db heads
+a5bab2f58a7b (head)
+```
+
+```
+$ <ENV> uv run pytest tests/test_migrations.py -q
+......                                                                   [100%]
+6 passed in 24.67s
+```
+
+```
+$ <ENV> uv run pytest -q
+........................................................................ [ 10%]
+........................................................................ [ 21%]
+........................................................................ [ 32%]
+........................................................................ [ 43%]
+........................................................................ [ 53%]
+........................................................................ [ 64%]
+........................................................................ [ 75%]
+........................................................................ [ 86%]
+........................................................................ [ 97%]
+....................                                                     [100%]
+668 passed in 527.91s (0:08:47)
+```
+
+```
+$ uv run ruff check .
+All checks passed!
+```
+
+- 668개는 로컬 main 이 티켓 04·11 을 머지해 늘어난 수다(라운드 1 수정 때 432개).
+  티켓 12 쪽 테스트는 86 → **113개**(신규 27개: 예외 계열 표 22 + httplib2
+  계열 3 + 실제 SDK DNS 경계 1 + 엔드포인트 "알 수 없는 예외" 1).
+- 테스트 전용 자원만 썼다: DB `chosung_daily_test_t12`,
+  마이그레이션 DB `chosung_daily_test_t12_migrations`, Redis DB 14. 공용 테스트
+  DB 는 건드리지 않았고 새 DB 를 만들지 않았다. 접속 문자열은 기록하지 않는다.
+- 실제 Apple·Google 호출은 없다. DNS 재현도 연결 단계에서 끊으므로 바깥으로
+  나가는 요청이 없고, 서비스 계정 키 파일도 읽지 않는다.
+- 결함 수정 범위를 넘는 리팩토링·기능 추가는 하지 않았다. 추가한 코드는
+  `play.py` except 절 한 줄과 `store_boundary.py`(두 래퍼 공용 경계) 뿐이다.
+  `review/impl-review-12.md` 는 수정하지 않았다.
