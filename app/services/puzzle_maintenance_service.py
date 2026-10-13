@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 
 from app.config import KST
 from app.extensions import db, get_redis
-from app.models import DailyStats
+from app.models import DailyStats, PuzzleLanguage
 from app.repositories.puzzle_repository import find_by_date
 from app.services.game_rules import MAX_ATTEMPTS
 from app.services.puzzle_cache import cache_puzzle
@@ -47,7 +47,8 @@ def flush_daily_stats_for_yesterday() -> None:
     distribution["fail"] = int(raw.get("fail", 0))
     solver_count = sum(distribution[str(n)] for n in range(1, MAX_ATTEMPTS + 1))
 
-    existing = db.session.get(DailyStats, target_date)
+    # Redis 통계 키(stats:{date})가 아직 언어별로 갈리지 않아 ko 행만 반영한다.
+    existing = db.session.get(DailyStats, (target_date, PuzzleLanguage.KO))
     if existing is not None:
         existing.distribution = distribution
         existing.solver_count = solver_count
@@ -55,6 +56,7 @@ def flush_daily_stats_for_yesterday() -> None:
         db.session.add(
             DailyStats(
                 puzzle_date=target_date,
+                language=PuzzleLanguage.KO,
                 distribution=distribution,
                 solver_count=solver_count,
             )

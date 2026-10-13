@@ -58,5 +58,15 @@ jobs:
       - name: Migration heads (정확히 1개)
         run: ./scripts/check_migration_heads.sh
 
+      # tests/test_migrations.py 는 conftest 의 create_all 경로와 분리된 별도 DB 에서
+      # flask db upgrade/downgrade 를 돌린다. 테스트용 유저에겐 CREATE DATABASE 권한이
+      # 없어서 여기서 root 로 만들어 준다.
+      - name: 마이그레이션 왕복 테스트용 DB 준비
+        run: |
+          mysql -h 127.0.0.1 -uroot -proot -e "
+            CREATE DATABASE IF NOT EXISTS chosung_daily_test_migrations CHARACTER SET utf8mb4;
+            GRANT ALL PRIVILEGES ON \`chosung_daily_test_migrations\`.* TO 'chosung'@'%';
+            FLUSH PRIVILEGES;"
+
       - name: Test (pytest)
         run: uv run pytest -v

@@ -106,6 +106,17 @@ uv run pytest
 uv run ruff check .
 ```
 
+`tests/test_migrations.py` 는 `flask db upgrade/downgrade` 를 **별도 DB** 에서 돌린다
+(conftest 의 `create_all` 경로로는 마이그레이션 파일이 검증되지 않는다). 테스트 유저에게
+`CREATE DATABASE` 권한이 없어서 한 번은 관리자로 만들어 줘야 한다 — 이름은 테스트 DB 이름
++ `_migrations` 이고, `TEST_MIGRATION_DATABASE_URL` 로 바꿀 수 있다:
+
+```bash
+docker compose exec mysql mysql -uroot -proot -e "
+  CREATE DATABASE IF NOT EXISTS chosung_daily_test_migrations CHARACTER SET utf8mb4;
+  GRANT ALL PRIVILEGES ON \`chosung_daily_test_migrations\`.* TO 'chosung'@'%';"
+```
+
 단어 시드 / 퍼즐 스케줄링:
 
 ```bash
@@ -372,6 +383,59 @@ compose 는 프로젝트 디렉터리의 `.env` 를 자동으로 읽기 때문�
 - **비교는 bytes 로 한다.** `secrets.compare_digest` 는 비 ASCII 문자가 든 `str` 을 받으면
   `TypeError` 를 낸다 — 한글이 섞인 아무 값을 폼에 넣으면 403 이어야 할 요청이 500 이 된다.
   양쪽을 `encode()` 해서 넘긴다.
+
+### 02. 퍼즐 언어 모델 — expand–contract 대신 마이그레이션 1개
+
+단어·오늘의 퍼즐·게스트에 퍼즐 언어(ko/en)를 넣는 변경은 보통 expand–contract 3단계
+(새 컬럼 추가 → 양쪽에 쓰기 → 옛 컬럼 제거)로 한다. 여기서는 **마이그레이션 하나 +
+코드 변경 하나**로 끝냈다. 이 서비스의 쓰기 트래픽은 운영자 한 명(CLI·관리자 화면)이고
+읽기도 하루 한 문제라, 무중단 전환으로 얻는 값보다 "3단계가 다 끝날 때까지 두 스키마를
+동시에 지탱하는" 비용이 크다. 전환은 컨테이너 재시작 한 번으로 끝난다.
+
+대신 세 가지를 지켰다.
+
+- **기존 행은 전부 `ko`.** 세 컬럼 모두 `server_default='ko'` 로 추가해서, 마이그레이션이
+  도는 순간 기존 데이터가 한국어 퍼즐로 남는다. 코드에도 기본값이 있어 언어를 안 적는
+  옛 호출부가 그대로 돈다.
+- **`chosung` 컬럼을 지우지 않았다.** 기존 클라이언트가 읽는 응답 필드라서, 모두 `mask`
+  로 옮겨간 뒤에 따로 지운다. 여기까지는 "컬럼을 더한다" 뿐이라 되돌리기가 싸다.
+- **왕복을 테스트로 묶었다.** `tests/test_migrations.py` 가 별도 DB 에서
+  `upgrade → 데이터 삽입 → downgrade → upgrade` 를 `flask db` 서브프로세스로 돌려
+  ko 데이터가 그대로 조회되는지 본다. 다른 테스트는 `db.create_all()` 로 스키마를 만들어서
+  마이그레이션 파일을 한 줄도 실행하지 않는다 — 그 구멍을 메우는 테스트다.
+
+`daily_puzzle` 의 유니크 키는 `(puzzle_date)` 에서 `(puzzle_date, language)` 로 넓혔다.
+자정 배정이 언어별로 따로 돌아서(한 언어가 실패해도 다른 언어는 배정된다) DB 제약도
+"날짜당 하나" 가 아니라 "날짜·언어당 하나" 가 맞다. `daily_stats` 도 같은 이유로 PK 를
+`(puzzle_date, language)` 로 바꿨다.
+
+### 02. 가림(mask) 포맷 — 언어마다 다른 렌더링 코드를 만들지 않기
+
+한국어는 초성, 영어는 모음 빈칸이라 화면에 찍히는 모양이 다르다. 클라이언트(웹·앱)가
+언어별 분기를 갖지 않도록, 서버가 **타일 목록 하나**로 내려준다.
+
+```json
+[{"t": "h", "c": ""}, {"t": "r", "c": "P"}, {"t": "s", "c": " "}]
+```
+
+- `r` (revealed) 보이는 타일 — `c` 가 그대로 찍힌다 (ko 는 초성, en 은 자음)
+- `h` (hidden) 빈 타일 — `c` 는 **항상 빈 문자열**이다
+- `s` (separator) 구분자(공백·하이픈) — 타일이 아니라 타일 사이 간격이고, 길이에 안 들어간다
+
+설계상 정한 것들.
+
+- **빈 타일에 정답 글자를 담지 않는다.** `{"t":"h","c":"a"}` 로 내려주면 응답만 열어봐도
+  정답이 보인다. 그래서 `c` 는 빈 문자열이고, 테스트가 이걸 직접 지킨다
+  (`test_english_hidden_tile_never_carries_the_answer_letter`).
+- **구분자를 타일이 아니라 간격으로 뺐다.** `"harry potter"` 의 공백을 빈 타일로 두면
+  플레이어가 공백을 입력해야 하는지 헷갈리고 길이도 틀리게 보인다. `length` 는 `s` 를
+  제외한 글자 수다.
+- **영어는 보이는 글자를 대문자로 통일한다.** 정답 비교가 대소문자를 무시하니 화면도
+  통일돼야 한다 — 운영자가 CSV 에 `Apple` 로 넣든 `apple` 로 넣든 같은 문제가 된다.
+- **계산은 저장 시 한 번.** `app/utils/mask.py` 의 `build_mask(언어, 정답)` 은 순수 함수고,
+  `Word` 의 `before_insert`/`before_update` 이벤트가 결과를 `mask` 컬럼에 넣는다. 단어를
+  저장하는 경로가 여러 개(CLI 시드·책 등록·관리자 CRUD)라서, 각 호출부가 가림 계산을
+  기억하게 두는 대신 모델 한 곳에 모았다. 응답마다 다시 계산하지 않으니 캐시도 그대로다.
 
 ## 부하 테스트 요약
 
