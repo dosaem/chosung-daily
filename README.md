@@ -29,7 +29,9 @@ graph LR
         API["app/api/*<br/>(Blueprint, 요청파싱/응답변환만)"]
         SVC["app/services/*<br/>(비즈니스 로직, 트랜잭션 경계)"]
         REPO["app/repositories/*<br/>(DB 접근)"]
+        CLIENTS["app/clients/*<br/>(외부 호출 래퍼, 함수 하나씩)"]
         API --> SVC --> REPO
+        SVC --> CLIENTS
     end
 
     MySQL[("MySQL 8")]
@@ -38,12 +40,14 @@ graph LR
     Beat["Celery beat<br/>(00:00 · 00:05 KST)"]
     Google(["Google OAuth"])
     Apple(["Apple OAuth"])
+    Slack(["Slack Webhook"])
 
     Browser -->|"/ , /api/v1/*"| API
     REPO --> MySQL
     SVC -->|캐시 · 랭킹 · 통계 · rate limit| Redis
     API -.->|로그인 리다이렉트| Google
     API -.->|로그인 리다이렉트| Apple
+    CLIENTS -.->|운영자 알림| Slack
 
     Beat -->|태스크 큐잉| Redis
     Redis --> Worker
@@ -61,8 +65,10 @@ app/
 ├── repositories/    # DB 접근
 ├── models/          # SQLAlchemy 모델 (Entity)
 ├── tasks/           # Celery 태스크 (얇은 어댑터)
+├── clients/         # 외부 provider 호출 래퍼 (provider 하나 = 모듈 하나)
+├── csrf.py          # 웹 폼 CSRF 토큰 발급 + 검증 데코레이터
 ├── errors.py        # 도메인 예외 + errorhandler
-└── cli.py           # flask 커맨드 (시드, 퍼즐 스케줄링, 책 검색)
+└── cli.py           # flask 커맨드 (시드, 퍼즐 스케줄링, 책 검색, 알림 테스트)
 web/                  # Jinja 템플릿 1장 + vanilla JS
 ```
 
@@ -106,9 +112,14 @@ uv run ruff check .
 uv run flask seed-words data/seed_words.csv
 uv run flask schedule-puzzles --days 30
 uv run flask search-books "데미안" --add 0   # 카카오/알라딘 API 키 필요 (.env)
+uv run flask notify-operator-test           # 운영자 Slack 알림 도착 확인 (SLACK_WEBHOOK_URL)
 ```
 
 ## 설계 판단
+
+> 아래 `트랜잭션 경계`~`퍼즐 카테고리 비중` 은 초기 구현 때 쓴 항목이다. 스토어 출시
+> 작업부터는 **티켓 번호를 붙인 `### NN. 제목`** 으로 이 절 끝에 덧붙인다 — 티켓이
+> 병렬로 돌아가서, 같은 자리를 고치면 충돌한다.
 
 ### 트랜잭션 경계
 
@@ -271,6 +282,61 @@ provider_user_id)`)로 Guest를 건드리지 않고 위에 얹었다. 같은 pro
 후보가 없으면(예: 일요일인데 최근에 안 쓴 책 제목이 없음) 카테고리 제한을 풀고
 다시 찾아서, 빈 날짜가 생기진 않는다.
 
+### 01. 외부 호출 래퍼와 도메인 판정 함수의 분리
+
+외부 provider(Slack, Apple, App Store, Play, Google Books) 호출은 `app/clients/<provider>.py`
+의 **함수 하나**로만 둔다. 그 함수는 요청을 보내고 결과를 돌려주는 일만 하고, "이 상태면
+광고를 끌 수 있는가", "어떤 문구로 알릴 것인가" 같은 판단은 `app/services/` 의 순수 함수에
+남긴다.
+
+이렇게 자른 이유는 테스트 경계다. provider 호출을 서비스 함수 안에 섞어두면 구독 권한 판정
+하나를 확인하려고 매번 네트워크를 가짜로 만들어야 하고, 그 가짜가 실제 응답과 달라지는 순간
+테스트가 거짓 초록이 된다. 래퍼가 함수 하나면 테스트는 **그 함수만** monkeypatch 하고
+(`tests/test_operator_alert_service.py`), 판정 로직은 입력 → 출력으로 직접 검증된다
+(네트워크 없음). 래퍼 자체의 테스트는 "실패해도 예외를 안 올리는가" 같은 경계 동작만 본다
+(`tests/test_slack_client.py`).
+
+### 01. Slack Webhook 선택 근거
+
+운영자 알림(단어 잔량 부족, 퍼즐 배정 실패, 백업 실패)은 **Slack Incoming Webhook** 으로
+보낸다. 받는 사람이 운영자 한 명이라 수신자 관리가 필요 없고, Webhook 은 URL 하나를 `.env`
+에 넣으면 끝나서 OAuth 토큰·스코프·갱신이 없다. 이메일(SMTP)은 발신 도메인·스팸 평판을
+챙겨야 하고, 봇 토큰 방식은 앱 등록·권한 승인 단계가 늘어난다 — 알림 하나에 그만한 설정을
+들일 이유가 없다.
+
+대신 Webhook 은 "URL 을 아는 사람은 누구나 그 채널에 글을 쓸 수 있는" 비밀값이라
+`SLACK_WEBHOOK_URL` 은 커밋하지 않고 `.env.example` 에 빈 칸으로만 둔다. 값이 비어 있으면
+`app/clients/slack.py` 가 전송을 건너뛰기 때문에 개발·테스트에서는 아무 설정 없이 돌아가고,
+운영자는 값을 넣은 뒤 `uv run flask notify-operator-test` 로 도착을 한 번 확인한다.
+
+전송 실패는 **호출자에게 예외를 올리지 않고 경고 로그만 남긴다**(타임아웃 3초). 호출자가
+자정 퍼즐 배정이나 매일 백업이라, Slack 이 죽었다고 그 작업이 깨지면 알림을 붙인 쪽이
+손해다 — Redis 장애 때 게임을 DB 로 계속 돌리는 것과 같은 판단이다.
+
+### 01. CSRF 토큰 방식
+
+웹 폼(계정 삭제, 운영자 화면)은 쿠키 세션만으로 인증하므로, 다른 사이트가 만든 POST 에도
+쿠키가 실려서 "본인 의도 없이 삭제" 가 가능하다. 그래서 `app/csrf.py` 가 폼을 그릴 때 세션에
+**1회용 토큰**(`secrets.token_urlsafe(32)`)을 심고, `@csrf_protected` 가 폼 hidden 값과
+비교해 다르면 403 `FORBIDDEN` 을 낸다.
+
+`SameSite` 쿠키만으로 막지 않는 이유가 있다. 애플 로그인 콜백이 cross-site top-level POST
+(`response_mode=form_post`)로 들어와서 프로덕션 세션 쿠키가 `SameSite=None` 으로 풀려 있다
+(`app/config.py` 의 `ProductionConfig`). 즉 이 서비스에서는 쿠키 속성이 CSRF 방어선이 못 된다.
+
+토큰은 Flask-WTF 같은 확장을 붙이지 않고 직접 만들었다. 필요한 건 "세션에 난수를 심고
+폼 값과 상수 시간 비교" 뿐이고, 폼 검증·필드 렌더링까지 딸려오는 확장을 들이면 면접에서
+설명할 코드보다 설명할 라이브러리 동작이 많아진다.
+
+설계상 두 가지를 의도적으로 정했다.
+
+- **성공한 토큰만 폐기한다.** 틀린 값을 던진 요청이 세션 토큰을 지워버리면, 아무나 잘못된
+  POST 를 한 번 보내서 사용자가 열어둔 폼을 무효화할 수 있다. 검증을 통과한 다음에만 토큰을
+  버려서, 새로고침 재전송(같은 삭제가 두 번)은 막고 실패 요청은 폼을 건드리지 않는다.
+- **비교는 bytes 로 한다.** `secrets.compare_digest` 는 비 ASCII 문자가 든 `str` 을 받으면
+  `TypeError` 를 낸다 — 한글이 섞인 아무 값을 폼에 넣으면 403 이어야 할 요청이 500 이 된다.
+  양쪽을 `encode()` 해서 넘긴다.
+
 ### 19. prod 프로젝트명 유지 이유 (compose 파라미터화)
 
 같은 NAS 에서 prod 와 develop 을 동시에 돌리려고 `docker-compose.prod.yml` 에서
@@ -291,6 +357,7 @@ provider_user_id)`)로 Guest를 건드리지 않고 위에 얹었다. 같은 pro
 compose 는 프로젝트 디렉터리의 `.env` 를 자동으로 읽기 때문에, 누가 `-p` 를 빼고
 `docker compose -f docker-compose.prod.yml up -d` 만 쳐도 디렉터리 이름에서
 프로젝트명을 추측하지 않고 같은 프로젝트(= 같은 볼륨)에 붙는다.
+
 
 ## 부하 테스트 요약
 
