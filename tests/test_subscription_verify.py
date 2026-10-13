@@ -9,13 +9,16 @@
 
 import base64
 import json
+import socket
 import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import httplib2
 import pytest
 import requests
 from appstoreserverlibrary.api_client import APIException
+from googleapiclient.discovery import build
 
 from app.clients import app_store, play
 from app.errors import StoreUnavailableError
@@ -306,6 +309,45 @@ def apple_network_boundary(monkeypatch, store_config):
     return fail_with
 
 
+@pytest.fixture
+def play_network_boundary(monkeypatch, store_config):
+    """Play 래퍼를 통째로 바꾸지 않고 **DNS 경계만** 바꿔 끼운다.
+
+    `fake_play` 는 `fetch_subscription` 자체를 대체해서 래퍼 안의 오류 변환을
+    건너뛴다. 여기서는 실제 Google SDK(정적 discovery)와 httplib2 요청 경로를
+    그대로 지나가게 하고, 이름 해석만 실패시켜 SDK 가 실제로 던지는 예외가
+    서비스·오류 핸들러를 거쳐 어떤 HTTP 응답이 되는지 본다. 서비스 계정 키를
+    읽지 않으며 바깥으로 나가는 호출도 없다(연결 자체가 DNS 에서 끊긴다).
+    httplib2 의 HTTPS 연결만 막으므로 DB·Redis 연결에는 영향이 없다.
+    """
+    store_config.config.update(
+        PLAY_PACKAGE_NAME=BUNDLE_ID, PLAY_SERVICE_ACCOUNT_FILE="/not/read/in/tests.json"
+    )
+
+    def no_dns(_self):
+        raise socket.gaierror("synthetic DNS outage")
+
+    monkeypatch.setattr(httplib2.HTTPSConnectionWithTimeout, "connect", no_dns)
+    service = build(
+        "androidpublisher",
+        "v3",
+        http=httplib2.Http(timeout=play.TIMEOUT_SECONDS, proxy_info=None),
+        static_discovery=True,
+        cache_discovery=False,
+    )
+    monkeypatch.setattr(play, "_service", lambda _file: service)
+    return service
+
+
+def test_a_google_dns_outage_is_a_store_outage(client, guest_headers, play_network_boundary):
+    """D-12-5. httplib2 는 DNS 실패를 `ServerNotFoundError` 로 바꾼다 — OSError 가
+    아니라서 래퍼를 빠져나가면 500 이 된다. 앱이 영수증을 들고 다시 오도록 503 이어야 한다."""
+    response = post_verify(client, guest_headers, "google", "purchase-token-1")
+
+    assert (response.status_code, response.json["code"]) == (503, "STORE_UNAVAILABLE")
+    assert rows() == []
+
+
 def sandbox_receipt_jws() -> str:
     """`_environment_of` 가 읽을 수 있는 최소한의 JWS 모양(서명은 가짜)."""
     payload = (
@@ -324,6 +366,9 @@ def sandbox_receipt_jws() -> str:
         (APIException(503), (503, "STORE_UNAVAILABLE")),
         (APIException(401, 4010000), (503, "STORE_UNAVAILABLE")),
         (APIException(404, 4040010), (400, "RECEIPT_INVALID")),
+        # 어느 라이브러리 계열에도 안 들어가는 예외도 500 이 아니라 503 이다
+        # (`store_boundary`). 계약에는 400·503 둘뿐이다.
+        (RuntimeError("공식 라이브러리의 새 예외"), (503, "STORE_UNAVAILABLE")),
     ],
 )
 def test_apple_store_failures_become_the_contracted_errors(

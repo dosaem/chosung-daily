@@ -8,8 +8,10 @@
 
 import base64
 import json
+import ssl
 from pathlib import Path
 
+import httplib2
 import pytest
 import requests
 from appstoreserverlibrary.api_client import APIException, _get_cattrs_converter
@@ -20,6 +22,7 @@ from appstoreserverlibrary.models.JWSRenewalInfoDecodedPayload import (
 from appstoreserverlibrary.models.JWSTransactionDecodedPayload import (
     JWSTransactionDecodedPayload,
 )
+from google.auth.exceptions import GoogleAuthError, RefreshError
 from googleapiclient.errors import HttpError
 
 from app.clients import app_store, play
@@ -363,6 +366,23 @@ def test_play_network_timeout_is_a_store_outage(play_configured, monkeypatch):
         play.fetch_subscription("purchase-token-1")
 
 
+@pytest.mark.parametrize(
+    "error",
+    [
+        httplib2.ServerNotFoundError("Unable to find the server at x"),
+        httplib2.RedirectLimit("too many redirects", None, b""),
+        httplib2.ProxiesUnavailableError("no socks"),
+    ],
+)
+def test_play_httplib2_transport_failure_is_a_store_outage(play_configured, monkeypatch, error):
+    """D-12-5. 공식 SDK 가 쓰는 httplib2 는 전송 실패를 `HttpLib2Error` 로 바꾼다 —
+    `OSError` 가 아니다. DNS 실패(`ServerNotFoundError`)가 대표 경우다."""
+    _patch_play(monkeypatch, error=error)
+
+    with pytest.raises(StoreUnavailableError):
+        play.fetch_subscription("purchase-token-1")
+
+
 def test_play_missing_settings_is_a_store_outage(app):
     app.config.update(PLAY_PACKAGE_NAME="", PLAY_SERVICE_ACCOUNT_FILE="")
 
@@ -372,3 +392,74 @@ def test_play_missing_settings_is_a_store_outage(app):
 
 def test_play_timeout_is_three_seconds():
     assert play.TIMEOUT_SECONDS == 3
+
+
+# ---------------------------------------------------------------------------
+# 예외 계열 → 우리 계약(400/503) 표 (D-12-5 후속)
+#
+# 두 래퍼가 쓰는 공식 라이브러리는 전송·인증·파싱 실패를 각자의 예외 계열로
+# 바꿔 던진다. 계열을 하나라도 빠뜨리면 스토어 장애인데 500 이 나가서 앱이
+# 정상 영수증을 버린다(D-12-5). 아래 두 테스트가 그 표 전체를 고정한다.
+# "파싱 실패"·"알 수 없음" 행은 어느 라이브러리 계열에도 안 들어가는 자리이고,
+# `store_boundary.translating_store_failures` 가 마지막 그물로 받는다.
+# ---------------------------------------------------------------------------
+
+#: (계열 이름, 래퍼에 들어오는 예외, 기대하는 우리 예외)
+APPLE_FAILURES = [
+    ("연결 실패", requests.ConnectionError("no route to host"), StoreUnavailableError),
+    (
+        "DNS",
+        requests.ConnectionError("Failed to resolve 'api.storekit.itunes.apple.com'"),
+        StoreUnavailableError,
+    ),
+    ("타임아웃", requests.Timeout("timed out"), StoreUnavailableError),
+    ("TLS", requests.exceptions.SSLError("certificate verify failed"), StoreUnavailableError),
+    ("HTTP 5xx", APIException(503), StoreUnavailableError),
+    ("레이트 리밋", APIException(429, 4290000), StoreUnavailableError),
+    ("인증 실패", APIException(401, 4010000), StoreUnavailableError),
+    ("어느 환경에도 없는 거래", APIException(404, 4040010), ReceiptInvalidError),
+    ("응답 파싱 실패", ValueError("Expecting value: line 1 column 1"), StoreUnavailableError),
+    ("알 수 없음", RuntimeError("공식 라이브러리의 새 예외"), StoreUnavailableError),
+]
+
+PLAY_FAILURES = [
+    ("연결 실패", OSError("no route to host"), StoreUnavailableError),
+    ("DNS", httplib2.ServerNotFoundError("Unable to find the server at x"), StoreUnavailableError),
+    ("타임아웃", TimeoutError("timed out"), StoreUnavailableError),
+    ("TLS", ssl.SSLError("certificate verify failed"), StoreUnavailableError),
+    ("프록시 불가", httplib2.ProxiesUnavailableError("no socks"), StoreUnavailableError),
+    ("HTTP 5xx", _http_error(503), StoreUnavailableError),
+    ("레이트 리밋", _http_error(429), StoreUnavailableError),
+    ("인증 실패", RefreshError("invalid_grant"), StoreUnavailableError),
+    ("토큰 발급 실패", GoogleAuthError("no credentials"), StoreUnavailableError),
+    ("토큰으로 구독을 못 찾음", _http_error(404), ReceiptInvalidError),
+    ("응답 파싱 실패", ValueError("Expecting value: line 1 column 1"), StoreUnavailableError),
+    ("알 수 없음", RuntimeError("공식 라이브러리의 새 예외"), StoreUnavailableError),
+]
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [pytest.param(error, expected, id=name) for name, error, expected in APPLE_FAILURES],
+)
+def test_apple_failures_all_become_our_contract(
+    app_store_configured, apple_calls, error, expected
+):
+    """Apple 래퍼에서는 400/503 둘 중 하나만 나간다 — 500 은 계약에 없다."""
+    apple_calls["fail_with"][Environment.PRODUCTION] = error
+    apple_calls["fail_with"][Environment.SANDBOX] = error
+
+    with pytest.raises(expected):
+        app_store.fetch_subscription(receipt_jws("Production"))
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [pytest.param(error, expected, id=name) for name, error, expected in PLAY_FAILURES],
+)
+def test_play_failures_all_become_our_contract(play_configured, monkeypatch, error, expected):
+    """Google 래퍼에서도 마찬가지다. DNS 행이 D-12-5 였다."""
+    _patch_play(monkeypatch, error=error)
+
+    with pytest.raises(expected):
+        play.fetch_subscription("purchase-token-1")

@@ -33,6 +33,7 @@ from appstoreserverlibrary.models.Environment import Environment
 from appstoreserverlibrary.signed_data_verifier import SignedDataVerifier, VerificationException
 from flask import current_app
 
+from app.clients.store_boundary import translating_store_failures
 from app.errors import ReceiptInvalidError, StoreUnavailableError
 from app.models import SubscriptionEnvironment
 
@@ -98,6 +99,7 @@ class _TimeoutAppStoreServerAPIClient(AppStoreServerAPIClient):
         )
 
 
+@translating_store_failures("App Store")
 def fetch_subscription(receipt_jws: str) -> AppleSubscription:
     """영수증(JWS)을 검증하고 그 구독의 현재 상태를 Apple 에서 읽어 온다.
 

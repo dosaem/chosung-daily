@@ -25,6 +25,7 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
+from app.clients.store_boundary import translating_store_failures
 from app.errors import ReceiptInvalidError, StoreUnavailableError
 
 logger = logging.getLogger(__name__)
@@ -39,6 +40,7 @@ _SCOPE = "https://www.googleapis.com/auth/androidpublisher"
 _RECEIPT_INVALID_STATUSES = {400, 404, 410}
 
 
+@translating_store_failures("Play")
 def fetch_subscription(purchase_token: str) -> dict:
     """구독 구매 하나의 현재 상태(`SubscriptionPurchaseV2`)를 그대로 돌려준다.
 
@@ -65,9 +67,15 @@ def fetch_subscription(purchase_token: str) -> dict:
             raise ReceiptInvalidError() from exc
         logger.warning("Play 구독 조회 실패 (status=%s)", exc.status_code)
         raise StoreUnavailableError() from exc
-    except (GoogleAuthError, OSError) as exc:
+    except (GoogleAuthError, httplib2.HttpLib2Error, OSError) as exc:
         # 서비스 계정 키를 못 읽거나(OSError) 토큰 발급이 막힌 경우(GoogleAuthError).
         # httplib2 의 타임아웃도 socket.timeout → OSError 로 올라온다.
+        #
+        # `HttpLib2Error` 가 따로 필요한 이유: 공식 SDK 가 쓰는 httplib2 는 전송
+        # 단계 실패를 **자기 예외로 바꿔서** 던진다 — DNS 실패면 socket.gaierror
+        # 를 `ServerNotFoundError` 로 감싼다. 이 계층은 `Exception` 바로 아래라
+        # OSError 가 아니고, `.execute(num_retries=0)` 도 그대로 다시 던진다.
+        # 빠뜨리면 스토어 장애인데 500 이 나가서 앱이 영수증을 버린다.
         logger.warning("Play 인증·네트워크 실패 (%s)", type(exc).__name__)
         raise StoreUnavailableError() from exc
 
