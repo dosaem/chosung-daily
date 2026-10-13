@@ -1,0 +1,84 @@
+/* 디자인 토큰. 정본은 .scratch/store-launch/design-system/hidden-vowels/OVERRIDES.md 이고
+ * 이 파일은 그 표를 CSS 변수로 옮긴 것뿐이다 — 값을 여기서 새로 정하지 않는다.
+ *
+ * 변수만 두고 요소 규칙은 두지 않는다: 이 파일을 법적 문서 페이지·운영자 페이지·
+ * 메인 페이지가 같이 쓰는데, 공용 파일이 body 나 h1 을 직접 칠하면 페이지마다
+ * 그걸 되돌리는 코드가 생긴다. 페이지 레이아웃은 각 페이지 스타일시트에서.
+ */
+
+:root {
+  /* 라이트·다크 둘 다 지원한다고 브라우저에 알린다 (스크롤바·폼 컨트롤·
+   * 기본 배경이 같이 따라온다). OVERRIDES §9: 시스템 추종, 수동 토글 없음. */
+  color-scheme: light dark;
+
+  /* 색 — OVERRIDES §2 (Light 열) */
+  --color-brand: #ea580c;
+  --color-primary-button: #0f172a;
+  --color-on-primary-button: #ffffff;
+  --color-brand-subtle: #fff7ed;
+  --color-background: #fafaf9;
+  --color-foreground: #0f172a;
+  --color-card: #ffffff;
+  --color-muted: #f5f5f4;
+  --color-muted-foreground: #57534e;
+  --color-border: #e7e5e4;
+  --color-destructive: #dc2626;
+
+  /* 게임 피드백 색 — brand 와 섞지 않는다 (OVERRIDES §2) */
+  --color-tile-correct: #16a34a;
+  --color-tile-wrong: #d6d3d1;
+  --color-tile-text-on-correct: #ffffff;
+  --color-tile-empty: var(--color-muted);
+
+  /* 타이포 — OVERRIDES §3 */
+  --font-sans: "Pretendard Variable", "Inter", system-ui, -apple-system, sans-serif;
+  --font-size-xs: 12px;
+  --font-size-sm: 14px;
+  --font-size-base: 16px;
+  --font-size-lg: 20px;
+  --font-size-xl: 24px;
+  --font-size-2xl: 32px;
+  --line-height-body: 1.5;
+  --letter-spacing-ko: -0.01em;
+  --letter-spacing-en: 0;
+
+  /* 간격·형태 — OVERRIDES §4. 그림자 토큰은 없다(그림자를 쓰지 않으므로). */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  --radius-tile: 8px;
+  --radius-button: 10px;
+  --radius-card: 16px;
+  --radius-sheet: 20px;
+  --border-hairline: 1px;
+  --touch-target-min: 44px;
+
+  /* 웹 반응형 — OVERRIDES §10: 중앙 정렬 카드 하나, 481px 이상에서 480px 고정 */
+  --content-max-width: 480px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* 색 — OVERRIDES §2 (Dark 열). 다크에서 brand 는 한 톤 밝다. */
+    --color-brand: #f97316;
+    --color-primary-button: #f1f5f9;
+    --color-on-primary-button: #141a26;
+    --color-brand-subtle: #431407;
+    --color-background: #141a26;
+    --color-foreground: #f1f5f9;
+    --color-card: #1c2433;
+    --color-muted: #253044;
+    --color-muted-foreground: #94a3b8;
+    --color-border: #2a3447;
+    --color-destructive: #ef4444;
+
+    --color-tile-correct: #22c55e;
+    --color-tile-wrong: #475569;
+    /* 다크에선 초록 면 위에 반드시 어두운 글자 — 밝은 글자는 2.8:1 로 대비 미달 */
+    --color-tile-text-on-correct: #052e16;
+  }
+}
