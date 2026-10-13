@@ -224,3 +224,67 @@ exit 1
 - 취향·스타일 제안은 결함으로 등록하지 않았다.
 
 판정: FAIL
+
+## 라운드 3
+
+- 검토일: 2026-10-14. 로컬 `main` = `4f9f1799cade063b5adde4618ab1e3214d3f0446`, 구현 HEAD = `277717bed6e985b54a64975a90355c4b4e2dae83`.
+- `git diff main...HEAD`의 13개 파일과 `git log main..HEAD`의 9개 커밋을 확인했다. origin/main은 사용하지 않았다.
+- 티켓 21, 스펙 §C.28·US 62/63, CONTEXT, 이전 두 라운드 리뷰, 구현 증거를 대조했다. UI 변경은 없어 디자인 검토 대상이 아니다.
+- 열린 결함: **BLOCKER 0 / MAJOR 0 / MINOR 0**. 이전 D-21-1~4는 모두 FIXED이며 REPEAT 및 새 결함은 없다.
+
+### 티켓 체크박스별 확인
+
+| 체크박스 | 판정 | 직접 확인한 근거 |
+|---|---|---|
+| 독립 백업 서비스, 04:00 KST, mysqldump/gzip, 14일 보존, BACKUP_DIR bind mount·예시 env, DSM ACL 메모 | 충족 | `docker-compose.prod.yml:104`부터 독립 서비스·TZ·시각·보존·bind mount가 있다. 양쪽 환경 예시의 21번 절과 RELEASE의 root/DSM 설명을 확인했다. 셸/gzip/find/date 실행 테스트와 실제 MySQL 덤프 생성이 통과했다. cron 데몬 대신 동일 일일 시각을 계산하는 sleep 루프를 사용한다는 판단이 README에 명시돼 있다. |
+| 실패 시 curl로 SLACK_WEBHOOK_URL 알림 | 충족 | `scripts/backup.sh:41,50,67,71,80`의 실패 전달을 확인했다. mysqldump·디렉터리 생성·최종 이동·보존 정리 실패 회귀 테스트가 비정상 종료와 curl 호출을 검증하며 통과했다. 실제 Slack 호출은 하지 않았다. |
+| 지정 덤프를 지정 compose 프로젝트의 MySQL로 복원 | 충족 | `scripts/restore.sh:34,44,49,69,82`에서 프로젝트 필수·gzip 사전 검사·확인·MySQL 복원·Redis 후처리를 확인했다. 프로젝트 인자 전달 테스트, 실제 DB 왕복, Redis 정상 삭제 및 SCAN/DEL 실패 전파 테스트가 통과했다. |
+| 로컬 백업 → 데이터 변경 → restore.sh → 원복 검증, RELEASE에 절차·결과 기록 | 충족 | RELEASE의 `### 21.`에 복구 리허설 절차·실측 결과가 있다. 이번 리뷰에서도 기존 전용 DB에서 실제 backup.sh/restore.sh를 실행하여 A→B→A를 확인했다. 테스트 자원에 연결하기 위한 전송 어댑터의 범위와 제한은 아래에 명시한다. |
+| README 운영 절에 위치·보존·복구 명령 | 충족 | `README.md:129`부터 위치·파일명·보존·알림 표와 수동 백업/복구 명령, Redis 파생 키 정리 설명이 있다. |
+
+### 이전 결함 판정
+
+| ID / 기존 심각도 | 판정 | 파일:라인 및 재현 → 기대 / 이번 실제 결과 |
+|---|---|---|
+| D-21-1 / MAJOR | **FIXED** | `scripts/backup.sh:41,50,71,80`. mkdir·mv·find 정리 실패를 주입 → 비정상 종료와 Slack 호출이 기대되며 해당 회귀 테스트 모두 통과했다. 정상 백업에서는 알림을 보내지 않는다. |
+| D-21-2 / MAJOR | **FIXED** | `scripts/restore.sh:44`. gzip footer가 잘린 덤프 또는 일반 텍스트 입력 → MySQL에 SQL을 보내기 전에 실패해야 하며, 해당 테스트가 Docker 호출 없음과 비정상 종료를 확인했다. |
+| D-21-3 / MAJOR | **FIXED** | `scripts/restore.sh:82,90,95`. 복구 전 puzzle/stats/lb 키와 ratelimit 키를 심고 복원 → 파생 키만 없어져야 하며 실제 Redis DB 9에서 존재 여부 `[0,0,0,1]`을 확인했다. 문서의 앱 재시작 안내도 직접 삭제 방식으로 수정돼 있다. |
+| D-21-4 / MAJOR | **FIXED** | `scripts/restore.sh:83,90,95,100`. Redis 내부 셸은 실행하되 SCAN 또는 DEL이 종료 1을 반환 → 복구 비정상 종료·완료 메시지 없음이 기대되며 `tests/test_backup_restore.py:494,506`이 모두 통과했다. SCAN을 단순 대입으로 받아 `set -eu`가 종료 상태를 검사하고, DEL 실패도 성공 echo 이전에 중단된다. |
+
+회귀 재현 명령은 아래 전체 테스트 또는 동일한 TEST_DATABASE_URL/TEST_REDIS_URL 설정에서 `uv run pytest tests/test_backup_restore.py -q`이다. D-21-4만 확인하려면 `-k 'redis_scan_cannot_run or deleting_a_derived_key_fails or deletes_every_derived_key'`를 덧붙일 수 있다. 새 `redis_exec_stub`은 인자 검사만 하는 기존 docker 스텁과 달리 실제 `sh -c` 본문을 실행하므로 이전 오류를 관측한다.
+
+### 직접 실행한 검증
+
+| 명령/검증 | 결과 |
+|---|---|
+| 전용 TEST_DATABASE_URL과 `TEST_REDIS_URL=redis://127.0.0.1:6379/9` 설정 후 `uv run pytest -q --tb=short` | **186 passed in 87.12s**, 종료 0. 티켓 21 테스트 40개 포함. |
+| `uv run ruff check .` | **All checks passed!**, 종료 0 |
+| `bash -n scripts/backup.sh scripts/backup-cron.sh scripts/restore.sh` | 종료 0 |
+| `git diff --check main...HEAD` | 종료 0 |
+| `uv run flask db heads` | `4e72a4045fbc (head)` 한 줄. 티켓 21 자체의 마이그레이션 변경은 없다. |
+| `uv run python /tmp/t21-r3-roundtrip.py` — 아래 실제 로컬 왕복 검증 | 백업 0 / 복원 0, A 원복 및 Redis 선택 삭제 확인 |
+
+TEST_DATABASE_URL은 구현 증거와 `.env.example`의 로컬 접속 형식을 사용하되 DB 이름을 `chosung_daily_test_t21`로 지정했다. 자격증명은 이 문서에 기록하지 않는다. 지정 DB에 정상 연결되어 기본 테스트 DB로 폴백하거나 새 DB를 준비하지 않았다. 기존 전용 마이그레이션 테스트 DB도 전체 테스트에서 재사용했다. 첫 실행에 통과하여 병렬 충돌 재시도는 필요하지 않았다.
+
+#### 실제 MySQL/Redis 왕복 검증과 한계
+
+전체 테스트 종료 후 기존 로컬 `chosung-daily-mysql-1`의 `chosung_daily_test_t21`만 대상으로 다음을 실행했다. 어댑터와 덤프는 임시 디렉터리에 두었고 애플리케이션/테스트 파일은 수정하지 않았다.
+
+1. `t21_r3_probe(id INT PRIMARY KEY, value VARCHAR(10))` 테이블에 `(1,'A')`를 삽입했다.
+2. `MYSQL_DATABASE=chosung_daily_test_t21`, 임시 DUMP_DIR, 빈 SLACK_WEBHOOK_URL로 실제 `scripts/backup.sh`를 실행했다. 실제 mysqldump 출력이 gzip 파일로 생성됐고 종료 0이었다.
+3. 값을 B로 변경하고 `(2,'new')`를 추가했다. SELECT 결과는 `1 B / 2 new`였다. Redis DB 9에 `puzzle:t21-r3`, `stats:t21-r3`, `lb:t21-r3`, `ratelimit:t21-r3` 네 키를 심었다.
+4. 실제 `scripts/restore.sh -y <생성된 덤프> review-local`을 실행했다. 종료 0, `deleted 3 derived keys` 및 완료 메시지가 출력됐다.
+5. SELECT 결과는 **`1 A` 한 행**이었다. 추가 행은 없어졌다. 네 Redis 키의 존재 여부는 **`[0,0,0,1]`**이었다.
+6. 검증 테이블과 남은 검증 키를 제거했고 임시 덤프도 삭제했다.
+
+전송 어댑터는 `mysqldump`를 기존 로컬 MySQL 컨테이너에서 실행하도록 연결했다(호스트 임시 인증 파일/호스트 옵션 대신 컨테이너 내부 환경 사용, 덤프의 single-transaction/quick/add-drop-database/databases 옵션은 그대로 전달). restore의 Docker 호출은 `review-local` 프로젝트 인자를 확인한 후 기존 로컬 mysql/redis 컨테이너의 실제 exec로 연결했고, Redis 내부 셸의 `redis-cli`에만 `-n 9`를 추가했다. DB·SQL 덤프·gzip·복원·SCAN·DEL은 실제 실행했으며 데이터 응답은 스텁하지 않았다. **prod compose 전체 기동이나 네트워크/마운트 구성을 다시 리허설한 것은 아니다.** 프로젝트 선택과 compose 설정은 별도 테스트 및 정적 대조로 확인했다. NAS ACL, 실제 Slack 수신, 실제 04:00 장시간 대기는 이번 실행 검증 범위 밖이다.
+
+### 범위·보안·공유 파일 확인
+
+- README 설계 판단, RELEASE 및 환경 예시는 21번 절을 추가했다. 다른 티켓의 기존 행/절 삭제 또는 덮어쓰기는 diff에서 발견하지 않았다. README 운영 절과 덤프 ignore 추가도 티켓 범위 안이다.
+- 앱 인증/CSRF 경로 변경은 없다. 복원 대상 프로젝트 필수, 비대화 확인, gzip 사전 검사, 백업 인증 임시 파일 권한 600과 종료 시 정리를 확인했다. 실제 시크릿이 변경 파일에 추가된 정황은 발견하지 않았다.
+- 셸 테스트의 mysqldump/curl/docker 스텁 한계를 실제 로컬 DB/Redis 왕복으로 보완했다. 외부 전송을 수행하지 않았으며 정상/실패 양쪽 경로의 실행 결과를 확인했다.
+- 프로덕션·NAS·배포·외부 서비스 호출·push·하위 에이전트 실행은 하지 않았다. 이번 저장소 수정은 `review/impl-review-21.md`뿐이다.
+- 취향·스타일 제안 및 새 결함은 없다.
+
+판정: PASS
