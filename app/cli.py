@@ -1,6 +1,7 @@
 import click
 from flask.cli import with_appcontext
 
+from app.models import PuzzleLanguage
 from app.services.book_lookup_service import search_books
 from app.services.operator_alert_service import notify_operator
 from app.services.puzzle_schedule_service import schedule_puzzles
@@ -18,6 +19,13 @@ def seed_words_command(csv_path):
 
 
 @click.command("schedule-puzzles")
+@click.option(
+    "--language",
+    default=PuzzleLanguage.KO.value,
+    show_default=True,
+    type=click.Choice([language.value for language in PuzzleLanguage]),
+    help="배정할 퍼즐 언어 (언어마다 따로 돌린다)",
+)
 @click.option("--days", default=30, show_default=True, type=int, help="배정할 일 수")
 @click.option(
     "--avoid-days",
@@ -27,9 +35,11 @@ def seed_words_command(csv_path):
     help="최근 며칠 안에 배정된 단어는 피한다 (단어 풀이 작으면 자동으로 완화됨)",
 )
 @with_appcontext
-def schedule_puzzles_command(days, avoid_days):
-    created = schedule_puzzles(days=days, avoid_days=avoid_days)
-    click.echo(f"{created}일치 퍼즐 배정 완료 (이미 있던 날짜는 건너뜀)")
+def schedule_puzzles_command(language, days, avoid_days):
+    created = schedule_puzzles(
+        PuzzleLanguage(language), days=days, avoid_days=avoid_days
+    )
+    click.echo(f"{language} {created}일치 퍼즐 배정 완료 (이미 있던 날짜는 건너뜀)")
 
 
 @click.command("search-books")

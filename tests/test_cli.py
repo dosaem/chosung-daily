@@ -1,4 +1,4 @@
-from app.models import DailyPuzzle, Word
+from app.models import DailyPuzzle, PuzzleLanguage, Word
 from app.services import operator_alert_service
 
 
@@ -26,6 +26,34 @@ def test_schedule_puzzles_command(app, tmp_path):
     assert result.exit_code == 0
     assert "3일치 퍼즐 배정 완료" in result.output
     assert DailyPuzzle.query.count() == 3
+
+
+def test_schedule_puzzles_command_takes_a_language(app, tmp_path):
+    csv_path = tmp_path / "words.csv"
+    csv_path.write_text(
+        "language,answer,category,hint\n"
+        "ko,사과,general,과일\n"
+        "en,apple,general,red fruit\n",
+        encoding="utf-8",
+    )
+    app.test_cli_runner().invoke(args=["seed-words", str(csv_path)])
+
+    result = app.test_cli_runner().invoke(
+        args=["schedule-puzzles", "--language", "en", "--days", "2"]
+    )
+
+    assert result.exit_code == 0
+    assert "en 2일치 퍼즐 배정 완료" in result.output
+    puzzles = DailyPuzzle.query.all()
+    assert len(puzzles) == 2
+    assert all(p.language == PuzzleLanguage.EN for p in puzzles)
+
+
+def test_schedule_puzzles_command_rejects_unknown_language(app):
+    result = app.test_cli_runner().invoke(args=["schedule-puzzles", "--language", "jp"])
+
+    assert result.exit_code != 0
+    assert DailyPuzzle.query.count() == 0
 
 
 def test_search_books_command_without_api_keys(app, monkeypatch):

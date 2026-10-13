@@ -1,7 +1,7 @@
 from redis.exceptions import RedisError
 
 from app.services.puzzle_maintenance_service import (
-    ensure_today_puzzle_and_warm_cache,
+    ensure_today_puzzles_for_all_languages,
     flush_daily_stats_for_yesterday,
 )
 from celery_app import celery
@@ -9,7 +9,7 @@ from celery_app import celery
 
 @celery.task(name="tasks.ensure_today_puzzle")
 def ensure_today_puzzle_task():
-    ensure_today_puzzle_and_warm_cache()
+    ensure_today_puzzles_for_all_languages()
 
 
 @celery.task(
