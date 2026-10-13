@@ -15,6 +15,7 @@ def get_my_stats(guest: Guest) -> MyStatsResponse:
         else None
     )
     return MyStatsResponse(
+        puzzle_language=guest.puzzle_language,
         current_streak=stats.current_streak,
         max_streak=stats.max_streak,
         solved_count=stats.solved_count,
