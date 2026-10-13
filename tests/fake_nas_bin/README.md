@@ -13,5 +13,6 @@
 | `FAKE_DOCKER_RUNNING` | docker | `compose ps --filter status=running` 출력 (공백 구분) |
 | `FAKE_DOCKER_PORT` | docker | `compose port app 5000` 출력 |
 | `FAKE_DOCKER_FAIL` | docker | 인자에 이 문자열이 있으면 exit 1 |
-| `FAKE_CURL_FAILS` | curl | 처음 N 번은 실패하고 그 뒤로 성공 (기본 0) |
+| `FAKE_CURL_FAILS` | curl | 처음 N 번은 연결 실패(`000`)하고 그 뒤로 응답 (기본 0) |
+| `FAKE_CURL_STATUS` | curl | 연결된 뒤 돌려줄 HTTP 상태 코드 (기본 200) |
 | `FAKE_CURL_COUNTER` | curl | 호출 횟수를 기록할 파일 (필수) |

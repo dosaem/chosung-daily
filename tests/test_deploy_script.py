@@ -8,11 +8,18 @@
 2. 가짜 `git`/`docker`/`curl`/`sleep`(`tests/fake_nas_bin/`)을 PATH 앞에 두고 실제
    실행 → 단계 순서, 마이그레이션 실패 시 중단, `/health` 재시도까지 실제 분기를 지난다.
 
+가짜 명령은 골라서 쓴다(`FakeNas(..., fakes=...)`). 커밋 고정은 **진짜 git** 과 임시
+origin 으로, `/health` 판정은 **진짜 curl** 과 루프백 HTTP 서버로 확인한다 — 그 두
+결함(D-20-1·D-20-2)은 가짜 명령으로는 재현되지 않는다.
+
 도커를 띄우지 않는다. 실제 기동 검증은 `docs/RELEASE.md` 의 로컬/NAS 절차.
 """
 
+import http.server
 import os
 import subprocess
+import threading
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -31,25 +38,36 @@ def run_dry(*args):
     )
 
 
-class FakeNas:
-    """가짜 NAS: 체크아웃 디렉터리와 PATH 앞에 둘 가짜 명령을 준비한다."""
+ALL_FAKES = ("git", "docker", "curl", "sleep")
 
-    def __init__(self, tmp_path, target_dir, **overrides):
+
+class FakeNas:
+    """가짜 NAS: 체크아웃 디렉터리와 PATH 앞에 둘 가짜 명령을 준비한다.
+
+    `fakes` 에 적은 명령만 가짜로 바꾼다 — 빠진 명령은 진짜가 돈다.
+    """
+
+    def __init__(self, tmp_path, target_dir, fakes=ALL_FAKES, **overrides):
         self.base = tmp_path / "docker"
-        (self.base / target_dir).mkdir(parents=True)
+        self.checkout = self.base / target_dir
+        self.checkout.mkdir(parents=True)
         self.log = tmp_path / "calls.log"
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        for name in fakes:
+            (bin_dir / name).symlink_to(FAKE_BIN / name)
         self.env = {
             **os.environ,
-            "PATH": f"{FAKE_BIN}{os.pathsep}{os.environ['PATH']}",
+            "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
             "DEPLOY_BASE_DIR": str(self.base),
             "FAKE_LOG": str(self.log),
             "FAKE_CURL_COUNTER": str(tmp_path / "curl.count"),
             **overrides,
         }
 
-    def deploy(self, target):
+    def deploy(self, *args):
         return subprocess.run(
-            ["bash", str(DEPLOY_SH), target],
+            ["bash", str(DEPLOY_SH), *args],
             capture_output=True,
             text=True,
             env=self.env,
@@ -58,6 +76,65 @@ class FakeNas:
 
     def calls(self):
         return self.log.read_text(encoding="utf-8").splitlines() if self.log.exists() else []
+
+
+def git(cwd, *args):
+    """테스트용 진짜 git 호출."""
+    return subprocess.run(
+        ["git", *args],
+        cwd=str(cwd),
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
+
+def make_origin(tmp_path):
+    """빈 임시 origin 저장소. `commit()` 으로 커밋을 쌓고 `clone()` 으로 가져간다."""
+    origin = tmp_path / "origin"
+    origin.mkdir()
+    git(origin, "-c", "init.defaultBranch=main", "init", "-q")
+    git(origin, "config", "user.email", "test@example.com")
+    git(origin, "config", "user.name", "test")
+    return origin
+
+
+def clone(origin, checkout):
+    git(checkout.parent, "clone", "-q", str(origin), str(checkout))
+
+
+def commit(origin, text):
+    (origin / "version").write_text(text, encoding="utf-8")
+    git(origin, "add", "version")
+    git(origin, "commit", "-qm", text)
+    return git(origin, "rev-parse", "HEAD")
+
+
+@contextmanager
+def health_server(status, body=b'{"status":"ok"}', location=None):
+    """`/health` 흉내를 내는 루프백 서버 — 진짜 curl 로 상태 코드 판정을 확인한다."""
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(status)
+            if location:
+                self.send_header("Location", location)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield server.server_address[1]
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
 
 
 def test_deploy_script_is_executable():
@@ -98,7 +175,8 @@ def test_dry_run_picks_target_settings(target, branch, directory, project, env_f
 
     assert res.returncode == 0, res.stderr
     out = res.stdout
-    assert f"git pull --ff-only origin {branch}" in out
+    assert f"git fetch --quiet origin {branch}" in out
+    assert f"git merge --ff-only origin/{branch}" in out
     assert directory in out
     assert f"-p {project}" in out
     assert f"--env-file {env_file}" in out
@@ -136,7 +214,8 @@ def test_deploy_runs_steps_in_order(tmp_path):
         line for line in nas.calls() if not line.startswith("sleep") and "rev-parse" not in line
     ]
     assert steps == [
-        "git pull --ff-only origin main",
+        "git fetch --quiet origin main",
+        "git merge --ff-only origin/main",
         "docker compose -f docker-compose.prod.yml -p chosung-daily-prod "
         "--env-file .env up -d --build",
         "docker compose -f docker-compose.prod.yml -p chosung-daily-prod "
@@ -147,7 +226,7 @@ def test_deploy_runs_steps_in_order(tmp_path):
         "--env-file .env ps --services --filter status=running",
         "docker compose -f docker-compose.prod.yml -p chosung-daily-prod "
         "--env-file .env port app 5000",
-        "curl -fsS --max-time 5 http://127.0.0.1:8089/health",
+        r"curl -sS --max-time 5 -w \n%{http_code} http://127.0.0.1:8089/health",
     ]
 
 
@@ -162,7 +241,7 @@ def test_deploy_uses_the_port_compose_actually_published(tmp_path):
     res = nas.deploy("develop")
 
     assert res.returncode == 0, res.stdout + res.stderr
-    assert "curl -fsS --max-time 5 http://127.0.0.1:8090/health" in nas.calls()
+    assert r"curl -sS --max-time 5 -w \n%{http_code} http://127.0.0.1:8090/health" in nas.calls()
 
 
 def test_deploy_aborts_when_checkout_is_missing(tmp_path):
@@ -184,8 +263,9 @@ def test_deploy_aborts_when_checkout_is_on_another_branch(tmp_path):
     assert not any(line.startswith("docker") for line in nas.calls())
 
 
-def test_deploy_fails_when_pull_fails(tmp_path):
-    nas = FakeNas(tmp_path, "chosung-daily", FAKE_GIT_BRANCH="main", FAKE_GIT_FAIL="pull")
+@pytest.mark.parametrize("failing", ["fetch", "merge"])
+def test_deploy_fails_when_pull_fails(tmp_path, failing):
+    nas = FakeNas(tmp_path, "chosung-daily", FAKE_GIT_BRANCH="main", FAKE_GIT_FAIL=failing)
     res = nas.deploy("prod")
 
     assert res.returncode != 0
@@ -249,3 +329,150 @@ def test_deploy_fails_when_health_never_answers(tmp_path):
     assert "/health" in res.stderr
     curls = [line for line in nas.calls() if line.startswith("curl")]
     assert len(curls) == 10, "무한 재시도 금지 — 워크플로가 빨갛게 멈춰야 한다"
+
+
+# --- D-20-1: CI 를 통과한 커밋만 빌드한다 (진짜 git + 임시 origin) ---------------
+#
+# 러너 checkout 의 head_sha 는 "러너가 읽는 deploy.sh" 만 정한다. NAS 는 자기 git 으로
+# 브랜치를 가져오기 때문에, 커밋을 넘기지 않으면 그 사이 올라온(아직 CI 중이거나 실패한)
+# 커밋을 빌드할 수 있다. 가짜 git 은 커밋 이동을 모델링하지 않아서 진짜 git 으로 본다.
+
+
+def _real_git_nas(tmp_path, **overrides):
+    """진짜 git + 가짜 docker/curl/sleep 으로 선 가짜 NAS."""
+    return FakeNas(
+        tmp_path,
+        "chosung-daily",
+        fakes=("docker", "curl", "sleep"),
+        **overrides,
+    )
+
+
+def test_deploy_builds_exactly_the_commit_that_passed_ci(tmp_path):
+    """넘긴 sha 가 브랜치 끝이면 체크아웃이 정확히 그 커밋으로 간다."""
+    nas = _real_git_nas(tmp_path)
+    origin = make_origin(tmp_path)
+    commit(origin, "A")
+    clone(origin, nas.checkout)
+    sha_b = commit(origin, "B")
+
+    res = nas.deploy("prod", sha_b)
+
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert git(nas.checkout, "rev-parse", "HEAD") == sha_b
+    assert (nas.checkout / "version").read_text(encoding="utf-8") == "B"
+
+
+def test_deploy_refuses_a_commit_that_is_no_longer_the_branch_tip(tmp_path):
+    """A 의 CI 로 시작한 배포가 그 뒤에 올라온 B 를 빌드하면 CI 선행 조건이 무의미하다."""
+    nas = _real_git_nas(tmp_path)
+    origin = make_origin(tmp_path)
+    sha_a = commit(origin, "A")
+    clone(origin, nas.checkout)
+    sha_b = commit(origin, "B")
+
+    res = nas.deploy("prod", sha_a)
+
+    assert res.returncode != 0, res.stdout
+    assert sha_b in res.stderr
+    assert not any(line.startswith("docker") for line in nas.calls()), "빌드까지 가면 안 된다"
+    assert (nas.checkout / "version").read_text(encoding="utf-8") == "A", "작업 트리도 그대로"
+
+
+def test_deploy_refuses_a_commit_from_another_branch(tmp_path):
+    """develop 의 커밋을 prod 로 넘기면 멈춘다 — main 끝이 아니기 때문."""
+    nas = _real_git_nas(tmp_path)
+    origin = make_origin(tmp_path)
+    commit(origin, "A")
+    clone(origin, nas.checkout)
+    git(origin, "checkout", "-q", "-b", "develop")
+    sha_dev = commit(origin, "develop 전용")
+
+    res = nas.deploy("prod", sha_dev)
+
+    assert res.returncode != 0
+    assert not any(line.startswith("docker") for line in nas.calls())
+
+
+def test_deploy_without_a_commit_takes_the_branch_tip(tmp_path):
+    """NAS 에서 사람이 손으로 돌릴 때(sha 없음)는 그대로 브랜치 끝을 올린다."""
+    nas = _real_git_nas(tmp_path)
+    origin = make_origin(tmp_path)
+    commit(origin, "A")
+    clone(origin, nas.checkout)
+    sha_b = commit(origin, "B")
+
+    res = nas.deploy("prod")
+
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert git(nas.checkout, "rev-parse", "HEAD") == sha_b
+
+
+def test_unknown_third_argument_fails_with_usage(tmp_path):
+    """sha 자리에 오타가 오면 조용히 무시하지 않는다."""
+    res = run_dry("prod", "--dryrun")
+
+    assert res.returncode == 2
+    assert "prod|develop" in res.stderr
+
+
+def test_dry_run_with_a_commit_runs_nothing(tmp_path):
+    nas = FakeNas(tmp_path, "chosung-daily")
+    res = nas.deploy("prod", "a" * 40, "--dry-run")
+
+    assert res.returncode == 0, res.stderr
+    assert nas.calls() == []
+
+
+# --- D-20-2: /health 는 200 일 때만 성공이다 (진짜 curl + 루프백 서버) ------------
+
+
+def test_deploy_fails_when_health_redirects_instead_of_200(tmp_path):
+    """`curl -f` 는 302 에도 0 으로 끝난다 — 상태 코드를 봐야 로그인 리다이렉트를 잡는다."""
+    with health_server(302, body=b"", location="/login") as port:
+        nas = FakeNas(
+            tmp_path,
+            "chosung-daily",
+            fakes=("git", "docker", "sleep"),
+            FAKE_GIT_BRANCH="main",
+            FAKE_DOCKER_PORT=f"127.0.0.1:{port}",
+        )
+        res = nas.deploy("prod")
+
+    assert res.returncode != 0, res.stdout
+    assert "HTTP 302" in res.stdout
+    assert "배포 완료" not in res.stdout
+    assert "200" in res.stderr
+
+
+def test_deploy_succeeds_when_health_returns_200(tmp_path):
+    """같은 경로로 200 이 오면 통과한다 — 항상 실패하는 검사가 아니다."""
+    with health_server(200) as port:
+        nas = FakeNas(
+            tmp_path,
+            "chosung-daily",
+            fakes=("git", "docker", "sleep"),
+            FAKE_GIT_BRANCH="main",
+            FAKE_DOCKER_PORT=f"127.0.0.1:{port}",
+        )
+        res = nas.deploy("prod")
+
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert '{"status":"ok"}' in res.stdout
+    assert "== prod 배포 완료" in res.stdout
+
+
+@pytest.mark.parametrize("status", ["301", "302", "404", "500"])
+def test_deploy_fails_when_health_status_is_not_200(tmp_path, status):
+    nas = FakeNas(
+        tmp_path,
+        "chosung-daily",
+        FAKE_GIT_BRANCH="main",
+        FAKE_CURL_STATUS=status,
+    )
+    res = nas.deploy("prod")
+
+    assert res.returncode != 0
+    assert f"HTTP {status}" in res.stdout
+    curls = [line for line in nas.calls() if line.startswith("curl")]
+    assert len(curls) == 10, "200 이 아니면 재시도하고 그 뒤 실패한다"

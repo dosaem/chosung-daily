@@ -161,7 +161,7 @@ $ ... FAKE_DOCKER_PORT=127.0.0.1:8190 bash deploy/deploy.sh develop
  * branch            develop    -> FETCH_HEAD
 Already up to date.
 + docker compose -f docker-compose.prod.yml -p chosung-daily-develop --env-file .env.develop up -d --build
-... 
+...
 http://127.0.0.1:8190/health → {"status":"ok"}
 == develop 배포 완료
 develop exit=0
@@ -275,3 +275,189 @@ rebase 때 `README.md` "설계 판단" 에서 티켓 01 의 `### 01.` 세 절과
   `ruff format --check .` 은 내 변경과 무관한 기존 파일 8개에서도 깨진다
   (`app/models/account.py` 등). 내가 추가한 파일 2개는 `--check` 를 통과한다.
 - Celery/앱 코드·마이그레이션·UI 는 건드리지 않았다(인프라 전용 티켓).
+
+## 수정 라운드 1
+
+최종 리뷰(`review/impl-review-20.md` 라운드 1, FAIL — MAJOR 2 / MINOR 1)의 결함을
+고쳤다. 각 결함을 **리뷰에 적힌 재현 방법 그대로 먼저 재현**하고, 그 재현을 실패하는
+테스트로 고정한 뒤에 고쳤다. 테스트 자원은 이 티켓 전용(`chosung_daily_test_t20`,
+Redis DB 8)을 썼다. NAS 접속·배포·`git push`·외부 서비스 호출은 없다.
+
+### D-20-1 (MAJOR) — CI 통과 커밋과 NAS 빌드 커밋이 연결되지 않음
+
+**원인.** 워크플로가 NAS 에 넘기는 건 대상 하나(`bash -s -- prod`)뿐이었다. 러너의
+`actions/checkout` 을 `workflow_run.head_sha` 로 맞춘 건 *러너가 읽어서 ssh 로
+흘려보내는 `deploy.sh`* 만 그 커밋으로 고정한다. 정작 빌드 소스는 NAS 의
+`git pull --ff-only origin main` 이 가져오는 "지금의 브랜치 끝" 이라, A 의 CI 성공으로
+시작한 배포가 그 사이 올라온 B(아직 CI 중이거나 CI 가 실패한 커밋)를 빌드했다.
+즉 "CI 통과 선행" 조건이 실질적으로 우회됐다.
+
+**재현(수정 전).** 리뷰대로 임시 로컬 origin 에 A 를 커밋 → 가짜 NAS 디렉터리로
+clone → origin 에 B 를 추가 → 가짜 `docker`/`curl`/`sleep` 만 PATH 앞에 두고(**git 은
+진짜**) `bash deploy/deploy.sh prod` 실행:
+
+```
+A=6010aa840c45651f41668e2dea7a04b8c060f851
+B=c5c3a535859c9fdd0b566691498a27472edf8667
+deploy exit=0
+NAS 작업 디렉터리 HEAD = c5c3a535859c9fdd0b566691498a27472edf8667
+빌드된 version 파일 = B
+```
+
+**수정.**
+- `.github/workflows/deploy.yml`: job env 에 `CI_SHA: ${{ github.event.workflow_run.head_sha }}`
+  를 두고 ssh 로 `bash -s -- $TARGET $CI_SHA` 를 넘긴다.
+- `deploy/deploy.sh`: 2번째 인자로 sha 를 받는다(`deploy.sh <prod|develop> [<sha>]
+  [--dry-run]`, 순서 무관, sha 모양이 아니면 exit 2). `git pull` 을
+  `git fetch` + `git merge --ff-only origin/<branch>` 로 쪼개고, fetch 직후
+  `git rev-parse origin/<branch>` 가 받은 sha 와 다르면 **아무것도 빌드하지 않고
+  중단**한다. merge 뒤에는 `git rev-parse HEAD` == sha 를 한 번 더 확인한다.
+- "브랜치가 움직였어도 받은 sha 를 그대로 빌드" 는 일부러 택하지 않았다. B 가 이미
+  올라간 뒤에 A 의 배포가 끝나면 운영이 조용히 옛 커밋으로 되돌아간다. 중단하면
+  B 는 자기 CI 통과 후 자기 배포로 올라간다. 이유는 README "설계 판단" §20 에 적었다.
+- sha 없이 돌리는 경로(NAS 에서 사람이 손으로)는 그대로 브랜치 끝을 올린다.
+
+**증명.** 같은 재현을 수정 후 스크립트로:
+
+```
+=== D-20-1 재현 (수정 후): A 의 sha 로 배포, origin 은 B → 중단해야 한다 ===
++ git fetch --quiet origin main
+origin/main 가 이미 d518f2b33d30744c5bc9f34e2429531c366342a9 로 움직였다 — CI 를 통과한 d2754a4edf937ff5dcc3b7f1ca0b6743f896b20f 의
+배포를 중단한다. d518f2b33d30744c5bc9f34e2429531c366342a9 는 자기 CI 가 통과하면 배포된다.
+작업 트리 version = A (A 그대로여야 한다)
+docker 호출: 0 번
+D-20-1 (옛 sha) exit=1  (기대: 1)
+D-20-1 (브랜치 끝 sha) exit=0  (기대: 0)   # 작업 트리 version = B
+```
+
+고정한 테스트(`tests/test_deploy_script.py`) — 전부 **진짜 git + 임시 origin**:
+`test_deploy_refuses_a_commit_that_is_no_longer_the_branch_tip`(옛 sha → exit≠0,
+`docker` 호출 0, 작업 트리 그대로), `test_deploy_builds_exactly_the_commit_that_passed_ci`
+(브랜치 끝 sha → 체크아웃 HEAD 가 정확히 그 sha), `test_deploy_refuses_a_commit_from_another_branch`
+(develop 커밋을 prod 로 → 중단), `test_deploy_without_a_commit_takes_the_branch_tip`
+(사람이 손으로 돌리는 경로 유지). 워크플로 쪽은
+`tests/test_deploy_workflow.py::test_deploy_pins_the_nas_build_to_the_ci_commit`
+이 `bash -s -- $TARGET $CI_SHA` 순서까지 본다.
+
+### D-20-2 (MAJOR) — `/health` 가 200 이 아니어도 성공 처리
+
+**원인.** `curl -fsS` 의 종료 코드만 봤다. `-f` 는 4xx·5xx 에서만 실패하고 3xx 는
+0 으로 끝나기 때문에, `/health` 가 로그인으로 302 리다이렉트되는 설정 사고가
+그대로 통과했다. 상태 코드를 비교하는 곳이 없었다.
+
+**재현(수정 전).** 루프백 `http.server` 가 모든 GET 에 `302 + Location: /login` 을
+주게 하고, 가짜 docker 의 `FAKE_DOCKER_PORT` 를 그 주소로 두고 **진짜 curl** 로:
+
+```
++ docker compose ... port app 5000
+http://127.0.0.1:57562/health →
+== prod 배포 완료
+deploy exit=0
+```
+
+(같은 서버에 직접 쏜 결과: `curl -fsS` exit=0 / `-w '%{http_code}'` → `302`.)
+
+**수정.** `deploy/deploy.sh` 의 health 루프를
+`curl -sS --max-time 5 -w '\n%{http_code}'` 로 바꾸고 본문과 상태 코드를 쪼개서
+`status == 200` 일 때만 성공으로 끝낸다. 연결 자체가 안 되면 curl 이 `-w` 자리에
+`000` 을 찍으므로 같은 비교로 처리된다(재시도 10회·3초 간격은 그대로).
+가짜 curl(`tests/fake_nas_bin/curl`)도 실제 curl 처럼 "본문 + 개행 + 상태 코드" 를
+찍게 고치고 `FAKE_CURL_STATUS` 를 추가했다.
+
+**증명.** 같은 302 서버로 수정 후:
+
+```
+(10/10) http://127.0.0.1:60184/health → HTTP 302 (200 아님)
+http://127.0.0.1:60184/health 가 10회 재시도 뒤에도 200 을 주지 않는다 — 배포 실패
+D-20-2 (302) exit=1  (기대: 1)
+```
+
+고정한 테스트: `test_deploy_fails_when_health_redirects_instead_of_200`(진짜 curl +
+302 루프백 서버 → exit≠0, "배포 완료" 없음), `test_deploy_succeeds_when_health_returns_200`
+(같은 경로에 200 → exit 0, 항상 실패하는 검사가 아님을 증명),
+`test_deploy_fails_when_health_status_is_not_200[301/302/404/500]`(상태별 판정 +
+재시도 10회).
+
+### 새 테스트를 수정 전 코드에 돌린 결과 (red 확인)
+
+`deploy/deploy.sh` 와 `.github/workflows/deploy.yml` 만 `git show HEAD:` 로 되돌려
+새 테스트를 그대로 돌렸다(그 뒤 원복):
+
+```
+FAILED tests/test_deploy_script.py::test_deploy_refuses_a_commit_that_is_no_longer_the_branch_tip
+FAILED tests/test_deploy_script.py::test_deploy_refuses_a_commit_from_another_branch
+FAILED tests/test_deploy_script.py::test_unknown_third_argument_fails_with_usage
+FAILED tests/test_deploy_script.py::test_dry_run_with_a_commit_runs_nothing
+FAILED tests/test_deploy_script.py::test_deploy_fails_when_health_redirects_instead_of_200
+FAILED tests/test_deploy_script.py::test_deploy_fails_when_health_status_is_not_200[301]
+FAILED tests/test_deploy_script.py::test_deploy_fails_when_health_status_is_not_200[302]
+FAILED tests/test_deploy_script.py::test_deploy_fails_when_health_status_is_not_200[404]
+FAILED tests/test_deploy_script.py::test_deploy_fails_when_health_status_is_not_200[500]
+FAILED tests/test_deploy_workflow.py::test_deploy_pins_the_nas_build_to_the_ci_commit
+10 failed, 3 passed, 28 deselected in 2.33s
+```
+
+통과한 3개는 일부러 넣은 비회귀 가드다 —
+`test_deploy_builds_exactly_the_commit_that_passed_ci`,
+`test_deploy_without_a_commit_takes_the_branch_tip`,
+`test_deploy_succeeds_when_health_returns_200`(새 검사가 "항상 실패" 가 아님을 증명).
+원복 후 41개 전부 통과.
+
+### D-20-3 (MINOR) — RELEASE.md 공유 파일 번호별 추가 규칙 위반
+
+**원인.** 티켓 공통 규칙은 공유 파일에 `### NN.` 자기 절만 섹션 끝에 덧붙이는
+것인데, `## 티켓별 기록` 앞에 번호 없는 `## 자동 배포` / `### GitHub Actions secrets`
+/ `### D3. 배포 자동화` 블록을 끼워 넣었다.
+
+**수정.** 세 블록을 그대로(내용 유지) 티켓 20 소유 절 아래로 옮겼다.
+`### 20.` 을 `### 20. 자동 배포 (deploy.sh + GitHub Actions)` 로 고치고 그 안에
+`#### 무엇이 어떻게 도는가` / `#### GitHub Actions secrets` /
+`#### D3. 배포 자동화 — NAS 쪽 사람 작업` / `#### deploy.sh 로컬 검증` 로 넣었다.
+번호 없는 소제목은 이제 없다.
+
+**증명.** `grep -n '^#' docs/RELEASE.md` 에서 `## 티켓별 기록` 뒤로 `### 19.`,
+`### 20.` 만 있고 그 아래는 전부 `####`. secrets 표·D3 체크리스트를 읽는 기존
+테스트(`test_deploy_secrets_are_documented`,
+`test_release_doc_has_human_checklist_for_nas_access`)도 그대로 통과한다.
+
+### 리뷰가 지적한 그 외 사항
+
+- **`git diff --check` trailing whitespace** (리뷰에서 결함 미집계): 이 문서 164행의
+  공백을 지웠다. 이제 `git diff --check` exit 0.
+- 리뷰가 "결함 아님" 으로 본 포트 조회 구현은 그대로 뒀다.
+- 미수정 MINOR: 없다.
+- 틀렸다고 판단해 고치지 않은 지적: 없다.
+
+### 수정 라운드 1 전체 검증
+
+`git rebase main` **후** 로컬 main 위에서 돌렸다. 리뷰 때의 main(`491418f`)과 달리
+이번 rebase 로 티켓 02(언어·마스크)가 들어와서 테스트 수가 늘었다 — 이 티켓 변경과
+무관한 증가다.
+
+```
+$ git rebase main               # 로컬 main (origin/main 아님), 충돌 없음
+$ uv run ruff check .
+All checks passed!
+
+$ TEST_DATABASE_URL="mysql+pymysql://chosung:***@127.0.0.1:3306/chosung_daily_test_t20?charset=utf8mb4" \
+  TEST_REDIS_URL="redis://127.0.0.1:6379/8" uv run pytest -q
+187 passed in 73.54s
+
+$ bash -n deploy/deploy.sh      # exit 0
+$ uv run flask db heads
+4e72a4045fbc (head)             # 1줄 (이 티켓은 마이그레이션 추가 없음, 티켓 02 의 head)
+$ git diff --check              # exit 0
+$ git status --short            # 비어 있음 (clean)
+```
+
+이 티켓이 추가한 테스트는 14개다(커밋 고정 4 · 인자 검사 2 · `/health` 상태 판정 6 ·
+워크플로 sha 전달 1 · fetch/merge 실패 분기 파라미터화 +1). rebase 전 main(`491418f`)
+기준으로는 135 → 149 였고, rebase 후 티켓 02 의 테스트까지 합쳐 187 이다.
+
+rebase 로 들어온 `tests/test_migrations.py` 는 별도 DB 를 요구해서(README "실행 방법")
+이 티켓 전용 이름으로 한 번 만들었다 — `chosung_daily_test_t20_migrations`
+(로컬 개발 compose 의 mysql, README 에 적힌 그 명령). 공용 테스트 DB
+(`chosung_daily_test`)와 다른 티켓의 DB 는 건드리지 않았다.
+
+도커를 띄우지 않았고 실제 NAS·GitHub Actions·Tailscale 연결은 여전히
+`docs/RELEASE.md` D3 체크리스트의 사람 작업이다.

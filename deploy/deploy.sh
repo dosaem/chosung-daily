@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
-# NAS 배포 — deploy.sh <prod|develop> [--dry-run]
+# NAS 배포 — deploy.sh <prod|develop> [<CI 를 통과한 커밋 sha>] [--dry-run]
 #
 # 대상 인자 하나가 브랜치·체크아웃 디렉터리·compose 프로젝트명·env 파일을 전부
-# 정한다. 하는 일: git pull → compose up -d --build → 마이그레이션 → 5개 서비스
-# 기동 확인 → /health 200. 어느 단계에서든 실패하면 즉시 0 이 아닌 코드로 끝나서
+# 정한다. 하는 일: git fetch → (sha 를 받았으면) 그 커밋이 아직 브랜치 끝인지 확인
+# → ff-only merge → compose up -d --build → 마이그레이션 → 5개 서비스 기동 확인 →
+# /health 가 HTTP 200. 어느 단계에서든 실패하면 즉시 0 이 아닌 코드로 끝나서
 # GitHub Actions 가 빨갛게 멈춘다(.github/workflows/deploy.yml).
 #
-# GitHub Actions 는 이 파일을 ssh 표준입력으로 흘려보낸다(`ssh nas 'bash -s --
-# prod' < deploy/deploy.sh`) — NAS 체크아웃의 스크립트를 실행하면 git pull 이
+# 두 번째 인자(sha)는 "CI 를 통과한 커밋" 이다. 이 인자가 없으면 브랜치 끝을 그냥
+# 올리므로(NAS 에서 사람이 손으로 돌릴 때) 자동 배포는 반드시 넘긴다.
+#
+# GitHub Actions 는 이 파일을 ssh 표준입력으로 흘려보낸다(`ssh nas 'bash -s -- prod
+# <sha>' < deploy/deploy.sh`) — NAS 체크아웃의 스크립트를 실행하면 아래 git merge 가
 # 실행 중인 자기 자신을 갈아치운다. 이유는 README "설계 판단" §20.
 #
 # DEPLOY_BASE_DIR 로 체크아웃 상위 디렉터리를 바꿀 수 있다(기본 /volume1/docker).
@@ -19,12 +23,27 @@ HEALTH_RETRIES=10
 HEALTH_RETRY_DELAY=3
 
 usage() {
-  echo "사용법: deploy.sh <prod|develop> [--dry-run]" >&2
+  echo "사용법: deploy.sh <prod|develop> [<CI 를 통과한 커밋 sha>] [--dry-run]" >&2
 }
 
 target="${1:-}"
+commit=""
 dry_run=0
-[[ "${2:-}" == "--dry-run" ]] && dry_run=1
+# 2·3번째 인자는 순서가 바뀌어도 받는다. sha 모양이 아닌 값은 오타로 보고 멈춘다.
+for arg in "${2:-}" "${3:-}"; do
+  case "$arg" in
+    "") ;;
+    --dry-run) dry_run=1 ;;
+    *)
+      if [[ ! "$arg" =~ ^[0-9a-f]{7,40}$ ]]; then
+        echo "알 수 없는 인자: $arg" >&2
+        usage
+        exit 2
+      fi
+      commit="$arg"
+      ;;
+  esac
+done
 
 case "$target" in
   prod)
@@ -79,7 +98,33 @@ if [[ "$dry_run" == 0 ]]; then
   fi
 fi
 
-run git pull --ff-only origin "$branch"
+run git fetch --quiet origin "$branch"
+
+# CI 를 통과한 커밋과 NAS 가 실제로 빌드하는 커밋을 못박는다. 러너 checkout 만
+# head_sha 로 맞춰도 NAS 는 자기 git pull 로 "지금의 브랜치 끝" 을 가져오기 때문에,
+# A 의 CI 로 시작한 배포가 그 사이 올라온 B(아직 CI 중이거나 실패한 커밋)를 빌드할 수
+# 있다. 브랜치가 움직였으면 여기서 멈춘다 — B 는 자기 CI 가 통과하면 자기 배포가
+# 올린다. 옛 커밋을 그대로 빌드하면 B 가 이미 올라간 뒤에 A 로 되돌릴 수 있어서
+# 그렇게 하지 않는다. 이유는 README "설계 판단" §20.
+if [[ -n "$commit" && "$dry_run" == 0 ]]; then
+  remote_head="$(git rev-parse "origin/$branch")"
+  if [[ "$remote_head" != "$commit" ]]; then
+    echo "origin/$branch 가 이미 $remote_head 로 움직였다 — CI 를 통과한 $commit 의" >&2
+    echo "배포를 중단한다. $remote_head 는 자기 CI 가 통과하면 배포된다." >&2
+    exit 1
+  fi
+fi
+
+run git merge --ff-only "origin/$branch"
+
+if [[ -n "$commit" && "$dry_run" == 0 ]]; then
+  head="$(git rev-parse HEAD)"
+  if [[ "$head" != "$commit" ]]; then
+    echo "체크아웃이 $head 인데 CI 를 통과한 커밋은 $commit 이다 — 중단" >&2
+    exit 1
+  fi
+fi
+
 run "${compose[@]}" up -d --build
 run "${compose[@]}" exec -T app uv run flask db upgrade
 
@@ -99,18 +144,24 @@ port="${published##*:}"
 health_url="http://127.0.0.1:${port:-0}/health"
 
 if [[ "$dry_run" == 1 ]]; then
-  echo "+ curl -fsS --max-time 5 <APP_PORT 로 만든 /health URL> (최대 ${HEALTH_RETRIES}회)"
+  echo "+ curl -sS --max-time 5 -w '%{http_code}' <APP_PORT 로 만든 /health URL>" \
+    "→ HTTP 200 인지 확인 (최대 ${HEALTH_RETRIES}회)"
   echo "== dry-run 끝 — 실제로 실행한 명령은 없다"
   exit 0
 fi
 
+# `curl -f` 의 종료 코드만 보면 3xx 는 성공으로 끝난다 — /health 가 로그인으로
+# 302 리다이렉트되는 설정 사고가 초록색으로 통과한다. 상태 코드를 직접 비교한다.
 for attempt in $(seq 1 "$HEALTH_RETRIES"); do
-  if body="$(curl -fsS --max-time 5 "$health_url")"; then
-    echo "$health_url → $body"
+  response="$(curl -sS --max-time 5 -w '\n%{http_code}' "$health_url" || true)"
+  status="${response##*$'\n'}"
+  body="${response%$'\n'*}"
+  if [[ "$status" == "200" ]]; then
+    echo "$health_url → 200 $body"
     echo "== $target 배포 완료"
     exit 0
   fi
-  echo "($attempt/$HEALTH_RETRIES) $health_url 아직 응답 없음"
+  echo "($attempt/$HEALTH_RETRIES) $health_url → HTTP ${status:-000} (200 아님)"
   [[ "$attempt" == "$HEALTH_RETRIES" ]] || sleep "$HEALTH_RETRY_DELAY"
 done
 

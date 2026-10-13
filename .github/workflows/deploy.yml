@@ -20,6 +20,9 @@ jobs:
     # main 이 아닌 브랜치는 트리거의 branches 필터가 develop 만 통과시킨다.
     env:
       TARGET: ${{ github.event.workflow_run.head_branch == 'main' && 'prod' || 'develop' }}
+      # NAS 가 빌드할 커밋. 러너 checkout 만 head_sha 로 맞추면 NAS 는 자기 git 으로
+      # "지금의 브랜치 끝" 을 가져와서 CI 를 안 거친 커밋을 빌드할 수 있다.
+      CI_SHA: ${{ github.event.workflow_run.head_sha }}
 
     steps:
       - uses: actions/checkout@v4
@@ -40,12 +43,16 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
 
       # 스크립트를 표준입력으로 흘려보낸다 — NAS 체크아웃의 deploy.sh 를 실행하면
-      # 그 안의 git pull 이 실행 중인 자기 자신을 갈아치운다(README "설계 판단" §20).
+      # 그 안의 git merge 가 실행 중인 자기 자신을 갈아치운다(README "설계 판단" §20).
       # 이렇게 하면 항상 방금 CI 를 통과한 커밋의 스크립트가 돈다.
+      #
+      # sha 를 같이 넘겨서 NAS 가 빌드하는 커밋도 그 커밋으로 못박는다. 그 사이
+      # 브랜치가 움직였으면 스크립트가 배포를 중단하고(빨갛게 끝난다) 새 커밋은
+      # 자기 CI 가 통과한 뒤 자기 배포로 올라간다.
       - name: Deploy to NAS
         run: |
           ssh -i ~/.ssh/id_ed25519 \
             -o StrictHostKeyChecking=accept-new \
             -o ConnectTimeout=15 \
             "${{ secrets.NAS_SSH_USER }}@${{ secrets.NAS_SSH_HOST }}" \
-            "bash -s -- $TARGET" < deploy/deploy.sh
+            "bash -s -- $TARGET $CI_SHA" < deploy/deploy.sh

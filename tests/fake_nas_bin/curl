@@ -1,5 +1,6 @@
 #!/bin/sh
-# 가짜 curl — 처음 FAKE_CURL_FAILS 번은 실패하고 그 뒤로 /health 응답을 준다.
+# 가짜 curl — 처음 FAKE_CURL_FAILS 번은 연결 실패(`-w` 자리에 000), 그 뒤로
+# FAKE_CURL_STATUS(기본 200). 실제 curl 처럼 "본문 개행 상태코드" 를 찍는다.
 printf 'curl %s\n' "$*" >> "$FAKE_LOG"
 
 count=$(cat "$FAKE_CURL_COUNTER" 2>/dev/null || echo 0)
@@ -8,8 +9,9 @@ echo "$count" > "$FAKE_CURL_COUNTER"
 
 if [ "$count" -le "${FAKE_CURL_FAILS:-0}" ]; then
   echo "fake curl: 아직 안 뜸" >&2
-  exit 22
+  printf '\n000'
+  exit 7
 fi
 
-echo '{"status":"ok"}'
+printf '%s\n%s' '{"status":"ok"}' "${FAKE_CURL_STATUS:-200}"
 exit 0

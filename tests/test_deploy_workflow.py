@@ -95,6 +95,20 @@ def test_deploy_checks_out_the_commit_that_passed_ci(deploy):
     assert "workflow_run.head_sha" in _flat(checkout["with"])
 
 
+def test_deploy_pins_the_nas_build_to_the_ci_commit(deploy):
+    """러너 checkout 은 러너가 읽는 스크립트만 정한다 — NAS 가 빌드할 커밋도 넘겨야 한다.
+
+    안 넘기면 NAS 의 git 이 "지금의 브랜치 끝" 을 가져오기 때문에, A 의 CI 로 시작한
+    배포가 그 사이 올라온(CI 를 안 거친) B 를 빌드할 수 있다.
+    """
+    job = deploy["jobs"]["deploy"]
+    sha_vars = [name for name, value in job["env"].items() if "head_sha" in str(value)]
+    assert sha_vars, "job env 에 workflow_run.head_sha 가 없다"
+
+    run = " ".join(step.get("run", "") for step in _steps(deploy, "deploy"))
+    assert f"bash -s -- $TARGET ${sha_vars[0]}" in run, "deploy.sh <대상> <sha> 순서로 넘긴다"
+
+
 def test_deploy_joins_tailnet_before_ssh(deploy):
     """NAS 는 인터넷에 ssh 를 안 열어서 Tailscale 로 들어가야 한다 — 순서가 뒤집히면 못 붙는다."""
     steps = _steps(deploy, "deploy")
