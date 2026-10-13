@@ -267,3 +267,71 @@ ${{ github.event.workflow_run.head_sha }}
 현재 열린 결함 합계: **BLOCKER 0, MAJOR 1, MINOR 0**. 이전 결함 5건 FIXED, REPEAT 0건. 신규 D-20-6 1건.
 
 판정: FAIL
+
+## 라운드 4
+
+- 검토일: 2026-10-14. 로컬 `main` = `21856d8`, 검토 HEAD = `9ec5e57`, merge-base = `72a2a3c`. 요청대로 `git diff main...HEAD` 및 `git log main..HEAD`의 11개 커밋을 기준으로 검토했다. `origin/main`은 사용하지 않았다.
+- 티켓 20, 스펙 §C.27·US 64/65, CONTEXT, 구현 증거 전체와 이전 리뷰 3개 라운드, 배포 스크립트·워크플로·테스트·관련 compose를 대조했다. UI·마이그레이션 변경 없음.
+- 하위 에이전트 없이 검토했다. 보고서 외 코드·테스트·설정·scratch 수정, NAS 접속·배포·외부 서비스 호출·push 없음.
+
+### 티켓 체크박스별 판정
+
+| 체크박스 | 판정 | 직접 확인한 근거 |
+|---|---|---|
+| 대상별 설정, Git 갱신/build/upgrade/재기동 확인/health 200, 두 인자 로컬 검증과 RELEASE 절차 | 충족 | deploy.sh:74~93의 prod/develop 분기, 95행 compose 설정, 114~142행 fetch/ff-only merge 및 SHA 검사, 143~180행 마이그레이션·서비스 목록·발행 포트·HTTP 200 검사 확인. fetch+merge는 pull의 갱신 역할을 수행한다. 양쪽 대상 dry-run/실행 및 실제 Git·루프백 HTTP·stdin 회귀 테스트 통과. RELEASE:268 이하에 로컬 절차가 있다. |
+| main/develop push의 CI 성공 선행 → Tailscale → SSH, ci.yml 변경 제한 | 충족 | deploy.yml:9~13의 브랜치/CI 완료 필터, 23~26행의 성공·push·동일 저장소 조건, 30~39행 대상/SHA 전달 및 checkout, 43~70행 Tailscale 후 SSH 확인. PR/fork 차단은 checkout과 secret 사용 전에 적용된다. ci.yml diff는 develop 추가 한 줄뿐이다. 실제 외부 연결은 검증 범위에서 제외했다. |
+| secrets 목록 표, NAS 사람 작업 D3 분리, push 금지 | 충족 | RELEASE:234의 secret 이름 4개 표, 246행의 D3 체크리스트와 develop 우선 리허설 절차 확인. 리뷰 중 push하지 않았다. 구현자의 과거 push 여부는 로컬 diff/log만으로 독립 증명할 수 없다. |
+
+README 변경은 설계 판단 절 마지막 `### 20.`(505행)에만 추가되고, RELEASE 변경은 파일 끝 `### 20.`(201행) 아래에만 추가된다. 다른 티켓 절 삭제/수정이나 범위 밖 애플리케이션 변경 없음.
+
+### 이전 결함 재판정
+
+| ID | 이전 심각도 | 판정 | 위치 및 재현 검증 |
+|---|---|---|---|
+| D-20-1 | MAJOR | FIXED | deploy.yml:33,70 / deploy.sh:120~139. 실제 임시 Git origin에 A 승인 뒤 B를 추가한 테스트에서 빌드를 차단하고, 승인 SHA가 tip이면 정확히 해당 HEAD로 갱신한다. 관련 실제 Git 회귀 테스트 통과. |
+| D-20-2 | MAJOR | FIXED | deploy.sh:172~175. 실제 curl과 루프백 HTTP 서버를 사용한 302 거부/200 수용 테스트 통과. 상태별 301/302/404/500 실패와 재시도 한도도 확인했다. |
+| D-20-3 | MINOR | FIXED | docs/RELEASE.md:201. `git diff main...HEAD -- docs/RELEASE.md`의 85개 추가 행은 모두 파일 끝 티켓 20 절에 있다. 번호 없는 상위 절 삽입 없음. |
+| D-20-4 | MAJOR | FIXED | deploy.sh:54,190 / tests/fake_nas_bin/docker:9~11. main 함수 전체를 읽은 뒤 stdin을 끊고 실행한다. stdin을 끝까지 읽는 fake Docker로 `bash -s` 실행 경로를 검증하는 4개 테스트가 통과하며, 정상 완료·실제 HTTP 검사·health 실패·서비스 누락을 구별한다. 이번 라운드에서 실제 Docker exec를 추가 실행한 것은 아니다. |
+| D-20-5 | MINOR | FIXED | README.md:505. `git diff main...HEAD -- README.md`에서 기존 두 티켓 02 절 뒤, `## 부하 테스트 요약` 앞에 자기 절만 추가된다. |
+| D-20-6 | MAJOR | FIXED | deploy.yml:23~26 / tests/test_deploy_workflow.py:126~165. 동일 저장소 main/develop push 성공은 허용하고 PR 성공·fork 출처·push 실패는 차단한다. 아래 직접 조건 평가 및 관련 테스트 통과. |
+
+D-20-6은 현재 YAML의 `if`를 읽고 참조값을 각 입력으로 치환한 뒤 `&&`/`==` 조건을 로컬에서 평가했다. 기대와 실제가 일치했다(실제 GitHub Actions 실행을 의미하지 않는다).
+
+```text
+push         base success True
+pull_request base success False
+pull_request fork success False
+push         fork success False
+push         base failure False
+```
+
+### 직접 실행한 검증
+
+기존 `chosung_daily_test_t20`과 Redis DB 8을 각각 `TEST_DATABASE_URL` / `TEST_REDIS_URL`로 지정했다. 접속 형식은 `.env.example`을 읽어 로컬 host와 전용 DB 이름만 바꿨으며 인증 값은 보고서에 기록하지 않는다. 마이그레이션 테스트는 기존 전용 파생 DB를 사용했다. 새 DB 생성·기본 DB fallback 없음: 전용 DB는 연결 가능했고 아래 오류는 서버 전체의 간헐적 연결 수 제한이었다.
+
+| 실행 | 직접 관측 결과 |
+|---|---|
+| `uv run pytest -q` | **233 passed, 3 errors in 123.10s**, exit 1. Slack 1개·stats 2개의 fixture setup에서 MySQL 1040 `Too many connections`. |
+| 동일 환경 `uv run pytest -q --tb=short` (요청에 따른 전체 재실행 1회) | **229 passed, 7 errors in 146.80s**, exit 1. guess 2개·OAuth 1개·language model 2개·maintenance 2개의 fixture setup에서 같은 MySQL 1040. 첫 실행과 오류 대상이 다르다. |
+| 배포 테스트 두 파일 + 위 두 실행의 오류 대상 10개를 명시하여 `uv run pytest -q --tb=line ...` | **60 passed in 13.95s**, exit 0. 배포 테스트 50개와 오류 대상 10개 모두 통과. 같은 전용 DB/Redis 사용. |
+| `uv run ruff check .` | **All checks passed!**, exit 0. |
+| `bash -n deploy/deploy.sh` | exit 0. |
+| `uv run flask db heads` | `4e72a4045fbc (head)` 한 줄. |
+| `git diff --check main...HEAD` | 출력 없음, exit 0. |
+
+- 전체 실행에서 관측한 오류는 모두 `tests/conftest.py:17`의 `db.create_all()` 이전 연결 획득 과정이었다. 읽기 전용 상태 조회 시 `Threads_connected=79`, `max_connections=151`을 확인했다. 동시 실행 경쟁 또는 테스트 연결 수 누적 중 어느 프로세스가 한도를 채웠는지까지는 특정하지 않았다. DB 서버 설정·다른 프로세스를 변경하지 않았다.
+- 따라서 **전체 suite 단일 실행 통과 증거는 확보하지 못했다**. 배포 변경 및 기존 결함 회귀 검증은 통과했고, 오류 대상도 별도 실행에서 전부 통과하여 이 연결 제한을 티켓 20 신규 결함으로 집계하지 않는다.
+- 배포 테스트는 실제 Bash 분기·종료 코드·명령 순서를 검사한다. 커밋 고정은 실제 임시 Git 저장소, HTTP 상태는 실제 curl/루프백 서버, stdin 경로는 입력을 소비하는 fake 명령을 사용한다. 워크플로 테스트의 일부는 문자열 계약 검사지만 이번 출처 게이트 테스트는 허용/거부 입력을 모두 평가한다. 항상 통과하도록 만든 테스트로 판단할 근거 없음.
+
+### 신규 결함
+
+없음. 현재 열린 결함 **BLOCKER 0, MAJOR 0, MINOR 0**, 이전 6건 모두 FIXED, REPEAT 0건.
+
+### 참고 및 검증 한계
+
+- 전체 suite의 깨끗한 단일 실행은 로컬 MySQL 연결 여유가 확보된 환경에서 추가 확인할 항목이다. 이번 PASS는 발견된 티켓 결함의 심각도 기준이며 전체 suite 성공이나 운영 배포 성공을 뜻하지 않는다.
+- 실제 GitHub Actions/Tailscale/NAS 연결, compose build/up, 운영 데이터 유지 검증은 수행하지 않았다. D3 사람 체크리스트로 남아 있다.
+- 인증·CSRF 애플리케이션 코드 변경 없음. prod 프로젝트명 유지, 환경별 디렉터리·프로젝트 분리, 볼륨 삭제 명령 부재를 확인했다. 변경에서 운영 키·토큰·비밀번호 실값은 발견하지 않았다. 구현 증거 초기 절에는 기존 개발용 DB 접속 문자열이 있으므로 증거 문서의 “값은 어디에도 없다”는 표현을 문자 그대로 인정하지 않는다. 해당 값은 레포의 개발 예시와 동일하여 운영 시크릿 유출로 집계하지 않았고 여기에는 복사하지 않았다.
+- 문서의 “5개 서비스”라는 설명은 현재 compose의 backup 추가 전 표현이다. 실행 코드는 서비스 목록을 동적으로 읽어 backup도 검사하므로 동작 결함은 아니다.
+
+판정: PASS
