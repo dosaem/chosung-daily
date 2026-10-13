@@ -18,12 +18,13 @@ def test_health_is_ok_when_db_and_redis_are_up(client):
     res = client.get("/health")
 
     assert res.status_code == 200
-    assert res.get_json() == {
-        "status": "ok",
-        "db": "ok",
-        "redis": "ok",
-        "apple_secret_expires_at": None,
-    }
+    body = res.get_json()
+    assert body["status"] == "ok"
+    assert body["db"] == "ok"
+    assert body["redis"] == "ok"
+    # 애플 설정이 있는 testing 설정에선 만료 시각이 채워진다 — 어떤 값인지는
+    # tests/test_apple_secret_renewal.py 가 본다(티켓 11, 스펙 §A.13).
+    assert body["apple_secret_expires_at"] is not None
 
 
 def test_health_is_degraded_but_still_200_when_redis_is_down(client, broken_redis):
@@ -51,9 +52,10 @@ def test_health_reports_db_down_even_if_redis_is_also_down(client, broken_db, br
     res = client.get("/health")
 
     assert res.status_code == 503
-    assert res.get_json() == {
-        "status": "down",
-        "db": "down",
-        "redis": "down",
-        "apple_secret_expires_at": None,
-    }
+    body = res.get_json()
+    assert body["status"] == "down"
+    assert body["db"] == "down"
+    assert body["redis"] == "down"
+    # 애플 secret 은 DB·Redis 와 무관하게 프로세스 안에서 서명한 값이라 그대로 나온다.
+    assert body["apple_secret_expires_at"] is not None
+    assert set(body) == {"status", "db", "redis", "apple_secret_expires_at"}

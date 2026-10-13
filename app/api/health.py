@@ -1,8 +1,8 @@
-from flask import Blueprint, jsonify
+from flask import Blueprint, current_app, jsonify
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.extensions import db
+from app.extensions import apple_secret_expires_at, db
 from app.utils.redis_safe import safe_redis_call
 
 bp = Blueprint("health", __name__)
@@ -31,11 +31,17 @@ def health():
         "status": status,
         "db": _OK if db_ok else _DOWN,
         "redis": _OK if redis_ok else _DOWN,
-        # 애플 client_secret(JWT) 만료 시각. 요청 경로 갱신(스펙 §A.13)을 넣는
-        # 티켓 11 에서 채운다 — 그때까지는 null 로 둔다.
-        "apple_secret_expires_at": None,
+        # 애플 client_secret(JWT) 만료 시각 — 웹 Services ID·앱 번들 ID 중 더 이른
+        # 쪽이다(스펙 §A.13). 이 워커 프로세스가 지금 들고 있는 값이라, 요청 경로
+        # 갱신이 돌면 150일 뒤로 밀린다. 애플 설정이 없으면 null.
+        "apple_secret_expires_at": _apple_secret_expires_at(),
     }
     return jsonify(body), 200 if db_ok else 503
+
+
+def _apple_secret_expires_at() -> str | None:
+    expires_at = apple_secret_expires_at(current_app)
+    return expires_at.isoformat() if expires_at else None
 
 
 def _db_ok() -> bool:
