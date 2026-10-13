@@ -2,6 +2,8 @@ from datetime import date
 
 from pydantic import BaseModel
 
+from app.models.enums import PuzzleLanguage
+
 
 class LeaderboardEntry(BaseModel):
     rank: int
@@ -13,4 +15,5 @@ class LeaderboardEntry(BaseModel):
 
 class LeaderboardResponse(BaseModel):
     date: date
+    language: PuzzleLanguage
     entries: list[LeaderboardEntry]
