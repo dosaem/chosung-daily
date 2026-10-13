@@ -16,6 +16,7 @@ def test_tasks_are_registered():
     assert "tasks.ensure_today_puzzle" in celery.tasks
     assert "tasks.flush_daily_stats" in celery.tasks
     assert "tasks.notify_low_word_pool" in celery.tasks
+    assert "tasks.notify_apple_secret_expiry" in celery.tasks
 
 
 def test_beat_schedule_matches_spec_times():
@@ -35,6 +36,16 @@ def test_beat_schedule_matches_spec_times():
     assert word_pool_schedule.hour == {9}
     assert word_pool_schedule.minute == {0}
     assert schedule["notify-low-word-pool"]["task"] == "tasks.notify_low_word_pool"
+
+    # 애플 secret 만료 알림은 주 1회다(스펙 §A.13) — 매일 돌면 갱신이 멈춘 걸
+    # 알리는 안전망이 아니라 잡음이 된다.
+    apple_secret_schedule = schedule["notify-apple-secret-expiry"]["schedule"]
+    assert apple_secret_schedule.day_of_week == {1}
+    assert apple_secret_schedule.hour == {9}
+    assert apple_secret_schedule.minute == {10}
+    assert (
+        schedule["notify-apple-secret-expiry"]["task"] == "tasks.notify_apple_secret_expiry"
+    )
 
 
 def test_beat_schedule_is_merged_from_task_modules():
@@ -58,11 +69,17 @@ def test_tasks_delegate_to_the_service_functions(monkeypatch):
     monkeypatch.setattr(
         scheduled, "notify_low_word_pool", lambda: called.append("word-pool") or []
     )
+    monkeypatch.setattr(
+        scheduled,
+        "notify_apple_secret_expiry",
+        lambda: called.append("apple-secret") or False,
+    )
 
     scheduled.ensure_today_puzzle_task.run()
     scheduled.notify_low_word_pool_task.run()
+    scheduled.notify_apple_secret_expiry_task.run()
 
-    assert called == ["ensure", "word-pool"]
+    assert called == ["ensure", "word-pool", "apple-secret"]
 
 
 def test_timezone_is_kst():
