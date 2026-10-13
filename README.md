@@ -37,7 +37,7 @@ graph LR
     MySQL[("MySQL 8")]
     Redis[("Redis 7<br/>broker + cache")]
     Worker["Celery worker"]
-    Beat["Celery beat<br/>(00:00 · 00:05 KST)"]
+    Beat["Celery beat<br/>(00:00 · 00:05 · 09:00 KST)"]
     Google(["Google OAuth"])
     Apple(["Apple OAuth"])
     Slack(["Slack Webhook"])
@@ -123,7 +123,8 @@ docker compose exec mysql mysql -uroot -proot -e "
 
 ```bash
 uv run flask seed-words data/seed_words.csv
-uv run flask schedule-puzzles --days 30
+uv run flask schedule-puzzles --language ko --days 30   # 언어마다 따로 돌린다 (기본 ko)
+uv run flask schedule-puzzles --language en --days 30
 uv run flask search-books "데미안" --add 0   # 카카오/알라딘 API 키 필요 (.env)
 uv run flask notify-operator-test           # 운영자 Slack 알림 도착 확인 (SLACK_WEBHOOK_URL)
 ```
@@ -157,6 +158,29 @@ docker compose -f docker-compose.prod.yml -p chosung-daily-prod --env-file .env 
 (TTL 26시간). 앱·워커를 재시작해도 안 지워진다 — Redis 는 별도 컨테이너다.
 celery 브로커 큐와 rate limit 카운터는 DB 와 무관해서 건드리지 않는다.
 
+## 운영: Celery Beat 스케줄
+
+시각은 전부 **KST** 다 (`celery.conf.timezone = "Asia/Seoul"`). 스케줄 정의는
+태스크 모듈이 각자 들고 있고(`app/tasks/scheduled.py` 의 `BEAT_SCHEDULE`),
+`celery_app.py` 는 모듈을 import 만 한다.
+
+| 시각 (KST) | 태스크 | 하는 일 | 실패하면 |
+|---|---|---|---|
+| 00:00 | `tasks.ensure_today_puzzle` | 지원 언어(ko·en)를 돌며 오늘 퍼즐을 **언어마다 따로 배정·커밋**하고 `puzzle:{date}:{lang}` 캐시를 채운다 | 그 언어만 건너뛰고 다음 언어 계속 + Slack "퍼즐 배정 실패" |
+| 00:05 | `tasks.flush_daily_stats` | 전날 Redis 통계(`stats:{date}:{lang}`)를 언어별로 `DailyStats` 에 반영 | Redis 장애면 예외 → Celery 재시도(최대 5회, backoff) |
+| 09:00 | `tasks.notify_low_word_pool` | 언어별 미사용 단어 잔량이 **14일치 미만**이면 Slack 알림 | Slack 전송 실패는 경고 로그만 (`app/clients/slack.py`) |
+
+잔량 알림을 자정이 아니라 09:00 에 둔 건, 알림이 운영자가 깨어 있는 시간에 와야
+그날 안에 `flask seed-words` 로 단어를 채울 수 있어서다. 잔량은 "아직 한 번도
+배정된 적 없는 단어 수"로 센다(`app/services/word_pool_service.py`) — 퍼즐이
+(날짜, 언어)당 하나라 미사용 단어 하나가 곧 하루치다.
+
+```bash
+# 수동 트리거 (워커가 떠 있어야 한다)
+uv run celery -A celery_app.celery call tasks.ensure_today_puzzle
+uv run celery -A celery_app.celery call tasks.notify_low_word_pool
+```
+
 ## 설계 판단
 
 > 아래 `트랜잭션 경계`~`퍼즐 카테고리 비중` 은 초기 구현 때 쓴 항목이다. 스토어 출시
@@ -172,7 +196,7 @@ celery 브로커 큐와 rate limit 카운터는 DB 와 무관해서 건드리지
 하나)과 같은 결.
 
 API/CLI(`app/api`, `app/cli.py`)는 서비스 함수를 호출만 하고 직접 `db.session`을 만지지 않는다.
-예: `schedule_puzzles(days=30)`는 30일치를 전부 배정하거나, 중간에 에러가 나면 이번 실행에서
+예: `schedule_puzzles(ko, days=30)`는 그 언어 30일치를 전부 배정하거나, 중간에 에러가 나면 이번 실행에서
 새로 만든 배정을 전부 롤백한다 (기존에 이미 있던 날짜는 건드리지 않음).
 
 ### 동시성: 정답 제출
@@ -671,6 +695,34 @@ provider 당 `JWKS_REFRESH_MIN_INTERVAL_SECONDS`(60초)에 한 번으로 제한�
 `apple_client_secret(app, client_id)` 로 바뀌었다(웹 Services ID 와 앱 번들 ID 를 모두 서명할 수
 있게 인자화 + 공개). 위 "설계 판단"·"알려진 제한사항" 의 기존 항목에 나오는 `_apple_client_secret`
 은 같은 함수의 예전 이름이다 — 공유 절은 덧붙이기만 하는 규칙이라 그 줄들은 건드리지 않았다.
+
+### 05. 자정 배정은 언어별로 각각 커밋하고, 부분 실패를 허용한다
+
+자정 배정을 "ko·en 을 한 트랜잭션에 묶고 하나라도 실패하면 전부 롤백"으로 만들 수도
+있었다. 그렇게 안 한 이유는 **두 언어가 서로의 사고에 연루될 이유가 없어서**다. en
+단어 풀이 바닥나는 건 ko 와 아무 상관 없는 운영 사고인데, 전부-아니면-전무로 묶으면
+그날 ko 플레이어까지 "오늘의 퍼즐이 없음" 화면을 보게 된다. 그래서
+`ensure_today_puzzles_for_all_languages()` 는 언어를 하나씩 돌며
+`ensure_today_puzzle_and_warm_cache(language)` 를 부르고, 그 함수 안의
+`schedule_puzzles` 가 **언어마다 자기 커밋**을 한다. 한 언어가 예외를 내면 세션을
+롤백하고 `notify_operator("퍼즐 배정 실패", ...)` 로 운영자에게 알린 뒤 다음 언어로
+넘어간다 — 실패한 언어 목록을 반환값으로도 돌려준다.
+
+여기서 "서비스 레이어의 함수 하나 = 커밋 하나"(위 트랜잭션 경계)와 어긋나 보이지만,
+커밋 단위는 여전히 `schedule_puzzles` 한 번이다. 순회 함수는 그 단위를 언어 수만큼
+반복하는 바깥 루프일 뿐이고, 부분 실패를 **허용한다는 사실 자체가 도메인 결정**이라
+독스트링과 반환값으로 드러냈다.
+
+순회를 Celery 태스크가 아니라 서비스 함수에 둔 것도 같은 이유의 연장이다. 태스크는
+자기만의 Flask 앱(`celery_app.py`)을 캡처해서 pytest 가 직접 부를 수 없는데, "en 이
+터져도 ko 는 배정된다"는 건 반드시 테스트로 지켜야 하는 동작이다. 태스크에 두면
+그 분기가 테스트 밖으로 나간다 — Celery 는 기존 규칙대로 얇은 어댑터로 남겼다
+(`tests/test_puzzle_maintenance.py::test_one_language_failing_does_not_block_the_others`).
+
+캐시 워밍은 `safe_redis_call` 뒤에 있어서(`app/services/puzzle_cache.py`) Redis 가
+죽어 있어도 배정은 커밋된다 — 플레이어는 DB 경로로 같은 퍼즐을 받는다. 캐시 실패를
+배정 실패로 올리면 "Redis 때문에 오늘 퍼즐이 없다"가 되는데, 이건 Redis 장애 정책
+("게임 자체는 DB 로 동작")과 정면으로 어긋난다.
 
 ## 부하 테스트 요약
 
