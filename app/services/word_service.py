@@ -72,7 +72,7 @@ def add_word_from_book(
 ) -> tuple[Word, bool]:
     """책 검색 결과를 book_title 카테고리 Word로 등록한다.
 
-    (word, created) 튜플을 돌려준다 — 같은 (answer, category)가 이미 있으면
+    (word, created) 튜플을 돌려준다 — 같은 (language, answer, category)가 이미 있으면
     새로 안 만들고 기존 걸 그대로 돌려준다(created=False). seed_words_from_csv의
     중복 체크와 같은 규칙인데, 이걸 빼먹었다가 `flask search-books ... --add`를
     같은 책으로 두 번 돌려서 "데미안"이 Word 두 개로 중복 등록되는 걸 실제로
