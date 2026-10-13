@@ -1,12 +1,15 @@
 import secrets
 
-from flask import Blueprint, g, jsonify, redirect, session, url_for
+from flask import Blueprint, current_app, g, jsonify, redirect, request, session, url_for
 
 from app.api.auth import with_guest
 from app.errors import NotFoundError, OAuthProviderUnavailableError, UnauthorizedError
 from app.extensions import db, get_oauth
 from app.models import Guest, OAuthProvider
-from app.services.account_service import link_or_switch_account
+from app.schemas.auth import TokenExchangeRequest
+from app.schemas.guest import GuestResponse
+from app.services.account_service import ProviderTokens, link_or_switch_account
+from app.services.app_login_service import exchange_id_token
 
 bp = Blueprint("oauth", __name__)
 
@@ -77,9 +80,22 @@ def callback(provider):
     user_info = client.parse_id_token(token, nonce=nonce)
     provider_user_id, email = str(user_info["sub"]), user_info.get("email")
 
+    # 애플만 refresh token 을 돌려준다 — 계정 삭제 때 애플 쪽 연결을 실제로 철회하는
+    # 데 필요해서 앱 로그인(POST /auth/token-exchange)과 같은 컬럼에 보관한다
+    # (§A.6, ADR 0002). 웹의 발급 client 는 Services ID 라 그것도 같이 남긴다.
+    provider_tokens = None
+    if provider == OAuthProvider.APPLE.value and token.get("refresh_token"):
+        provider_tokens = ProviderTokens(
+            token["refresh_token"], current_app.config["APPLE_CLIENT_ID"]
+        )
+
     current_guest = db.session.get(Guest, guest_id)
     linked_guest = link_or_switch_account(
-        current_guest, OAuthProvider(provider), provider_user_id, email
+        current_guest,
+        OAuthProvider(provider),
+        provider_user_id,
+        email,
+        provider_tokens=provider_tokens,
     )
 
     # 프론트(web/static/app.js)가 ?login_token=을 읽어서 localStorage 토큰을
@@ -88,3 +104,22 @@ def callback(provider):
     # 하는 지점. 특히 애플은 POST 콜백이라 리다이렉트 응답이 브라우저에서 실제로
     # 기대대로 동작하는지(폼 제출 이후 redirect를 그대로 따라가는지)도 같이 확인.
     return redirect(f"/?login_token={linked_guest.token}")
+
+
+@bp.post("/auth/token-exchange")
+@with_guest
+def token_exchange():
+    """앱(네이티브 구글·애플 로그인)이 받은 id_token 을 계정 연결로 교환한다.
+
+    웹의 `/auth/<provider>/login` 흐름과 달리 리다이렉트·세션 쿠키가 없다 — 요청
+    자체가 게스트 Bearer 토큰으로 인증되므로, 웹에서 겪은 로그인 CSRF(위 sync_session
+    독스트링)가 구조적으로 성립하지 않는다. 구글이 임베디드 WebView OAuth 를 막아서
+    앱은 네이티브 SDK 를 쓸 수밖에 없는데, 그 결과로 보안 모델이 더 단순해졌다
+    (ADR 0002).
+    """
+    payload = TokenExchangeRequest.model_validate(request.get_json(silent=True) or {})
+
+    linked_guest = exchange_id_token(
+        g.guest, payload.provider, payload.id_token, payload.authorization_code
+    )
+    return jsonify(GuestResponse(token=linked_guest.token).model_dump(mode="json"))

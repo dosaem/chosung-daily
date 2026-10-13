@@ -5,6 +5,13 @@
 """
 
 
+from flask import redirect
+
+from app.api import oauth as oauth_api
+from app.models import Account
+from app.utils.crypto import decrypt_secret
+
+
 def test_login_rejects_unsupported_provider(client):
     res = client.get("/api/v1/auth/naver/login")
 
@@ -43,7 +50,7 @@ def test_sync_then_login_redirects_to_provider(client, guest_headers):
 
 
 def test_sync_then_apple_login_redirects_to_provider(client, guest_headers):
-    """애플은 client_secret이 ES256 JWT라(app/extensions.py의 _apple_client_secret)
+    """애플은 client_secret이 ES256 JWT라(app/extensions.py의 apple_client_secret)
     등록 단계에서부터 서명이 깨지면 여기서 바로 드러난다 — 리다이렉트까지 가는지로
     그 서명 로직 자체가 안 깨졌는지 확인한다. 실제 애플 서버가 이 JWT를 받아주는지는
     콘솔 등록 후에만 확인 가능.
@@ -75,3 +82,67 @@ def test_apple_callback_accepts_post(client):
     res = client.post("/api/v1/auth/apple/callback")
 
     assert res.status_code == 401
+
+
+class _FakeOAuthClient:
+    """Authlib 클라이언트 대역 — 로그인 시작/콜백에서 쓰는 메서드만 흉내 낸다."""
+
+    def __init__(self, token, user_info):
+        self._token = token
+        self._user_info = user_info
+
+    def authorize_redirect(self, redirect_uri, **kwargs):
+        return redirect("https://provider.test/authorize")
+
+    def authorize_access_token(self):
+        return self._token
+
+    def parse_id_token(self, token, nonce=None):
+        return self._user_info
+
+
+def test_apple_callback_stores_refresh_token_and_services_id(
+    app, client, guest_headers, monkeypatch
+):
+    """웹 애플 로그인도 앱과 같은 컬럼에 refresh token 을 보관한다(§A.6).
+
+    계정 삭제 때 애플 revoke 를 호출하려면 refresh token 이 필요하고, 그 호출엔
+    "어느 client 로 발급했는지"(웹=Services ID / 앱=번들 ID)도 같이 있어야 한다.
+    """
+    monkeypatch.setattr(
+        oauth_api,
+        "_get_client",
+        lambda provider: _FakeOAuthClient(
+            {"refresh_token": "web-apple-refresh", "id_token": "unused"},
+            {"sub": "apple-web-uid", "email": "web@example.com"},
+        ),
+    )
+    client.post("/api/v1/session/sync", headers=guest_headers)
+    client.get("/api/v1/auth/apple/login", follow_redirects=False)
+
+    res = client.post("/api/v1/auth/apple/callback", follow_redirects=False)
+
+    assert res.status_code == 302
+    account = Account.query.one()
+    assert account.provider_client_id == app.config["APPLE_CLIENT_ID"]
+    assert decrypt_secret(account.provider_refresh_token) == "web-apple-refresh"
+
+
+def test_google_callback_stores_no_provider_token(app, client, guest_headers, monkeypatch):
+    monkeypatch.setattr(
+        oauth_api,
+        "_get_client",
+        lambda provider: _FakeOAuthClient(
+            {"access_token": "google-access"},
+            {"sub": "google-web-uid", "email": "web@example.com"},
+        ),
+    )
+    client.post("/api/v1/session/sync", headers=guest_headers)
+    client.get("/api/v1/auth/google/login", follow_redirects=False)
+
+    res = client.get("/api/v1/auth/google/callback", follow_redirects=False)
+
+    assert res.status_code == 302
+    account = Account.query.one()
+    assert account.provider_refresh_token is None
+    assert account.provider_client_id is None
