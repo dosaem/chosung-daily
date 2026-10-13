@@ -63,6 +63,12 @@ class AccountAlreadyLinkedError(AppError):
     message = "이미 다른 계정이 연결된 게스트입니다."
 
 
+class InvalidIdTokenError(AppError):
+    code = "INVALID_ID_TOKEN"
+    status_code = 401
+    message = "로그인 정보를 확인할 수 없습니다. 다시 시도해주세요."
+
+
 class OAuthProviderUnavailableError(AppError):
     code = "OAUTH_PROVIDER_UNAVAILABLE"
     status_code = 503
