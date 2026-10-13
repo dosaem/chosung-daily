@@ -16,6 +16,7 @@
 - Authlib (구글/애플 OAuth 로그인)
 - gunicorn, Docker Compose
 - pytest(실제 MySQL/Redis 통합 테스트 위주), ruff, k6
+- Flutter 3.38 + Riverpod (앱 `mobile/`, 티켓 22~31). 아래 "설계 판단 > 22" 참고
 
 ## 아키텍처
 
@@ -1080,6 +1081,47 @@ client_id 와 만료 시각만 넣고 JWT 자체는 넣지 않는다 — 서명�
 위 "08. 헬스체크 등급" 의 "`apple_secret_expires_at` 은 … 지금은 `null`" 과 "알려진
 제한사항" 의 "앱 시작 시점에 한 번만 만든다" 는 이 티켓으로 해소됐다 — 공유 절은
 덧붙이기만 하는 규칙(티켓 10 과 같은 이유)이라 그 줄들은 그대로 뒀다.
+### 22. Flutter 앱(`mobile/`) — 상태 흐름·SDK 선택·테스트 경계
+
+**상태 흐름.** 앱이 뜨면 `StartupNotifier`(Riverpod `AsyncNotifier`) 하나가
+"게스트 토큰 복원·발급 → `GET /api/v1/config` → 분기" 를 순서대로 돈다. 분기
+판단은 `planStartup(config, appVersion, isIos)` 라는 순수 함수로 떼어 뒀고(점검이
+강제 업데이트보다 먼저 — 점검 중에는 업데이트해도 못 쓴다), `go_router` 의
+`redirect` 도 `startupRedirect(상태, 현재 경로)` 라는 순수 함수를 부른다. 그래서
+"어느 화면이 떠야 하는가" 는 위젯을 띄우지 않고도 테스트할 수 있다. **게스트
+토큰은 ApiClient 안에 숨기지 않고 앱 전역 provider**(`guestTokenProvider`)에 둔다 —
+계정 연결·전환(티켓 27)이 토큰을 교체하고 로컬 알림(티켓 28)이 그 변경을 구독해야
+하기 때문이다. ApiClient 는 매 요청마다 그 값을 읽어 `Bearer` 로 붙이고, 홈으로
+들어갈 때 부르는 `GET /me/stats` 가 401 이면 게스트를 새로 발급해 한 번만 다시
+시도한다. Riverpod 3 의 provider 자동 재시도는 꺼 뒀다(`noAutoRetry`) — 네트워크
+오류는 인라인 카드 + 재시도 버튼으로 보여주기로 했는데(OVERRIDES §7), 자동
+재시도가 켜져 있으면 사용자는 수십 초 동안 스켈레톤만 본다.
+
+**SDK 선택.** 패키지는 "스토어 심사와 직접 닿는 것" 위주로만 넣었다: 상태는
+Riverpod, 라우팅은 `go_router`, HTTP 는 `dio`, 토큰은 `flutter_secure_storage`,
+문구는 `easy_localization`(ko/en), 관측은 `sentry_flutter` + `firebase_analytics`.
+`Hive`·`freezed` 는 쓰지 않는다 — 서버가 상태의 주인이라 로컬 DB 가 필요 없고,
+응답 모델이 5개뿐이라 코드 생성이 버는 게 없다. 티켓 목록 밖에서 두 개를 더했고
+이유는 이렇다. `package_info_plus` 는 설치된 앱 버전을 읽으려고 넣었다 —
+`--dart-define` 으로 버전을 따로 주입하면 `pubspec.yaml` 과 어긋날 수 있고, 강제
+업데이트 판정이 틀리면 사용자가 앱에 아예 못 들어온다. `url_launcher` 는 업데이트
+화면의 스토어 버튼에 필요하다(설정 화면의 약관·개인정보 링크도 이걸 쓴다).
+Firebase 설정 파일(`google-services.json`, `GoogleService-Info.plist`)은 커밋하지
+않고 `.example` 자리표시자만 둔다. **파일이 없으면 Gradle 플러그인을 적용하지
+않고 런타임 초기화도 건너뛴다** — 그래야 새로 클론한 로컬과 CI 에서 분석·테스트·
+디버그 빌드가 그대로 돌아간다. 폰트는 Pretendard 정적 3종(400/600/700)을 번들한다.
+가변 폰트 한 파일이 더 작지만, Flutter 는 `fontWeight` 로 **에셋을 고르는** 방식이라
+정적 쪽이 `TextStyle` 마다 `fontVariations` 를 쓰지 않아도 된다.
+
+**테스트 경계.** 가짜로 바꾸는 건 **서버 경계(`ApiClient`)와 secure storage 두
+곳뿐**이고, 나머지(Riverpod provider 그래프, `go_router`, 테마, 위젯)는 실제
+코드를 그대로 돌린다. `ApiClient` 인터페이스에는 이 티켓이 실제로 쓰는 세 개
+(`POST /guests`, `GET /config`, `GET /me/stats`)만 뒀다 — 안 쓰는 메서드를 미리
+선언하면 가짜 구현만 늘고 증명되는 건 없다. 나머지는 그걸 호출하는 티켓이 더한다.
+Dio 구현은 가짜 `HttpClientAdapter` 로 "어떤 경로에 무엇을 보냈고 어떤 예외로
+바뀌는가" 까지 확인하고(네트워크는 타지 않는다), 시작 분기 3종(점검/업데이트/정상)
+·탭 이동·다크 모드·iPad 폭 제한은 앱 트리를 통째로 띄우는 위젯 테스트로 본다.
+서버 통합 테스트는 백엔드 쪽 pytest 가 이미 하는 일이라 앱에서 다시 하지 않는다.
 
 ### 06. 힌트 미리 보기 공정성 · AdMob SSV 미사용
 
