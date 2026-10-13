@@ -321,3 +321,128 @@ def test_apple_relogin_overwrites_stored_tokens(client, app, key, guest_headers,
     account = Account.query.one()
     assert decrypt_secret(account.provider_refresh_token) == "apple-refresh-2"
     assert account.provider_client_id == app.config["APPLE_APP_BUNDLE_ID"]
+
+
+def _rotating_jwks(monkeypatch, keys):
+    """provider JWKS 조회 대역. `state["keys"]` 를 바꾸면 키 교체가 된다."""
+    state = {"keys": keys, "calls": 0}
+
+    def fake_fetch():
+        state["calls"] += 1
+        return state["keys"]
+
+    monkeypatch.setattr(app_login_service, "fetch_google_jwks", fake_fetch)
+    monkeypatch.setattr(app_login_service, "fetch_apple_jwks", fake_fetch)
+    return state
+
+
+def test_rotated_signing_key_is_refetched_and_accepted(
+    client, app, key, guest_headers, monkeypatch
+):
+    """provider 가 키를 교체하면 캐시가 따뜻해도 새 키로 서명된 정상 토큰을 받아들여야 한다.
+
+    캐시 TTL(1시간)이 끝나기를 기다리면 그 사이 발급된 로그인이 전부 실패한다.
+    """
+    state = _rotating_jwks(monkeypatch, jwks_for(key))
+    res = client.post(
+        PATH,
+        headers=guest_headers,
+        json={"provider": "google", "id_token": _google_token(key, app)},
+    )
+    assert res.status_code == 200
+    assert state["calls"] == 1
+
+    rotated = generate_rsa_key()
+    state["keys"] = jwks_for(rotated, "rotated-kid")
+    token = sign_id_token(
+        rotated,
+        issuer=GOOGLE_ISSUER,
+        audience=app.config["GOOGLE_IOS_CLIENT_ID"],
+        kid="rotated-kid",
+        sub="google-uid-2",
+    )
+
+    res = client.post(
+        PATH,
+        headers={"Authorization": f"Bearer {issue_guest().token}"},
+        json={"provider": "google", "id_token": token},
+    )
+
+    assert res.status_code == 200
+    assert state["calls"] == 2
+    assert Account.query.filter_by(provider_user_id="google-uid-2").count() == 1
+
+
+def test_unknown_kid_refetches_once_and_stays_rejected(
+    client, app, key, guest_headers, monkeypatch
+):
+    """모르는 kid 를 박은 토큰은 공개키를 다시 받아와도 거부되고, 조회를 증폭시키지 않는다."""
+    state = _rotating_jwks(monkeypatch, jwks_for(key))
+    forged = sign_id_token(
+        generate_rsa_key(),
+        issuer=GOOGLE_ISSUER,
+        audience=app.config["GOOGLE_IOS_CLIENT_ID"],
+        kid="no-such-kid",
+    )
+
+    for _ in range(3):
+        res = client.post(
+            PATH,
+            headers={"Authorization": f"Bearer {issue_guest().token}"},
+            json={"provider": "google", "id_token": forged},
+        )
+        assert res.status_code == 401
+        assert res.get_json()["code"] == "INVALID_ID_TOKEN"
+
+    # 첫 조회 1회 + 모르는 kid 때문에 다시 받아온 1회. 그 뒤로는 최소 간격이 막는다.
+    assert state["calls"] == 2
+    assert Account.query.count() == 0
+
+
+def test_apple_exchanged_token_with_rotated_key_is_accepted(
+    client, app, key, guest_headers, monkeypatch
+):
+    """애플 code 교환 응답의 id_token 이 새 키로 서명돼 있어도 검증을 통과해야 한다."""
+    state = _rotating_jwks(monkeypatch, jwks_for(key))
+    first = _apple_exchange(key, app)
+    monkeypatch.setattr(app_login_service, "exchange_authorization_code", first)
+    res = client.post(
+        PATH,
+        headers=guest_headers,
+        json={
+            "provider": "apple",
+            "id_token": _apple_token(key, app),
+            "authorization_code": "apple-code-1",
+        },
+    )
+    assert res.status_code == 200
+    assert state["calls"] == 1
+
+    # 애플이 키를 교체했다(교체 중에는 예전 키와 새 키가 함께 공개된다). 앱이 보낸
+    # id_token 은 캐시에 있는 예전 키로 통과하고, 교환 응답만 새 kid 로 온다.
+    rotated = generate_rsa_key()
+    state["keys"] = [*jwks_for(key), *jwks_for(rotated, "rotated-kid")]
+    exchanged = sign_id_token(
+        rotated,
+        issuer=APPLE_ISSUER,
+        audience=app.config["APPLE_APP_BUNDLE_ID"],
+        kid="rotated-kid",
+        sub="apple-uid-1",
+    )
+    second = _RecordingExchange({"refresh_token": "apple-refresh-2", "id_token": exchanged})
+    monkeypatch.setattr(app_login_service, "exchange_authorization_code", second)
+
+    res = client.post(
+        PATH,
+        headers={"Authorization": f"Bearer {issue_guest().token}"},
+        json={
+            "provider": "apple",
+            "id_token": _apple_token(key, app),
+            "authorization_code": "apple-code-2",
+        },
+    )
+
+    assert res.status_code == 200
+    assert state["calls"] == 2
+    account = Account.query.one()
+    assert decrypt_secret(account.provider_refresh_token) == "apple-refresh-2"

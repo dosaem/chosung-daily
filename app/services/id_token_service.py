@@ -33,15 +33,10 @@ def verify_id_token(
     if not audiences:
         raise InvalidIdTokenError()
 
-    try:
-        kid = jwt.get_unverified_header(id_token).get("kid")
-    except jwt.PyJWTError as exc:
-        raise InvalidIdTokenError() from exc
-
-    key = _find_key(jwks, kid)
+    key = _find_key(jwks, unverified_kid(id_token))
     if key is None:
-        # provider 가 키를 교체했는데 캐시가 옛 키만 들고 있을 수도 있다 —
-        # 캐시 TTL(1시간) 이 지나면 다음 로그인에서 새 키를 받는다.
+        # 넘겨받은 공개키에 이 토큰의 kid 가 없다. 키 교체 중이면 호출자
+        # (`app_login_service._jwks_for`)가 먼저 JWKS 를 다시 받아 넘긴다.
         raise InvalidIdTokenError()
 
     try:
@@ -55,6 +50,22 @@ def verify_id_token(
         )
     except jwt.PyJWTError as exc:
         raise InvalidIdTokenError() from exc
+
+
+def unverified_kid(id_token: str) -> str | None:
+    """서명 검증 전에 헤더의 `kid` 만 읽는다 — 어떤 공개키로 검증할지 고르는 용도.
+
+    헤더가 깨져 있으면 `None` 이고, 그러면 맞는 공개키가 없으니 검증이 거부된다.
+    헤더의 다른 값(특히 `alg`)은 믿지 않는다.
+    """
+    try:
+        return jwt.get_unverified_header(id_token).get("kid")
+    except jwt.PyJWTError:
+        return None
+
+
+def jwks_contains_kid(jwks: Sequence[dict], kid: str | None) -> bool:
+    return kid is not None and any(entry.get("kid") == kid for entry in jwks)
 
 
 def _find_key(jwks: Sequence[dict], kid: str | None):

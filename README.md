@@ -275,7 +275,7 @@ remaining_estimate(now)`로 다음 실행 예정 시각을 직접 계산해서 2
 비어있으면 `app/extensions.py`의 `init_oauth`가 그 provider를 아예 등록 안 하고
 503을 돌려줌) 실제 로그인 왕복은 한 번도 못 해봤다 — 등록 후 가장 먼저
 확인해야 할 지점. 애플은 client_secret이 고정값이 아니라 `APPLE_PRIVATE_KEY`로
-서명한 JWT라(`apple_client_secret`), 구글보다 설정값이 하나 더 필요하다
+서명한 JWT라(`_apple_client_secret`), 구글보다 설정값이 하나 더 필요하다
 (`.env.example` 참고). Apple Developer Program 멤버십은 이미 BuildUrPalace(iOS
 출시작) 때 가입해둬서 추가 비용 없이 Services ID만 새로 만들면 된다.
 
@@ -661,6 +661,16 @@ SECRET_KEY 와 어차피 같다). 발급 client 도 `Account.provider_client_id`
 JWKS 는 provider 가 키를 교체할 때만 바뀌는 공개 정보라 프로세스 안에 1시간 캐시한다.
 redis 클라이언트·Authlib 레지스트리와 달리 앱 설정과 무관한 값이어서(어느 Flask 앱이 물어도
 같은 공개키) `app.extensions` 가 아니라 모듈 전역에 둬도 "멀티 앱 오염" 이 생기지 않는다.
+다만 **캐시에 없는 `kid` 를 보면 TTL 을 기다리지 않고 그 자리에서 공개키를 다시 받는다** —
+provider 가 키를 교체하면 새 `kid` 로 서명된 정상 토큰이 들어오는데, 캐시가 따뜻한 프로세스가
+TTL 끝까지(최대 1시간) 그 로그인을 전부 거부해버린다. 다시 받아도 없는 `kid`·틀린 서명은 그대로
+거부고, 모르는 `kid` 를 박은 토큰으로 provider JWKS 엔드포인트를 때리지 못하게 이 갱신은
+provider 당 `JWKS_REFRESH_MIN_INTERVAL_SECONDS`(60초)에 한 번으로 제한한다.
+
+애플 client_secret(JWT)을 만드는 함수는 이 티켓에서 `app/extensions.py` 의
+`apple_client_secret(app, client_id)` 로 바뀌었다(웹 Services ID 와 앱 번들 ID 를 모두 서명할 수
+있게 인자화 + 공개). 위 "설계 판단"·"알려진 제한사항" 의 기존 항목에 나오는 `_apple_client_secret`
+은 같은 함수의 예전 이름이다 — 공유 절은 덧붙이기만 하는 규칙이라 그 줄들은 건드리지 않았다.
 
 ## 부하 테스트 요약
 
@@ -691,7 +701,7 @@ redis 클라이언트·Authlib 레지스트리와 달리 앱 설정과 무관한
   방식으로 다루지 않으려고 **구글도 애플과 똑같이 실제 배포(NAS) 도메인이
   생긴 뒤에 같이 등록·테스트하기로 함** — 그때까지 OAuth 로그인은 코드만
   준비된 상태로 둔다.
-- **애플 client_secret(JWT)은 앱 시작 시점에 한 번만 만든다**(`apple_client_secret`,
+- **애플 client_secret(JWT)은 앱 시작 시점에 한 번만 만든다**(`_apple_client_secret`,
   유효기간 150일). 재배포나 재시작 없이 앱 프로세스가 150일보다 오래 떠 있으면
   애플 로그인만 조용히 실패하기 시작한다 — 지금은 주기적 재배포로 자연스럽게
   갱신되는 걸 전제로 둔 단순화고, 그 전제가 깨지면(예: 오래 안 건드리고 방치)
