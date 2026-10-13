@@ -1,4 +1,5 @@
 import os
+from typing import ClassVar
 from zoneinfo import ZoneInfo
 
 from cryptography.hazmat.primitives import serialization
@@ -20,8 +21,15 @@ class Config:
     # "이 트랜잭션이 맨 처음 뭔가를 읽은 시점"의 스냅샷을 쓴다. FOR UPDATE 기반
     # 동시성 제어(app/services/guess_service.py)가 막 커밋된 데이터를 보려면
     # READ COMMITTED가 필요하다 (MySQL 공식 문서가 이 조합을 권장).
-    SQLALCHEMY_ENGINE_OPTIONS = {"pool_pre_ping": True, "isolation_level": "READ COMMITTED"}
+    SQLALCHEMY_ENGINE_OPTIONS: ClassVar[dict[str, object]] = {
+        "pool_pre_ping": True,
+        "isolation_level": "READ COMMITTED",
+    }
     REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+
+    # 운영자 알림(단어 잔량·배정 실패·백업 실패 등)을 받을 Slack Incoming Webhook.
+    # 비어 있으면 app/clients/slack.py 가 전송을 건너뛴다 — 개발·테스트 기본값.
+    SLACK_WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL", "")
 
     # 구글/애플 콘솔에 앱을 등록해야 실제로 채워지는 값들. 비어 있으면 그 provider의
     # 로그인 버튼은 "설정 안 됨" 에러를 내도록 처리한다(app/extensions.py의 init_oauth).

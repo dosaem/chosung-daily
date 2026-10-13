@@ -1,3 +1,4 @@
+import os
 import time
 
 from flask import Flask
@@ -12,8 +13,6 @@ from app.web import register_web
 
 
 def create_app(config_name: str | None = None) -> Flask:
-    import os
-
     config_name = config_name or os.environ.get("FLASK_ENV", "development")
 
     app = Flask(__name__, template_folder="../web/templates", static_folder="../web/static")

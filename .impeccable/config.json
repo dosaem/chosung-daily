@@ -1,0 +1,5 @@
+{
+  "detector": {
+    "extensions": [".html", ".css", ".js"]
+  }
+}

@@ -1,4 +1,5 @@
 from app.models import DailyPuzzle, Word
+from app.services import operator_alert_service
 
 
 def test_seed_words_command(app, tmp_path):
@@ -35,3 +36,27 @@ def test_search_books_command_without_api_keys(app, monkeypatch):
 
     assert result.exit_code == 0
     assert "검색 결과 없음" in result.output
+
+
+def test_notify_operator_test_command_reports_skip_without_webhook(app):
+    """SLACK_WEBHOOK_URL 이 없으면 네트워크를 때리지 않고 그 사실을 알려준다."""
+    app.config["SLACK_WEBHOOK_URL"] = ""
+
+    result = app.test_cli_runner().invoke(args=["notify-operator-test"])
+
+    assert result.exit_code == 0
+    assert "SLACK_WEBHOOK_URL" in result.output
+
+
+def test_notify_operator_test_command_sends_through_the_wrapper(app, monkeypatch):
+    sent = []
+    monkeypatch.setattr(
+        operator_alert_service, "post_webhook_message", lambda text: sent.append(text) or True
+    )
+
+    result = app.test_cli_runner().invoke(args=["notify-operator-test"])
+
+    assert result.exit_code == 0
+    assert "전송 완료" in result.output
+    assert len(sent) == 1
+    assert "연결 테스트" in sent[0]

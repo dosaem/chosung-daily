@@ -27,6 +27,12 @@ class UnauthorizedError(AppError):
     message = "인증이 필요합니다."
 
 
+class ForbiddenError(AppError):
+    code = "FORBIDDEN"
+    status_code = 403
+    message = "권한이 없습니다."
+
+
 class ValidationError(AppError):
     code = "VALIDATION_ERROR"
     status_code = 400

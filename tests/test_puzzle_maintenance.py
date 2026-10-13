@@ -2,6 +2,7 @@ import json
 from datetime import datetime, timedelta
 
 import pytest
+from redis.exceptions import RedisError
 
 from app.config import KST
 from app.extensions import db, get_redis
@@ -72,7 +73,7 @@ def test_flush_daily_stats_with_no_activity_records_all_zero(app):
 def test_flush_daily_stats_raises_instead_of_recording_zeros_when_redis_is_down(
     app, broken_redis
 ):
-    with pytest.raises(Exception):  # noqa: B017 - RedisError 서브클래스, 구체 타입은 중요하지 않음
+    with pytest.raises(RedisError):
         flush_daily_stats_for_yesterday()
 
     yesterday = datetime.now(KST).date() - timedelta(days=1)
