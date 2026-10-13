@@ -129,3 +129,141 @@ token ~100자 → 암호문 ~200자). `String(191)` 에 넣으면 운영에서 �
   등록해야 끝까지 돌려볼 수 있다(README "알려진 제한사항" 의 기존 항목과 같은 이유).
   서버 쪽은 서명 검증까지 진짜 키로 테스트했지만, "애플이 우리 번들 ID JWT 를 받아주는가" 는
   콘솔 등록 후 수동 확인 대상이다.
+
+## 수정 라운드 1
+
+최종 리뷰(`review/impl-review-10.md` 라운드 1, FAIL)의 결함 2건을 모두 고쳤다. 리뷰 파일은
+수정하지 않았다. 테스트 자원은 그대로 DB `chosung_daily_test_t10`, Redis DB 12 이고,
+마이그레이션 왕복 테스트(티켓 02 가 main 에 들여온 `tests/test_migrations.py`)용으로
+`chosung_daily_test_t10_migrations` 를 새로 만들었다(기본 이름 규칙 = 테스트 DB + `_migrations`.
+공용 `chosung_daily_test*` 와 다른 티켓의 DB 는 건드리지 않았다).
+
+### D-10-1 (MAJOR) — 새 kid 가 나타나도 JWKS 를 갱신하지 않아 정상 로그인을 거부
+
+**재현 먼저**: 리뷰에 적힌 스크립트를 그대로 돌려 결함을 확인했다.
+
+```
+$ uv run python repro_d1.py    # 리뷰 본문의 스크립트를 그대로(레포 밖 임시 파일)
+rotation: INVALID_ID_TOKEN; fetch calls: 1
+after cache clear: True fetch calls: 2
+```
+
+**원인**: `_load_jwks` 가 TTL(1시간)만 보고 캐시를 돌려줘서, 공개키 선택이 "캐시에 이 토큰의
+`kid` 가 있는가" 를 전혀 보지 않았다. provider 가 키를 교체하면 새 `kid` 로 서명된 **정상**
+토큰이 들어오는데, 캐시가 따뜻한 프로세스는 TTL 이 끝날 때까지 그걸 전부
+`INVALID_ID_TOKEN` 으로 거부한다. `id_token_service` 의 주석("TTL 이 지나면 다음 로그인에서
+새 키를 받는다")이 바로 그 잘못된 전제였다. 애플은 이 검증이 code 교환보다 앞이라 교환도 못
+간다. 같은 구멍이 교환 응답 id_token 검증(`_exchange_apple_code`)에도 있었다.
+
+**수정**(`app/services/app_login_service.py`, `app/services/id_token_service.py`):
+
+- `id_token_service` 에 `unverified_kid`(헤더의 `kid` 만 읽는다)·`jwks_contains_kid` 를 추가하고,
+  `verify_id_token` 도 그걸 쓰게 했다. `alg` 등 헤더의 다른 값은 그대로 믿지 않는다.
+- `_load_jwks` → `_jwks_for(provider, id_token)`: 캐시에 토큰의 `kid` 가 없으면 **그 자리에서**
+  공개키를 다시 받는다. 갱신 후에도 없는 `kid`·틀린 서명·틀린 `aud`/`iss` 는 그대로 거부다 —
+  검증을 느슨하게 한 게 아니라 "어떤 공개키를 쓸지" 만 고쳤다.
+- 모르는 `kid` 를 박은 토큰을 연달아 보내는 요청이 provider JWKS 엔드포인트 호출로 증폭되지
+  않게, 이 갱신은 provider 당 `JWKS_REFRESH_MIN_INTERVAL_SECONDS`(60초)에 한 번으로 제한한다.
+  정상 TTL 만료 조회로 받은 키는 "방금 받은 키" 라 다시 받지 않는다(캐시에 `refreshed_at` 을
+  같이 들고 `_CachedJwks` 로 묶었다).
+- 애플 code 교환 응답의 id_token 검증도 같은 `_jwks_for` 를 쓴다.
+
+**증명하는 테스트**(모두 먼저 빨갛게 만든 뒤 고쳤다 — 수정 전 세 개가 각각
+`assert 401 == 200`, `assert 1 == 2`, `assert 401 == 200` 으로 실패):
+
+```
+$ uv run pytest tests/test_token_exchange.py -k "rotat or unknown_kid" -q
+...
+3 passed, 15 deselected in 1.80s
+```
+
+- `test_rotated_signing_key_is_refetched_and_accepted` — 예전 키로 로그인해 캐시를 채운 뒤
+  키를 교체하고, 새 `kid` 로 서명된 정상 토큰이 200 이고 JWKS 조회가 2회인지 본다.
+- `test_unknown_kid_refetches_once_and_stays_rejected` — 없는 `kid` 토큰을 3번 보내 전부 401
+  `INVALID_ID_TOKEN` 이고 조회가 2회(첫 조회 + 갱신 1회)에 멈추는지 본다(증폭 방지).
+- `test_apple_exchanged_token_with_rotated_key_is_accepted` — 앱이 보낸 토큰은 캐시의 예전
+  키로 통과하고 **교환 응답만** 새 `kid` 인 상황에서 200 과 refresh token 덮어쓰기를 본다.
+
+리뷰의 재현 스크립트도 수정 후 다시 돌렸다(기대대로 수용 + 조회 2회):
+
+```
+rotation: ACCEPTED sub=provider-uid-1; fetch calls: 2
+after cache clear: True fetch calls: 3
+```
+
+### D-10-2 (MINOR) — 공유 파일의 append-only 규칙 위반
+
+**원인**: 이 티켓이 `_apple_client_secret` 을 `apple_client_secret(app, client_id)` 로 개명하면서,
+그 함수명을 언급하는 **기존** 문서 줄(`.env.example` 애플 설명, README "설계 판단" OAuth 항목,
+"알려진 제한사항")까지 같이 고쳤다. 정확한 서술이긴 해도 공통 규칙("자기 번호 소제목/자기 행만
+섹션 끝에 덧붙인다")을 벗어나 병렬 티켓과 충돌할 수 있는 편집이었다. `.env.example` 의 새 블록도
+파일 끝이 아니라 기존 Slack 설정 **앞**에 끼워 넣었다.
+
+**수정**: 세 줄을 모두 원문(`_apple_client_secret`)으로 되돌리고, `.env.example` 의 티켓 10
+블록을 파일 맨 끝으로 옮겼다. 개명 사실은 **자기 번호 절 안에만** 적었다 — README `### 10.`
+끝에 "`apple_client_secret(app, client_id)` 로 인자화·공개했고, 위 기존 절의
+`_apple_client_secret` 은 같은 함수의 예전 이름" 한 단락, `.env.example` 은 내 블록 주석에 한 줄.
+머지 담당이 기존 절의 예전 이름을 일괄로 갱신하면 그 두 줄은 지워도 된다.
+
+**증명**: 두 공유 파일의 변경이 **추가만** 남았다(삭제·수정 줄 0).
+
+```
+$ git diff main -- .env.example README.md | grep "^-" | grep -v "^---"
+(출력 없음)
+```
+
+같은 README `### 10.` 절에 D-10-1 의 갱신 규칙도 한 단락 적었다(캐시에 없는 `kid` → 즉시 재조회,
+provider 당 60초 최소 간격).
+
+### 리뷰 본문의 "외부 호출 0건" 주장 정정
+
+리뷰가 지적한 대로, 구현 증거 1절의 "외부 서비스 호출 0건" 은 **테스트 스위트에 대해서는 사실이
+아니다**. 소켓 가드를 걸고 전체 스위트를 돌려 직접 확인했다.
+
+```
+$ uv run python guarded_run.py   # socket.connect 를 127.0.0.1/localhost 로 제한한 뒤 pytest.main
+2 failed, 223 passed in 93.46s
+FAILED tests/test_oauth_routes.py::test_sync_then_login_redirects_to_provider
+FAILED tests/test_oauth_routes.py::test_sync_then_apple_login_redirects_to_provider
+E   RuntimeError: blocked external network: ('192.178.226.84', 443)   # 구글 discovery
+E   RuntimeError: blocked external network: ('17.32.194.6', 443)      # 애플 discovery
+```
+
+두 테스트는 `authorize_redirect` → Authlib `load_server_metadata` 에서 provider discovery 문서를
+실제로 받아온다. **main 에 이미 있는 테스트**이고 이 티켓이 건드리지 않았다(`git diff main --
+tests/test_oauth_routes.py` 의 삭제 줄은 다른 테스트 독스트링의 함수명 하나뿐). 그래서 회귀가
+아니고, 결함 ID 도 아니다. 다만 범위를 넘지 않으려고 **고치지 않고 남긴다** — 오프라인 대역을
+넣으면 "실제 discovery 로 만든 redirect URL" 을 검증하던 그 두 테스트의 의미가 바뀌어서, 티켓
+01 쪽 결정이 필요하다. 정정해서 다시 쓰면: **이 티켓이 추가한 코드·테스트는 외부 호출이 0건이고
+(JWKS 조회·애플 토큰 교환은 전부 monkeypatch 한 래퍼), 스위트 전체로는 기존 두 테스트가 구글·
+애플 discovery 를 호출한다.** 계정 자격증명 입력·NAS 접속·배포·`git push` 는 없었다.
+
+미수정 MINOR 는 없다(D-10-2 를 고쳤다).
+
+### rebase 후 전체 재검증
+
+로컬 `main` **4f9f179**(티켓 02·21 머지 포함) 위로 rebase 했다. 작업 트리는 clean.
+
+```
+$ uv run ruff check .
+All checks passed!
+
+$ uv run pytest -q
+........................................................................ [ 32%]
+........................................................................ [ 64%]
+........................................................................ [ 96%]
+.........                                                                [100%]
+225 passed in 76.63s (0:01:16)
+
+$ FLASK_SKIP_DOTENV=1 FLASK_APP=wsgi.py uv run flask db heads
+f394da7f4d88 (head)
+```
+
+rebase 로 `main` 에 티켓 02 의 `4e72a4045fbc` 가 들어와 heads 가 2개가 됐으므로, 공통 규칙대로
+f394da7f4d88 의 `down_revision` 을 `9ec267465b4e` → `4e72a4045fbc` 로 재설정했다(위 출력이 1줄인
+근거). 티켓 02 가 들여온 마이그레이션 왕복 테스트도 내 리비전이 얹힌 상태로 통과한다.
+
+```
+$ uv run pytest tests/test_token_exchange.py tests/test_migrations.py -q
+22 passed in 26.59s
+```
