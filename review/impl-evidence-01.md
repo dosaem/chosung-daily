@@ -3,7 +3,7 @@
 - 브랜치: `dosaem/t01-prefactor-lint-docs-clients` (로컬 `main` **feb2553** 위로 rebase
   완료 — 작업 중 티켓 19 가 main 에 머지돼 두 번 rebase 했다. README "설계 판단" 충돌은
   19 의 소제목을 보존하고 번호순(`01`×3 → `19`)으로 두는 방식으로 풀었다)
-- 커밋 8개, 변경 29파일
+- 커밋 9개, 변경 30파일 (+990 / -10)
 - 테스트 자원(다른 워커와 분리): DB `chosung_daily_test_t01`, Redis DB 3
   (`TEST_DATABASE_URL`, `TEST_REDIS_URL` 환경변수로 지정. 공용 `chosung_daily_test`·
   Redis 1 은 건드리지 않았다)
