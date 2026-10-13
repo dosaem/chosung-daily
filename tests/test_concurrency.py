@@ -15,6 +15,7 @@ def test_concurrent_correct_guesses_do_not_double_count(app, today_puzzle, guest
     """
     token = guest_headers["Authorization"].removeprefix("Bearer ")
     guest_id = Guest.query.filter_by(token=token).one().id
+    puzzle_id = today_puzzle.id
 
     results = []
     barrier = threading.Barrier(2)
@@ -24,7 +25,7 @@ def test_concurrent_correct_guesses_do_not_double_count(app, today_puzzle, guest
             barrier.wait()
             guest = db.session.get(Guest, guest_id)
             try:
-                response = submit_guess(guest, "사과")
+                response = submit_guess(guest, puzzle_id, "사과")
                 results.append(("ok", response.is_correct))
             except Exception as exc:
                 results.append(("error", type(exc).__name__))

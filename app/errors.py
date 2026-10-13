@@ -51,6 +51,12 @@ class AlreadyFinishedError(AppError):
     message = "이미 종료된 퍼즐입니다."
 
 
+class PuzzleChangedError(AppError):
+    code = "PUZZLE_CHANGED"
+    status_code = 409
+    message = "퍼즐이 바뀌었어요. 새로고침해주세요."
+
+
 class RateLimitedError(AppError):
     code = "RATE_LIMITED"
     status_code = 429

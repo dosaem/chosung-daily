@@ -20,7 +20,9 @@ def test_streak_increments_when_solved_on_consecutive_day(client, guest_headers,
     db.session.commit()
 
     client.post(
-        "/api/v1/puzzles/today/guesses", headers=guest_headers, json={"guess": "사과"}
+        "/api/v1/puzzles/today/guesses",
+        headers=guest_headers,
+        json={"puzzle_id": today_puzzle.id, "guess": "사과"},
     )
 
     stats = db.session.get(GuestStats, guest.id)
@@ -38,7 +40,9 @@ def test_streak_resets_when_a_day_was_skipped(client, guest_headers, today_puzzl
     db.session.commit()
 
     client.post(
-        "/api/v1/puzzles/today/guesses", headers=guest_headers, json={"guess": "사과"}
+        "/api/v1/puzzles/today/guesses",
+        headers=guest_headers,
+        json={"puzzle_id": today_puzzle.id, "guess": "사과"},
     )
 
     stats = db.session.get(GuestStats, guest.id)
@@ -47,7 +51,11 @@ def test_streak_resets_when_a_day_was_skipped(client, guest_headers, today_puzzl
 
 
 def test_me_stats_endpoint_reflects_solve(client, guest_headers, today_puzzle):
-    client.post("/api/v1/puzzles/today/guesses", headers=guest_headers, json={"guess": "사과"})
+    client.post(
+        "/api/v1/puzzles/today/guesses",
+        headers=guest_headers,
+        json={"puzzle_id": today_puzzle.id, "guess": "사과"},
+    )
 
     res = client.get("/api/v1/me/stats", headers=guest_headers)
     body = res.get_json()
@@ -61,8 +69,8 @@ def test_solving_both_languages_on_the_same_day_keeps_streak_and_counts_twice(
     client, guest_headers, make_today_puzzle
 ):
     """연속 기록은 언어와 무관하다 — 그 날 하나라도 맞추면 이어지고 더는 안 오른다."""
-    make_today_puzzle(PuzzleLanguage.KO)
-    make_today_puzzle(PuzzleLanguage.EN, answer="apple", hint="red fruit")
+    ko_puzzle = make_today_puzzle(PuzzleLanguage.KO)
+    en_puzzle = make_today_puzzle(PuzzleLanguage.EN, answer="apple", hint="red fruit")
 
     guest = _today(guest_headers)
     stats = db.session.get(GuestStats, guest.id)
@@ -71,9 +79,17 @@ def test_solving_both_languages_on_the_same_day_keeps_streak_and_counts_twice(
     stats.last_solved_date = datetime.now(KST).date() - timedelta(days=1)
     db.session.commit()
 
-    client.post("/api/v1/puzzles/today/guesses", headers=guest_headers, json={"guess": "사과"})
+    client.post(
+        "/api/v1/puzzles/today/guesses",
+        headers=guest_headers,
+        json={"puzzle_id": ko_puzzle.id, "guess": "사과"},
+    )
     client.patch("/api/v1/me", headers=guest_headers, json={"puzzle_language": "en"})
-    client.post("/api/v1/puzzles/today/guesses", headers=guest_headers, json={"guess": "apple"})
+    client.post(
+        "/api/v1/puzzles/today/guesses",
+        headers=guest_headers,
+        json={"puzzle_id": en_puzzle.id, "guess": "apple"},
+    )
 
     body = client.get("/api/v1/me/stats", headers=guest_headers).get_json()
     assert body["current_streak"] == 4  # 두 번째 언어는 streak 을 더 올리지 않는다

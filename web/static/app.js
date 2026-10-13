@@ -4,6 +4,9 @@ const TOKEN_KEY = "chosung_token";
 const state = {
   token: null,
   today: null,
+  // 화면에 그린 퍼즐의 ID. 제출에 같이 보내서, 자정이 지났거나 다른 기기에서
+  // 언어를 바꾼 뒤의 제출이 엉뚱한 퍼즐에 들어가지 않게 한다(409 PUZZLE_CHANGED).
+  puzzleId: null,
   chosung: null,
   length: 0,
   history: [], // [{ guess, feedback: bool[] }], feedback은 항상 채워서 저장한다
@@ -203,7 +206,7 @@ async function submitGuess(input, guess) {
   const res = await fetch(`${API_BASE}/puzzles/today/guesses`, {
     method: "POST",
     headers: { ...authHeaders(), "Content-Type": "application/json" },
-    body: JSON.stringify({ guess }),
+    body: JSON.stringify({ puzzle_id: state.puzzleId, guess }),
   });
   const data = await res.json();
 
@@ -351,6 +354,7 @@ async function init() {
   if (!puzzle) return;
 
   state.today = puzzle.date;
+  state.puzzleId = puzzle.puzzle_id;
   state.chosung = puzzle.chosung;
   state.length = puzzle.length;
   state.history = loadHistory(puzzle.date);

@@ -1,19 +1,24 @@
-import unicodedata
 from datetime import datetime, timedelta
 
 from app.config import KST
-from app.errors import AlreadyFinishedError, ValidationError
+from app.errors import AlreadyFinishedError, PuzzleChangedError, ValidationError
 from app.extensions import db
 from app.models import Attempt, Guest, GuestStats
 from app.repositories.attempt_repository import list_for_guest_puzzle
 from app.repositories.guest_stats_repository import lock_for_guest
 from app.schemas.guess import GuessResponse
-from app.services.game_rules import MAX_ATTEMPTS, compute_reveal, summarize_attempts
+from app.services.game_rules import (
+    MAX_ATTEMPTS,
+    compare_letters,
+    compute_reveal,
+    normalize_for_compare,
+    summarize_attempts,
+)
 from app.services.puzzle_metrics import record_finish, record_leaderboard
 from app.services.puzzle_service import get_today_puzzle_or_404
 
 
-def submit_guess(guest: Guest, raw_guess: str) -> GuessResponse:
+def submit_guess(guest: Guest, puzzle_id: int | None, raw_guess: str) -> GuessResponse:
     """정답 제출 하나 = 트랜잭션 하나.
 
     실행 순서: 퍼즐 조회(일반 SELECT) → GuestStats 잠금(SELECT ... FOR UPDATE) →
@@ -37,13 +42,20 @@ def submit_guess(guest: Guest, raw_guess: str) -> GuessResponse:
     혹시 이 경로를 안 타는 변경이 생겨도 DB가 마지막으로 막아주는 보험으로 남겨둔다.
     """
     puzzle = get_today_puzzle_or_404(guest.puzzle_language)
+    if puzzle_id != puzzle.id:
+        # 퍼즐 고정(CONTEXT.md). 자정이 지났거나 다른 기기에서 언어를 바꾼 뒤라
+        # 클라이언트가 보던 퍼즐과 지금의 "오늘 x 내 언어" 퍼즐이 다르다. 잠금도
+        # 걸기 전에 끊어서 시도 행도 GuestStats 도 건드리지 않는다.
+        raise PuzzleChangedError()
+
     stats = lock_for_guest(guest.id)
 
-    guess = unicodedata.normalize("NFC", raw_guess.strip())
     word = puzzle.word
+    answer = normalize_for_compare(puzzle.language, word.answer)
+    guess = normalize_for_compare(puzzle.language, raw_guess)
 
-    if len(guess) != len(word.answer):
-        raise ValidationError(f"정답은 {len(word.answer)}글자입니다.")
+    if len(guess) != len(answer):
+        raise ValidationError(f"정답은 {len(answer)}글자입니다.")
 
     attempts = list_for_guest_puzzle(guest.id, puzzle.id)
     solved, prior_wrong_count = summarize_attempts(attempts)
@@ -53,7 +65,7 @@ def submit_guess(guest: Guest, raw_guess: str) -> GuessResponse:
         raise AlreadyFinishedError("이미 기회를 모두 사용한 퍼즐입니다.")
 
     attempt_no = len(attempts) + 1
-    is_correct = guess == word.answer
+    is_correct = guess == answer
 
     db.session.add(
         Attempt(
@@ -77,15 +89,11 @@ def submit_guess(guest: Guest, raw_guess: str) -> GuessResponse:
 
     return GuessResponse(
         is_correct=is_correct,
-        feedback=None if is_correct else _compare(guess, word.answer),
+        feedback=None if is_correct else compare_letters(guess, answer),
         attempts_left=MAX_ATTEMPTS - attempt_no,
         hint=word.hint if show_hint else None,
         answer=word.answer if finished else None,
     )
-
-
-def _compare(guess: str, answer: str) -> list[bool]:
-    return [g == a for g, a in zip(guess, answer, strict=True)]
 
 
 def _record_metrics(

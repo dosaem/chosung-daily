@@ -2,21 +2,21 @@ from app.services.guest_service import issue_guest
 from app.services.puzzle_metrics import display_name
 
 
-def _guess(client, token, text):
+def _guess(client, token, puzzle, text):
     return client.post(
         "/api/v1/puzzles/today/guesses",
         headers={"Authorization": f"Bearer {token}"},
-        json={"guess": text},
+        json={"puzzle_id": puzzle.id, "guess": text},
     )
 
 
 def test_leaderboard_ranks_fewer_attempts_first(client, today_puzzle):
     fast = issue_guest()
-    _guess(client, fast.token, "사과")  # 1번째 시도에 정답
+    _guess(client, fast.token, today_puzzle, "사과")  # 1번째 시도에 정답
 
     slow = issue_guest()
-    _guess(client, slow.token, "바바")
-    _guess(client, slow.token, "사과")  # 2번째 시도에 정답
+    _guess(client, slow.token, today_puzzle, "바바")
+    _guess(client, slow.token, today_puzzle, "사과")  # 2번째 시도에 정답
 
     res = client.get(
         "/api/v1/puzzles/today/leaderboard",
@@ -36,7 +36,7 @@ def test_leaderboard_ranks_fewer_attempts_first(client, today_puzzle):
 def test_leaderboard_respects_limit(client, today_puzzle):
     for _ in range(3):
         guest = issue_guest()
-        _guess(client, guest.token, "사과")
+        _guess(client, guest.token, today_puzzle, "사과")
 
     res = client.get(
         "/api/v1/puzzles/today/leaderboard?limit=2",
@@ -50,7 +50,7 @@ def test_leaderboard_respects_limit(client, today_puzzle):
 
 def test_leaderboard_entries_do_not_leak_guest_id(client, today_puzzle):
     guest = issue_guest()
-    _guess(client, guest.token, "사과")
+    _guess(client, guest.token, today_puzzle, "사과")
 
     body = client.get(
         "/api/v1/puzzles/today/leaderboard",
@@ -76,16 +76,16 @@ def test_my_rank_comes_down_even_when_outside_the_page(client, today_puzzle):
     # 시도 횟수가 점수의 상위 자리라서, 앞 22명을 1회 정답으로 깔면 2회 정답인
     # 23번째 사람이 정확히 23위가 된다.
     for guest in guests[:22]:
-        _guess(client, guest.token, "사과")
+        _guess(client, guest.token, today_puzzle, "사과")
 
     me = guests[22]
-    _guess(client, me.token, "바바")
-    _guess(client, me.token, "사과")
+    _guess(client, me.token, today_puzzle, "바바")
+    _guess(client, me.token, today_puzzle, "사과")
 
     for guest in guests[23:]:
-        _guess(client, guest.token, "바바")
-        _guess(client, guest.token, "포도")
-        _guess(client, guest.token, "사과")
+        _guess(client, guest.token, today_puzzle, "바바")
+        _guess(client, guest.token, today_puzzle, "포도")
+        _guess(client, guest.token, today_puzzle, "사과")
 
     body = client.get(
         "/api/v1/puzzles/today/leaderboard",
@@ -100,7 +100,7 @@ def test_my_rank_comes_down_even_when_outside_the_page(client, today_puzzle):
 
 def test_me_is_null_when_i_have_not_solved_today(client, today_puzzle):
     solver = issue_guest()
-    _guess(client, solver.token, "사과")
+    _guess(client, solver.token, today_puzzle, "사과")
 
     watcher = issue_guest()
     body = client.get(
@@ -114,7 +114,7 @@ def test_me_is_null_when_i_have_not_solved_today(client, today_puzzle):
 
 def test_me_is_filled_even_when_i_am_on_the_page(client, today_puzzle):
     guest = issue_guest()
-    _guess(client, guest.token, "사과")
+    _guess(client, guest.token, today_puzzle, "사과")
 
     body = client.get(
         "/api/v1/puzzles/today/leaderboard",

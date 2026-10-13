@@ -40,7 +40,7 @@ def today():
 @rate_limited
 def guess():
     payload = GuessRequest.model_validate(request.get_json(silent=True) or {})
-    result = submit_guess(g.guest, payload.guess)
+    result = submit_guess(g.guest, payload.puzzle_id, payload.guess)
     return jsonify(result.model_dump(mode="json"))
 
 

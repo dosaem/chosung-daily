@@ -80,8 +80,8 @@ web/                  # Jinja 템플릿 1장 + vanilla JS
 | GET | `/` | 게임 화면 (Jinja) | - |
 | POST | `/api/v1/guests` | 게스트 토큰 발급 (`{puzzle_language?}`, 기본 `ko`) | - |
 | PATCH | `/api/v1/me` | 퍼즐 언어 선호 변경 (`{puzzle_language}`) → `{puzzle_language}` | Bearer |
-| GET | `/api/v1/puzzles/today` | 게스트 선호 언어의 오늘 퍼즐(`puzzle_id`/`language`/`mask`/`length`/`chosung`/카테고리/남은시도/상태/힌트), 정답 미포함 | Bearer |
-| POST | `/api/v1/puzzles/today/guesses` | 정답 제출 → 판정/피드백/남은시도/(종료 시)정답 | Bearer |
+| GET | `/api/v1/puzzles/today` | 게스트 선호 언어의 오늘 퍼즐(`puzzle_id`/`language`/`mask`/`length`/`chosung`/카테고리/남은시도/`attempts`/`hint_unlocked`/상태/힌트), 정답 미포함 | Bearer |
+| POST | `/api/v1/puzzles/today/guesses` | 정답 제출 (`{puzzle_id, guess}`) → 판정/피드백/남은시도/(종료 시)정답, 퍼즐 불일치 409 `PUZZLE_CHANGED` | Bearer |
 | GET | `/api/v1/puzzles/today/stats?language=` | 시도 횟수별 정답자 비율 (언어별, 기본 게스트 선호) | Bearer |
 | GET | `/api/v1/puzzles/today/leaderboard?language=&limit=20` | 랭킹(적은 시도 우선, 같으면 빨리 푼 순, 언어별) → `entries [{rank, display, attempts, seconds, is_me}]` + `me {rank, attempts, seconds} \| null`(21위 밖이어도 내 순위) | Bearer |
 | GET | `/api/v1/me/stats` | 내 퍼즐 언어 · streak · 최대streak · 누적 정답 | Bearer |
@@ -860,6 +860,59 @@ Redis 장애 때도 `safe_redis_call` 이 같은 `None` 을 주니 분기가 하
 죽어 있어도 배정은 커밋된다 — 플레이어는 DB 경로로 같은 퍼즐을 받는다. 캐시 실패를
 배정 실패로 올리면 "Redis 때문에 오늘 퍼즐이 없다"가 되는데, 이건 Redis 장애 정책
 ("게임 자체는 DB 로 동작")과 정면으로 어긋난다.
+
+### 04. `puzzle_id` 고정과 409 `PUZZLE_CHANGED`
+
+제출(`POST /puzzles/today/guesses`)은 화면에 그린 퍼즐의 `puzzle_id` 를 같이 보낸다.
+서버는 그 ID 가 "요청 시점 KST 오늘 × 게스트 현재 언어" 의 퍼즐과 다르면 시도를
+소비하지 않고 409 `PUZZLE_CHANGED` 를 돌려준다. 안 보낸 요청도 같은 409 다 —
+400 으로 가르면 클라이언트가 분기를 하나 더 들고 있어야 하는데, 할 일은 둘 다
+"`GET /puzzles/today` 로 새로고침" 하나뿐이다.
+
+없으면 생기는 문제가 둘이다. (1) 자정을 넘겨 화면을 켜둔 사람이 어제 퍼즐의 답을
+제출하면, 서버는 "오늘 퍼즐"에 그 답을 기록해 기회를 하나 날린다. (2) 다른 기기에서
+퍼즐 언어를 바꾸면 같은 토큰의 "오늘 내 퍼즐"이 바뀌는데, 옛 화면의 제출이 새 언어
+퍼즐의 시도로 들어간다. 어느 쪽도 클라이언트가 혼자 막을 수 없다 — 서버만 "지금의
+오늘"을 안다.
+
+검사는 **GuestStats 잠금(`SELECT ... FOR UPDATE`)보다 먼저** 한다. 불일치 요청은
+잠금 큐에 끼어들 이유가 없고, 시도 행도 GuestStats 도 건드리지 않고 끝나야 한다
+(`tests/test_puzzle_pin_and_attempts.py`). rate limit 카운터는 그 앞 데코레이터에서
+이미 올라간다 — 퍼즐이 바뀐 걸 모르고 계속 쏘는 클라이언트도 스팸은 스팸이다.
+
+### 04. 시도 이력을 서버가 돌려주는 이유
+
+`GET /puzzles/today` 가 순서 있는 `attempts: [{guess, feedback}]` 를 돌려주고, 웹·앱은
+로컬 저장 이력을 버리고 이걸로 보드를 그린다. 현행 웹은 `localStorage` 에 이력을
+쌓는데, 그러면 다른 기기·시크릿 창·앱에서 같은 게스트로 들어왔을 때 남은 기회는
+2 인데 보드는 비어 있는 화면이 나온다. 기록의 주인은 게스트(서버)고 기기가 아니다
+(`CONTEXT.md` "게스트").
+
+`feedback` 은 저장하지 않고 정답과 다시 비교해서 만든다. 저장하면 같은 비교 규칙이
+제출 경로와 조회 경로에 두 벌로 생기고, 규칙이 바뀌는 날(이 티켓이 바로 그런
+날이다 — 구분자·대소문자 규칙이 들어왔다) 옛 행만 다른 모양으로 남는다. 다시
+계산하면 저장된 `guess` 한 컬럼만 정본이다.
+
+**정답 행도 `feedback` 을 전부 `true` 로 채워 보낸다**(스펙 "미정 항목" 12 를 여기서
+확정). 제출 응답은 정답일 때 `feedback: null` 이지만 — 그 순간 클라이언트는 자기가
+뭘 보냈는지 알고 "정답" 연출로 넘어간다 — 이력 복원에는 그릴 사람이 없다. 행마다
+`null` 검사를 요구하는 대신 "`attempts[].feedback` 은 항상 `length` 길이로 채워져
+있다"를 API 약속으로 둔다. 정답 행은 글자가 전부 같으니 자연히 전부 `true` 가 된다.
+
+### 04. 제출 일관성 — 구분자와 대소문자
+
+`normalize_for_compare`(`app/services/game_rules.py`) 하나가 정답과 guess 를 같은
+글자열로 만든다: 공백·하이픈 제거, en 은 대문자 통일. 가림이 구분자를 타일이 아니라
+타일 사이 간격으로 보여주기 때문에(`app/utils/mask.py`) 플레이어에게 `Harry Potter`·
+`harry-potter`·`harrypotter` 는 같은 답이고, 길이 검증도 `feedback` 위치도 전부
+`length`(구분자 제외) 기준이어야 앞뒤가 맞는다.
+
+`Attempt.guess` 에도 이 정규화를 거친 글자열을 저장한다 — 보드 한 줄이 `length` 개
+타일과 1:1 이 되고, en 보드의 글자가 문제 타일(대문자)과 같은 모양이 된다. 구분자를
+다시 끼우는 건 `mask` 의 `s` 위치를 아는 클라이언트 몫이다(스펙 "미정 항목" 13).
+길이가 안 맞는 제출은 `VALIDATION_ERROR` 로 **시도를 소비하지 않는다** — 오타로 한
+글자 덜 친 걸 기회 소모로 세면 게임이 불친절해진다.
+
 
 ## 부하 테스트 요약
 

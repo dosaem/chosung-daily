@@ -72,10 +72,13 @@ export default function (data) {
   if (Math.random() < 0.3) {
     const length = todayRes.json("length") || 2;
     const guess = "가".repeat(length);
+    // 퍼즐 고정 — 방금 조회한 퍼즐의 ID 를 같이 보내야 409 PUZZLE_CHANGED 로
+    // 걸러지지 않고 실제 판정 경로를 탄다.
+    const puzzleId = todayRes.json("puzzle_id");
 
     const guessRes = http.post(
       `${BASE_URL}/api/v1/puzzles/today/guesses`,
-      JSON.stringify({ guess }),
+      JSON.stringify({ puzzle_id: puzzleId, guess }),
       { headers: { ...headers, "Content-Type": "application/json" } }
     );
     guessTrend.add(guessRes.timings.duration);
