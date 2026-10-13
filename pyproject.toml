@@ -16,6 +16,7 @@ dependencies = [
     "pymysql>=1.2.3",
     "redis>=8.1.0",
     "requests>=2.34.2",
+    "sentry-sdk[celery,flask]>=2.0",
 ]
 
 [tool.uv]
