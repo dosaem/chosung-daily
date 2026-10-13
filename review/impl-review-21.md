@@ -121,3 +121,106 @@ with tempfile.TemporaryDirectory() as td:
 - 취향·스타일 결함은 등록하지 않았다. 이번 리뷰는 애플리케이션·테스트·설정·`.scratch/`를 변경하지 않았다.
 
 판정: FAIL
+
+## 라운드 2
+
+- 검토일: 2026-10-14. 로컬 `main`: `491418fb4b7b3ebae9a0205443381456ef4821f9`, 구현 HEAD: `8f2fcb3bb32a24c44c0bba1f760413be8dc38220`.
+- `git diff main...HEAD` 전체 13개 파일 및 `git log main..HEAD`의 6개 커밋(`f48eb99`, `0326d52`, `541dc18`, `7af1a11`, `4e7f5aa`, `8f2fcb3`)을 확인했다. origin/main은 사용하지 않았다.
+- 티켓 21, 스펙 §C.28·US 62/63, CONTEXT, 이전 리뷰 및 구현 증거를 읽었다. UI 변경은 없어 디자인 검토는 해당 없다.
+- 현재 열린 결함: **BLOCKER 0 / MAJOR 1 / MINOR 0**. 이전 3건은 FIXED, 새 결함 D-21-4를 등록한다.
+
+### 체크박스별 확인
+
+| 티켓 체크박스 | 판정 | 직접 확인한 근거와 제한 |
+|---|---|---|
+| 독립 백업 서비스, 매일 04:00 KST, gzip, 14일 정리, BACKUP_DIR bind mount·예시 env, DSM ACL 메모 | 충족 | compose 105–124행의 독립 서비스·TZ·시각·보존·bind mount, 양쪽 env의 21번 절, RELEASE의 root/DSM 메모를 확인했다. 전체 테스트에 포함된 실제 셸/gzip/find/date 검사가 통과했다. cron 대신 sleep 루프라는 설계 판단이 README에 있다. NAS ACL 및 장기 스케줄 실행은 직접 검증하지 않았다. |
+| 실패 시 curl과 SLACK_WEBHOOK_URL로 알림 | 충족 | backup.sh 41·50·67·71·80행에서 오류를 알림으로 전달한다. mysqldump·mkdir·mv·정리 실패 회귀 테스트가 통과했다. curl은 스텁이며 실제 Slack을 호출하지 않았다. |
+| 지정 덤프를 지정 compose 프로젝트 MySQL에 복원 | 미충족 | 정상 SQL 전달·프로젝트 선택·확인 요구 및 손상 gzip 사전 차단은 통과한다. 새 Redis 후처리가 실패해도 성공을 선언해 복구 전 캐시를 남길 수 있다(D-21-4). |
+| 로컬 백업 → 변경 → 복원 → 원복 검증과 RELEASE 절차·결과 | 증거 부족 | RELEASE에 A→B→A 절차·수치가 있고 구현 증거에는 수정 후 리허설도 있다. 이번 리뷰는 기본 테스트 DB의 전체 테스트와 별도 셸/Redis 검증을 실행했지만 실제 MySQL 덤프 왕복은 재실행하지 않았다. 기존 실행 기록만으로 독립 재검증 완료라고 판단하지 않는다. |
+| README 운영 절의 위치·보존·복구 명령 | 충족 | README 운영 절에 요구된 표와 명령이 있다. Redis 후처리 성공 보장의 실제 한계는 D-21-4에 기록한다. |
+
+### 이전 결함 판정
+
+| ID | 라운드 2 판정 | 근거 |
+|---|---|---|
+| D-21-1 (MAJOR) | **FIXED** | backup.sh:41의 ERR trap과 50·71·80행의 명시적 실패 처리. 디렉터리 준비·파일 이동·보존 정리 실패 테스트에서 비정상 종료 및 curl 호출을 검증하며 모두 통과했다. |
+| D-21-2 (MAJOR) | **FIXED** | restore.sh:44에서 gzip 전체 검사를 MySQL 실행 전에 수행한다. 잘린 gzip 및 일반 텍스트 입력 회귀 테스트가 Docker 호출 자체가 없음을 확인하며 통과했다. |
+| D-21-3 (MAJOR) | **FIXED** | restore.sh:82에 같은 프로젝트 Redis의 파생 키 삭제가 추가되고 README/RELEASE의 재시작 안내도 수정됐다. 실제 Redis DB 15의 고유한 검증 키로 추출한 셸 루프를 실행해 puzzle/stats/lb 3개 삭제와 ratelimit 키 보존을 확인했다. 정상 정리는 고쳐졌지만 새 후처리의 오류 전파는 별개 결함 D-21-4다. |
+
+### 직접 실행한 검증
+
+| 명령/검증 | 결과 |
+|---|---|
+| `TEST_REDIS_URL=redis://127.0.0.1:6379/15 uv run pytest -q --tb=short` | **145 passed in 45.48s**, 종료 0. 티켓 21 테스트 37개 포함. |
+| `uv run ruff check .` | **All checks passed!**, 종료 0 |
+| `bash -n scripts/backup.sh scripts/backup-cron.sh scripts/restore.sh` | 종료 0 |
+| `git diff --check main...HEAD` | 종료 0 |
+| 아래 D-21-4 안전 재현 | Redis SCAN 오류 3회에도 restore 종료 0 및 완료 메시지 출력 |
+| 실제 로컬 Redis 정상 정리 | `deleted 3 derived keys`, 존재 여부 puzzle/stats/lb/ratelimit = `[0, 0, 0, 1]` |
+
+DB는 레포 기본 `chosung_daily_test`를 사용했다. TEST_DATABASE_URL을 덮어쓰거나 새 DB를 만들지 않았고 Redis만 DB 15로 지정했다. 이번 전체 테스트는 첫 실행에 통과하여 병렬 DB 충돌에 따른 재실행은 없었다. 로컬 MySQL/Redis 컨테이너도 실행 중이었다. 마이그레이션 변경이 없으므로 `flask db heads`는 대상이 아니다.
+
+Redis 정상 정리 검증은 restore.sh의 내부 셸 본문을 추출하고 패턴을 이번 검증에서 만든 고유 키 3개로 좁혀 실행했다. redis-cli 대신 같은 SCAN/DEL을 실제 `127.0.0.1:6379/15`에 수행하는 임시 Python 어댑터를 사용했다. 검증 뒤 남긴 키를 모두 삭제했다. 앞선 Docker exec 경유 시도는 삭제 0개로 나와 정상 동작 증거로 채택하지 않았으며, 위 검증은 실제 compose 왕복을 증명하지 않는다.
+
+### 새 결함
+
+#### D-21-4 — Redis 명령 실패를 무시하고 복구 성공을 선언함
+
+- 심각도: **MAJOR**.
+- 위치: `scripts/restore.sh:82`, `scripts/restore.sh:85`, `scripts/restore.sh:86`, `scripts/restore.sh:90` (성공 선언 99행).
+- 재현 입력: 유효한 gzip 덤프, MySQL 전달 성공, Redis 서비스의 셸은 실행되지만 redis-cli SCAN이 연결 오류로 종료 1인 상황. 아래 스텁은 외부/DB 접속 없이 실제 restore.sh와 내부 `sh -c`를 실행한다.
+- 기대: Redis 정리 실패를 감지해 종료 코드 비정상, 92행의 수동 확인 안내, 완료 메시지 없음.
+- 실제: stderr에 연결 오류 3회가 출력되지만 `deleted 0 derived keys` 및 `완료 — MySQL 은 덤프 시점으로, Redis 파생 키는 비워졌다.`가 출력되고 **종료 코드 0**이다.
+- 원인: 내부 `sh -c`는 오류 중단을 켜지 않았고 SCAN을 `for key in $(...)` 안에 넣어 상태를 확인하지 않는다. DEL 실패 역시 무시하고 삭제 수를 증가시킨다. 마지막 echo가 성공해 외부 `||` 실패 처리에 도달하지 않는다. 단순히 내부 `set -e`만 추가해도 for의 명령 치환 실패는 별도 확인이 필요하다.
+- 영향: 일시적 Redis 연결 실패 등으로 오래된 캐시가 남았는데 운영자는 복구 성공으로 판단한다. Redis 회복 후 복구 전 퍼즐·정답을 읽거나 복원 DB에 없는 퍼즐 ID로 제출 오류가 발생할 수 있다. 구현 증거의 “지우기에 실패하면 종료 코드 1” 주장은 이 재현과 다르다.
+- 테스트 한계: `tests/test_backup_restore.py:304`의 docker 스텁은 인자와 stdin을 기록할 뿐 내부 Redis 셸을 실행하지 않는다. 395행 부근의 패턴 포함 검사와 FLUSHDB 금지 검사는 오류 전파를 검증하지 못하며 이 결함이 있어도 통과한다. SCAN/DEL 각각의 실패를 실행하는 회귀 검증이 필요하다.
+
+레포 루트에서 실행한 안전 재현 코드:
+
+```python
+import gzip
+import os
+import pathlib
+import subprocess
+import tempfile
+
+root = pathlib.Path.cwd()
+with tempfile.TemporaryDirectory() as td:
+    p = pathlib.Path(td)
+    b = p / "bin"
+    b.mkdir()
+    bodies = {
+        "docker": '''case " $* " in
+*" exec -T mysql "*) cat >/dev/null;;
+*" exec -T redis "*) while [ "$1" != sh ]; do shift; done; exec "$@";;
+esac
+''',
+        "redis-cli": '''echo "Could not connect to Redis: Connection refused" >&2
+exit 1
+''',
+    }
+    for name, body in bodies.items():
+        f = b / name
+        f.write_text("#!/bin/sh\n" + body)
+        f.chmod(0o755)
+    dump = p / "dump.sql.gz"
+    dump.write_bytes(gzip.compress(b"SELECT 1;\n"))
+    result = subprocess.run(
+        [str(root / "scripts/restore.sh"), "-y", str(dump), "review-local"],
+        env={**os.environ, "PATH": str(b) + ":" + os.environ["PATH"]},
+        capture_output=True, text=True, check=False,
+    )
+    print("exit:", result.returncode)
+    print(result.stdout)
+    print(result.stderr)
+```
+
+### 범위·보안·공유 파일
+
+- README 설계 판단·RELEASE·예시 env는 자기 번호 21의 절을 추가했다. 다른 티켓 행을 덮어쓴 변경은 없고 운영 절 추가는 티켓의 명시적 요구다.
+- .gitignore/.dockerignore의 덤프 제외는 티켓 범위 안이다. 애플리케이션 인증·CSRF 코드는 변경하지 않았다.
+- 프로젝트 필수 입력, 비대화 `-y`, gzip 검사, 백업 인증 임시 파일 600 권한과 정리를 확인했다. 변경 파일에서 실제 시크릿 값이 커밋된 정황은 찾지 못했다. 문서에 자격증명 값을 옮기지 않았다.
+- NAS·배포·외부 서비스 호출·push·하위 에이전트 실행은 하지 않았다. 애플리케이션·테스트·설정·.scratch는 수정하지 않았으며 이번 소유 파일은 이 리뷰 문서뿐이다.
+- 취향·스타일 제안은 결함으로 등록하지 않았다.
+
+판정: FAIL
