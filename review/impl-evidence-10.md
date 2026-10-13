@@ -215,10 +215,10 @@ $ git diff main -- .env.example README.md | grep "^-" | grep -v "^---"
 같은 README `### 10.` 절에 D-10-1 의 갱신 규칙도 한 단락 적었다(캐시에 없는 `kid` → 즉시 재조회,
 provider 당 60초 최소 간격).
 
-### 리뷰 본문의 "외부 호출 0건" 주장 정정
+### 리뷰 본문의 검증 메모 — 기존 OAuth 테스트의 provider discovery 호출 (코디네이터 지시로 수정)
 
-리뷰가 지적한 대로, 구현 증거 1절의 "외부 서비스 호출 0건" 은 **테스트 스위트에 대해서는 사실이
-아니다**. 소켓 가드를 걸고 전체 스위트를 돌려 직접 확인했다.
+리뷰가 지적한 대로, 구현 증거 1절의 "외부 서비스 호출 0건" 은 **테스트 스위트 전체에 대해서는
+사실이 아니었다**. 소켓을 로컬로 제한하고 전체 스위트를 돌려 먼저 재현했다.
 
 ```
 $ uv run python guarded_run.py   # socket.connect 를 127.0.0.1/localhost 로 제한한 뒤 pytest.main
@@ -229,14 +229,34 @@ E   RuntimeError: blocked external network: ('192.178.226.84', 443)   # 구글 d
 E   RuntimeError: blocked external network: ('17.32.194.6', 443)      # 애플 discovery
 ```
 
-두 테스트는 `authorize_redirect` → Authlib `load_server_metadata` 에서 provider discovery 문서를
-실제로 받아온다. **main 에 이미 있는 테스트**이고 이 티켓이 건드리지 않았다(`git diff main --
-tests/test_oauth_routes.py` 의 삭제 줄은 다른 테스트 독스트링의 함수명 하나뿐). 그래서 회귀가
-아니고, 결함 ID 도 아니다. 다만 범위를 넘지 않으려고 **고치지 않고 남긴다** — 오프라인 대역을
-넣으면 "실제 discovery 로 만든 redirect URL" 을 검증하던 그 두 테스트의 의미가 바뀌어서, 티켓
-01 쪽 결정이 필요하다. 정정해서 다시 쓰면: **이 티켓이 추가한 코드·테스트는 외부 호출이 0건이고
-(JWKS 조회·애플 토큰 교환은 전부 monkeypatch 한 래퍼), 스위트 전체로는 기존 두 테스트가 구글·
-애플 discovery 를 호출한다.** 계정 자격증명 입력·NAS 접속·배포·`git push` 는 없었다.
+**원인**: `authorize_redirect` → Authlib `OAuth2Mixin.create_authorization_url` 이
+`authorization_endpoint` 를 **discovery 문서**(`server_metadata_url`)에서 읽는다. 그 조회는
+`load_server_metadata` 가 `server_metadata` 에 `_loaded_at` 이 없으면 실제 HTTPS 요청으로
+가져오기 때문에, 두 테스트는 돌 때마다 `accounts.google.com`·`appleid.apple.com` 에 붙었다.
+이 티켓이 만든 회귀는 아니다(두 테스트 본문은 main 과 같다) — 코디네이터 지시로 함께 고쳤다.
+
+**수정**(`tests/test_oauth_routes.py`): `offline_provider_metadata` 픽스처가 등록된 Authlib
+클라이언트의 `load_server_metadata` 를 대역으로 바꿔, 로그인 시작이 쓰는 두 값
+(`authorization_endpoint`·`token_endpoint`)만 돌려준다. 값은 실제 엔드포인트와 같고, 단정문
+(`"accounts.google.com" in Location`, `"appleid.apple.com" in Location`)은 그대로 뒀다. 대신
+이 테스트가 보증하는 범위가 좁아진 걸 픽스처 독스트링에 적었다 — **discovery 문서 자체와
+실제 로그인 왕복은 여전히 콘솔 등록 후 수동 확인 대상**이다. 애플 쪽은 ES256 client_secret
+서명이 등록 단계에서 깨지면 여전히 이 테스트에서 드러난다(서명은 대역이 아니다).
+
+**증명**: 외부 네트워크를 막은 상태로 전체 스위트가 통과한다.
+
+```
+$ uv run python guarded_run.py
+........................................................................ [ 32%]
+........................................................................ [ 64%]
+........................................................................ [ 96%]
+.........                                                                [100%]
+225 passed in 72.94s (0:01:12)
+```
+
+정정해서 다시 쓰면: **수정 라운드 1 이후 전체 테스트 스위트의 외부 호출은 0건이다**(JWKS 조회·
+애플 토큰 교환·provider discovery 가 전부 대역). 계정 자격증명 입력·NAS 접속·배포·`git push` 는
+없었다.
 
 미수정 MINOR 는 없다(D-10-2 를 고쳤다).
 
@@ -266,4 +286,30 @@ f394da7f4d88 의 `down_revision` 을 `9ec267465b4e` → `4e72a4045fbc` 로 재�
 ```
 $ uv run pytest tests/test_token_exchange.py tests/test_migrations.py -q
 22 passed in 26.59s
+```
+
+내 리비전만 따로 왕복도 다시 확인했다(마이그레이션 전용 DB `chosung_daily_test_t10_migrations`).
+
+```
+$ DATABASE_URL=...chosung_daily_test_t10_migrations uv run flask db upgrade
+INFO  [alembic.runtime.migration] Running upgrade 9ec267465b4e -> 4e72a4045fbc, add puzzle language and mask
+INFO  [alembic.runtime.migration] Running upgrade 4e72a4045fbc -> f394da7f4d88, add account provider refresh token and client id
+$ ... flask db current                     → f394da7f4d88 (head)
+$ ... SHOW COLUMNS FROM account            → ['provider_user_id', 'provider_refresh_token', 'provider_client_id']
+$ ... flask db downgrade 4e72a4045fbc
+INFO  [alembic.runtime.migration] Running downgrade f394da7f4d88 -> 4e72a4045fbc, add account provider refresh token and client id
+$ ... SHOW COLUMNS FROM account            → ['provider_user_id']
+$ ... flask db upgrade                     → 4e72a4045fbc -> f394da7f4d88
+$ ... SHOW COLUMNS FROM account            → ['provider_user_id', 'provider_refresh_token', 'provider_client_id']
+```
+
+마지막 전체 재확인(수정 전부 반영된 HEAD):
+
+```
+$ uv run ruff check .
+All checks passed!
+$ uv run pytest -q
+225 passed in 97.61s (0:01:37)
+$ FLASK_SKIP_DOTENV=1 FLASK_APP=wsgi.py uv run flask db heads
+f394da7f4d88 (head)
 ```
