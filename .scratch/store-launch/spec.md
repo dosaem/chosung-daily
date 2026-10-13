@@ -288,7 +288,7 @@ chosung.dosaem.com 은 "하루 한 문제 초성 맞추기"가 돌아가는 Flas
 
 - 운영자 계정은 정확히 두 개: `dosaem90@gmail.com`, `hsseo@dosaem.com`.
 - 면접 설명 범위: 백엔드 전부 + Flutter 는 상태 흐름·SDK 선택·테스트 경계(README Flutter 절). (r3 MINOR 메모: 제출하는 코드 전체는 작성자가 설명할 수 있어야 하고, 설계 판단 문서만 핵심 중심으로 쓴다는 뜻.)
-- 티켓: `.scratch/store-launch/issues/01~32`(의존성 순, 2026-10-13). 미정 항목 중 12·13·14·18·19·20 은 해당 티켓에서 확정.
+- 티켓: `.scratch/store-launch/issues/01~34`(의존성 순, 2026-10-13; 계획 리뷰 r1 반영으로 구 24→24·25, 구 29→30·31 분할). 미정 항목 중 12(04)·13(17)·14(12)·18(13)·19(13·31)·20(24) 은 해당 티켓에서 확정. Flutter 루트는 `mobile/`. 앱 아이콘·스플래시·스크린샷은 OVERRIDES §8 그대로(다크 배경 아이콘, 다크모드 스크린샷) — 콘셉트 변경을 원하면 OVERRIDES §8 을 먼저 고친다.
 - 디자인 파이프라인·스펙 리뷰 규칙은 `~/.claude/CLAUDE.md`·NAS README 에 기록. 리뷰 응답: `review/spec-review-r1-response.md`, `review/spec-review-r2-response.md`.
 - BASELINE 읽기만. ENV.md 의 PostgreSQL/Flyway 기술은 무시(MySQL/Alembic).
 - 티켓 하나 = 워커 하나가 한 세션. §A.1, §A.8, §A.11 은 본문의 분할 지침대로 쪼갠다. 의존성은 `issues/NN-*.md` "Blocked by".

@@ -8,7 +8,9 @@
 
 **스펙 참조:** `.scratch/store-launch/spec.md` §A.8(DB·검증 엔드포인트), ADR 0003, §A', 미정 14. 용어는 `CONTEXT.md`, 디자인은 `design/SCREENS.md` + `design-system/hidden-vowels/OVERRIDES.md`(충돌 시 OVERRIDES 우선).
 
-- [ ] `Subscription(guest_id, store, store_key, product_id, environment, status, expires_at, grace_expires_at, last_verified_at)` unique(store, store_key) 마이그레이션. status enum `active|grace|hold|expired|revoked|replaced`
+공통 규칙(병렬 티켓 충돌 방지): README "설계 판단"·API 표, `.env.example`, `docs/RELEASE.md`, 스펙 "미정 항목" 은 자기 번호 소제목(`### NN.`)/자기 행만 섹션 끝에 덧붙인다(파일·절이 없으면 만든다). 코디네이터는 번호순으로 머지한다. 마이그레이션을 만드는 티켓은 머지 직전 `flask db heads` 가 1개여야 하고, 아니면 선행 머지 리비전 위로 `down_revision` 을 재설정한다.
+
+- [ ] `Subscription(guest_id, store, store_key, product_id, environment, status, expires_at, grace_expires_at, last_verified_at)` unique(store, store_key) 마이그레이션. status enum `active|grace|hold|expired|revoked|replaced`. 머지 직전 `flask db heads` 1개
 - [ ] `clients/app_store.py`(App Store Server API 공식 라이브러리, JWS 검증, `environment` 로 엔드포인트 선택, Production 4040010 → Sandbox 1회 폴백)·`clients/play.py`(Google Play Developer API 공식 라이브러리) 래퍼 — 각 함수 하나, 타임아웃 3초
 - [ ] 상태 매핑은 순수 함수 2개(Apple 응답→status, Google 응답→status): Apple 1→active, 4→grace(+`gracePeriodExpiresDate`), 3→hold, 2→expired, 5→revoked; Google ACTIVE/CANCELED(미만료)→active, IN_GRACE_PERIOD→grace, ON_HOLD→hold, EXPIRED→expired, revoked/환불→revoked, PAUSED→hold, PENDING→행 없음(미정 14 를 fixture 로 확정하고 스펙 미정 항목에 결과 기록)
 - [ ] `POST /subscriptions/verify {store, receipt}` (Bearer): 상품 ID `adfree_monthly`·번들/패키지 확인 → 검증 → upsert(멱등) → `entitlement {active, until, status, source, next_check_at}` 응답. 실패 400 `RECEIPT_INVALID` / 스토어 장애 503 `STORE_UNAVAILABLE`. 복원·전환 시 같은 `store_key` 를 현재 게스트로 재지정

@@ -8,6 +8,8 @@
 
 **스펙 참조:** `.scratch/store-launch/spec.md` §A.1(서비스·API), §A.3, §A.4, §A', Testing 필수 케이스. 용어는 `CONTEXT.md`, 디자인은 `design/SCREENS.md` + `design-system/hidden-vowels/OVERRIDES.md`(충돌 시 OVERRIDES 우선).
 
+공통 규칙(병렬 티켓 충돌 방지): README "설계 판단"·API 표, `.env.example`, `docs/RELEASE.md`, 스펙 "미정 항목" 은 자기 번호 소제목(`### NN.`)/자기 행만 섹션 끝에 덧붙인다(파일·절이 없으면 만든다). 코디네이터는 번호순으로 머지한다. 마이그레이션을 만드는 티켓은 머지 직전 `flask db heads` 가 1개여야 하고, 아니면 선행 머지 리비전 위로 `down_revision` 을 재설정한다.
+
 - [ ] `POST /guests {puzzle_language?}` 로 초기 언어를 정하고(기본 ko, 미지원 값 `VALIDATION_ERROR`), `PATCH /me {puzzle_language}` 로 바꾸며, `GET /me/stats` 에 `puzzle_language` 가 포함된다
 - [ ] `GET /puzzles/today` 가 게스트 선호 언어의 퍼즐을 돌려주고 응답에 `puzzle_id`, `language`, `mask`, `length` 가 있다. `chosung` 필드는 ko 에서 현행 값, en 에서는 `mask` 의 `r` 글자 기반 문자열(또는 null) — 응답 스키마에 명시
 - [ ] Redis 키가 `puzzle:{date}:{lang}`, `stats:{date}:{lang}`, `lb:{date}:{lang}` 로 분리되고 rate limit 키에는 언어가 없다(테스트: 언어를 바꿔도 같은 게스트의 rate limit 카운터가 이어짐)
