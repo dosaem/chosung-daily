@@ -358,7 +358,6 @@ compose 는 프로젝트 디렉터리의 `.env` 를 자동으로 읽기 때문�
 `docker compose -f docker-compose.prod.yml up -d` 만 쳐도 디렉터리 이름에서
 프로젝트명을 추측하지 않고 같은 프로젝트(= 같은 볼륨)에 붙는다.
 
-
 ## 부하 테스트 요약
 
 자정 트래픽 스파이크(0→50 VU, `GET /puzzles/today` + 30% `POST .../guesses`)로

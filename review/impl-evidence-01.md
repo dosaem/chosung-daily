@@ -1,7 +1,9 @@
 # 티켓 01 구현 증거 — 프리팩터(린트 강화·도메인 문서 이관·외부 호출 골격·CSRF·마이그레이션 head)
 
-- 브랜치: `dosaem/t01-prefactor-lint-docs-clients` (로컬 `main` 285c804 위로 rebase 완료)
-- 커밋 7개, 변경 29파일 (+776 / -10)
+- 브랜치: `dosaem/t01-prefactor-lint-docs-clients` (로컬 `main` **feb2553** 위로 rebase
+  완료 — 작업 중 티켓 19 가 main 에 머지돼 두 번 rebase 했다. README "설계 판단" 충돌은
+  19 의 소제목을 보존하고 번호순(`01`×3 → `19`)으로 두는 방식으로 풀었다)
+- 커밋 8개, 변경 29파일
 - 테스트 자원(다른 워커와 분리): DB `chosung_daily_test_t01`, Redis DB 3
   (`TEST_DATABASE_URL`, `TEST_REDIS_URL` 환경변수로 지정. 공용 `chosung_daily_test`·
   Redis 1 은 건드리지 않았다)
@@ -12,14 +14,16 @@
 
 ### 전체 테스트 스위트
 
+rebase 후(티켓 19 포함) 최종:
+
 ```
 $ TEST_DATABASE_URL=...chosung_daily_test_t01 TEST_REDIS_URL=redis://127.0.0.1:6379/3 uv run pytest -q
-........................................................................ [ 75%]
-.......................                                                  [100%]
-95 passed in 38.94s
+........................................................................ [ 69%]
+...............................                                          [100%]
+103 passed in 57.36s
 ```
 
-작업 전 baseline 은 77 passed 였다 → **신규 18개**(`test_slack_client.py` 5,
+머지 기준 main(feb2553)의 baseline 은 85 passed 였다 → **신규 18개**(`test_slack_client.py` 5,
 `test_operator_alert_service.py` 2, `test_csrf.py` 7, `test_domain_docs.py` 3,
 `test_cli.py` 에 2 추가). 실패·skip·xfail 0건.
 
@@ -29,6 +33,9 @@ $ TEST_DATABASE_URL=...chosung_daily_test_t01 TEST_REDIS_URL=redis://127.0.0.1:6
 $ uv run ruff check .
 All checks passed!
 ```
+
+티켓 19 가 머지된 코드(`tests/test_compose_config.py` 등)까지 포함해 통과한다 —
+rebase 후 재실행한 결과다.
 
 규칙 추가 직후의 red (수정 전):
 
@@ -102,7 +109,7 @@ baseline** 이고, 0건이다. 경고 한 줄은 Jinja 의 `url_for` 를 정적 
 | 5 | `app/clients/` + Slack Webhook 래퍼(함수 하나, 타임아웃 3초, 예외 안 던짐, URL 비면 no-op) | `tests/test_slack_client.py` 5개: 전송 인자(`json={"text": …}`, `timeout == TIMEOUT_SECONDS == 3`) / URL 빈 값이면 `requests.post` 호출 0회 + `False` / `requests.Timeout` 을 삼키고 `False` / 500 응답도 삼키고 `False` | 통과 |
 | 6 | `notify_operator(kind, message)` + monkeypatch 한 래퍼로 호출 인자(제목·본문) 검증, 네트워크 없음 | `tests/test_operator_alert_service.py` 2개: 래퍼에 넘어간 텍스트에 제목·본문이 다 있고 `[오늘의 초성]` 로 시작하며 제목 뒤 줄바꿈 / 래퍼 실패 시 예외 없이 `False` | 통과 |
 | 7 | CSRF: 세션 1회용 토큰 발급 함수 + 폼 hidden 검증 데코레이터(불일치 403 `FORBIDDEN`), 단위 테스트(발급·검증·재사용 거부) | `tests/test_csrf.py` 7개: 발급→검증 200 / 매번 새 토큰 / 틀린 값 403 `FORBIDDEN` / 값 누락 403 / 발급 없이 제출 403 / **같은 토큰 재사용 403** / 실패 요청이 유효 토큰을 태우지 않음. 실제 쿠키 세션을 타고 검증(테스트 전용 라우트) | 통과 |
-| 8 | README "설계 판단" 을 `### NN.` 구조로 시작 + 3개 항목 추가 | `README.md` 111행 절 머리에 번호 규칙 메모, 278/292/309행에 `### 01. 외부 호출 래퍼와 도메인 판정 함수의 분리` / `### 01. Slack Webhook 선택 근거` / `### 01. CSRF 토큰 방식` | 통과 |
+| 8 | README "설계 판단" 을 `### NN.` 구조로 시작 + 3개 항목 추가 | `README.md` 절 머리에 번호 규칙 메모, `### 01. 외부 호출 래퍼와 도메인 판정 함수의 분리` / `### 01. Slack Webhook 선택 근거` / `### 01. CSRF 토큰 방식` 3개. 티켓 19 의 `### 19.` 소제목을 그대로 두고 그 앞에 번호순으로 놓았다 | 통과 |
 | 9 | `.env.example` 에 `SLACK_WEBHOOK_URL` 추가, `.env`·`.env.prod.example` 실제 값 불변 | `.env.example` 에 빈 값 + 발급·확인 방법 주석. `git diff main..HEAD -- .env .env.prod.example` 비어 있음(둘 다 미변경) | 통과 |
 
 ### 티켓 "What to build" 의 추가 서술
