@@ -1,0 +1,163 @@
+"""배포 워크플로(`.github/workflows/deploy.yml`)의 계약 테스트.
+
+GitHub Actions 워크플로는 푸시해 봐야 돌아가서 로컬에서 "틀렸다" 를 알기 어렵다.
+그래서 돌려서 확인할 수 없는 부분(트리거·선행 조건·대상 매핑·쓰는 secret 이름)을
+YAML 을 읽어서 검증한다. 같이 `ci.yml` 이 develop 을 포함하는지, 배포 티켓이
+CI 를 건드리지 않았는지도 본다.
+"""
+
+import re
+from pathlib import Path
+
+import pytest
+import yaml
+
+ROOT = Path(__file__).resolve().parent.parent
+CI = ROOT / ".github" / "workflows" / "ci.yml"
+DEPLOY = ROOT / ".github" / "workflows" / "deploy.yml"
+RELEASE_DOC = ROOT / "docs" / "RELEASE.md"
+
+
+# YAML 1.1 에서 `on` 은 불린이라 PyYAML 이 트리거 키를 True 로 읽는다.
+ON = True
+
+
+def _load(path):
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+@pytest.fixture(scope="module")
+def ci():
+    return _load(CI)
+
+
+@pytest.fixture(scope="module")
+def deploy():
+    return _load(DEPLOY)
+
+
+def _steps(workflow, job):
+    return workflow["jobs"][job]["steps"]
+
+
+def _flat(value):
+    """워크플로 전체를 한 문자열로 — secret 참조 같은 걸 찾기 위해."""
+    return yaml.safe_dump(value, allow_unicode=True)
+
+
+def test_ci_runs_on_both_deploy_branches(ci):
+    """develop 푸시에도 CI 가 돌아야 deploy 의 선행 조건이 성립한다."""
+    assert ci[ON]["push"]["branches"] == ["main", "develop"]
+
+
+def test_ci_still_lints_and_tests_with_service_containers(ci):
+    """이 티켓은 ci.yml 에 develop 추가 외에는 손대지 않는다."""
+    commands = [step.get("run", "") for step in _steps(ci, "test")]
+
+    assert any("ruff check" in cmd for cmd in commands)
+    assert any("pytest" in cmd for cmd in commands)
+    assert sorted(ci["jobs"]["test"]["services"]) == ["mysql", "redis"]
+
+
+def test_deploy_waits_for_ci_on_the_two_branches(deploy):
+    trigger = deploy[ON]["workflow_run"]
+
+    assert trigger["workflows"] == ["CI"]
+    assert trigger["types"] == ["completed"]
+    assert trigger["branches"] == ["main", "develop"]
+
+
+def test_deploy_only_runs_when_ci_succeeded(deploy):
+    """`completed` 는 실패도 포함한다 — conclusion 을 보지 않으면 깨진 코드가 올라간다."""
+    condition = deploy["jobs"]["deploy"]["if"]
+
+    assert "workflow_run.conclusion" in condition
+    assert "success" in condition
+
+
+def test_deploy_maps_branch_to_target(deploy):
+    """main → prod, develop → develop. 푸시된 브랜치는 workflow_run 이벤트에서 읽는다."""
+    flat = _flat(deploy["jobs"]["deploy"])
+
+    assert "workflow_run.head_branch" in flat
+    assert "prod" in flat
+    assert "develop" in flat
+
+
+def test_deploy_checks_out_the_commit_that_passed_ci(deploy):
+    """workflow_run 은 기본 브랜치를 체크아웃한다 — 통과한 커밋을 명시해야 한다."""
+    checkout = next(
+        step
+        for step in _steps(deploy, "deploy")
+        if step.get("uses", "").startswith("actions/checkout")
+    )
+
+    assert "workflow_run.head_sha" in _flat(checkout["with"])
+
+
+def test_deploy_joins_tailnet_before_ssh(deploy):
+    """NAS 는 인터넷에 ssh 를 안 열어서 Tailscale 로 들어가야 한다 — 순서가 뒤집히면 못 붙는다."""
+    steps = _steps(deploy, "deploy")
+    tailscale = next(
+        i for i, step in enumerate(steps) if "tailscale/github-action" in step.get("uses", "")
+    )
+    ssh = next(i for i, step in enumerate(steps) if "ssh " in step.get("run", ""))
+
+    assert tailscale < ssh
+
+
+def test_deploy_pipes_the_script_over_ssh(deploy):
+    """NAS 체크아웃의 스크립트를 실행하면 git pull 이 실행 중인 자기 자신을 갈아치운다."""
+    run = " ".join(step.get("run", "") for step in _steps(deploy, "deploy"))
+
+    assert "bash -s --" in run
+    assert "deploy/deploy.sh" in run
+
+
+def _secret_names(text):
+    return set(re.findall(r"secrets\.([A-Z0-9_]+)", text))
+
+
+def _release_doc_secret_table_names():
+    """RELEASE.md 의 secrets 표 첫 칸에 적힌 `` `NAME` `` 들."""
+    rows = []
+    in_table = False
+    for line in RELEASE_DOC.read_text(encoding="utf-8").splitlines():
+        if "secrets" in line.lower() and line.startswith("#"):
+            in_table = True
+            continue
+        if in_table and line.startswith("#"):
+            break
+        if in_table and line.startswith("|"):
+            cell = line.split("|")[1].strip()
+            match = re.fullmatch(r"`([A-Z0-9_]+)`", cell)
+            if match:
+                rows.append(match.group(1))
+    return set(rows)
+
+
+def test_deploy_secrets_are_documented(deploy):
+    """워크플로가 쓰는 secret 이 RELEASE.md 표에 전부 있어야 사람이 등록할 수 있다."""
+    used = _secret_names(_flat(deploy))
+
+    assert used, "secrets 를 안 쓰는 배포 워크플로는 없다"
+    assert used <= _release_doc_secret_table_names()
+
+
+def test_deploy_secrets_cover_tailscale_ssh_and_host(deploy):
+    used = _secret_names(_flat(deploy))
+
+    assert any("TAILSCALE" in name or name.startswith("TS_") for name in used)
+    assert any("SSH" in name and "KEY" in name for name in used)
+    assert any("HOST" in name for name in used)
+
+
+def test_release_doc_has_human_checklist_for_nas_access():
+    """ssh 키 등록·Tailscale 설치는 사람이 NAS 에서 하는 일 — D3 체크리스트로 분리."""
+    text = RELEASE_DOC.read_text(encoding="utf-8")
+    section = text.split("D3", 1)
+
+    assert len(section) == 2, "RELEASE.md 에 D3 체크리스트가 없다"
+    body = section[1]
+    assert "Tailscale" in body
+    assert "ssh" in body

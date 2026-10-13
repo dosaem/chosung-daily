@@ -57,6 +57,58 @@ DB 는 **named volume 만** 쓴다. DSM 의 `/volume1` ACL 이 호스트 bind mo
 - [ ] `-p chosung-daily-develop --env-file .env.develop` 로 `up` → `docker volume ls`
       에 `chosung-daily-develop_*` 볼륨이 새로 생기고 prod 볼륨은 그대로인지 확인.
 
+## 자동 배포
+
+`main` 푸시는 prod, `develop` 푸시는 develop 에 자동으로 올라간다. CI(`ci.yml`)가
+그 브랜치에서 성공했을 때만 `deploy.yml` 이 돌고, 배포 자체는 `deploy/deploy.sh`
+한 스크립트가 맡는다 — git pull → `compose up -d --build` → app 컨테이너
+`flask db upgrade` → 5개 서비스 기동 확인 → `/health` 200(3초 간격 최대 10회).
+어느 단계든 실패하면 스크립트가 0 이 아닌 코드로 끝나고 워크플로가 빨갛게 멈춘다.
+
+```bash
+# NAS 에서 손으로 돌릴 때
+/volume1/docker/chosung-daily/deploy/deploy.sh prod
+
+# 무엇을 실행할지만 보고 싶을 때 (아무 명령도 실행하지 않는다)
+./deploy/deploy.sh prod --dry-run
+./deploy/deploy.sh develop --dry-run
+```
+
+워크플로는 NAS 에 있는 스크립트를 실행하지 않고 **방금 CI 를 통과한 커밋의
+스크립트를 ssh 표준입력으로 흘려보낸다**(`ssh nas 'bash -s -- prod' < deploy/deploy.sh`).
+이유는 README "설계 판단" §20.
+
+### GitHub Actions secrets
+
+| 이름 | 쓰는 곳 | 값 |
+|---|---|---|
+| `TAILSCALE_AUTHKEY` | `tailscale/github-action` | Tailscale admin → Settings → Keys 에서 만든 **reusable + ephemeral** auth key. 최대 90일이라 만료 전에 교체해야 한다(만료되면 배포만 빨갛게 실패하고 서비스는 그대로 돈다). |
+| `NAS_SSH_PRIVATE_KEY` | ssh | 배포용 ed25519 **개인키 전문**(`-----BEGIN ...` 포함). 암호 없는 키를 쓰고, 이 키는 배포에만 쓴다. |
+| `NAS_SSH_HOST` | ssh | NAS 의 tailnet 주소(MagicDNS 이름 또는 100.x.y.z). LAN IP·공개 도메인이 아니다. |
+| `NAS_SSH_USER` | ssh | NAS 의 배포 계정 이름. |
+
+레포 → Settings → Secrets and variables → Actions 에 넣는다. 값은 레포·로그·문서에
+남기지 않는다(워크플로 로그에는 마스킹돼 찍힌다).
+
+### D3. 배포 자동화 — NAS 쪽 사람 작업
+
+코드로 할 수 없는 부분. 첫 배포 전에 한 번만 한다.
+
+- [ ] NAS 에 **Tailscale** 패키지 설치 후 tailnet 에 로그인(`tailscale status` 로 확인).
+      ACL 에서 GitHub Actions 러너가 쓰는 태그가 NAS 의 22 번에 붙을 수 있는지 확인.
+- [ ] 배포용 ssh 키쌍을 **로컬에서** 만들어(`ssh-keygen -t ed25519 -C "gh-actions-deploy"`)
+      공개키를 NAS 배포 계정의 `~/.ssh/authorized_keys` 에 등록, 개인키는
+      `NAS_SSH_PRIVATE_KEY` secret 으로만 올린다.
+- [ ] DSM 에서 해당 계정의 SSH 접속 허용 + `sudo` 없이 `docker` 를 쓸 수 있는지
+      확인(Container Manager 설치 계정이면 보통 docker 그룹에 있다).
+- [ ] 러너에서 NAS 로 붙는 경로 확인: 로컬에서 `ssh -i <개인키> <user>@<tailnet 주소>
+      'docker ps'` 가 되면 워크플로도 된다.
+- [ ] 두 체크아웃 디렉터리가 각자 자기 브랜치에 있는지 확인
+      (`git -C /volume1/docker/chosung-daily rev-parse --abbrev-ref HEAD` → `main`,
+      develop 디렉터리 → `develop`). 스크립트는 브랜치가 다르면 `git pull` 전에 멈춘다.
+- [ ] 위 4개 secret 등록 후 `develop` 에 아무 커밋이나 푸시해서 develop 쪽을 먼저
+      통째로 리허설한다(prod 가 아니라 develop 으로 먼저).
+
 ## 티켓별 기록
 
 ### 19. compose 파라미터화 로컬 검증 (2026-10-13, Docker 29.8.2 / macOS)
@@ -197,3 +249,24 @@ NAS 가 아니라 로컬에서 `docker-compose.prod.yml` 을 전용 프로젝트
    `daily at 04:00 +0900, next in 22258s`.
 
 명령·출력 전문은 `review/impl-evidence-21.md`.
+
+### 20. `deploy.sh` 로컬 검증 (2026-10-14, macOS)
+
+NAS 가 없어도 "대상 인자 하나가 설정을 다 고르는지" 와 "실패하면 거기서 멈추는지"
+는 확인할 수 있다. 세 가지로 돌렸다.
+
+1. `--dry-run`: `./deploy/deploy.sh prod --dry-run`, `... develop --dry-run` —
+   브랜치(main/develop)·디렉터리·`-p` 프로젝트명·`--env-file` 이 전부 대상별로
+   갈리고, 실행되는 명령은 0개(가짜 명령도 안 불린다).
+2. 가짜 `git`/`docker`/`curl`/`sleep`(`tests/fake_nas_bin/`)을 PATH 앞에 두고
+   **실제 실행**: 단계 순서, 체크아웃 디렉터리 없음·브랜치 불일치·pull 실패·
+   마이그레이션 실패·서비스 하나 미기동·`/health` 무응답에서 각각 멈추는지,
+   `/health` 가 두 번 실패하고 세 번째에 응답할 때는 통과하는지.
+3. **docker 만 가짜로 두고 끝까지**: 임시 디렉터리에 `main`/`develop` 체크아웃을
+   clone 해 두고(가짜 NAS), 로컬 Flask 를 8189·8190 에 띄운 뒤 두 인자 모두 실행 →
+   진짜 `git pull --ff-only` 와 진짜 `curl`(200 + `{"status":"ok"}`)까지 통과.
+   compose 조회 명령(`config --services`·`ps --services --filter status=running`·
+   `port app 5000`)의 문법·출력 형식은 로컬에서 돌고 있는 개발 compose 프로젝트에
+   **읽기 명령만** 보내서 따로 확인했다(그 프로젝트는 건드리지 않았다).
+
+명령·출력 전문은 `review/impl-evidence-20.md`. NAS 실제 기동은 위 D3 체크리스트.

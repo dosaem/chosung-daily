@@ -27,6 +27,7 @@ def run_dry(*args):
         ["bash", str(DEPLOY_SH), *args],
         capture_output=True,
         text=True,
+        check=False,
     )
 
 
@@ -52,6 +53,7 @@ class FakeNas:
             capture_output=True,
             text=True,
             env=self.env,
+            check=False,
         )
 
     def calls(self):
@@ -118,6 +120,7 @@ def test_dry_run_runs_nothing(tmp_path):
         capture_output=True,
         text=True,
         env=nas.env,
+        check=False,
     )
 
     assert res.returncode == 0, res.stderr
@@ -130,9 +133,7 @@ def test_deploy_runs_steps_in_order(tmp_path):
 
     assert res.returncode == 0, res.stdout + res.stderr
     steps = [
-        line
-        for line in nas.calls()
-        if not line.startswith("sleep") and "rev-parse" not in line
+        line for line in nas.calls() if not line.startswith("sleep") and "rev-parse" not in line
     ]
     assert steps == [
         "git pull --ff-only origin main",
