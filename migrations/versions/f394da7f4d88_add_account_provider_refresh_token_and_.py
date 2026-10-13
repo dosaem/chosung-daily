@@ -1,7 +1,7 @@
 """add account provider refresh token and client id
 
 Revision ID: f394da7f4d88
-Revises: 9ec267465b4e
+Revises: 4e72a4045fbc
 Create Date: 2026-10-14 06:30:49.365973
 
 """
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = 'f394da7f4d88'
-down_revision = '9ec267465b4e'
+down_revision = '4e72a4045fbc'
 branch_labels = None
 depends_on = None
 
