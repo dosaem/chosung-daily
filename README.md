@@ -83,8 +83,9 @@ web/                  # Jinja 템플릿 1장 + vanilla JS
 | GET | `/api/v1/puzzles/today` | 게스트 선호 언어의 오늘 퍼즐(`puzzle_id`/`language`/`mask`/`length`/`chosung`/카테고리/남은시도/상태/힌트), 정답 미포함 | Bearer |
 | POST | `/api/v1/puzzles/today/guesses` | 정답 제출 → 판정/피드백/남은시도/(종료 시)정답 | Bearer |
 | GET | `/api/v1/puzzles/today/stats?language=` | 시도 횟수별 정답자 비율 (언어별, 기본 게스트 선호) | Bearer |
-| GET | `/api/v1/puzzles/today/leaderboard?language=&limit=20` | 랭킹(적은 시도 우선, 같으면 빨리 푼 순, 언어별) | Bearer |
+| GET | `/api/v1/puzzles/today/leaderboard?language=&limit=20` | 랭킹(적은 시도 우선, 같으면 빨리 푼 순, 언어별) → `entries [{rank, display, attempts, seconds, is_me}]` + `me {rank, attempts, seconds} \| null`(21위 밖이어도 내 순위) | Bearer |
 | GET | `/api/v1/me/stats` | 내 퍼즐 언어 · streak · 최대streak · 누적 정답 | Bearer |
+| GET | `/api/v1/me/history?days=7` | 최근 N일(KST, 상한 31) 퍼즐 언어별 결과 → `[{date, results: {ko, en}}]`, 각 값 `success\|fail\|in_progress\|none` | Bearer |
 | POST | `/api/v1/session/sync` | 이 브라우저=이 게스트를 세션 쿠키에 동기화 (로그인 전 필수) | Bearer |
 | GET | `/api/v1/auth/<provider>/login` | 구글/애플 로그인 시작 (리다이렉트) | 세션 쿠키 |
 | GET | `/api/v1/auth/<provider>/callback` | OAuth 콜백, 계정 연결 후 `/?login_token=`으로 리다이렉트 | 세션 쿠키 |
@@ -671,6 +672,59 @@ provider 당 `JWKS_REFRESH_MIN_INTERVAL_SECONDS`(60초)에 한 번으로 제한�
 `apple_client_secret(app, client_id)` 로 바뀌었다(웹 Services ID 와 앱 번들 ID 를 모두 서명할 수
 있게 인자화 + 공개). 위 "설계 판단"·"알려진 제한사항" 의 기존 항목에 나오는 `_apple_client_secret`
 은 같은 함수의 예전 이름이다 — 공유 절은 덧붙이기만 하는 규칙이라 그 줄들은 건드리지 않았다.
+
+### 07. 리더보드 익명 표시 — 이메일도 게스트 ID도 안 내려보낸다
+
+리더보드 응답에서 `guest_id` 를 빼고 `display` 문자열만 내려준다. 값은
+`"게스트 #" + f"{guest.id % 0x10000:04x}"` — 게스트 ID 를 16진 4자리로 자른
+라벨이다(`puzzle_metrics.display_name`).
+
+계정을 연결한 게스트는 이메일을 들고 있어서, 랭킹에 사람을 식별할 수 있는 값을
+한 개라도 흘리면 "같은 문제를 푼 사람들과 비교"가 아니라 개인정보 노출이 된다.
+그래서 서버가 **표시 문자열까지 만들어서** 보낸다 — 클라이언트에 ID 를 주고
+"이렇게 그려라"를 맡기면, 앱·웹·나중에 붙는 클라이언트마다 규칙이 갈리고 ID 원본은
+이미 기기에 내려가 있다.
+
+ID 를 그대로 쓰지 않고 `% 0x10000` 으로 자른 건 가입 순서·규모를 노출하지 않기
+위해서다(`게스트 #182934` 는 "이 서비스 사용자가 18만 명"을 말해준다). 대신
+65536명을 넘으면 표시가 겹친다 — 이 문자열은 식별자가 아니라 "남의 행"과 "내 행"을
+갈라 보여주기 위한 라벨이고, 내 행은 `is_me`(서버가 요청자 ID 로 판정)로 따로
+표시하기 때문에 충돌이 기능을 깨지 않는다. 해시·솔트로 충돌을 줄일 수도 있었지만,
+면접에서 설명해야 하는 코드에 "표시용 라벨"보다 무거운 장치를 들이지 않았다.
+
+### 07. 내 순위는 페이지가 아니라 ZRANK 로 따로 읽는다
+
+`entries` 는 `ZRANGE 0..limit-1` 로 상위 20개만 읽고, `me` 는 같은 키에
+`ZRANK`+`ZSCORE` 를 한 번 더 쳐서 만든다. 23위인 사람에게도 자기 순위를 보여줘야
+하는데(US 16b), 그렇다고 전체를 받아와서 내 위치를 찾으면 정답자가 늘수록 응답이
+커진다 — ZRANK 는 O(log N) 에 순위 하나만 돌려준다.
+
+`me` 는 "리더보드에 올라가 있는가"로만 갈린다. 아직 못 풀었으면 Sorted Set 에
+멤버가 없어서 `ZRANK` 가 `None` 이고 `me` 도 `null` 이다(화면은 "아직 안 풀었어요").
+Redis 장애 때도 `safe_redis_call` 이 같은 `None` 을 주니 분기가 하나로 합쳐진다 —
+랭킹만 비고 응답은 200 이다("Redis: 캐시 / 랭킹 / 통계 / rate limit" 참고).
+내가 상위 20위 안에 있어도 `me` 를 채워 보낸다. 클라이언트가 "`entries` 에서
+`is_me` 를 찾아보고 없으면 `me` 를 쓴다"는 분기를 안 만들게 하려는 것이다.
+
+### 07. 최근 7일 기록 — GROUP BY 한 번, 빈 날은 서버가 채운다
+
+`GET /me/history?days=7` 은 날짜 × 언어 격자를 **빠진 칸 없이** 돌려준다. 기록 화면이
+7칸(언어별 2줄)을 그리는데 플레이한 날만 오면, 클라이언트가 "없는 날"을 날짜 계산으로
+메워야 하고 그 계산이 KST/로컬 타임존 사이에서 틀어진다. 서버가 KST 기준으로
+오래된 날짜부터 `days` 개를 만들고, 시도가 없는 칸은 `none` 으로 채운다.
+
+쿼리는 `attempt` ⨝ `daily_puzzle` 을 `(puzzle_date, language)` 로 GROUP BY 해서
+**한 번만** 돈다(`attempt_repository.summarize_by_date_and_language`). 날짜마다
+조회하면 7일 × 2언어 = 14 쿼리, 상한인 31일이면 62 쿼리다.
+
+결과 분류(`game_rules.day_result`)는 `GET /puzzles/today` 의 status 와 값이 겹치지만
+한 칸이 다르다 — 거기선 아직 한 번도 안 낸 상태가 "지금 풀고 있는 퍼즐"이라
+`in_progress` 지만, 지난 날을 돌아보는 기록에서 시도 0개는 `none`(미플레이)다.
+의미가 다른 분기를 한 함수로 합치지 않고 따로 뒀다.
+
+`days` 가 1..31 밖이면 조용히 자르지 않고 `VALIDATION_ERROR`(400)를 돌려준다.
+60일을 요청했는데 31일이 오면, 클라이언트는 그게 상한에 걸린 건지 그 앞엔 기록이
+없는 건지 구분할 수 없다.
 
 ## 부하 테스트 요약
 
