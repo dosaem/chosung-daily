@@ -99,6 +99,31 @@ services:
       redis:
         condition: service_healthy
 
+  # 매일 04:00 KST mysqldump → gzip, ${BACKUP_DIR} 에 14일 보존, 실패하면 Slack.
+  # mysql 과 같은 이미지를 쓴다 — mysqldump·gzip·curl·find 가 전부 들어 있고
+  # NAS 가 이미 당겨 둔 이미지라 추가로 받을 게 없다 (README "설계 판단" §21).
+  backup:
+    image: mysql:8
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Seoul
+      BACKUP_AT: "04:00"
+      BACKUP_RETENTION_DAYS: 14
+      MYSQL_HOST: mysql
+      MYSQL_DATABASE: chosung_daily
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+    entrypoint: ["/bin/bash", "/scripts/backup-cron.sh"]
+    # 덤프는 named volume 이 아니라 호스트(NAS) 폴더에 둔다 — 컨테이너·볼륨이
+    # 날아가도 DSM 파일 탐색기로 꺼낼 수 있어야 백업이다. 이 컨테이너는 root 로
+    # 쓰기 때문에 mysql(uid 999)을 괴롭히는 /volume1 ACL 문제가 없다.
+    volumes:
+      - ./scripts:/scripts:ro
+      - ${BACKUP_DIR:-./backups}:/backups
+    depends_on:
+      mysql:
+        condition: service_healthy
+
 volumes:
   mysql-data:
   redis-data:

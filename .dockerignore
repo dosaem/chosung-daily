@@ -9,6 +9,11 @@ handoff/
 docs/
 k6/
 
+# 백업 덤프(기본 BACKUP_DIR=./backups). backup 컨테이너가 호스트 폴더를 bind
+# mount 로 쓰기 때문에 이미지에 들어갈 이유가 없고, 들어가면 DB 덤프가 통째로
+# 이미지에 구워진다.
+backups*/
+
 .venv/
 tests/
 migrations/__pycache__/
