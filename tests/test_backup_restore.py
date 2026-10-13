@@ -425,6 +425,95 @@ def test_restore_leaves_redis_alone_when_the_database_restore_fails(docker_stub,
     assert result.returncode != 0
 
 
+@pytest.fixture
+def redis_exec_stub(stub):
+    """docker 스텁이 redis 쪽 `sh -c` 를 진짜로 실행한다.
+
+    `docker_stub` 은 인자와 stdin 만 기록하므로 restore.sh 안쪽 Redis 정리 셸이
+    한 줄도 돌지 않는다 — 그래서 그 셸의 오류 전파(D-21-4)를 못 본다. 여기서는
+    mysql 호출은 stdin 을 삼키고, redis 호출은 `sh -c '<본문>'` 을 그대로
+    exec 해서 redis-cli 스텁과 함께 실제로 돌린다.
+    """
+    stub.write(
+        "docker",
+        'printf "%s\\n" "$@" >> "$STUB_LOG/docker.args"\n'
+        "case \" $* \" in\n"
+        '*" exec -T mysql "*)\n'
+        '  cat > "$STUB_LOG/mysql.stdin"\n'
+        "  ;;\n"
+        '*" exec -T redis "*)\n'
+        '  while [ $# -gt 0 ] && [ "$1" != sh ]; do shift; done\n'
+        '  [ $# -gt 0 ] || exit 1\n'
+        '  exec "$@"\n'
+        "  ;;\n"
+        "esac",
+    )
+    # redis-cli: REDIS_CLI_MODE 로 성공/SCAN 실패/DEL 실패를 고른다.
+    stub.write(
+        "redis-cli",
+        'printf "%s\\n" "$@" >> "$STUB_LOG/redis-cli.args"\n'
+        'case "${REDIS_CLI_MODE:-ok}" in\n'
+        "scan-fails)\n"
+        '  echo "Could not connect to Redis: Connection refused" >&2\n'
+        "  exit 1\n"
+        "  ;;\n"
+        "del-fails)\n"
+        '  case "$1" in\n'
+        '  --scan) [ "$3" = "puzzle:*" ] && echo "puzzle:2026-10-13" ;;\n'
+        "  del)\n"
+        '    echo "Could not connect to Redis: Connection refused" >&2\n'
+        "    exit 1\n"
+        "    ;;\n"
+        "  esac\n"
+        "  ;;\n"
+        "*)\n"
+        '  case "$1" in\n'
+        "  --scan)\n"
+        '    [ "$3" = "puzzle:*" ] && printf "puzzle:2026-10-13\\npuzzle:2026-10-12\\n"\n'
+        "    ;;\n"
+        "  del) echo 1 ;;\n"
+        "  esac\n"
+        "  ;;\n"
+        "esac\n"
+        "exit 0",
+    )
+    return stub
+
+
+def test_restore_deletes_every_derived_key_the_scan_found(redis_exec_stub, dump_file):
+    """정리 셸을 실제로 돌려본다 — 찾은 키마다 DEL 이 나가고 수가 맞는다."""
+    result = redis_exec_stub.run("restore.sh", "-y", str(dump_file), "chosung-daily-prod")
+    assert result.returncode == 0, result.stderr
+
+    calls = redis_exec_stub.args("redis-cli")
+    assert "puzzle:2026-10-13" in calls
+    assert "puzzle:2026-10-12" in calls
+    assert "deleted 2 derived keys" in result.stdout, result.stdout
+
+
+def test_restore_fails_when_the_redis_scan_cannot_run(redis_exec_stub, dump_file):
+    """D-21-4. `for key in $(redis-cli --scan ...)` 는 치환이 죽어도 빈 목록을
+    돌고 끝난다 — Redis 가 안 떠 있어도 "0개 지웠다" 로 성공해 보인다."""
+    result = redis_exec_stub.run(
+        "restore.sh", "-y", str(dump_file), "chosung-daily-prod", REDIS_CLI_MODE="scan-fails"
+    )
+
+    assert result.returncode != 0, result.stdout
+    assert "완료" not in result.stdout, "캐시가 남았는데 복구 성공을 선언했다"
+    assert "직접 확인하고 지워야 한다" in result.stderr
+
+
+def test_restore_fails_when_deleting_a_derived_key_fails(redis_exec_stub, dump_file):
+    """D-21-4. DEL 이 깨지면 그 키는 복구 전 값으로 남는다 — 세지 말고 멈춘다."""
+    result = redis_exec_stub.run(
+        "restore.sh", "-y", str(dump_file), "chosung-daily-prod", REDIS_CLI_MODE="del-fails"
+    )
+
+    assert result.returncode != 0, result.stdout
+    assert "완료" not in result.stdout
+    assert "deleted 1 derived keys" not in result.stdout, "못 지운 키를 지웠다고 셌다"
+
+
 @pytest.mark.parametrize("doc", ["README.md", "docs/RELEASE.md"])
 def test_restore_docs_do_not_sell_an_app_restart_as_cache_cleanup(doc):
     """D-21-3. `restart app worker beat` 는 Redis 를 비우지 않는다 — Redis 는

@@ -80,9 +80,18 @@ gzip -dc "$dump" |
 # 산다(둘 다 DB 와 무관하므로 되감을 이유도 없다).
 echo "[restore] Redis 파생 키 정리 (puzzle:/stats:/lb:)"
 docker compose -f "$COMPOSE_FILE" -p "$project" exec -T redis sh -c '
+  set -eu
   deleted=0
   for pattern in "puzzle:*" "stats:*" "lb:*"; do
-    for key in $(redis-cli --scan --pattern "$pattern"); do
+    # SCAN 을 `for key in $(...)` 에 바로 넣으면 안 된다 — 치환이 죽어도 for 는
+    # 빈 목록을 돌고 넘어가서, Redis 가 안 떠 있는 것과 "지울 키가 없다" 가
+    # 똑같이 보인다(set -e 도 치환 실패를 못 잡는다). 단순 대입이면 set -e 가
+    # 치환의 종료 코드에 반응하니, 먼저 변수로 받는다.
+    keys=$(redis-cli --scan --pattern "$pattern")
+    [ -n "$keys" ] || continue
+    for key in $keys; do
+      # set -eu 로 DEL 실패도 여기서 끊긴다 — 못 지운 키를 세고 넘어가면
+      # 복구 전 값이 남은 채로 성공을 선언하게 된다.
       redis-cli del "$key" >/dev/null
       deleted=$((deleted + 1))
     done

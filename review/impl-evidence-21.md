@@ -619,3 +619,135 @@ chosung-daily_mysql_data
   Slack 페이로드는 전부 스텁 curl 과 `hooks.example.test` 로만 확인했다.
 - 결함 범위 밖의 리팩토링·기능 추가는 하지 않았다. `review/impl-review-21.md`
   는 건드리지 않았다.
+
+## 수정 라운드 2
+
+라운드 2 리뷰는 BLOCKER 0 / MAJOR 1 (D-21-4) / MINOR 0 을 남겼다. 이전 3건은
+FIXED 판정이라 손대지 않았다. 아래가 D-21-4 하나에 대한 원인·수정·증명이다.
+
+### D-21-4 (MAJOR) — Redis 명령 실패를 무시하고 복구 성공을 선언함
+
+**재현 (수정 전)** — 리뷰가 준 코드를 그대로 돌렸다. docker 스텁은 mysql 쪽은
+stdin 을 삼키고 redis 쪽은 내부 `sh -c` 를 진짜 exec 하며, `redis-cli` 는 연결
+오류로 종료 1 을 낸다. 외부·실제 DB 접속은 없다.
+
+```
+$ uv run python /tmp/.../repro_d4.py       # 리뷰 "안전 재현 코드" 그대로
+exit: 0
+[restore] Redis 파생 키 정리 (puzzle:/stats:/lb:)
+[restore] deleted 0 derived keys
+[restore] 완료 — MySQL 은 덤프 시점으로, Redis 파생 키는 비워졌다.
+(stderr) Could not connect to Redis: Connection refused   × 3
+```
+
+**원인** — 증상은 "종료 코드 0" 하나지만 원인은 내부 `sh -c` 본문의 세 겹이다.
+
+1. `for key in $(redis-cli --scan --pattern "$pattern")` — 명령 치환의 종료
+   코드가 버려진다. SCAN 이 죽으면 목록이 비어 for 가 0회 돌고, **Redis 가 안
+   떠 있는 것과 "지울 키가 없다" 가 구별되지 않는다.** `set -e` 를 켜도 for 의
+   치환 실패는 잡히지 않으므로(리뷰 지적대로) 이 자리를 바꿔야 한다.
+2. 내부 셸에 오류 중단이 없어 `redis-cli del` 실패도 무시되고, 못 지운 키를
+   `deleted` 에 세고 넘어간다.
+3. 본문 마지막 `echo` 가 성공하므로 `sh -c` 전체가 0 으로 끝난다 → 외부 `||`
+   의 실패 처리(92–96행)와 `exit 1` 에 영원히 도달하지 못하고, 99행 완료
+   메시지가 출력된다.
+
+**수정** — `scripts/restore.sh:82` 내부 셸만 고쳤다(기능 추가 없음).
+
+- `set -eu` 를 켜서 `del` 실패가 그 자리에서 셸을 끊는다(원인 2·3).
+- SCAN 을 `keys=$(redis-cli --scan --pattern "$pattern")` 로 **먼저 변수에
+  대입**한다 — 단순 대입은 치환의 종료 코드를 그대로 쓰므로 `set -e` 가 반응
+  한다(원인 1). 빈 결과는 `[ -n "$keys" ] || continue` 로 정상 통과시킨다.
+- 왜 이렇게 했는지는 주석으로 코드에 남겼다.
+
+**증명 1 — 회귀 테스트 3개.** 기존 `docker_stub` 은 인자·stdin 만 기록해서
+내부 Redis 셸이 한 줄도 돌지 않았다(리뷰의 "테스트 한계" 지적). 그래서
+`redis_exec_stub` 픽스처를 추가했다: docker 스텁이 redis 쪽 `sh -c '<본문>'` 을
+실제로 exec 하고, `redis-cli` 스텁은 `REDIS_CLI_MODE` 로 ok / scan-fails /
+del-fails 를 고른다. 즉 **restore.sh 의 정리 셸 본문이 테스트에서 실행된다.**
+
+| 테스트 | 검증 |
+|---|---|
+| `test_restore_deletes_every_derived_key_the_scan_found` | 정상 경로: 찾은 키마다 DEL 이 나가고 `deleted 2 derived keys` |
+| `test_restore_fails_when_the_redis_scan_cannot_run` | SCAN 종료 1 → 종료 코드 ≠ 0, 완료 메시지 없음, 수동 확인 안내 출력 |
+| `test_restore_fails_when_deleting_a_derived_key_fails` | DEL 종료 1 → 종료 코드 ≠ 0, 못 지운 키를 세지 않음 |
+
+수정 전(red) → 수정 후(green):
+
+```
+$ uv run pytest tests/test_backup_restore.py -q -k "redis_scan_cannot_run or deleting_a_derived_key_fails or deletes_every_derived_key"
+# 수정 전
+E       AssertionError: ... [restore] deleted 0 derived keys
+E         [restore] 완료 — MySQL 은 덤프 시점으로, Redis 파생 키는 비워졌다.
+E       assert 0 != 0
+E       AssertionError: ... [restore] deleted 1 derived keys        # del-fails
+2 failed, 1 passed, 37 deselected in 1.45s
+# 수정 후
+3 passed, 37 deselected in 0.89s
+```
+
+**증명 2 — 리뷰의 재현 코드 재실행(수정 후).** 같은 스텁, 같은 입력.
+
+```
+$ uv run python /tmp/.../repro_d4.py
+exit: 1
+[restore] Redis 파생 키 정리 (puzzle:/stats:/lb:)
+(stderr) Could not connect to Redis: Connection refused
+(stderr) Redis 파생 키를 못 지웠다 — 앱이 복원된 DB 대신 복구 전 캐시를 내보낼 수 있다.
+(stderr) 직접 확인하고 지워야 한다:
+(stderr)   docker compose -f docker-compose.prod.yml -p review-local exec redis \
+(stderr)     sh -c 'redis-cli --scan --pattern "puzzle:*"'
+```
+
+종료 코드 1, 완료 메시지 없음, 수동 확인 안내 출력 — 리뷰의 "기대" 그대로다.
+연결 오류가 3회에서 1회로 줄었는데, 첫 패턴에서 멈추기 때문이다(의도한 동작).
+
+**증명 3 — 실제 Redis 정상 경로가 안 깨졌는지.** restore.sh 의 내부 셸 본문을
+추출해 `redis-cli` 를 `docker exec ... redis-cli -n 9` 로 감싸 **테스트 전용
+Redis DB 9** 에 돌렸다. 이번 검증용 고유 키 4개만 만들고 끝에 지웠다.
+
+```
+$ redis-cli -n 9 set puzzle:2099-12-21-t21r2 / stats:t21r2-check / lb:t21r2-check / ratelimit:t21r2-check
+$ sh inner.sh
+exit: 0
+[restore] deleted 3 derived keys
+$ 남은 키 존재 여부
+puzzle:2099-12-21-t21r2=0 stats:t21r2-check=0 lb:t21r2-check=0 ratelimit:t21r2-check=1
+```
+
+파생 키 3개는 지워지고 ratelimit 키(celery 브로커·rate limit 과 같은 부류)는
+남는다 — FLUSHDB 금지 요구도 그대로다.
+
+### 라운드 2 전체 검증
+
+```
+$ export TEST_DATABASE_URL='mysql+pymysql://chosung:chosung@localhost:3306/chosung_daily_test_t21?charset=utf8mb4'
+$ export TEST_REDIS_URL='redis://127.0.0.1:6379/9'
+$ uv run pytest -q
+148 passed in 47.87s
+
+$ uv run ruff check .
+All checks passed!
+
+$ bash -n scripts/backup.sh scripts/backup-cron.sh scripts/restore.sh     # 종료 0
+```
+
+145 → 148 은 이번에 추가한 회귀 테스트 3개다. 전용 DB `chosung_daily_test_t21`
+과 Redis DB 9 만 썼고 공용 테스트 DB 는 비우지 않았다.
+
+### 틀렸다고 판단한 지적
+
+없다. D-21-4 는 재현되고 원인도 리뷰의 분석과 같다.
+
+### 미수정 MINOR
+
+없다 — 라운드 2 리뷰에 MINOR 가 없다.
+
+리뷰가 "증거 부족" 으로 남긴 **실제 MySQL 덤프 왕복**은 수정 라운드 1 절의
+A → B → 복원 → A 기록이 그 왕복이며, 이번 수정은 Redis 정리 셸의 오류 전파만
+바꿨으므로(정상 경로 출력은 증명 3 에서 동일) 다시 돌리지 않았다.
+
+### 안 한 것 (라운드 2)
+
+- 결함 범위 밖 리팩토링·기능 추가 없음. `review/impl-review-21.md` 는 읽기만 했다.
+- 프로덕션·NAS 접근, 실제 Slack 전송, `git push`, 하위 워커 실행 없음.
