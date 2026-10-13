@@ -654,3 +654,107 @@ $ git diff --stat main..HEAD -- migrations/   # 출력 없음 — 마이그레�
 작업으로 남아 있다. 위 Docker 사용은 (1) 이미 돌고 있는 로컬 개발 Redis 컨테이너의
 `sleep 0.2`, (2) 받아둔 로컬 이미지로 bash 5.2·shellcheck 확인뿐이고 이미지 빌드·
 `up`·`down` 은 없다.
+
+## 수정 라운드 3
+
+라운드 3 리뷰(Codex)는 FAIL, 신규 MAJOR 1건(D-20-6), 이전 5건 전부 FIXED 유지,
+REPEAT·BLOCKER·MINOR 0건이다. 미수정 MINOR 없음.
+
+### D-20-6 (MAJOR) — PR/fork CI 성공도 배포 잡을 열었다
+
+**원인.** 배포 잡의 게이트가 `workflow_run` 의 **브랜치 이름**(트리거의
+`branches: [main, develop]`)과 `conclusion == 'success'` 둘뿐이었다. 그런데
+`ci.yml` 은 `pull_request` 에서도 돈다(`.github/workflows/ci.yml:6`). 브랜치 이름은
+PR 의 소스 브랜치도 쓸 수 있으므로, 이름이 `main`/`develop` 인 PR 의 CI 가 성공하면
+그 `workflow_run` 이 이름 필터를 통과해 배포 잡을 연다. 열리면 러너가 이벤트의
+`head_sha`(= PR 커밋)를 checkout 하고(`deploy.yml:30`), **그 커밋의**
+`deploy/deploy.sh` 를 배포 secret 으로 연 NAS 로 흘려보낸다(`deploy.yml:62`).
+스크립트 안의 승인 SHA 검사(D-20-1 수정분)는 같은 PR 이 같이 고칠 수 있는 코드라
+신뢰 경계를 대신하지 못한다. fork PR CI 를 실행·승인하는 설정이면 남의 저장소
+커밋도 같은 경로를 탄다. 리뷰의 지적은 타당하다 — 반박 없음.
+
+**수정.** 증상(스크립트 안 검사 강화)이 아니라 원인(잡을 여는 조건)을 고쳤다.
+`.github/workflows/deploy.yml` 의 잡 `if` 에 선행 CI 의 **출처** 검사를 추가해,
+checkout·secret 사용·NAS 연결보다 **앞에서** 막는다.
+
+```yaml
+    if: >-
+      github.event.workflow_run.conclusion == 'success'
+      && github.event.workflow_run.event == 'push'
+      && github.event.workflow_run.head_repository.full_name == github.repository
+```
+
+`event == 'push'` 가 PR CI 를 떨어뜨리고, `head_repository.full_name` 비교가
+같은 이름의 브랜치를 가진 fork 를 떨어뜨린다(push 는 원래 자기 저장소에서만 나지만,
+둘 중 하나가 빠져도 경로가 다시 열리므로 같이 둔다). 왜 스크립트 안이 아니라
+워크플로의 `if` 여야 하는지는 README "설계 판단" §20 마지막 문단에 적었다.
+
+**증명하는 테스트.** `tests/test_deploy_workflow.py` 에 회귀 테스트 4개를 넣었다.
+`if` 문자열을 눈으로 비교하지 않고, `workflow_run` 페이로드를 만들어 **식을 실제로
+평가**한다(`_allows` 는 게이트가 쓰는 `&&`·`==` 만 해석하고 그 밖의 연산자가 들어오면
+조용히 통과시키지 않고 실패한다).
+
+| 테스트 | 검사 |
+|---|---|
+| `test_deploy_runs_for_push_ci_on_deploy_branches` | main/develop **push** CI 성공은 통과(게이트가 과하게 막지 않음) |
+| `test_deploy_blocks_pull_request_ci` | 이름이 main/develop 인 **PR** CI 성공은 차단 |
+| `test_deploy_blocks_ci_from_a_forked_head_repository` | **fork** 출처는 차단 |
+| `test_deploy_blocks_failed_push_ci` | push CI 실패는 차단(기존 조건 회귀 방지) |
+
+수정 전(red) — 리뷰의 재현 조건 그대로 실패한다:
+
+```text
+$ uv run pytest tests/test_deploy_workflow.py -q
+FAILED tests/test_deploy_workflow.py::test_deploy_blocks_pull_request_ci - as...
+FAILED tests/test_deploy_workflow.py::test_deploy_blocks_ci_from_a_forked_head_repository
+2 failed, 15 passed in 0.07s
+```
+
+수정 후(green):
+
+```text
+$ uv run pytest tests/test_deploy_workflow.py -q
+.................                                                        [100%]
+17 passed in 0.03s
+```
+
+리뷰가 실은 재현 명령(`deploy.yml` 을 읽어 조건을 대조)도 현재 YAML 로 다시 돌렸다.
+외부 호출 없이 로컬 파일만 읽는다.
+
+```text
+$ uv run python -I - <<'PY'   # 리뷰 D-20-6 재현 스크립트를 새 조건에 맞춰 평가
+push base True
+pull_request base False
+pull_request fork False
+${{ github.event.workflow_run.head_sha }}
+```
+
+### 라운드 3 전체 검증
+
+```text
+$ TEST_DATABASE_URL=mysql+pymysql://chosung:***@127.0.0.1:3306/chosung_daily_test_t20?charset=utf8mb4 \
+  TEST_REDIS_URL=redis://127.0.0.1:6379/8 uv run pytest -q
+236 passed in 83.56s (0:01:23)
+
+$ uv run ruff check .
+All checks passed!            (exit 0)
+
+$ bash -n deploy/deploy.sh    (exit 0)
+
+$ uv run flask db heads
+4e72a4045fbc (head)
+
+$ git diff --check main...HEAD   (출력 없음, exit 0)
+```
+
+231 → 236 은 이번 회귀 테스트 5개(`test_deploy_runs_for_push_ci_on_deploy_branches`
+가 main/develop 로 parametrize 돼 2개로 센다)다. 테스트 자원은 계속 이 티켓 전용
+(`chosung_daily_test_t20` / Redis DB 8)이고 공용 테스트 DB 는 건드리지 않았다.
+접속 정보 실값은 이 문서에 적지 않는다.
+
+`git rebase main`(로컬 `main` `72a2a3c`) 은 "up to date" — 이미 그 위라 재적용할
+커밋이 없었고, 작업 트리는 clean 이다. 마이그레이션 변경 없음(head 는 라운드 2 와
+같은 한 줄). `review/impl-review-20.md` 는 고치지 않았다. 실제 GitHub Actions·
+Tailscale·NAS 연결과 배포 실행은 여전히 금지 범위라 하지 않았고 `docs/RELEASE.md`
+D3 체크리스트의 사람 작업으로 남아 있다. 이번 라운드에 추가로 실행한 Docker 명령은
+없다.
