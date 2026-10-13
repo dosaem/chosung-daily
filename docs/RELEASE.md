@@ -315,7 +315,9 @@ NAS 가 없어도 "대상 인자 하나가 설정을 다 고르는지" 와 "실�
 1. **마이그레이션**: `flask db upgrade` (리비전 `a5bab2f58a7b`, `subscription`
    테이블 추가). 롤백은 같은 리비전의 `downgrade` 로 테이블만 지운다.
 2. **환경변수**(`.env.example` `[12]` 절 참고). 값 자체는 이 레포에 넣지 않는다.
-   - Apple: `APP_STORE_BUNDLE_ID`, `APP_STORE_ISSUER_ID`, `APP_STORE_KEY_ID`,
+   - Apple: `APP_STORE_BUNDLE_ID`, `APP_STORE_APP_APPLE_ID`(App Store Connect
+     앱 정보의 숫자 Apple ID — Production 검증기의 필수 인자다),
+     `APP_STORE_ISSUER_ID`, `APP_STORE_KEY_ID`,
      `APP_STORE_PRIVATE_KEY`(.p8), `APP_STORE_ROOT_CERT_PATHS`
    - Google: `PLAY_PACKAGE_NAME`, `PLAY_SERVICE_ACCOUNT_FILE`(서비스 계정 JSON 경로)
    - 공통: `SUBSCRIPTION_PRODUCT_ID`(기본 `adfree_monthly`)

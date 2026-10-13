@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 
 import pytest
+import requests
 from appstoreserverlibrary.api_client import APIException, _get_cattrs_converter
 from appstoreserverlibrary.models.Environment import Environment
 from appstoreserverlibrary.models.JWSRenewalInfoDecodedPayload import (
@@ -27,7 +28,12 @@ from app.models import SubscriptionEnvironment
 
 FIXTURES = Path(__file__).parent / "fixtures" / "store"
 BUNDLE_ID = "com.chosungdaily.app"
+APP_APPLE_ID = "6450000000"
 STORE_KEY = "2000000111111111"
+
+# 상태 조회 응답이 들고 오는 "지금 유효한 거래" 의 JWS 자리. 앱이 올린 영수증
+# JWS 와 다른 문자열이어야 둘 중 어느 쪽을 검증했는지 테스트가 구분할 수 있다.
+LATEST_TRANSACTION_JWS = "signed-latest-transaction"
 
 
 def receipt_jws(environment: str = "Production") -> str:
@@ -43,16 +49,24 @@ def receipt_jws(environment: str = "Production") -> str:
 
 
 class _FakeVerifier:
-    """공식 검증기 자리. fixture 를 라이브러리 객체로 되돌려 준다."""
+    """공식 검증기 자리. JWS 문자열을 fixture 페이로드로 되돌려 준다.
 
-    def __init__(self, item: dict):
-        self._item = item
+    앱이 올린 영수증과 상태 조회가 돌려준 최신 거래는 서로 다른 JWS 다 —
+    어느 쪽을 검증했는지 `verified` 에 남겨 테스트가 확인한다.
+    """
 
-    def verify_and_decode_signed_transaction(self, _jws):
-        return _structure(self._item["signedTransactionInfo"], JWSTransactionDecodedPayload)
+    def __init__(self, state: dict):
+        self._state = state
+
+    def verify_and_decode_signed_transaction(self, jws):
+        self._state["verified"].append(jws)
+        payload = (
+            self._state["latest"] if jws == LATEST_TRANSACTION_JWS else self._state["submitted"]
+        )
+        return _structure(payload, JWSTransactionDecodedPayload)
 
     def verify_and_decode_renewal_info(self, _jws):
-        return _structure(self._item["signedRenewalInfo"], JWSRenewalInfoDecodedPayload)
+        return _structure(self._state["renewal_info"], JWSRenewalInfoDecodedPayload)
 
 
 def _structure(payload: dict, model):
@@ -67,6 +81,7 @@ def _status_response(item: dict):
         {
             "originalTransactionId": item["originalTransactionId"],
             "rawStatus": item["status"],
+            "signedTransactionInfo": LATEST_TRANSACTION_JWS,
             "signedRenewalInfo": "signed-renewal-info",
         },
     )()
@@ -81,6 +96,7 @@ def app_store_configured(app, tmp_path, monkeypatch):
     cert.write_bytes(b"not-a-real-certificate")
     app.config.update(
         APP_STORE_BUNDLE_ID=BUNDLE_ID,
+        APP_STORE_APP_APPLE_ID=APP_APPLE_ID,
         APP_STORE_ISSUER_ID="issuer-id",
         APP_STORE_KEY_ID="key-id",
         APP_STORE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nnot-real\n-----END PRIVATE KEY-----",
@@ -94,9 +110,17 @@ def apple_calls(monkeypatch):
     """Apple 조회를 가로채고, 어떤 환경으로 몇 번 물어봤는지 기록한다."""
     item = json.loads((FIXTURES / "apple_active.json").read_text())
     environments: list[Environment] = []
-    fail_with: dict[Environment, APIException] = {}
+    fail_with: dict[Environment, Exception] = {}
+    state = {
+        # 앱이 올린 영수증의 거래와 상태 조회가 돌려주는 최신 거래. 기본값은
+        # 같은 내용이고, D-12-3 테스트만 최신 쪽을 갈아 끼운다.
+        "submitted": item["signedTransactionInfo"],
+        "latest": item["signedTransactionInfo"],
+        "renewal_info": item["signedRenewalInfo"],
+        "verified": [],
+    }
 
-    monkeypatch.setattr(app_store, "_verifier", lambda *_: _FakeVerifier(item))
+    monkeypatch.setattr(app_store, "_verifier", lambda *_: _FakeVerifier(state))
 
     class _FakeClient:
         def __init__(self, **kwargs):
@@ -109,7 +133,7 @@ def apple_calls(monkeypatch):
             return _status_response(item)
 
     monkeypatch.setattr(app_store, "_TimeoutAppStoreServerAPIClient", _FakeClient)
-    return {"environments": environments, "fail_with": fail_with}
+    return {"environments": environments, "fail_with": fail_with, "state": state}
 
 
 def test_apple_receipt_environment_picks_the_endpoint(app_store_configured, apple_calls):
@@ -130,23 +154,79 @@ def test_apple_production_miss_falls_back_to_sandbox_once(app_store_configured, 
 
 
 def test_apple_sandbox_miss_does_not_loop_back(app_store_configured, apple_calls):
-    """Sandbox 로 시작했는데 없으면 폴백할 곳이 없다 — 한 번만 물어보고 끝낸다."""
+    """Sandbox 로 시작했는데 없으면 폴백할 곳이 없다 — 한 번만 물어보고 끝낸다.
+
+    그리고 "어느 환경에도 없는 거래" 는 스토어 장애가 아니라 틀린 영수증이다(400).
+    """
     apple_calls["fail_with"][Environment.SANDBOX] = APIException(404, 4040010)
 
-    with pytest.raises(APIException):
+    with pytest.raises(ReceiptInvalidError):
         app_store.fetch_subscription(receipt_jws("Sandbox"))
 
     assert apple_calls["environments"] == [Environment.SANDBOX]
 
 
+def test_apple_production_fallback_miss_is_a_bad_receipt(app_store_configured, apple_calls):
+    """폴백까지 갔는데도 없으면 더 물어볼 환경이 없다 — 영수증 잘못(400)."""
+    apple_calls["fail_with"][Environment.PRODUCTION] = APIException(404, 4040010)
+    apple_calls["fail_with"][Environment.SANDBOX] = APIException(404, 4040005)
+
+    with pytest.raises(ReceiptInvalidError):
+        app_store.fetch_subscription(receipt_jws("Production"))
+
+    assert apple_calls["environments"] == [Environment.PRODUCTION, Environment.SANDBOX]
+
+
 def test_apple_other_api_errors_are_not_retried(app_store_configured, apple_calls):
-    """"없음" 이 아닌 에러(예: 인증 실패)는 Sandbox 로 다시 물어볼 일이 아니다."""
+    """"없음" 이 아닌 에러(예: 인증 실패)는 Sandbox 로 다시 물어볼 일이 아니다.
+
+    영수증을 탓할 근거도 없으니 스토어 장애(503)로 올린다.
+    """
     apple_calls["fail_with"][Environment.PRODUCTION] = APIException(401, 4010000)
 
-    with pytest.raises(APIException):
+    with pytest.raises(StoreUnavailableError):
         app_store.fetch_subscription(receipt_jws("Production"))
 
     assert apple_calls["environments"] == [Environment.PRODUCTION]
+
+
+def test_apple_server_trouble_is_a_store_outage(app_store_configured, apple_calls):
+    """Apple 이 5xx 를 주면 "지금은 모른다" 다 — 앱이 다시 올리도록 503."""
+    apple_calls["fail_with"][Environment.PRODUCTION] = APIException(503)
+
+    with pytest.raises(StoreUnavailableError):
+        app_store.fetch_subscription(receipt_jws("Production"))
+
+
+def test_apple_network_timeout_is_a_store_outage(app_store_configured, apple_calls):
+    """3초 타임아웃에 걸린 요청이 그대로 올라가면 500 이 된다 — 503 으로 바꾼다."""
+    apple_calls["fail_with"][Environment.PRODUCTION] = requests.Timeout("timed out")
+
+    with pytest.raises(StoreUnavailableError):
+        app_store.fetch_subscription(receipt_jws("Production"))
+
+
+def test_apple_uses_the_latest_transaction_from_the_status_lookup(
+    app_store_configured, apple_calls
+):
+    """영수증은 구매 시점의 사실이라 만료일이 과거다. 저장할 값은 상태 조회가
+    돌려준 최신 거래의 만료일이어야 한다."""
+    apple_calls["state"]["submitted"] = apple_calls["state"]["submitted"] | {
+        "expiresDate": 1000,
+    }
+    apple_calls["state"]["latest"] = apple_calls["state"]["latest"] | {
+        "expiresDate": 1793491200000,
+    }
+
+    result = app_store.fetch_subscription(receipt_jws("Production"))
+
+    assert result.transaction["expiresDate"] == 1793491200000
+    assert result.store_key == STORE_KEY
+    # 올라온 영수증도 여전히 검증한다 — 최신 거래만 믿으면 아무 영수증이나 통과한다.
+    assert apple_calls["state"]["verified"] == [
+        receipt_jws("Production"),
+        LATEST_TRANSACTION_JWS,
+    ]
 
 
 def test_apple_returns_the_facts_without_interpreting_them(app_store_configured, apple_calls):
@@ -169,6 +249,40 @@ def test_apple_missing_settings_is_a_store_outage(app, apple_calls):
 def test_apple_malformed_receipt_is_rejected(app_store_configured, apple_calls):
     with pytest.raises(ReceiptInvalidError):
         app_store.fetch_subscription("not-a-jws")
+
+
+@pytest.mark.parametrize("payload", [[], None, "string", 7])
+def test_apple_jws_payload_that_is_not_an_object_is_rejected(
+    app_store_configured, apple_calls, payload
+):
+    """JSON 으로는 읽히지만 객체가 아닌 payload 도 영수증 잘못(400)이다 —
+    `.get` 을 바로 불러서 500 이 나면 안 된다."""
+    encoded = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip("=")
+
+    with pytest.raises(ReceiptInvalidError):
+        app_store.fetch_subscription(f"header.{encoded}.signature")
+
+
+def test_apple_production_verifier_is_built_with_the_configured_app_apple_id(
+    app_store_configured,
+):
+    """공식 라이브러리는 Production 검증기에 appAppleId 를 요구한다 — 여기만
+    빠져도 프로덕션 영수증이 전부 검증 전에 죽는다. 진짜 SDK 생성자를 부른다."""
+    credentials = app_store._credentials()
+
+    assert credentials.app_apple_id == int(APP_APPLE_ID)
+    for environment in SubscriptionEnvironment:
+        verifier = app_store._verifier(credentials, environment)
+        assert verifier._app_apple_id == int(APP_APPLE_ID)
+
+
+@pytest.mark.parametrize("value", ["", "not-a-number"])
+def test_apple_bad_app_apple_id_is_a_store_outage(app_store_configured, apple_calls, value):
+    """설정이 비었거나 숫자가 아니면 영수증 잘못이 아니라 서버 설정 문제(503)."""
+    app_store_configured.config.update(APP_STORE_APP_APPLE_ID=value)
+
+    with pytest.raises(StoreUnavailableError):
+        app_store.fetch_subscription(receipt_jws())
 
 
 def test_apple_timeout_is_three_seconds():

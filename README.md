@@ -848,6 +848,16 @@ Sentry 는 `SENTRY_DSN` 이 있을 때만 켠다(`app/observability.py`). 초기
   프로덕션 빌드에 Sandbox 계정으로 구독을 산다. 그래서 환경을 서버 설정으로
   고정하지 않고 영수증(JWS)의 `environment` 를 따르고, 프로덕션 조회가
   "그런 거래 없음"(4040010/4040005)이면 Sandbox 로 **한 번만** 재조회한다.
+- **영수증은 "주인 확인", 저장할 사실은 "상태 조회" 에서 읽는다.** 앱이 올린
+  JWS 는 구매 시점에 서명된 거래라 재구독·갱신 뒤에는 만료일이 이미 과거다.
+  그래서 영수증으로는 `originalTransactionId` 만 확보하고, 만료일·상품은 상태
+  조회 응답의 `signedTransactionInfo`(최신 거래)를 다시 검증해서 쓴다. 둘을
+  섞으면 복원 한 번에 유효한 구독의 만료일이 과거로 되돌아간다.
+- **스토어 실패는 래퍼 안에서 400/503 으로 갈라 둔다.** 어느 환경에도 없는
+  거래(4040010/4040005)만 `RECEIPT_INVALID`(400)이고, 타임아웃·인증 실패·
+  Apple 5xx 는 전부 `STORE_UNAVAILABLE`(503)이다. 공식 라이브러리의
+  `APIException`·`requests` 예외를 그대로 올리면 앱은 500 만 보고 영수증을
+  버려야 할지 다시 올려야 할지 알 수 없다.
 - **Google 의 철회(환불)는 `revoked` 가 아니라 `expired` 로 기록된다.**
   Play Developer API v2 응답(`SubscriptionPurchaseV2`)에는 철회 전용 필드가
   없다 — 그 신호는 Voided Purchases API 와 RTDN `SUBSCRIPTION_REVOKED` 에만

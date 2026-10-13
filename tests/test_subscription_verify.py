@@ -7,12 +7,15 @@
 `tests/test_store_clients.py` 가 따로 검증한다.
 """
 
+import base64
 import json
 import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
+import requests
+from appstoreserverlibrary.api_client import APIException
 
 from app.clients import app_store, play
 from app.errors import StoreUnavailableError
@@ -265,6 +268,86 @@ def test_store_outage_is_not_the_users_fault(client, guest_headers, monkeypatch,
 
     assert response.status_code == 503
     assert response.json["code"] == "STORE_UNAVAILABLE"
+
+
+@pytest.fixture
+def apple_network_boundary(monkeypatch, store_config):
+    """Apple 래퍼를 통째로 바꾸지 않고 **네트워크 경계만** 바꿔 끼운다.
+
+    `fake_apple` 은 `fetch_subscription` 자체를 대체해서 래퍼 안의 오류 변환을
+    건너뛴다. 여기서는 설정·JWS 검증만 합성값으로 두고 `_fetch_status` 의 변환,
+    서비스, 오류 핸들러, HTTP 응답 코드까지 실제 코드로 지나가게 한다.
+    """
+    transaction = load("apple_active.json")["signedTransactionInfo"]
+    monkeypatch.setattr(
+        app_store,
+        "_credentials",
+        lambda: app_store._Credentials(
+            bundle_id=BUNDLE_ID,
+            app_apple_id=6450000000,
+            issuer_id="issuer-id",
+            key_id="key-id",
+            private_key="not-a-real-key",
+            root_certificates=[],
+        ),
+    )
+    monkeypatch.setattr(app_store, "_verify_transaction", lambda *_args: transaction)
+
+    def fail_with(error: Exception):
+        class _FailingClient:
+            def __init__(self, **_kwargs):
+                pass
+
+            def get_all_subscription_statuses(self, _store_key):
+                raise error
+
+        monkeypatch.setattr(app_store, "_TimeoutAppStoreServerAPIClient", _FailingClient)
+
+    return fail_with
+
+
+def sandbox_receipt_jws() -> str:
+    """`_environment_of` 가 읽을 수 있는 최소한의 JWS 모양(서명은 가짜)."""
+    payload = (
+        base64.urlsafe_b64encode(json.dumps({"environment": "Sandbox"}).encode())
+        .decode()
+        .rstrip("=")
+    )
+    return f"header.{payload}.signature"
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (requests.Timeout("timed out"), (503, "STORE_UNAVAILABLE")),
+        (requests.ConnectionError("no route"), (503, "STORE_UNAVAILABLE")),
+        (APIException(503), (503, "STORE_UNAVAILABLE")),
+        (APIException(401, 4010000), (503, "STORE_UNAVAILABLE")),
+        (APIException(404, 4040010), (400, "RECEIPT_INVALID")),
+    ],
+)
+def test_apple_store_failures_become_the_contracted_errors(
+    client, guest_headers, apple_network_boundary, error, expected
+):
+    """스토어 쪽 실패가 그대로 올라오면 전부 500 INTERNAL_ERROR 가 된다.
+    앱은 503 이어야 영수증을 들고 다시 오고, 400 이어야 버린다."""
+    apple_network_boundary(error)
+
+    response = post_verify(client, guest_headers, "apple", sandbox_receipt_jws())
+
+    assert (response.status_code, response.json["code"]) == expected
+    assert rows() == []
+
+
+@pytest.mark.parametrize("receipt", ["header.W10.signature", "header.bnVsbA.signature"])
+def test_a_jws_payload_that_is_not_an_object_is_a_bad_receipt(
+    client, guest_headers, apple_network_boundary, receipt
+):
+    """payload 가 `[]`·`null` 이면 환경을 읽다 500 이 나면 안 된다 — 400 이다."""
+    response = post_verify(client, guest_headers, "apple", receipt)
+
+    assert response.status_code == 400
+    assert response.json["code"] == "RECEIPT_INVALID"
 
 
 def test_verify_requires_a_guest_token(client, fake_apple):

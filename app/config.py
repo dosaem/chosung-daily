@@ -36,6 +36,9 @@ class Config:
     # 사용자 및 액세스 > 통합 > In-App Purchase 키에서 같이 발급된다.
     # BUNDLE_ID 는 iOS 앱 번들 ID — 영수증(JWS)의 bundleId 와 대조하는 값이다.
     APP_STORE_BUNDLE_ID = os.environ.get("APP_STORE_BUNDLE_ID", "")
+    # App Store Connect 의 숫자 앱 ID(Apple ID 필드). 공식 검증기가 Production
+    # 환경에서 필수로 요구한다 — 비어 있으면 프로덕션 영수증을 아예 못 받는다.
+    APP_STORE_APP_APPLE_ID = os.environ.get("APP_STORE_APP_APPLE_ID", "")
     APP_STORE_ISSUER_ID = os.environ.get("APP_STORE_ISSUER_ID", "")
     APP_STORE_KEY_ID = os.environ.get("APP_STORE_KEY_ID", "")
     # APPLE_PRIVATE_KEY 와 같은 요령으로 .p8 내용을 한 줄에 담는다. 로그인용
