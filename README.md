@@ -78,12 +78,13 @@ web/                  # Jinja 템플릿 1장 + vanilla JS
 |---|---|---|---|
 | GET | `/health` | 헬스체크 | - |
 | GET | `/` | 게임 화면 (Jinja) | - |
-| POST | `/api/v1/guests` | 게스트 토큰 발급 | - |
-| GET | `/api/v1/puzzles/today` | 오늘의 퍼즐(초성/글자수/카테고리/남은시도/상태/힌트), 정답 미포함 | Bearer |
+| POST | `/api/v1/guests` | 게스트 토큰 발급 (`{puzzle_language?}`, 기본 `ko`) | - |
+| PATCH | `/api/v1/me` | 퍼즐 언어 선호 변경 (`{puzzle_language}`) → `{puzzle_language}` | Bearer |
+| GET | `/api/v1/puzzles/today` | 게스트 선호 언어의 오늘 퍼즐(`puzzle_id`/`language`/`mask`/`length`/`chosung`/카테고리/남은시도/상태/힌트), 정답 미포함 | Bearer |
 | POST | `/api/v1/puzzles/today/guesses` | 정답 제출 → 판정/피드백/남은시도/(종료 시)정답 | Bearer |
-| GET | `/api/v1/puzzles/today/stats` | 시도 횟수별 정답자 비율 | Bearer |
-| GET | `/api/v1/puzzles/today/leaderboard?limit=20` | 랭킹(적은 시도 우선, 같으면 빨리 푼 순) | Bearer |
-| GET | `/api/v1/me/stats` | 내 streak · 최대streak · 누적 정답 | Bearer |
+| GET | `/api/v1/puzzles/today/stats?language=` | 시도 횟수별 정답자 비율 (언어별, 기본 게스트 선호) | Bearer |
+| GET | `/api/v1/puzzles/today/leaderboard?language=&limit=20` | 랭킹(적은 시도 우선, 같으면 빨리 푼 순, 언어별) | Bearer |
+| GET | `/api/v1/me/stats` | 내 퍼즐 언어 · streak · 최대streak · 누적 정답 | Bearer |
 | POST | `/api/v1/session/sync` | 이 브라우저=이 게스트를 세션 쿠키에 동기화 (로그인 전 필수) | Bearer |
 | GET | `/api/v1/auth/<provider>/login` | 구글/애플 로그인 시작 (리다이렉트) | 세션 쿠키 |
 | GET | `/api/v1/auth/<provider>/callback` | OAuth 콜백, 계정 연결 후 `/?login_token=`으로 리다이렉트 | 세션 쿠키 |
@@ -209,8 +210,8 @@ streak/solved_count가 두 번 올라가면 안 된다. `app/services/guess_serv
 
 ### Redis: 캐시 / 랭킹 / 통계 / rate limit
 
-**캐시-어사이드 범위를 "단어 정보"로만 제한했다.** `puzzle:{date}`에 캐시하는 건
-`chosung`/`answer`/`hint`/`category`처럼 그날 모든 유저에게 똑같은 값뿐이다.
+**캐시-어사이드 범위를 "단어 정보"로만 제한했다.** `puzzle:{date}:{lang}`에 캐시하는 건
+`chosung`/`answer`/`hint`/`category`/`mask`처럼 그날 그 언어의 모든 유저에게 똑같은 값뿐이다.
 `attempts_left`/`status`/힌트 공개 여부처럼 게스트마다 다른 값은 절대 캐시하지 않고
 항상 DB에서 그 게스트의 attempts를 다시 읽는다 — 안 그러면 한 게스트의 진행 상태가
 캐시를 통해 다른 게스트에게 새어나간다. `app/services/puzzle_cache.py`의 `CachedPuzzle`/
@@ -220,12 +221,12 @@ streak/solved_count가 두 번 올라가면 안 된다. `app/services/guess_serv
 깜빡하고 안 늘리면 캐시 히트 경로에서만 조용히 구버전 데이터가 나가는 위험이 있다 —
 캐시 레이어가 더 커지면 `typing.Protocol`로 계약을 명시하는 게 안전하다.
 
-**리더보드 정렬**: "적은 시도 우선, 같으면 빨리 푼 순"을 `lb:{date}` Sorted Set 하나의
+**리더보드 정렬**: "적은 시도 우선, 같으면 빨리 푼 순"을 `lb:{date}:{lang}` Sorted Set 하나의
 점수로 인코딩한다 — `score = attempt_no * 86400 + 자정부터 걸린 초`. 시도 횟수 차이가
 걸린 시간(최대 86399초) 차이보다 항상 크기 때문에, ZSET 기본 오름차순 그대로 원하는
 순서가 나온다(REV 불필요).
 
-**통계**: `stats:{date}` Hash에 `HINCRBY`로 "1"~"5"(그 시도 횟수에 맞춘 정답)와 "fail"을
+**통계**: `stats:{date}:{lang}` Hash에 `HINCRBY`로 "1"~"5"(그 시도 횟수에 맞춘 정답)와 "fail"을
 누적한다. DB(`DailyStats`)로의 배치 반영은 Celery Beat가 매일 00:05 KST에 한다.
 
 **rate limit은 고정 윈도우(fixed window)다.** 게스트가 "처음" 요청한 시점부터 60초
@@ -501,6 +502,53 @@ gzip·find·date 는 진짜를 쓴다. 그래서 "gzip 덤프가 떨어지는지
   `Word` 의 `before_insert`/`before_update` 이벤트가 결과를 `mask` 컬럼에 넣는다. 단어를
   저장하는 경로가 여러 개(CLI 시드·책 등록·관리자 CRUD)라서, 각 호출부가 가림 계산을
   기억하게 두는 대신 모델 한 곳에 모았다. 응답마다 다시 계산하지 않으니 캐시도 그대로다.
+
+### 03. 연속 기록은 퍼즐 언어와 무관하다
+
+같은 날 ko 와 en 퍼즐이 따로 있으니, "연속 기록(streak)을 언어별로 따로 세는" 선택도
+가능했다. 그렇게 하지 않았다. 플레이어가 느끼는 연속 기록은 "매일 들어왔는지" 하나이고,
+언어별로 쪼개면 중간에 언어를 바꾼 사람의 기록이 둘로 갈려 둘 다 끊긴 것처럼 보인다.
+
+그래서 `GuestStats` 는 언어 컬럼을 갖지 않고, 정답 기록 함수(`guess_service._record_solve`)
+가 이렇게 판정한다.
+
+- `last_solved_date == 오늘` → streak 은 손대지 않는다 (그 날 이미 이어졌다)
+- `last_solved_date == 어제` → +1
+- 그 밖 → 1 로 리셋
+
+`solved_count` 만 예외로 매번 올린다 — 이건 "푼 퍼즐 수"라서 같은 날 ko·en 을 둘 다
+맞추면 2 가 맞다. 이 두 규칙이 한 함수 안에서 갈리는 게 헷갈릴 수 있어서, "같은 날
+ko → en 정답" 케이스를 테스트로 박아뒀다
+(`tests/test_streak.py::test_solving_both_languages_on_the_same_day_keeps_streak_and_counts_twice`).
+
+### 03. 캐시 키는 언어로 갈리고, rate limit 키는 안 갈린다
+
+퍼즐 캐시 `puzzle:{date}:{lang}`, 통계 `stats:{date}:{lang}`, 리더보드 `lb:{date}:{lang}`
+— 같은 날짜에 언어마다 다른 퍼즐이 있으니 캐시·집계는 언어를 키에 넣어야 한다. 안 넣으면
+en 플레이어가 ko 퍼즐 캐시를 받아 가고 리더보드가 두 언어의 점수를 섞는다.
+
+반대로 rate limit 키는 `ratelimit:guess:{guest_id}` 로 언어가 없다. 이 카운터의 목적은
+"한 사람이 분당 몇 번 제출하는가"(스팸 방지)이고, 언어를 키에 넣으면 언어를 번갈아
+바꾸는 것만으로 제한이 두 배가 된다 — 보호 장치에 공짜 우회로를 만드는 셈이다. 언어를
+바꿔도 카운터가 이어지는 걸 테스트가 지킨다
+(`tests/test_rate_limit.py::test_rate_limit_counter_survives_a_language_change`).
+
+### 03. 언어 인지 응답 — `chosung` 을 어떻게 채우는가
+
+`GET /puzzles/today` 는 신규 클라이언트용 `mask` 와 함께 ko 호환 필드 `chosung` 을
+계속 내려준다. ko 는 `Word.chosung` 컬럼의 **현행 값 그대로**다 — 돌고 있는 웹
+클라이언트가 보는 문자열이 한 글자도 바뀌지 않아야 한다. en 은 그 컬럼이 자리표시자
+(`_____`)뿐이라 쓸 수 없어서, `mask` 의 보이는 글자로 같은 모양의 문자열을 만든다
+(`mask_to_text`, 예: `apple` → `_PPL_`). 이 필드를 en 에서 `null` 로 둘 수도 있었지만,
+타입이 언어에 따라 바뀌면 옛 클라이언트가 `null` 을 그대로 그려서 깨진다.
+
+`length` 는 `mask` 기준(구분자 제외) 글자 수다 — 같은 응답 안의 `mask` 와 숫자가
+안 맞으면 클라이언트가 타일을 몇 개 그릴지 알 수 없다. 제출 쪽 길이 검증(공백·하이픈
+제거 후 비교)은 티켓 04 에서 같은 기준으로 합류한다.
+
+통계·리더보드는 `?language=` 로 언어를 명시할 수 있고(기본 게스트 선호), 응답에
+`language` 가 들어간다. 퍼즐 조회는 반대로 선호 언어 하나만 돌려준다 — 플레이 중인
+퍼즐이 요청 파라미터에 따라 달라지면 "오늘 내 퍼즐" 이라는 개념이 흔들린다.
 
 ## 부하 테스트 요약
 

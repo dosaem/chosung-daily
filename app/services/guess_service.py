@@ -36,7 +36,7 @@ def submit_guess(guest: Guest, raw_guess: str) -> GuessResponse:
     있음) 고르지 않았다. Attempt의 unique(guest_id, puzzle_id, attempt_no) 제약은
     혹시 이 경로를 안 타는 변경이 생겨도 DB가 마지막으로 막아주는 보험으로 남겨둔다.
     """
-    puzzle = get_today_puzzle_or_404()
+    puzzle = get_today_puzzle_or_404(guest.puzzle_language)
     stats = lock_for_guest(guest.id)
 
     guess = unicodedata.normalize("NFC", raw_guess.strip())
@@ -73,7 +73,7 @@ def submit_guess(guest: Guest, raw_guess: str) -> GuessResponse:
 
     db.session.commit()
 
-    _record_metrics(puzzle.puzzle_date, guest.id, attempt_no, is_correct, finished)
+    _record_metrics(puzzle, guest.id, attempt_no, is_correct, finished)
 
     return GuessResponse(
         is_correct=is_correct,
@@ -89,23 +89,36 @@ def _compare(guess: str, answer: str) -> list[bool]:
 
 
 def _record_metrics(
-    puzzle_date, guest_id: int, attempt_no: int, is_correct: bool, finished: bool
+    puzzle, guest_id: int, attempt_no: int, is_correct: bool, finished: bool
 ) -> None:
     """DB 커밋이 끝난 뒤에만 호출한다 — 커밋이 롤백되면 이 기록도 안 남아야 하니까.
     둘 다 safe_redis_call을 거쳐서 Redis가 죽어 있어도 이 요청 자체에는 영향이 없다.
+
+    통계·리더보드 키는 언어별로 갈리므로 퍼즐의 언어를 같이 넘긴다.
     """
     if finished:
-        record_finish(puzzle_date, is_correct, attempt_no)
+        record_finish(puzzle.puzzle_date, puzzle.language, is_correct, attempt_no)
     if is_correct:
-        record_leaderboard(puzzle_date, guest_id, attempt_no, datetime.now(KST))
+        record_leaderboard(
+            puzzle.puzzle_date, puzzle.language, guest_id, attempt_no, datetime.now(KST)
+        )
 
 
 def _record_solve(stats: GuestStats, today) -> None:
-    yesterday = today - timedelta(days=1)
-    if stats.last_solved_date == yesterday:
-        stats.current_streak += 1
-    else:
-        stats.current_streak = 1
-    stats.max_streak = max(stats.max_streak, stats.current_streak)
+    """정답 하나를 기록한다. 연속 기록(streak)은 퍼즐 언어와 무관하다.
+
+    "그 날 하나라도 맞추면 이어진다" 규칙이라, 이미 오늘 맞춘 적이 있으면(두 번째
+    언어를 맞춘 경우) streak 은 손대지 않는다 — 안 그러면 같은 날 ko·en 을 둘 다
+    맞춘 사람의 streak 이 하루에 2 오른다. 반면 `solved_count` 는 "푼 퍼즐 수"라서
+    언어마다 센다(spec §A.4).
+    """
+    if stats.last_solved_date != today:
+        yesterday = today - timedelta(days=1)
+        if stats.last_solved_date == yesterday:
+            stats.current_streak += 1
+        else:
+            stats.current_streak = 1
+        stats.max_streak = max(stats.max_streak, stats.current_streak)
+        stats.last_solved_date = today
+
     stats.solved_count += 1
-    stats.last_solved_date = today

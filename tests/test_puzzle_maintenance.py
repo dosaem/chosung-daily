@@ -23,7 +23,7 @@ def test_ensure_today_puzzle_creates_when_missing(app):
     ensure_today_puzzle_and_warm_cache()
 
     assert DailyPuzzle.query.filter_by(puzzle_date=today).first() is not None
-    cached = get_redis().get(f"puzzle:{today.isoformat()}")
+    cached = get_redis().get(f"puzzle:{today.isoformat()}:ko")
     assert json.loads(cached)["answer"] == "사과"
 
 
@@ -37,9 +37,9 @@ def test_ensure_today_puzzle_is_idempotent_when_already_exists(app, today_puzzle
 def test_flush_daily_stats_writes_distribution_from_redis(app):
     yesterday = datetime.now(KST).date() - timedelta(days=1)
     redis_client = get_redis()
-    redis_client.hincrby(f"stats:{yesterday.isoformat()}", "1", 3)
-    redis_client.hincrby(f"stats:{yesterday.isoformat()}", "2", 1)
-    redis_client.hincrby(f"stats:{yesterday.isoformat()}", "fail", 2)
+    redis_client.hincrby(f"stats:{yesterday.isoformat()}:ko", "1", 3)
+    redis_client.hincrby(f"stats:{yesterday.isoformat()}:ko", "2", 1)
+    redis_client.hincrby(f"stats:{yesterday.isoformat()}:ko", "fail", 2)
 
     flush_daily_stats_for_yesterday()
 
@@ -61,7 +61,7 @@ def test_flush_daily_stats_upserts_existing_row(app):
     )
     db.session.commit()
 
-    get_redis().hincrby(f"stats:{yesterday.isoformat()}", "1", 5)
+    get_redis().hincrby(f"stats:{yesterday.isoformat()}:ko", "1", 5)
 
     flush_daily_stats_for_yesterday()
 

@@ -1,5 +1,6 @@
 from datetime import date, datetime
 
+from app.models import PuzzleLanguage
 from app.schemas.leaderboard import LeaderboardEntry, LeaderboardResponse
 from app.schemas.stats import TodayStatsResponse
 from app.services.game_rules import MAX_ATTEMPTS
@@ -12,37 +13,48 @@ from app.utils.redis_safe import safe_redis_call
 SECONDS_PER_DAY = 86400
 
 
-def stats_key(puzzle_date: date) -> str:
-    """app/services/puzzle_maintenance_service.py의 Celery Beat 배치도 같은 키 포맷을 쓴다."""
-    return f"stats:{puzzle_date.isoformat()}"
+def stats_key(puzzle_date: date, language: PuzzleLanguage) -> str:
+    """app/services/puzzle_maintenance_service.py의 Celery Beat 배치도 같은 키 포맷을 쓴다.
+
+    같은 날 ko/en 퍼즐이 따로 있으니 집계도 언어별로 갈린다 — 키에 언어가 들어간다.
+    """
+    return f"stats:{puzzle_date.isoformat()}:{language.value}"
 
 
-def _leaderboard_key(puzzle_date: date) -> str:
-    return f"lb:{puzzle_date.isoformat()}"
+def _leaderboard_key(puzzle_date: date, language: PuzzleLanguage) -> str:
+    return f"lb:{puzzle_date.isoformat()}:{language.value}"
 
 
-def record_finish(puzzle_date: date, is_correct: bool, attempt_no: int) -> None:
+def record_finish(
+    puzzle_date: date, language: PuzzleLanguage, is_correct: bool, attempt_no: int
+) -> None:
     """퍼즐이 끝난 순간(정답 또는 5회 소진) 통계 카운터를 올린다.
 
-    Redis Hash(stats:{date})에 HINCRBY로 누적한다. DB(DailyStats)에는 Celery
+    Redis Hash(stats:{date}:{lang})에 HINCRBY로 누적한다. DB(DailyStats)에는 Celery
     Beat 배치가 반영한다(Phase 5) — 여기서는 Redis만 건드린다.
     """
     field = str(attempt_no) if is_correct else "fail"
-    safe_redis_call("hincrby", stats_key(puzzle_date), field, 1)
+    safe_redis_call("hincrby", stats_key(puzzle_date, language), field, 1)
 
 
 def record_leaderboard(
-    puzzle_date: date, guest_id: int, attempt_no: int, solved_at: datetime
+    puzzle_date: date,
+    language: PuzzleLanguage,
+    guest_id: int,
+    attempt_no: int,
+    solved_at: datetime,
 ) -> None:
     """정답을 맞춘 게스트를 오늘의 리더보드(Sorted Set)에 올린다."""
     midnight = solved_at.replace(hour=0, minute=0, second=0, microsecond=0)
     elapsed_seconds = max(0, int((solved_at - midnight).total_seconds()))
     score = attempt_no * SECONDS_PER_DAY + elapsed_seconds
-    safe_redis_call("zadd", _leaderboard_key(puzzle_date), {str(guest_id): score})
+    safe_redis_call(
+        "zadd", _leaderboard_key(puzzle_date, language), {str(guest_id): score}
+    )
 
 
-def get_today_stats(puzzle_date: date) -> TodayStatsResponse:
-    counts = safe_redis_call("hgetall", stats_key(puzzle_date)) or {}
+def get_today_stats(puzzle_date: date, language: PuzzleLanguage) -> TodayStatsResponse:
+    counts = safe_redis_call("hgetall", stats_key(puzzle_date, language)) or {}
 
     by_attempt_count = {str(n): int(counts.get(str(n), 0)) for n in range(1, MAX_ATTEMPTS + 1)}
     total_solved = sum(by_attempt_count.values())
@@ -53,17 +65,18 @@ def get_today_stats(puzzle_date: date) -> TodayStatsResponse:
 
     return TodayStatsResponse(
         date=puzzle_date,
+        language=language,
         total_solved=total_solved,
         by_attempt=by_attempt_ratio,
     )
 
 
 def get_today_leaderboard(
-    puzzle_date: date, limit: int, requesting_guest_id: int
+    puzzle_date: date, language: PuzzleLanguage, limit: int, requesting_guest_id: int
 ) -> LeaderboardResponse:
     raw_entries = (
         safe_redis_call(
-            "zrange", _leaderboard_key(puzzle_date), 0, limit - 1, withscores=True
+            "zrange", _leaderboard_key(puzzle_date, language), 0, limit - 1, withscores=True
         )
         or []
     )
@@ -82,4 +95,4 @@ def get_today_leaderboard(
             )
         )
 
-    return LeaderboardResponse(date=puzzle_date, entries=entries)
+    return LeaderboardResponse(date=puzzle_date, language=language, entries=entries)

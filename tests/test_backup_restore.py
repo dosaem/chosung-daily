@@ -11,6 +11,7 @@ MySQL 컨테이너를 띄우는 실제 복구 리허설은 `docs/RELEASE.md` "�
 """
 
 import gzip
+import json
 import os
 import subprocess
 import time
@@ -22,6 +23,7 @@ import yaml
 
 from app import create_app
 from app.extensions import get_redis
+from app.models import PuzzleLanguage
 from app.services.puzzle_cache import _cache_key, get_cached_puzzle
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -531,20 +533,29 @@ def test_restarting_the_app_does_not_clear_the_puzzle_cache(app):
     퍼즐 캐시는 그대로 살아 있다 — 그래서 restore.sh 가 직접 지운다."""
     stale_date = date(2099, 12, 21)
     get_redis().set(
-        _cache_key(stale_date),
-        '{"id": 212121, "chosung": "ㅍㄷ", "answer": "포도", "hint": "h", "category": "general"}',
+        _cache_key(stale_date, PuzzleLanguage.KO),
+        json.dumps(
+            {
+                "id": 212121,
+                "chosung": "ㅍㄷ",
+                "answer": "포도",
+                "hint": "h",
+                "category": "general",
+                "mask": [{"t": "r", "c": "ㅍ"}, {"t": "r", "c": "ㄷ"}],
+            }
+        ),
         ex=60 * 60 * 26,
     )
 
     restarted = create_app("testing")
     with restarted.app_context():
-        cached = get_cached_puzzle(stale_date)
+        cached = get_cached_puzzle(stale_date, PuzzleLanguage.KO)
         assert cached is not None, "재시작만으로 캐시가 지워졌다"
         assert cached.id == 212121
         # restore.sh 가 하는 일: 파생 키를 직접 지운다.
         for key in get_redis().scan_iter(match="puzzle:*"):
             get_redis().delete(key)
-        assert get_cached_puzzle(stale_date) is None
+        assert get_cached_puzzle(stale_date, PuzzleLanguage.KO) is None
 
 
 # --------------------------------------------------------- compose 의 backup 서비스

@@ -9,7 +9,14 @@ import pytest
 
 from app.models.enums import PuzzleLanguage
 from app.utils.chosung import extract_chosung
-from app.utils.mask import HIDDEN, REVEALED, SEPARATOR, build_mask, mask_length
+from app.utils.mask import (
+    HIDDEN,
+    REVEALED,
+    SEPARATOR,
+    build_mask,
+    mask_length,
+    mask_to_text,
+)
 
 
 def render(mask: list[dict[str, str]]) -> str:
@@ -112,3 +119,23 @@ def test_korean_mask_matches_the_existing_chosung_column_logic(text):
 def test_empty_answer_gives_empty_mask(language):
     assert build_mask(language, "") == []
     assert mask_length([]) == 0
+
+
+def test_mask_to_text_spells_revealed_letters_and_placeholders():
+    mask = build_mask(PuzzleLanguage.EN, "harry potter")
+
+    assert mask_to_text(mask) == "H_RRY P_TT_R"
+
+
+def test_mask_to_text_never_leaks_hidden_letters():
+    mask = build_mask(PuzzleLanguage.EN, "apple")
+
+    assert mask_to_text(mask) == "_PPL_"
+    assert "A" not in mask_to_text(mask)
+    assert "E" not in mask_to_text(mask)
+
+
+def test_mask_to_text_matches_extract_chosung_for_korean_without_separators():
+    answer = "사과"
+
+    assert mask_to_text(build_mask(PuzzleLanguage.KO, answer)) == extract_chosung(answer)

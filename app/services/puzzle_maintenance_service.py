@@ -16,6 +16,8 @@ logger = logging.getLogger(__name__)
 def ensure_today_puzzle_and_warm_cache() -> None:
     """Celery Beat 00:00 KST. 오늘 퍼즐이 없으면 만들고, 캐시를 채운다.
 
+    배정·캐시 워밍을 언어별로 돌리는 건 티켓 05 다 — 여기서는 현행대로 ko 만 본다.
+
     `schedule_puzzles(days=1, ...)`가 이미 "그 날짜에 퍼즐이 있으면 건너뛴다"는
     로직을 갖고 있어서(app/services/puzzle_schedule_service.py), 여기서 따로
     존재 확인을 하지 않아도 매번 돌려도 안전하다(멱등).
@@ -23,7 +25,7 @@ def ensure_today_puzzle_and_warm_cache() -> None:
     schedule_puzzles(days=1, avoid_days=14)
 
     today = datetime.now(KST).date()
-    puzzle = find_by_date(today)
+    puzzle = find_by_date(today, PuzzleLanguage.KO)
     cache_puzzle(puzzle)
 
 
@@ -41,13 +43,13 @@ def flush_daily_stats_for_yesterday() -> None:
         raise RuntimeError("Redis가 설정되지 않아 통계를 반영할 수 없습니다.")
 
     target_date = datetime.now(KST).date() - timedelta(days=1)
-    raw = redis_client.hgetall(stats_key(target_date))
+    raw = redis_client.hgetall(stats_key(target_date, PuzzleLanguage.KO))
 
     distribution = {str(n): int(raw.get(str(n), 0)) for n in range(1, MAX_ATTEMPTS + 1)}
     distribution["fail"] = int(raw.get("fail", 0))
     solver_count = sum(distribution[str(n)] for n in range(1, MAX_ATTEMPTS + 1))
 
-    # Redis 통계 키(stats:{date})가 아직 언어별로 갈리지 않아 ko 행만 반영한다.
+    # 언어별 키 순회는 티켓 05 다 — 지금은 ko 키 하나만 읽어 ko 행에 반영한다.
     existing = db.session.get(DailyStats, (target_date, PuzzleLanguage.KO))
     if existing is not None:
         existing.distribution = distribution
