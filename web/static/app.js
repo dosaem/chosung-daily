@@ -172,13 +172,34 @@ function showMessage(text) {
   document.getElementById("message").textContent = text;
 }
 
+// 한글 IME는 마지막 글자를 조합 중일 때 Enter를 누르면 "조합 확정"과 "제출"이
+// 겹쳐서 submit이 연달아 여러 번 난다. 응답이 오기 전엔 입력창이 안 비워지니
+// 같은 답이 그대로 여러 번 제출돼 기회가 한꺼번에 날아갔다(실제로 겪음).
+let isSubmitting = false;
+
+function blockEnterWhileComposing(event) {
+  if (event.key === "Enter" && (event.isComposing || event.keyCode === 229)) {
+    event.preventDefault();
+  }
+}
+
 async function handleSubmit(event) {
   event.preventDefault();
+  if (isSubmitting) return;
 
   const input = document.getElementById("guess-input");
   const guess = input.value.trim();
   if (!guess) return;
 
+  isSubmitting = true;
+  try {
+    await submitGuess(input, guess);
+  } finally {
+    isSubmitting = false;
+  }
+}
+
+async function submitGuess(input, guess) {
   const res = await fetch(`${API_BASE}/puzzles/today/guesses`, {
     method: "POST",
     headers: { ...authHeaders(), "Content-Type": "application/json" },
@@ -339,6 +360,7 @@ async function init() {
   loadStats();
 
   document.getElementById("guess-form").addEventListener("submit", handleSubmit);
+  document.getElementById("guess-input").addEventListener("keydown", blockEnterWhileComposing);
   document.getElementById("share-button").addEventListener("click", handleShare);
   document
     .getElementById("google-login-button")
