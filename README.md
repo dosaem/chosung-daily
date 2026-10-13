@@ -146,10 +146,14 @@ docker compose -f docker-compose.prod.yml -p chosung-daily-prod --env-file .env 
 # 복구 — 되돌릴 수 없다. 덤프 시점 이후의 행은 사라진다
 ./scripts/restore.sh <덤프.sql.gz> chosung-daily-prod      # 확인 프롬프트
 ./scripts/restore.sh -y <덤프.sql.gz> chosung-daily-prod   # 프롬프트 없이
-
-# 복구 후 캐시 정리
-docker compose -f docker-compose.prod.yml -p chosung-daily-prod restart app worker beat
 ```
+
+`restore.sh` 는 MySQL 에 손대기 전에 `gzip -t` 로 덤프를 통째로 검사하고(깨진
+덤프로 DB 를 날리지 않는다), 복원이 끝나면 **Redis 의 파생 키(`puzzle:` 오늘
+퍼즐 캐시, `stats:`·`lb:` 카운터)를 직접 지운다**. Redis 는 MySQL 과 같이
+되감기지 않아서, 안 지우면 앱이 복원된 DB 대신 복구 전 퍼즐을 계속 내놓는다
+(TTL 26시간). 앱·워커를 재시작해도 안 지워진다 — Redis 는 별도 컨테이너다.
+celery 브로커 큐와 rate limit 카운터는 DB 와 무관해서 건드리지 않는다.
 
 ## 설계 판단
 

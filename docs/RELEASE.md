@@ -141,14 +141,32 @@ ls -l <BACKUP_DIR>            # chosung_daily-YYYYmmdd-HHMMSS.sql.gz
 ./scripts/restore.sh <BACKUP_DIR>/chosung_daily-...sql.gz <프로젝트>
 #    -y 를 주면 확인 프롬프트를 건너뛴다(비대화 실행은 -y 필수)
 
-# 3. 앱 캐시 정리 (Redis 에 퍼즐 캐시가 남아 있을 수 있다)
-docker compose -f docker-compose.prod.yml -p <프로젝트> restart app worker beat
+# 3. Redis 파생 키 정리는 restore.sh 가 직접 한다 — 따로 할 일 없다.
+#    출력에 `[restore] deleted N derived keys` 가 찍힌다.
 ```
 
-`restore.sh` 는 덤프를 `gzip -dc` 로 풀어서 `docker compose -p <프로젝트> exec -T
-mysql` 의 stdin 으로 넣는다. 비밀번호는 mysql 컨테이너 안의
-`$MYSQL_ROOT_PASSWORD` 를 쓰므로 호스트 쪽에서 시크릿을 읽지 않는다. 덤프에
-`DROP DATABASE IF EXISTS` 가 들어 있어서 복구 시점 이후에 생긴 행은 사라진다.
+`restore.sh` 는 세 단계다.
+
+1. **덤프 검사** — `gzip -t <덤프>` 로 압축을 끝까지 풀어본다. 끝이 잘린 덤프를
+   그냥 `gzip -dc | mysql` 로 흘리면 앞쪽의 `DROP DATABASE` 가 먼저 실행돼서
+   *복구 실패가 멀쩡하던 DB 를 날린다*. 그래서 MySQL 에 닿기 전에 여기서 멈춘다.
+2. **MySQL 복원** — `gzip -dc` 를 `docker compose -p <프로젝트> exec -T mysql` 의
+   stdin 으로 넣는다. 비밀번호는 mysql 컨테이너 안의 `$MYSQL_ROOT_PASSWORD` 를
+   쓰므로 호스트 쪽에서 시크릿을 읽지 않는다. 덤프에 `DROP DATABASE IF EXISTS`
+   가 들어 있어서 복구 시점 이후에 생긴 행은 사라진다.
+3. **Redis 파생 키 무효화** — `redis` 컨테이너에서 `puzzle:*`, `stats:*`, `lb:*`
+   를 지운다.
+
+**3 이 왜 필요한가.** Redis 는 MySQL 과 같이 되감기지 않는다. 오늘 퍼즐 캐시
+`puzzle:<날짜>` 는 TTL 이 26시간이고 `app/services/puzzle_service.py` 는 캐시가
+맞으면 DB 를 아예 안 읽는다. 그래서 복구 후에도 **복구 전 퍼즐의 정답으로
+채점**하고, 캐시에 든 퍼즐 id 가 복원된 DB 에 없으면 제출이 FK 오류로 깨진다.
+`restart app worker beat` 로는 안 지워진다 — Redis 는 별도 컨테이너라 앱 프로세스
+수명과 무관하다(실측: 앱을 새로 띄워도 같은 키가 TTL 93600초로 그대로 있었다).
+`stats:`·`lb:` 는 되감긴 attempt 행을 세고 있던 카운터라 복원된 DB 보다 앞서
+있어서 같이 지운다 — 그 날의 집계는 0 부터 다시 쌓인다(전날까지의 `DailyStats`
+는 MySQL 에 있으니 덤프와 함께 복원된다). `FLUSHDB` 는 쓰지 않는다: 같은 Redis
+DB 에 celery 브로커 큐가 들어 있고, rate limit 카운터(60초)는 DB 와 무관하다.
 
 **리허설 실측 (2026-10-13, 티켓 21, macOS / Docker 29.8.2)**
 

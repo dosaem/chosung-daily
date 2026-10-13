@@ -36,6 +36,16 @@ project="${2:-${COMPOSE_PROJECT_NAME:-}}"
   usage
 }
 
+# 아래 복원은 `gzip -dc | mysql` 스트리밍이다 — 끝이 잘린 덤프여도 앞쪽의
+# DROP/CREATE DATABASE 가 mysql 에 먼저 닿아 그대로 실행된다. 그러면 "복구
+# 실패" 가 멀쩡하던 DB 를 날리는 결과가 된다(긴 덤프면 일부 테이블만 복원된
+# 상태로 남는다). -t 는 압축을 끝까지 풀어보기만 하고 아무것도 출력하지 않으니,
+# DB 를 건드리기 전에 여기서 끝낸다.
+gzip -t "$dump" || {
+  echo "덤프가 깨졌다(gzip 무결성 검사 실패) — MySQL 은 건드리지 않았다: $dump" >&2
+  exit 1
+}
+
 if [ "$assume_yes" -ne 1 ]; then
   # 파이프·CI 에서 모르고 돌아가면 안 된다 — tty 가 아니면 -y 를 요구한다.
   [ -t 0 ] || {
@@ -60,5 +70,30 @@ gzip -dc "$dump" |
   docker compose -f "$COMPOSE_FILE" -p "$project" exec -T mysql \
     sh -c 'exec mysql -u root -p"$MYSQL_ROOT_PASSWORD"'
 
-echo "[restore] 완료. 앱이 캐시를 들고 있으니 필요하면 app/worker/beat 를 재시작한다:"
-echo "  docker compose -f $COMPOSE_FILE -p $project restart app worker beat"
+# Redis 는 MySQL 과 같이 되감기지 않는다. 복구 전 DB 에서 만들어진 파생 키가
+# 남으면 앱이 복원된 DB 대신 그걸 읽는다 — 오늘 퍼즐 캐시(`puzzle:<날짜>`, TTL
+# 26시간)는 복구 전 정답을 계속 내놓고, 그 퍼즐 id 가 복원된 DB 에 없으면 제출이
+# FK 오류로 깨진다. 통계·리더보드(`stats:`/`lb:`) 카운터도 되감긴 attempt 행을
+# 세고 있던 값이라 복원된 DB 보다 앞서 있다. app/worker/beat 를 재시작해도 안
+# 지워진다 — Redis 는 별도 컨테이너고 캐시는 그 안에 있다.
+# FLUSHDB 는 안 쓴다: 같은 Redis DB 에 celery 브로커 큐와 rate limit 카운터가
+# 산다(둘 다 DB 와 무관하므로 되감을 이유도 없다).
+echo "[restore] Redis 파생 키 정리 (puzzle:/stats:/lb:)"
+docker compose -f "$COMPOSE_FILE" -p "$project" exec -T redis sh -c '
+  deleted=0
+  for pattern in "puzzle:*" "stats:*" "lb:*"; do
+    for key in $(redis-cli --scan --pattern "$pattern"); do
+      redis-cli del "$key" >/dev/null
+      deleted=$((deleted + 1))
+    done
+  done
+  echo "[restore] deleted $deleted derived keys"
+' || {
+  echo "Redis 파생 키를 못 지웠다 — 앱이 복원된 DB 대신 복구 전 캐시를 내보낼 수 있다." >&2
+  echo "직접 확인하고 지워야 한다:" >&2
+  echo "  docker compose -f $COMPOSE_FILE -p $project exec redis \\" >&2
+  echo "    sh -c 'redis-cli --scan --pattern \"puzzle:*\"'" >&2
+  exit 1
+}
+
+echo "[restore] 완료 — MySQL 은 덤프 시점으로, Redis 파생 키는 비워졌다."

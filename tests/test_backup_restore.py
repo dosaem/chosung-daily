@@ -78,6 +78,19 @@ def stub(tmp_path):
                 return None
             return path.read_text(encoding="utf-8").splitlines()
 
+        def call_args(self, name, n):
+            """n번째(0부터) 호출의 인자. 한 스크립트가 같은 명령을 여러 번 부를 때."""
+            path = self.log / f"{name}.{n}.args"
+            if not path.exists():
+                return None
+            return path.read_text(encoding="utf-8").splitlines()
+
+        def call_stdin(self, name, n):
+            path = self.log / f"{name}.{n}.stdin"
+            if not path.exists():
+                return None
+            return path.read_text(encoding="utf-8")
+
         def calls(self, name):
             return len(list(self.log.glob(f"{name}.*.args")))
 
@@ -197,6 +210,50 @@ def test_backup_without_webhook_is_silent_but_still_fails(stub):
     assert stub.args("curl") is None
 
 
+def test_backup_notifies_slack_when_the_dump_dir_cannot_be_created(stub):
+    """D-21-1. 저장 경로·권한 문제로 디렉터리를 못 만들어도 백업은 실패한 것이다 —
+    `set -e` 가 조용히 죽어버리면 운영자는 그 날 백업이 없는 걸 모른다."""
+    broken = stub.dumps / "a-regular-file" / "dumps"
+    (stub.dumps / "a-regular-file").write_text("x", encoding="utf-8")
+
+    result = stub.run(
+        "backup.sh",
+        DUMP_DIR=str(broken),
+        SLACK_WEBHOOK_URL="https://hooks.example.test/T/B/XYZ",
+    )
+
+    assert result.returncode != 0
+    args = stub.args("curl")
+    assert args is not None, "디렉터리 준비 실패가 알림 없이 끝났다"
+    assert "https://hooks.example.test/T/B/XYZ" in args
+    assert "chosung_daily" in "\n".join(args)
+
+
+def test_backup_notifies_slack_when_the_dump_cannot_be_moved_into_place(stub):
+    """D-21-1. 덤프는 떴는데 제 이름으로 못 옮기면 그 날 백업은 없는 것과 같다."""
+    stub.write("mv", 'echo "mv: Read-only file system" >&2\nexit 1')
+
+    result = stub.run("backup.sh", SLACK_WEBHOOK_URL="https://hooks.example.test/T/B/XYZ")
+
+    assert result.returncode != 0
+    assert stub.args("curl") is not None, "mv 실패가 알림 없이 끝났다"
+    assert list(stub.dumps.glob("*.sql.gz")) == [], "제 이름으로 못 옮긴 덤프가 남았다"
+
+
+def test_backup_notifies_slack_when_retention_prune_fails(stub):
+    """D-21-1. 정리가 안 되면 디스크가 차서 다음 백업부터 통째로 실패한다."""
+    stub.write(
+        "find",
+        'case "$*" in *-delete*) echo "find: cannot delete" >&2; exit 1;; esac\n'
+        'exec /usr/bin/find "$@"',
+    )
+
+    result = stub.run("backup.sh", SLACK_WEBHOOK_URL="https://hooks.example.test/T/B/XYZ")
+
+    assert result.returncode != 0
+    assert stub.args("curl") is not None, "보존 정리 실패가 알림 없이 끝났다"
+
+
 def test_backup_succeeds_quietly(stub):
     """성공했을 때 Slack 을 쏘지 않는다 — 매일 오는 알림은 아무도 안 본다."""
     result = stub.run("backup.sh", SLACK_WEBHOOK_URL="https://hooks.example.test/T/B/XYZ")
@@ -236,9 +293,14 @@ def dump_file(tmp_path):
 
 @pytest.fixture
 def docker_stub(stub):
+    # restore.sh 는 docker 를 두 번 부른다(mysql 복원 → redis 파생 키 정리).
+    # 호출마다 따로 기록해야 뒤 호출이 앞 호출 기록을 덮어쓰지 않는다.
     stub.write(
         "docker",
-        'printf "%s\\n" "$@" > "$STUB_LOG/docker.args"\ncat > "$STUB_LOG/docker.stdin"',
+        'n=$(ls "$STUB_LOG" | grep -c "^docker\\..*\\.args" || true)\n'
+        'printf "%s\\n" "$@" > "$STUB_LOG/docker.$n.args"\n'
+        'cat > "$STUB_LOG/docker.$n.stdin"\n'
+        'printf "%s\\n" "$@" >> "$STUB_LOG/docker.args"',
     )
     return stub
 
@@ -267,11 +329,7 @@ def test_restore_pipes_dump_into_the_project_mysql(docker_stub, dump_file):
     assert args[args.index("-f") + 1] == "docker-compose.prod.yml"
     assert "exec" in args and "-T" in args and "mysql" in args
     # 압축을 푼 SQL 이 컨테이너 stdin 으로 들어간다.
-    assert (
-        (docker_stub.log / "docker.stdin")
-        .read_text(encoding="utf-8")
-        .startswith("DROP DATABASE IF EXISTS")
-    )
+    assert docker_stub.call_stdin("docker", 0).startswith("DROP DATABASE IF EXISTS")
 
 
 def test_restore_reads_password_inside_the_container(docker_stub, dump_file):
@@ -299,6 +357,100 @@ def test_restore_requires_confirmation_when_not_interactive(docker_stub, dump_fi
     result = docker_stub.run("restore.sh", str(dump_file), "chosung-daily-prod")
     assert result.returncode != 0
     assert docker_stub.args("docker") is None
+
+
+def test_restore_rejects_a_truncated_dump_before_touching_mysql(docker_stub, tmp_path):
+    """D-21-2. `gzip -dc | mysql` 은 스트리밍이라 끝이 잘린 덤프여도 앞쪽의
+    DROP/CREATE DATABASE 가 먼저 실행된다 — 복구 실패가 멀쩡하던 DB 를 날린다."""
+    whole = gzip.compress(
+        b"DROP DATABASE IF EXISTS chosung_daily;\nCREATE DATABASE chosung_daily;\n"
+    )
+    truncated = tmp_path / "chosung_daily-20261013-040000.sql.gz"
+    truncated.write_bytes(whole[:-8])
+
+    result = docker_stub.run("restore.sh", "-y", str(truncated), "chosung-daily-prod")
+
+    assert result.returncode != 0
+    assert docker_stub.args("docker") is None, "깨진 덤프의 SQL 이 이미 DB 로 흘러갔다"
+
+
+def test_restore_rejects_a_file_that_is_not_a_dump(docker_stub, tmp_path):
+    """D-21-2. 엉뚱한 파일을 줬을 때도 DB 를 건드리기 전에 멈춘다."""
+    not_a_dump = tmp_path / "chosung_daily-notes.sql.gz"
+    not_a_dump.write_text("이건 gzip 이 아니다", encoding="utf-8")
+
+    result = docker_stub.run("restore.sh", "-y", str(not_a_dump), "chosung-daily-prod")
+
+    assert result.returncode != 0
+    assert docker_stub.args("docker") is None
+
+
+def test_restore_invalidates_derived_redis_keys_after_the_database(docker_stub, dump_file):
+    """D-21-3. Redis 는 MySQL 과 같이 되감기지 않는다 — 복구 전 퍼즐 캐시가
+    남으면 앱이 복원된 DB 대신 그 값을 읽는다(26시간 TTL)."""
+    result = docker_stub.run("restore.sh", "-y", str(dump_file), "chosung-daily-prod")
+    assert result.returncode == 0, result.stderr
+
+    redis_call = docker_stub.call_args("docker", 1)
+    assert redis_call is not None, "MySQL 만 되감고 Redis 파생 키는 그대로 뒀다"
+    assert "redis" in redis_call, redis_call
+    assert redis_call[redis_call.index("-p") + 1] == "chosung-daily-prod"
+    command = "\n".join(redis_call)
+    for pattern in ("puzzle:*", "stats:*", "lb:*"):
+        assert pattern in command, f"{pattern} 가 정리 대상에 없다"
+
+
+def test_restore_does_not_wipe_the_celery_broker(docker_stub, dump_file):
+    """D-21-3 의 수정이 과하면 안 된다 — 같은 Redis DB 에 celery 브로커가 산다."""
+    docker_stub.run("restore.sh", "-y", str(dump_file), "chosung-daily-prod")
+    command = "\n".join(docker_stub.call_args("docker", 1)).lower()
+    assert "flushdb" not in command
+    assert "flushall" not in command
+
+
+def test_restore_leaves_redis_alone_when_the_database_restore_fails(docker_stub, dump_file):
+    """DB 복원이 깨졌는데 캐시만 비우면, 앱이 반쪽 DB 를 다시 캐싱한다."""
+    docker_stub.write("docker", 'echo "Error: No such service: mysql" >&2\nexit 1')
+    result = docker_stub.run("restore.sh", "-y", str(dump_file), "chosung-daily-prod")
+    assert result.returncode != 0
+
+
+@pytest.mark.parametrize("doc", ["README.md", "docs/RELEASE.md"])
+def test_restore_docs_do_not_sell_an_app_restart_as_cache_cleanup(doc):
+    """D-21-3. `restart app worker beat` 는 Redis 를 비우지 않는다 — Redis 는
+    별도 컨테이너고 퍼즐 캐시는 그 안에 있다."""
+    text = (ROOT / doc).read_text(encoding="utf-8")
+    # 돌려 쓰라고 내놓은 명령줄에 남아 있으면 안 된다(설명문에서 "이건 안 된다"
+    # 고 언급하는 건 괜찮다).
+    recipes = [line for line in text.splitlines() if "docker compose" in line and "restart" in line]
+    assert recipes == [], f"앱 재시작은 캐시 정리가 아니다: {recipes}"
+    assert "puzzle:" in text, "복구가 무효화하는 Redis 키를 문서가 밝혀야 한다"
+
+
+def test_restarting_the_app_does_not_clear_the_puzzle_cache(app):
+    """D-21-3 의 뿌리. 앱을 새로 띄워도(= `restart app worker beat`) Redis 의
+    퍼즐 캐시는 그대로 살아 있다 — 그래서 restore.sh 가 직접 지운다."""
+    from datetime import date
+
+    from app import create_app
+    from app.extensions import get_redis
+    from app.services.puzzle_cache import _cache_key, get_cached_puzzle
+
+    stale_date = date(2099, 12, 21)
+    get_redis().set(
+        _cache_key(stale_date),
+        '{"id": 212121, "chosung": "ㅍㄷ", "answer": "포도", "hint": "h", "category": "general"}',
+        ex=60 * 60 * 26,
+    )
+
+    restarted = create_app("testing")
+    with restarted.app_context():
+        cached = get_cached_puzzle(stale_date)
+        assert cached is not None and cached.id == 212121, "재시작만으로 캐시가 지워졌다"
+        # restore.sh 가 하는 일: 파생 키를 직접 지운다.
+        for key in get_redis().scan_iter(match="puzzle:*"):
+            get_redis().delete(key)
+        assert get_cached_puzzle(stale_date) is None
 
 
 # --------------------------------------------------------- compose 의 backup 서비스
