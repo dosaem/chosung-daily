@@ -1,5 +1,4 @@
 from celery import Celery
-from celery.schedules import crontab
 
 from app import create_app
 
@@ -26,15 +25,6 @@ def make_celery(app) -> Celery:
 
 celery = make_celery(flask_app)
 
-celery.conf.beat_schedule = {
-    "ensure-today-puzzle": {
-        "task": "tasks.ensure_today_puzzle",
-        "schedule": crontab(hour=0, minute=0),
-    },
-    "flush-daily-stats": {
-        "task": "tasks.flush_daily_stats",
-        "schedule": crontab(hour=0, minute=5),
-    },
-}
-
-from app.tasks import scheduled  # noqa: E402,F401  (celery가 정의된 뒤에 태스크를 등록해야 함)
+# 태스크 모듈은 import 되는 것만으로 자기 태스크와 Beat 스케줄을 등록한다
+# (app/tasks/scheduled.py 끝의 beat_schedule 합치기). celery가 정의된 뒤에 와야 한다.
+from app.tasks import scheduled  # noqa: E402,F401
