@@ -59,6 +59,21 @@ class Config:
     # 하나가 같은 App ID 와 그 Services ID 를 모두 서명한다).
     APPLE_APP_BUNDLE_ID = os.environ.get("APPLE_APP_BUNDLE_ID", "")
 
+    # 스토어 링크. `GET /api/v1/config` 의 store_urls 와 웹 Smart App Banner
+    # (티켓 18)가 같은 값을 쓴다 — 스토어에 앱을 올리기 전에는 비어 있고, 그때
+    # /config 응답에는 null 로 나간다.
+    STORE_URL_IOS = os.environ.get("STORE_URL_IOS", "")
+    STORE_URL_ANDROID = os.environ.get("STORE_URL_ANDROID", "")
+    # App Store 숫자 ID. Smart App Banner 메타 태그(`app-id=...`)에만 쓰고
+    # /config 응답에는 넣지 않는다(스펙 §A' 응답 필드 4개).
+    APP_STORE_ID = os.environ.get("APP_STORE_ID", "")
+
+    # 비어 있으면 Sentry 를 아예 초기화하지 않는다(app/observability.py).
+    SENTRY_DSN = os.environ.get("SENTRY_DSN", "")
+    # 릴리스 태그. 배포 스크립트가 배포한 커밋을 넣는다 — 비어 있으면 Sentry
+    # 이벤트에 릴리스 없이 환경만 붙는다.
+    SENTRY_RELEASE = os.environ.get("SENTRY_RELEASE", "")
+
     # 로그인 CSRF 방어(app/api/oauth.py의 sync_session 독스트링 참고)의 핵심 설정.
     # SameSite=Lax면 공격자 사이트/링크를 통한 요청엔 이 세션 쿠키가 안 실린다.
     # Secure는 HTTPS 뒤에서만 쿠키를 보내게 하는 옵션인데, 로컬 개발(http)에선
