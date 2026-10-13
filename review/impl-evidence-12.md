@@ -187,3 +187,197 @@ app factory ok
 - **실기기·Sandbox 실구매 확인.** 스토어 계정·상품 등록이 사람 작업(스펙 D2)이라
   할 수 없다. 서버 쪽은 fixture 로 고정했고, 배포 전 준비물은
   `docs/RELEASE.md` `### 12.` 에 적었다.
+
+## 수정 라운드 1
+
+최종 리뷰 라운드 1(FAIL, BLOCKER 1 · MAJOR 2 · MINOR 1)의 결함 4건을 전부
+고쳤다. 각 결함은 먼저 리뷰의 재현 방법 그대로 재현하고 → 그 재현을 실패하는
+테스트로 고정한 뒤(red) → 원인을 고쳤다(green). 리뷰어 지적에 틀렸다고 판단한
+항목은 없다. 미수정 MINOR 없음.
+
+- 수정 커밋: `fix(12): 최종 리뷰 라운드 1 결함 4건 …`
+- 로컬 `main` = `20d279a`(티켓 20·10 머지) 위로 rebase 했고, 코디네이터 지시대로
+  마이그레이션 `a5bab2f58a7b` 의 `down_revision` 을 `4e72a4045fbc` → `f394da7f4d88`
+  으로 재설정했다.
+- 환경은 2절과 같다(DB `chosung_daily_test_t12`, 마이그레이션 DB
+  `chosung_daily_test_t12_migrations`, Redis DB 14). 외부 호출 0건, 시크릿 기록 없음.
+
+### D-12-1 (BLOCKER) — Production Apple 검증기 생성 불가
+
+**재현(수정 전).** 리뷰의 코드를 그대로 돌렸다. 네트워크·실제 키 없이 설치된
+공식 SDK 생성자만 탄다.
+
+```
+$ <ENV> uv run python -c "...; a._verifier(a._Credentials('example.bundle','','','',[]), E.PRODUCTION)"
+D-12-1: ValueError appAppleId is required when the environment is Production
+```
+
+**원인.** 증상(ValueError)이 아니라 설정 자체가 없는 게 원인이었다. 설치된
+`app-store-server-library` 3.1.2 의 `SignedDataVerifier.__init__` 는
+`if environment == Environment.PRODUCTION and app_apple_id is None: raise ValueError`
+로 Production 검증기를 거부한다(라이브러리 소스에서 직접 확인). 우리 래퍼에는
+App Store Connect 의 숫자 Apple ID 를 담을 설정 항목 자체가 없었고, 기존 테스트는
+`_verifier` 를 통째로 fake 로 바꿔서 이 실패를 숨겼다.
+
+**수정.**
+- `app/config.py`: `APP_STORE_APP_APPLE_ID` 추가.
+- `app/clients/app_store.py`: `_Credentials.app_apple_id: int` 추가,
+  `_credentials()` 의 필수 설정 목록에 넣고(비면 다른 설정 누락과 같이 503),
+  `_app_apple_id()` 로 정수 변환(숫자가 아니면 503 — 라이브러리가 payload 의
+  `appAppleId` 정수와 그대로 비교하므로 문자열이면 조용히 안 맞는다),
+  `_verifier()` 가 `app_apple_id=` 를 넘긴다.
+- `.env.example` `[12]` 절, `docs/RELEASE.md` `### 12.` 2번 항목에 설정 추가.
+
+**증명.** `_verifier` 를 fake 로 바꾸지 않고 **진짜 SDK 생성자**를 두 환경 모두에
+대해 부르는 테스트를 넣었다.
+
+```
+tests/test_store_clients.py::test_apple_production_verifier_is_built_with_the_configured_app_apple_id PASSED
+tests/test_store_clients.py::test_apple_bad_app_apple_id_is_a_store_outage[] PASSED
+tests/test_store_clients.py::test_apple_bad_app_apple_id_is_a_store_outage[not-a-number] PASSED
+```
+
+### D-12-2 (MAJOR) — Apple API 실패·타임아웃이 계약된 오류로 변환되지 않음
+
+**재현(수정 전).** 리뷰와 같은 경로(엔드포인트 → 서비스 → 래퍼)를 지나는 테스트를
+먼저 추가했고, 수정 전에는 5케이스 전부 `500 INTERNAL_ERROR` 로 실패했다.
+
+```
+FAILED tests/test_subscription_verify.py::test_apple_store_failures_become_the_contracted_errors[error0-503-STORE_UNAVAILABLE]
+... (5건)
+FAILED tests/test_store_clients.py::test_apple_server_trouble_is_a_store_outage
+FAILED tests/test_store_clients.py::test_apple_network_timeout_is_a_store_outage
+```
+
+**원인.** `_fetch_status` 는 폴백 조건이 아닌 `APIException` 을 `raise` 로 그대로
+다시 던지고, `requests` 예외(3초 타임아웃·연결 실패)는 아예 잡지 않았다. 둘 다
+`AppError` 가 아니라서 `app/errors.py` 의 핸들러를 타지 못하고 Flask 기본 500 이
+됐다. 기존 래퍼 테스트가 **`APIException` 전파를 기대**하고 있어서 이 공백이
+테스트로 고정돼 있었다.
+
+**수정.** `app/clients/app_store.py`:
+- `_as_our_error(exc)` 추가 — 더 물어볼 환경이 없는 Apple 오류를 우리 계약으로
+  바꾼다. `4040010/4040005`(어느 환경에도 없는 거래) → `ReceiptInvalidError`(400),
+  그 밖(인증 실패·레이트 리밋·5xx) → `StoreUnavailableError`(503).
+- `_fetch_status` 의 첫 조회·폴백 조회 양쪽에 적용.
+- `_status_from` 이 `requests.RequestException` 을 잡아 503 으로 바꾼다.
+- 기존 테스트 2개(`sandbox_miss_does_not_loop_back`,
+  `other_api_errors_are_not_retried`)의 기대를 `APIException` 전파 →
+  `ReceiptInvalidError`/`StoreUnavailableError` 로 고쳤다.
+
+**증명.** 엔드포인트 테스트는 `fetch_subscription` 을 통째로 바꾸지 않고
+**네트워크 경계(`_TimeoutAppStoreServerAPIClient`)만** 바꿔 끼워서 래퍼의 변환 →
+서비스 → 오류 핸들러 → HTTP 코드까지 실제 코드로 지나간다.
+
+```
+tests/test_store_clients.py::test_apple_sandbox_miss_does_not_loop_back PASSED
+tests/test_store_clients.py::test_apple_production_fallback_miss_is_a_bad_receipt PASSED
+tests/test_store_clients.py::test_apple_other_api_errors_are_not_retried PASSED
+tests/test_store_clients.py::test_apple_server_trouble_is_a_store_outage PASSED
+tests/test_store_clients.py::test_apple_network_timeout_is_a_store_outage PASSED
+tests/test_subscription_verify.py::test_apple_store_failures_become_the_contracted_errors[error0-expected0] PASSED  # requests.Timeout → 503
+tests/test_subscription_verify.py::test_apple_store_failures_become_the_contracted_errors[error1-expected1] PASSED  # requests.ConnectionError → 503
+tests/test_subscription_verify.py::test_apple_store_failures_become_the_contracted_errors[error2-expected2] PASSED  # APIException(503) → 503
+tests/test_subscription_verify.py::test_apple_store_failures_become_the_contracted_errors[error3-expected3] PASSED  # APIException(401, 4010000) → 503
+tests/test_subscription_verify.py::test_apple_store_failures_become_the_contracted_errors[error4-expected4] PASSED  # APIException(404, 4040010) → 400
+```
+
+### D-12-3 (MAJOR) — 최신 상태를 조회하고도 과거 영수증 만료일을 저장
+
+**재현(수정 전).** 제출 영수증의 거래는 `expiresDate=1000`(과거), 상태 조회가
+돌려주는 최신 거래는 `expiresDate=1793491200000` 으로 두고 `fetch_subscription`
+을 돌렸다. 수정 전에는 `result.transaction["expiresDate"] == 1000` 이고 거래 검증
+호출이 제출 영수증 1회뿐이라 테스트가 실패했다.
+
+```
+FAILED tests/test_store_clients.py::test_apple_uses_the_latest_transaction_from_the_status_lookup
+```
+
+**원인.** `_status_from` 이 `lastTransactions[]` 항목에서 `rawStatus` 와
+`signedRenewalInfo` 만 읽고 `signedTransactionInfo`(그 구독의 **현재** 거래)를
+전혀 읽지 않았다. 그래서 `AppleSubscription.transaction` 은 언제나 앱이 올린
+구매 시점 거래였고, `apple_subscription_status` → `_update` 가 그 과거 만료일을
+DB 에 넣었다.
+
+**수정.** `app/clients/app_store.py`:
+- `_status_from` 이 같은 검증기로 `item.signedTransactionInfo` 를 검증·디코딩해
+  `(rawStatus, transaction, renewal_info)` 를 돌려준다. 응답에 그 필드가 없으면
+  `None`.
+- `fetch_subscription` 은 제출 영수증을 `submitted` 로 두고(여전히 검증해서
+  `originalTransactionId` 를 얻는다 — 주인 확인), 저장할 사실은
+  `transaction = latest or submitted` 로 최신 거래에서 읽는다.
+- Sandbox 폴백으로 환경이 바뀌면 최신 거래도 바뀐 환경의 검증기로 검증된다.
+
+**증명.** 제출 JWS 와 최신 거래 JWS 를 다른 문자열로 두고 **둘 다 검증했는지**
+까지 확인한다(최신 거래만 믿으면 아무 영수증이나 통과하므로).
+
+```
+tests/test_store_clients.py::test_apple_uses_the_latest_transaction_from_the_status_lookup PASSED
+```
+
+### D-12-4 (MINOR) — JSON 객체가 아닌 JWS payload 는 400 대신 500
+
+**재현(수정 전).** 리뷰 그대로 `header.W10.signature`(`[]`), `header.bnVsbA.signature`
+(`null`).
+
+```
+D-12-4: [] -> AttributeError 'list' object has no attribute 'get'
+D-12-4: None -> AttributeError 'NoneType' object has no attribute 'get'
+```
+
+**원인.** `_environment_of` 가 `json.loads` 성공만 보고 `decoded.get(...)` 을 불렀다.
+`[]`·`null`·문자열·숫자는 JSON 으로는 멀쩡히 읽히지만 `.get` 이 없다.
+
+**수정.** `app/clients/app_store.py` `_environment_of` 에 `isinstance(decoded, dict)`
+확인을 넣고 아니면 `ReceiptInvalidError`(400).
+
+**증명.** 래퍼 4케이스 + 엔드포인트 2케이스(리뷰의 입력 그대로).
+
+```
+tests/test_store_clients.py::test_apple_jws_payload_that_is_not_an_object_is_rejected[payload0] PASSED  # []
+tests/test_store_clients.py::test_apple_jws_payload_that_is_not_an_object_is_rejected[None] PASSED
+tests/test_store_clients.py::test_apple_jws_payload_that_is_not_an_object_is_rejected[string] PASSED
+tests/test_store_clients.py::test_apple_jws_payload_that_is_not_an_object_is_rejected[7] PASSED
+tests/test_subscription_verify.py::test_a_jws_payload_that_is_not_an_object_is_a_bad_receipt[header.W10.signature] PASSED
+tests/test_subscription_verify.py::test_a_jws_payload_that_is_not_an_object_is_a_bad_receipt[header.bnVsbA.signature] PASSED
+```
+
+### 라운드 1 이후 재검증 (rebase 완료 상태)
+
+마이그레이션 재연결 — 로컬 `main` 의 head `f394da7f4d88`(티켓 10) 위로 옮겼다.
+docstring 의 `Revises:` 줄도 같이 고쳤다.
+
+```
+$ <ENV> FLASK_APP=wsgi.py uv run flask db heads
+a5bab2f58a7b (head)
+```
+
+```
+$ <ENV> uv run pytest tests/test_migrations.py -q
+....                                                                     [100%]
+4 passed in 17.91s
+```
+
+전체 테스트 — 한 번의 실행에서 오류 없이 통과했다(라운드 1 리뷰 때 나온
+MySQL `Too many connections` 재현 없음).
+
+```
+$ <ENV> uv run pytest -q
+........................................................................ [ 18%]
+........................................................................ [ 37%]
+........................................................................ [ 56%]
+........................................................................ [ 75%]
+........................................................................ [ 93%]
+.......................                                                  [100%]
+383 passed in 222.94s (0:03:42)
+```
+
+```
+$ <ENV> uv run ruff check .
+All checks passed!
+```
+
+- 383개는 로컬 `main` 이 티켓 20·10 을 머지해 늘어난 수다(라운드 1 리뷰 때 254개).
+- 티켓 12 테스트 수: 순수 함수 21 + 래퍼 29 + 엔드포인트 36 = 86개.
+- 리뷰 범위를 넘는 리팩토링·기능 추가는 하지 않았다. `review/impl-review-12.md`
+  는 수정하지 않았다.

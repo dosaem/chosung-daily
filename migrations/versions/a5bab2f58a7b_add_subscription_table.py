@@ -10,7 +10,7 @@
 2048 바이트라 `(store, store_key)` 유니크 인덱스가 InnoDB 한계(3072) 안에 든다.
 
 Revision ID: a5bab2f58a7b
-Revises: 4e72a4045fbc
+Revises: f394da7f4d88
 Create Date: 2026-10-14 07:00:28.226772
 
 """
@@ -20,7 +20,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = 'a5bab2f58a7b'
-down_revision = '4e72a4045fbc'
+down_revision = 'f394da7f4d88'
 branch_labels = None
 depends_on = None
 
