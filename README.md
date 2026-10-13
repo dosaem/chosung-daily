@@ -88,6 +88,7 @@ web/                  # Jinja 템플릿 1장 + vanilla JS
 | POST | `/api/v1/session/sync` | 이 브라우저=이 게스트를 세션 쿠키에 동기화 (로그인 전 필수) | Bearer |
 | GET | `/api/v1/auth/<provider>/login` | 구글/애플 로그인 시작 (리다이렉트) | 세션 쿠키 |
 | GET | `/api/v1/auth/<provider>/callback` | OAuth 콜백, 계정 연결 후 `/?login_token=`으로 리다이렉트 | 세션 쿠키 |
+| POST | `/api/v1/auth/token-exchange` | 앱 네이티브 로그인 id_token 교환 → 계정 연결/전환 후 `{token}` | Bearer |
 
 에러 응답은 전부 `{code, message}` + 적절한 HTTP status로 통일 (아래 "에러 응답" 참고).
 
@@ -607,6 +608,69 @@ bash 가 본문 실행 전에 끝까지 읽으므로 표준입력을 끊어도 �
 보낸다 — 스크립트 안의 어떤 검사도 같은 PR 이 같이 고칠 수 있으니 소용없다. 그래서
 잡의 `if` 에서 **선행 CI 가 이 저장소의 `push` 였는지**(`workflow_run.event == 'push'`,
 `head_repository.full_name == github.repository`)를 checkout·secret 사용 전에 본다.
+### 10. 앱 로그인은 id_token 교환 (ADR 0002 요약)
+
+웹은 리다이렉트 + 세션 쿠키로 계정을 연결하지만, 앱은 같은 흐름을 WebView 에 태우지
+않는다 — 구글이 임베디드 WebView OAuth 를 차단하고, 시스템 브라우저로 열면 위의 로그인
+CSRF 방어(세션 쿠키)가 깨져서 PKCE 식 상태 저장을 따로 만들어야 한다. 대신 앱이 네이티브
+SDK 로 받은 `id_token` 을 **게스트 Bearer 토큰과 함께** `POST /api/v1/auth/token-exchange`
+로 보내고, 서버가 JWKS 로 서명과 `aud` 를 검증한 뒤 웹과 **같은** `link_or_switch_account`
+로 연결한다. 연결 요청 자체가 Bearer 로 인증되니 로그인 CSRF 가 구조적으로 성립하지 않는다
+— 웹에서 실제로 겪은 그 버그가 앱 경로에는 아예 없다.
+
+**aud 매트릭스**: 서버는 요청만 보고 플랫폼을 알 수 없어서, provider 별로 받아들일 `aud`
+집합을 설정으로 고정한다(`app/services/app_login_service.py` 의 `allowed_audiences`).
+
+| provider | 플랫폼 | 앱이 쓰는 값 | 서버가 받는 `aud` | 설정값 |
+|---|---|---|---|---|
+| google | iOS | iOS 클라이언트 ID | iOS 클라이언트 ID | `GOOGLE_IOS_CLIENT_ID` |
+| google | Android | `serverClientId` = 웹 클라이언트 ID | 웹 클라이언트 ID | `GOOGLE_WEB_CLIENT_ID` |
+| apple | iOS | `sign_in_with_apple` | 앱 번들 ID | `APPLE_APP_BUNDLE_ID` |
+| apple | Android | 지원 안 함 | — | — |
+
+Android 의 구글 클라이언트 ID 는 APK 서명(SHA-1) 검증용이라 `aud` 에 나오지 않는다 —
+`serverClientId` 로 넘긴 웹 클라이언트 ID 가 들어온다. 설정값이 비어 있으면 받아들일
+`aud` 집합이 빈 집합이 되는데, 이때 검증을 건너뛰지 않고 **거부**한다. 설정 누락이
+"아무 토큰이나 통과" 로 조용히 바뀌는 쪽이 훨씬 위험하다. 같은 이유로 허용 알고리즘을
+`RS256` 하나로 고정했다(JWKS 는 공개 정보라, 알고리즘을 토큰 헤더에 맡기면 공개키를 HMAC
+비밀로 쓴 위조 토큰이 통과한다 — `tests/test_id_token_verify.py` 가 직접 만든 위조 토큰으로
+이 둘을 고정한다).
+
+**애플 토큰을 보관하는 이유**: 애플은 계정 삭제 시 연결 철회(revoke)를 요구하는데, revoke
+API 가 받는 건 `id_token` 이 아니라 **refresh/access token** 이다. 그래서 앱은 로그인마다
+`authorization_code` 도 함께 보내고, 서버가 그걸 애플 토큰 엔드포인트에서 교환해 받은
+`refresh_token` 을 `Account.provider_refresh_token` 에 **Fernet 암호화**(SECRET_KEY 파생 키,
+`app/utils/crypto.py`)해서 넣는다. 평문으로 두면 DB 유출 한 번이 "애플 계정 연결까지 넘어감"
+이 되고, 키를 설정값으로 하나 더 늘리는 대신 SECRET_KEY 에서 파생한다(이 값의 수명은
+SECRET_KEY 와 어차피 같다). 발급 client 도 `Account.provider_client_id` 에 같이 남긴다 —
+애플 revoke 는 "그 토큰을 발급한 client" 의 자격증명으로만 받아주고, 웹은 Services ID,
+앱은 번들 ID 로 발급되기 때문이다. 웹 콜백(`/auth/apple/callback`)도 같은 두 컬럼에 저장해서
+삭제 경로가 "웹으로 연결했는지 앱으로 연결했는지" 를 구분할 필요가 없게 했다(실제 revoke
+호출은 계정 삭제 티켓).
+
+판단 두 가지를 더 적어둔다.
+
+- **애플인데 `authorization_code` 가 없으면 400 으로 거절한다.** 요청 스키마에서 이 필드가
+  선택인 건 구글이 안 보내기 때문이고, 애플에서 빠지면 "연결은 됐는데 나중에 철회할 수단이
+  없는 계정" 이 생긴다 — 그건 애플 심사 요구사항(계정 삭제 시 연결 철회)을 못 지키는 상태라
+  아예 만들지 않는다.
+- **교환으로 받은 `id_token` 의 `sub` 를 앱이 보낸 `id_token` 의 `sub` 와 비교한다.** 안 하면
+  남의 `authorization_code` 를 끼워 넣어 그 사람의 refresh token 을 내 계정에 붙일 수 있다.
+  교환 응답의 토큰도 앱이 보낸 것과 똑같이 서명·`aud` 를 검증한다.
+
+JWKS 는 provider 가 키를 교체할 때만 바뀌는 공개 정보라 프로세스 안에 1시간 캐시한다.
+redis 클라이언트·Authlib 레지스트리와 달리 앱 설정과 무관한 값이어서(어느 Flask 앱이 물어도
+같은 공개키) `app.extensions` 가 아니라 모듈 전역에 둬도 "멀티 앱 오염" 이 생기지 않는다.
+다만 **캐시에 없는 `kid` 를 보면 TTL 을 기다리지 않고 그 자리에서 공개키를 다시 받는다** —
+provider 가 키를 교체하면 새 `kid` 로 서명된 정상 토큰이 들어오는데, 캐시가 따뜻한 프로세스가
+TTL 끝까지(최대 1시간) 그 로그인을 전부 거부해버린다. 다시 받아도 없는 `kid`·틀린 서명은 그대로
+거부고, 모르는 `kid` 를 박은 토큰으로 provider JWKS 엔드포인트를 때리지 못하게 이 갱신은
+provider 당 `JWKS_REFRESH_MIN_INTERVAL_SECONDS`(60초)에 한 번으로 제한한다.
+
+애플 client_secret(JWT)을 만드는 함수는 이 티켓에서 `app/extensions.py` 의
+`apple_client_secret(app, client_id)` 로 바뀌었다(웹 Services ID 와 앱 번들 ID 를 모두 서명할 수
+있게 인자화 + 공개). 위 "설계 판단"·"알려진 제한사항" 의 기존 항목에 나오는 `_apple_client_secret`
+은 같은 함수의 예전 이름이다 — 공유 절은 덧붙이기만 하는 규칙이라 그 줄들은 건드리지 않았다.
 
 ## 부하 테스트 요약
 

@@ -36,8 +36,15 @@ class Config:
     GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
     GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 
+    # 앱(네이티브) 구글 로그인이 보내는 id_token 의 aud 로 받아들일 클라이언트 ID.
+    # iOS 는 iOS 클라이언트 ID, Android 는 serverClientId 로 넘긴 "웹" 클라이언트
+    # ID 가 aud 에 들어온다(ADR 0002 의 aud 매트릭스). 비어 있으면 그 쪽 토큰은
+    # 전부 INVALID_ID_TOKEN 이다 — 검증을 건너뛰지 않는다.
+    GOOGLE_IOS_CLIENT_ID = os.environ.get("GOOGLE_IOS_CLIENT_ID", "")
+    GOOGLE_WEB_CLIENT_ID = os.environ.get("GOOGLE_WEB_CLIENT_ID", "")
+
     # 애플은 client_secret이 고정값이 아니라 ES256으로 서명한 JWT다(매번
-    # app/extensions.py의 _apple_client_secret이 생성). 그래서 KEY_ID/TEAM_ID/
+    # app/extensions.py의 apple_client_secret이 생성). 그래서 KEY_ID/TEAM_ID/
     # 서명용 private key까지 필요하다 — 구글보다 설정값이 하나 더 많다.
     # Services ID (예: com.chosungdaily.web)
     APPLE_CLIENT_ID = os.environ.get("APPLE_CLIENT_ID", "")
@@ -46,6 +53,11 @@ class Config:
     # .p8 파일 내용(PEM) 그대로. .env 한 줄에 넣어야 해서 줄바꿈을 "\n" 문자로
     # 넣으면 아래서 실제 줄바꿈으로 되돌린다.
     APPLE_PRIVATE_KEY = os.environ.get("APPLE_PRIVATE_KEY", "").replace("\\n", "\n")
+    # 앱(iOS) 애플 로그인용 client. 웹은 Services ID(APPLE_CLIENT_ID), 앱은 앱 번들
+    # ID 를 aud 로 받고 client_secret 도 번들 ID 로 서명해야 애플이 받아준다
+    # (TEAM_ID/KEY_ID/private key 는 웹과 같은 값을 쓴다 — Sign in with Apple 키
+    # 하나가 같은 App ID 와 그 Services ID 를 모두 서명한다).
+    APPLE_APP_BUNDLE_ID = os.environ.get("APPLE_APP_BUNDLE_ID", "")
 
     # 로그인 CSRF 방어(app/api/oauth.py의 sync_session 독스트링 참고)의 핵심 설정.
     # SameSite=Lax면 공격자 사이트/링크를 통한 요청엔 이 세션 쿠키가 안 실린다.
@@ -78,7 +90,11 @@ class TestingConfig(Config):
     GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "test-google-client-id")
     GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "test-google-client-secret")
 
+    GOOGLE_IOS_CLIENT_ID = os.environ.get("GOOGLE_IOS_CLIENT_ID", "test-ios-client-id")
+    GOOGLE_WEB_CLIENT_ID = os.environ.get("GOOGLE_WEB_CLIENT_ID", "test-web-client-id")
+
     APPLE_CLIENT_ID = os.environ.get("APPLE_CLIENT_ID", "com.example.test")
+    APPLE_APP_BUNDLE_ID = os.environ.get("APPLE_APP_BUNDLE_ID", "com.example.test.app")
     APPLE_TEAM_ID = os.environ.get("APPLE_TEAM_ID", "TESTTEAMID")
     APPLE_KEY_ID = os.environ.get("APPLE_KEY_ID", "TESTKEYID")
     # ES256 서명엔 진짜 형식을 갖춘 EC 개인키가 있어야 해서(문자열 더미로는 안 됨),

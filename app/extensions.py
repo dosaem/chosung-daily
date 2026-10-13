@@ -71,7 +71,7 @@ def init_oauth(app):
         client.register(
             name="apple",
             client_id=app.config["APPLE_CLIENT_ID"],
-            client_secret=_apple_client_secret(app),
+            client_secret=apple_client_secret(app, app.config["APPLE_CLIENT_ID"]),
             server_metadata_url="https://appleid.apple.com/.well-known/openid-configuration",
             client_kwargs={
                 "scope": "name email",
@@ -90,11 +90,15 @@ def init_oauth(app):
         )
 
 
-def _apple_client_secret(app) -> str:
+def apple_client_secret(app, client_id: str) -> str:
     """애플은 client_secret이 고정값이 아니라 ES256으로 서명한 JWT다(발급받은
     .p8 private key로 서명). 최대 6개월까지 유효하게 만들 수 있는데, 여기선
     150일로 넉넉히 잡았다 — 그보다 오래 앱 프로세스가 안 죽고 살아있으면(재배포도
     없이) 새로 발급해야 한다. 실제 애플 콘솔 등록 전까진 검증 못 해본 부분.
+
+    `client_id`(= JWT 의 `sub`)를 인자로 받는 이유: 같은 키로 서명하지만 웹
+    로그인은 Services ID, 앱 로그인은 앱 번들 ID 로 발급해야 애플이 받아준다
+    (app/services/app_login_service.py). TEAM_ID·KEY_ID·private key 는 둘이 같다.
     """
     now = int(time.time())
     payload = {
@@ -102,7 +106,7 @@ def _apple_client_secret(app) -> str:
         "iat": now,
         "exp": now + 60 * 60 * 24 * 150,
         "aud": "https://appleid.apple.com",
-        "sub": app.config["APPLE_CLIENT_ID"],
+        "sub": client_id,
     }
     return jwt.encode(
         payload,
