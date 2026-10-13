@@ -11,6 +11,7 @@ htmlcov/
 instance/
 k6/results/
 celerybeat-schedule*
+backups*/
 
 # impeccable(디자인 검사 도구): 공유 설정은 .impeccable/config.json 만 커밋한다
 .impeccable/config.local.json
