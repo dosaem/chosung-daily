@@ -282,3 +282,27 @@ NAS 가 없어도 "대상 인자 하나가 설정을 다 고르는지" 와 "실�
    **읽기 명령만** 보내서 따로 확인했다(그 프로젝트는 건드리지 않았다).
 
 명령·출력 전문은 `review/impl-evidence-20.md`. NAS 실제 기동은 위 D3 체크리스트.
+
+### 09. 법적 문서 — 출시 전 사람이 채울 값
+
+`/privacy`·`/terms` 의 "운영자 정보" 블록은 설정값에서만 값을 읽는다(코드에 지어 넣은
+상호·등록번호가 없다 — `tests/test_legal_pages.py::test_business_info_values_are_not_hardcoded`).
+지금은 전부 비어 있어서 **서비스명과 연락처만** 렌더된다. 사업자·통신판매업 등록이
+끝나면 운영 `.env` 에 아래 값을 넣고 컨테이너를 재기동한다. 값이 있는 항목만 줄이
+늘어나므로, 등록이 단계적으로 끝나도 중간 상태로 올려도 된다.
+
+| 환경변수 | 문서 라벨 (ko / en) | 비고 |
+|---|---|---|
+| `LEGAL_BUSINESS_NAME` | 상호 / Business name | 사업자등록증의 상호 |
+| `LEGAL_REPRESENTATIVE` | 대표자 / Representative | |
+| `LEGAL_BUSINESS_REG_NO` | 사업자등록번호 / Business registration number | |
+| `LEGAL_MAIL_ORDER_REG_NO` | 통신판매업 신고번호 / Mail-order business registration no. | 선택 — 구독 판매 시 필요 |
+| `LEGAL_BUSINESS_ADDRESS` | 주소 / Address | 선택 |
+| `LEGAL_CONTACT_EMAIL` | 연락처 / Contact | 비워두면 `hsseo@dosaem.com` |
+
+- [ ] 사업자등록 후 위 값을 `.env`(prod)에 넣고 `/privacy?lang=ko`·`?lang=en`,
+      `/terms` 두 언어에서 블록이 나오는지 눈으로 확인.
+- [ ] 스토어 콘솔(ASC·Play)·Play Data safety 양식의 연락처가 `LEGAL_CONTACT_EMAIL`
+      과 같은 주소인지 확인.
+- [ ] 본문 내용이 바뀌면 `app/web.py` 의 `LEGAL_EFFECTIVE_DATE` 도 같이 올린다
+      (README "법적 문서" 절의 갱신 트리거).

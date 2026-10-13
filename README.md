@@ -145,7 +145,8 @@ uv run flask notify-operator-test           # 운영자 Slack 알림 도착 확�
 | 본문 | `web/templates/legal/{privacy,terms}.{ko,en}.html` — 언어마다 파일 하나 |
 | 공통 틀 | `web/templates/legal/_layout.html` (내비·푸터 문구만 언어별로 고름) |
 | 스타일 | `web/static/tokens.css` (공용 디자인 토큰) + `web/static/legal.css` (문서 레이아웃) |
-| 시행일·연락처 | `app/web.py` 의 `LEGAL_EFFECTIVE_DATE`, `LEGAL_CONTACT_EMAIL` |
+| 시행일 | `app/web.py` 의 `LEGAL_EFFECTIVE_DATE` |
+| 연락처·사업자 정보 | 설정값 `LEGAL_CONTACT_EMAIL`, `LEGAL_BUSINESS_*` (`app/config.py`). 값이 있는 항목만 "운영자 정보" 블록에 렌더 — 출시 전 채울 값은 `docs/RELEASE.md` "### 09." |
 
 **갱신 책임은 운영자(= 프로젝트 주인)에게 있다.** 아래가 바뀌면 두 언어 본문을 **같은
 커밋에서** 고치고 `LEGAL_EFFECTIVE_DATE` 를 올린다 — 한쪽 언어만 고쳐진 문서가 나가면
@@ -156,6 +157,7 @@ uv run flask notify-operator-test           # 운영자 Slack 알림 도착 확�
 - 보유 기간이 바뀔 때 (예: `BACKUP_RETENTION_DAYS` 를 14일에서 바꾸면 방침의 14일도 고친다)
 - 구독 상품·가격·해지 경로가 바뀔 때
 - EULA 선택이 확정될 때 (현재는 Apple 표준 EULA 링크 — 스펙 미정 9)
+- 사업자·통신판매업 등록이 끝났을 때 (`LEGAL_BUSINESS_*` 를 `.env` 에 채운다 — 본문 수정은 없다)
 
 `tests/test_legal_pages.py` 가 "필수 공시 문구가 두 언어 본문에 있는지" 를 지키니, 항목을
 지우면 테스트가 먼저 깨진다. `/account/delete` 링크는 문서가 먼저 가리키고 페이지는 티켓

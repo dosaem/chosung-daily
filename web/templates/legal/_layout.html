@@ -12,6 +12,9 @@
     "privacy": "개인정보처리방침",
     "terms": "이용약관",
     "delete": "계정 삭제",
+    "operator": "운영자 정보",
+    "service": "서비스",
+    "contact": "연락처",
   },
   "en": {
     "home": "Hidden Vowels",
@@ -21,6 +24,9 @@
     "privacy": "Privacy Policy",
     "terms": "Terms of Service",
     "delete": "Delete account",
+    "operator": "Operator information",
+    "service": "Service",
+    "contact": "Contact",
   },
 }[ui_language] %}
 <!doctype html>
@@ -55,6 +61,23 @@
     <p class="doc-meta">{{ chrome.effective }} {{ effective_date.isoformat() }}</p>
 
     {% block document %}{% endblock %}
+
+    {# 운영자 정보. 두 문서가 같은 블록을 쓴다 — 사업자 등록 뒤에 한 곳만 고치면 된다.
+       `business_info` 는 설정에 값이 있는 항목만 들어온다(app/web.py `_business_info`).
+       전부 비면 서비스명과 연락처만 남는다 — 값을 지어내지 않는다. #}
+    <section class="doc-operator" aria-labelledby="doc-operator-heading">
+      <h2 id="doc-operator-heading">{{ chrome.operator }}</h2>
+      <dl>
+        <dt>{{ chrome.service }}</dt>
+        <dd>{{ chrome.home }} (chosung.dosaem.com)</dd>
+        {% for label, value in business_info %}
+        <dt>{{ label }}</dt>
+        <dd>{{ value }}</dd>
+        {% endfor %}
+        <dt>{{ chrome.contact }}</dt>
+        <dd><a href="mailto:{{ contact_email }}">{{ contact_email }}</a></dd>
+      </dl>
+    </section>
 
     <footer class="doc-footer">
       <a class="doc-nav-link" href="{{ url_for('web.privacy', lang=ui_language) }}">{{ chrome.privacy }}</a>

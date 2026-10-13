@@ -5,9 +5,12 @@
 제3자·국외 이전 같은 필수 항목을 언어별로 하나씩 문구로 검증한다.
 """
 
+import importlib
+from pathlib import Path
+
 import pytest
 
-from app.web import LEGAL_CONTACT_EMAIL
+from app import config
 
 EN_HEADERS = {"Accept-Language": "en-US,en;q=0.9"}
 KO_HEADERS = {"Accept-Language": "ko-KR,ko;q=0.9"}
@@ -149,12 +152,32 @@ def test_privacy_en_covers_required_disclosures(client, phrase):
 
 
 @pytest.mark.parametrize("lang", ["ko", "en"])
-def test_privacy_links_deletion_page_and_contact(client, lang):
+def test_privacy_links_deletion_page_and_contact(client, app, lang):
     html = _body(client, f"/privacy?lang={lang}")
+    contact = app.config["LEGAL_CONTACT_EMAIL"]
 
     assert "/account/delete" in html
-    assert LEGAL_CONTACT_EMAIL in html
-    assert f"mailto:{LEGAL_CONTACT_EMAIL}" in html
+    assert contact in html
+    assert f"mailto:{contact}" in html
+
+
+def test_contact_email_defaults_to_the_operator_address(app):
+    # 환경변수로 뺐지만 기본값은 그대로 운영자 주소다 — 설정을 깜빡해도 문서에
+    # 연락처가 비지 않아야 한다(스토어 심사·Play Data safety 가 요구한다).
+    assert app.config["LEGAL_CONTACT_EMAIL"] == "hsseo@dosaem.com"
+
+
+def test_empty_contact_email_env_falls_back_to_the_default(monkeypatch):
+    # `.env.example` 은 `LEGAL_CONTACT_EMAIL=` 로 키만 둔다. 그대로 복사해 쓰면
+    # 환경에는 빈 문자열이 들어오는데, 그때도 기본값으로 떨어져야 한다.
+    monkeypatch.setenv("LEGAL_CONTACT_EMAIL", "")
+    importlib.reload(config)
+
+    try:
+        assert config.Config.LEGAL_CONTACT_EMAIL == "hsseo@dosaem.com"
+    finally:
+        monkeypatch.undo()
+        importlib.reload(config)
 
 
 # --- 국외 이전 거부 방법 (D-09-1) ------------------------------------------
@@ -272,3 +295,107 @@ def test_cross_links_the_other_document(client, path):
 
     assert 'href="/privacy' in html
     assert 'href="/terms' in html
+
+
+# --- 운영자 정보 블록 ------------------------------------------------------
+#
+# 사업자 정보는 아직 실제 값이 없다(출시 전 사람이 채운다 — docs/RELEASE.md "### 09.").
+# 그래서 두 상태를 모두 검증한다: 비어 있을 때 서비스명·연락처만 나오는지, 값을
+# 채우면 그 항목만 늘어나는지. 값을 코드에 넣어 두지 않았다는 것도 같이 고정한다.
+
+OPERATOR_FIELD_LABELS_KO = [
+    "상호",
+    "대표자",
+    "사업자등록번호",
+    "통신판매업 신고번호",
+    "주소",
+]
+
+OPERATOR_FIELD_LABELS_EN = [
+    "Business name",
+    "Representative",
+    "Business registration number",
+    "Mail-order business registration no.",
+    "Address",
+]
+
+FILLED_BUSINESS_CONFIG = {
+    "LEGAL_BUSINESS_NAME": "테스트 상호",
+    "LEGAL_REPRESENTATIVE": "테스트 대표",
+    "LEGAL_BUSINESS_REG_NO": "000-00-00000",
+    "LEGAL_MAIL_ORDER_REG_NO": "제0000-서울-0000호",
+    "LEGAL_BUSINESS_ADDRESS": "서울특별시 테스트구 테스트로 1",
+}
+
+
+@pytest.mark.parametrize("path", ["/privacy", "/terms"])
+@pytest.mark.parametrize("lang", ["ko", "en"])
+def test_operator_block_shows_service_and_contact(client, app, path, lang):
+    html = _body(client, f"{path}?lang={lang}")
+    heading = "운영자 정보" if lang == "ko" else "Operator information"
+
+    assert heading in html
+    assert "chosung.dosaem.com" in html
+    assert f"mailto:{app.config['LEGAL_CONTACT_EMAIL']}" in html
+
+
+@pytest.mark.parametrize("path", ["/privacy", "/terms"])
+@pytest.mark.parametrize(
+    ("lang", "labels"),
+    [("ko", OPERATOR_FIELD_LABELS_KO), ("en", OPERATOR_FIELD_LABELS_EN)],
+)
+def test_unset_business_info_is_not_rendered(client, path, lang, labels):
+    # 기본 설정은 전부 빈 문자열이라 "상호: (빈칸)" 같은 줄이 생기면 안 된다.
+    html = _body(client, f"{path}?lang={lang}")
+
+    for label in labels:
+        assert f"<dt>{label}</dt>" not in html
+
+
+@pytest.mark.parametrize("path", ["/privacy", "/terms"])
+@pytest.mark.parametrize(
+    ("lang", "labels"),
+    [("ko", OPERATOR_FIELD_LABELS_KO), ("en", OPERATOR_FIELD_LABELS_EN)],
+)
+def test_set_business_info_is_rendered(client, app, path, lang, labels):
+    app.config.update(FILLED_BUSINESS_CONFIG)
+
+    html = _body(client, f"{path}?lang={lang}")
+
+    for label in labels:
+        assert f"<dt>{label}</dt>" in html
+    for value in FILLED_BUSINESS_CONFIG.values():
+        assert value in html
+
+
+@pytest.mark.parametrize("path", ["/privacy", "/terms"])
+def test_partially_set_business_info_renders_only_filled_rows(client, app, path):
+    # 사업자 등록만 끝나고 통신판매업 신고가 아직인 중간 상태.
+    app.config.update(
+        LEGAL_BUSINESS_NAME="테스트 상호",
+        LEGAL_REPRESENTATIVE="테스트 대표",
+        LEGAL_BUSINESS_REG_NO="000-00-00000",
+    )
+
+    html = _body(client, f"{path}?lang=ko")
+
+    assert "<dt>상호</dt>" in html
+    assert "<dt>사업자등록번호</dt>" in html
+    assert "<dt>통신판매업 신고번호</dt>" not in html
+    assert "<dt>주소</dt>" not in html
+
+
+def test_business_info_values_are_not_hardcoded():
+    # 값은 환경변수에서만 온다. 코드에 지어 넣은 상호·등록번호가 없어야 한다.
+    config_py = (Path(__file__).resolve().parent.parent / "app" / "config.py").read_text(
+        encoding="utf-8"
+    )
+
+    for name in [
+        "LEGAL_BUSINESS_NAME",
+        "LEGAL_REPRESENTATIVE",
+        "LEGAL_BUSINESS_REG_NO",
+        "LEGAL_MAIL_ORDER_REG_NO",
+        "LEGAL_BUSINESS_ADDRESS",
+    ]:
+        assert f'{name} = os.environ.get("{name}", "")' in config_py

@@ -266,3 +266,264 @@ h1 은 문서 제목 하나, 나머지는 h2 — SCREENS 의 목업 매핑표가
   **개발 서버를 띄우고 URL 로** 돌려야 한다(§4 방식).
 - UI 문구 ko/en 이 필요한 티켓(18)은 `app/utils/ui_language.py` 의
   `resolve_ui_language` 를 그대로 쓸 수 있다.
+
+---
+
+## 수정 라운드 1
+
+`review/impl-review-09.md` 라운드 1(판정 FAIL, BLOCKER 0 / MAJOR 1 / MINOR 2)의 결함
+3개를 전부 고쳤다. **틀렸다고 판단한 지적은 없다** — 세 건 다 리뷰의 재현 방법대로
+먼저 재현됐다. 코디네이터가 추가로 지시한 사용자 결정 2건(`msg_386a4e947738`)도 이
+라운드에 함께 넣었다(§수정 라운드 1 — 사용자 결정 반영).
+
+각 결함은 **재현 → 실패하는 테스트로 고정 → 고침** 순서로 처리했다.
+
+### D-09-1 (MAJOR) — 게스트 플레이를 국외 이전 거부 방법으로 잘못 안내
+
+**재현.** `/privacy?lang=ko`·`?lang=en` 4절 마지막 문장이 "계정을 연결하지 않고
+게스트로만 플레이하면 (국외 이전을) 피할 수 있다" 였다. 같은 방침 1절·3절은 AdMob SDK
+가 광고 ID 를 **직접** 보내고 Firebase Analytics·Sentry 가 이벤트·오류를 처리한다고
+적고 있다. 스펙과 대조한 결과도 같다 — §B.21 광고 게이트의 조건은 UMP
+`canRequestAds`/ATT 상태이지 계정 연결 여부가 아니고(`spec.md:210`), §B.24 분석 이벤트
+4개와 §C.30 Sentry 어디에도 "연결된 계정만" 조건이 없다. 즉 게스트로 플레이해도
+광고·분석·오류 전송은 그대로 일어난다.
+
+**원인.** 거부 수단을 기능별로 나누지 않고 "계정 연결" 하나로 묶어 쓴 문구 오류다.
+계정 연결로 실제로 막히는 것은 로그인 제공자(Google/Apple)로 가는 식별자·이메일이고,
+구독을 안 쓰면 스토어로 가는 구매 식별자가 막힌다 — 그 둘만 사실이었다.
+
+**수정.** 4절을 기능별 거부 방법으로 다시 썼다(ko/en 같은 구조).
+
+- 계정 미연결 → 로그인 제공자 이전 없음, 구독 미사용 → 스토어 이전 없음 (사실만 남김)
+- **"계정을 연결하지 않아도 앱의 광고·앱 사용 이벤트·오류 기록은 그대로 전송됩니다"**
+  를 명시하고 "게스트로 쓰는 것은 국외 이전을 거부하는 방법이 아닙니다" 로 못 박음
+- 광고(AdMob): iOS 추적 허용 요청 + 앱 "광고 개인정보 설정"(표시되는 지역)에서 맞춤
+  광고를 거부·재선택할 수 있고, **거부해도 광고 요청 자체는 AdMob 으로 간다**, 전송을
+  없애려면 구독 또는 앱 삭제
+- 앱 사용 이벤트(Firebase Analytics): 앱에서만, **개별 거부 수단 없음**
+- 오류 기록(Sentry): 웹·앱 모두, 장애 대응에 필요해 **개별 거부 수단 없음**
+- 받아들일 수 없으면 이용 중단 + 6절 삭제 안내
+
+**증명하는 테스트.** `tests/test_legal_pages.py` 에 4절 본문만 떼어 검사하는 절을
+추가했다(같은 단어가 다른 절에 있어도 통과하지 않게 `<h2>4.`~`<h2>5.` 사이만 본다).
+
+| 테스트 | 무엇을 막는지 |
+|---|---|
+| `test_transfer_section_is_the_international_transfer_section` | 헬퍼가 엉뚱한 절을 떼어 와서 아래 두 테스트가 공짜로 통과하는 것 |
+| `test_transfer_section_does_not_sell_guest_play_as_opt_out` | "게스트로만 플레이"/"play as a guest without linking" 문구의 재발 |
+| `test_transfer_section_ko_states_real_opt_outs` (5건) | 계정을 연결하지 않아도 / 광고 개인정보 설정 / 추적 허용 / 개별 거부 수단 / 구독 |
+| `test_transfer_section_en_states_real_opt_outs` (5건) | even without a linked account / ad privacy settings / tracking permission / no per-feature opt-out / subscription |
+
+수정 전 이 테스트들이 **빨갛게 떨어지는 것**을 먼저 확인했다(아래 §재현 로그).
+
+### D-09-2 (MINOR) — 지역 언어 태그가 있으면 낮은 q 값의 언어를 선택
+
+**재현.** 리뷰의 curl 과 같은 조합을 개발 서버(loopback `127.0.0.1:5099`)에 보냈다.
+
+```
+$ curl -s -D - -o /dev/null -H 'Accept-Language: en-US,ko;q=0.1' http://127.0.0.1:5099/privacy | grep -i '^content-language'
+Content-Language: ko      # ← 기대: en
+$ curl -s -D - -o /dev/null -H 'Accept-Language: ko-KR,en;q=0.1' http://127.0.0.1:5099/privacy | grep -i '^content-language'
+Content-Language: en      # ← 기대: ko
+```
+
+순수 함수로도 같았다: `resolve_ui_language(None, 'en-US,ko;q=0.1') == 'ko'`.
+
+**원인(코드로 확인).** 설치된 werkzeug 3.1.9 의 `LanguageAccept.best_match` 소스를
+직접 읽었다 — `super().best_match(matches)` 로 **완전 일치를 먼저** 찾고, 그게 None 일
+때만 주 언어(primary subtag)로 내려간다. 그래서 `en-US`(q=1)는 1차 통과에서 지원 목록
+`("ko", "en")` 과 완전 일치하지 않고, 같은 1차 통과에서 `ko`(q=0.1)가 완전 일치로
+잡혀 버린다. q 값 비교가 "완전 일치끼리" 안에서만 일어나는 구조라, 지역 꼬리표가 붙은
+선호 언어는 항상 뒤로 밀린다. 증상(언어가 뒤바뀜)이 아니라 이 선택 순서를 고쳤다.
+
+**수정.** `app/utils/ui_language.py` 가 `best_match` 를 쓰지 않고, 파싱(q 값 해석·정렬)
+만 werkzeug 에 맡긴 뒤 **꼬리표를 먼저 떼고 선호 순서대로** 지원 언어를 찾는다
+(`_accepted_languages`). werkzeug 의 `Accept` 순회 순서는 q 내림차순이고 q 가 같으면
+헤더에 적힌 순서라는 것을 소스(`Accept.__init__` 의 `sorted(..., reverse=True)`)와
+실제 출력으로 확인했다. `q=0`("받지 않겠다")은 버린다.
+
+**증명하는 테스트.**
+
+- `tests/test_ui_language.py::test_resolve_ui_language` 에 8케이스 추가:
+  `en-US,ko;q=0.1`→en, `ko-KR,en;q=0.1`→ko, `en-GB,ko;q=0.5`→en, `ko_KR,en;q=0.5`→ko,
+  `en;q=0,ko;q=0.5`→ko, `ko;q=0,en;q=0.3`→en, `ko;q=0`→ko(기본값), `*`→ko(기본값)
+- `tests/test_legal_pages.py::test_region_tag_does_not_lose_to_low_q_language`
+  (4케이스): HTTP 수준에서 `Content-Language` 와 `<html lang=...>` 를 같이 확인
+
+수정 후 같은 curl:
+
+```
+$ curl ... -H 'Accept-Language: en-US,ko;q=0.1' .../privacy  → Content-Language: en
+$ curl ... -H 'Accept-Language: ko-KR,en;q=0.1' .../privacy  → Content-Language: ko
+```
+
+### D-09-3 (MINOR) — 문서 외곽 폭과 모바일 패딩이 디자인 규칙을 벗어남
+
+**재현(실제 브라우저).** 리뷰와 같은 값을 측정했다. 이 세션에서도 Chrome 확장은
+`127.0.0.1`·`localhost` 둘 다 `chrome-error://chromewebdata/` 로 떨어져서(구현 라운드와
+같은 증상), **헤드리스 Chrome** 으로 쟀다. 재현 스크립트를 커밋에 넣었다:
+`review/measure-doc-width-09.py` (개발 서버의 렌더 HTML + 실제 `tokens.css`·`legal.css`
+inline → 폭 고정 iframe 안에서 열어 computed style 읽기. iframe 을 쓴 이유는 macOS
+헤드리스 Chrome 의 창 폭 하한이 500px 이라 ≤480 미디어 쿼리를 창 크기로 못 만든다).
+
+수정 전 (4 URL 모두 동일):
+
+```
+privacy-ko @768px {"docOuterWidth": 528, "boxSizing": "content-box", "paddingLeft": "24px", "maxWidth": "480px"}
+privacy-ko @375px {"docOuterWidth": 375, "boxSizing": "content-box", "paddingLeft": "24px"}
+```
+
+**원인.** `.doc` 가 기본 `box-sizing: content-box` 였다. CSS 의 `max-width` 는
+content-box 기준이라 좌우 패딩 24px 이 밖으로 더해져 외곽 폭이 528px 이 된다 —
+OVERRIDES §10 의 "카드 `max-width: 480px`" 은 카드 **외곽** 폭이다. 패딩 24px 는
+§4 의 "카드 패딩 16(모바일) 24(태블릿+)" 중 태블릿 값만 모든 폭에 쓴 것이다.
+
+**수정.** `web/static/legal.css`
+
+```css
+.doc { box-sizing: border-box; max-width: var(--content-max-width); margin: 0 auto;
+       padding: var(--space-4) var(--space-4) var(--space-12); }
+@media (min-width: 481px) { .doc { padding: var(--space-6) var(--space-6) var(--space-12); } }
+```
+
+경계를 481px 로 둔 근거: OVERRIDES §10 이 "≤480 폭 100% / 481+ 카드 480px" 로 같은
+지점을 쓰고 있어서, 폭이 고정되는 지점과 패딩이 넓어지는 지점을 다르게 둘 이유가 없다.
+새 색·새 간격 토큰은 만들지 않았다(기존 `--space-4`/`--space-6`).
+
+수정 후 (4 URL × 3 폭 전부):
+
+```
+@375px {"viewport":375,"docOuterWidth":375,"boxSizing":"border-box","paddingTop":"16px","paddingLeft":"16px","paddingRight":"16px","maxWidth":"480px","horizontalOverflow":false}
+@481px {"viewport":481,"docOuterWidth":480,"boxSizing":"border-box","paddingTop":"24px","paddingLeft":"24px","paddingRight":"24px","maxWidth":"480px","horizontalOverflow":false}
+@768px {"viewport":768,"docOuterWidth":480,"boxSizing":"border-box","paddingTop":"24px","paddingLeft":"24px","paddingRight":"24px","maxWidth":"480px","horizontalOverflow":false}
+```
+
+**증명하는 테스트.** `tests/test_legal_css.py` (새 파일). 레포에 브라우저 드라이버
+의존성이 없어서(테스트 때문에 의존성을 늘리지 않는다) px 를 만드는 CSS 선언을 고정한다.
+`.doc` 블록을 떼어 `box-sizing: border-box`·`max-width: var(--content-max-width)`,
+기본 padding 이 `--space-4`(그리고 `--space-6` 이 아님), `min-width: 481px` 블록의
+padding 이 `--space-6` 임을 확인한다. 색 리터럴·그림자가 없다는 것도 같이 고정했다.
+
+**리뷰의 증거 문서 지적도 정정한다.** 이 문서 §6 의 "**다르게 한 것: 없음**" 과
+"폭 480px" 은 당시 구현 상태(외곽 528px·패딩 24px 고정)와 맞지 않는 주장이었다. 이제
+실측이 480px/16·24px 라 §6 의 주장이 사실과 일치한다.
+
+### 수정 라운드 1 — 사용자 결정 반영 (코디네이터 추가 지시)
+
+리뷰 결함이 아니라, 구현 라운드의 `ask`(`msg_2a7bbb9a4266`)가 답을 못 받고 끝난 항목에
+대한 사용자 결정이다(`msg_386a4e947738`).
+
+**(1) 공개 연락처를 설정값으로.** `app/web.py` 의 모듈 상수를 지우고
+`app/config.py` 의 `LEGAL_CONTACT_EMAIL`(기본값 `hsseo@dosaem.com`)로 옮겼다. 주소
+자체는 사용자 확인대로 그대로다. `.env.example` 에 `# [09]` 절을 파일 끝에 추가.
+
+기본값을 `os.environ.get(...) or "hsseo@dosaem.com"` 로 쓴 이유: `.env.example` 을
+복사해 쓰면 `LEGAL_CONTACT_EMAIL=` 이 **빈 문자열로 환경에 들어와서**
+`os.environ.get(key, default)` 가 기본값으로 안 떨어진다. 문서의 연락처가 비면 스토어
+심사 반려 사유라 `or` 로 막았고, 그 동작을 테스트로 고정했다
+(`test_empty_contact_email_env_falls_back_to_the_default`).
+
+**(2) 운영자 정보(사업자 정보) 블록.** 설정값 5개를 만들고 기본값은 전부 빈 문자열이다 —
+**실제 값은 지어내지 않았다.**
+
+| 설정 | 문서 라벨 (ko / en) |
+|---|---|
+| `LEGAL_BUSINESS_NAME` | 상호 / Business name |
+| `LEGAL_REPRESENTATIVE` | 대표자 / Representative |
+| `LEGAL_BUSINESS_REG_NO` | 사업자등록번호 / Business registration number |
+| `LEGAL_MAIL_ORDER_REG_NO` | 통신판매업 신고번호 / Mail-order business registration no. |
+| `LEGAL_BUSINESS_ADDRESS` | 주소 / Address |
+
+렌더는 `web/templates/legal/_layout.html` 의 `.doc-operator` 블록 하나로 두 문서가
+같이 쓴다(사업자 등록 뒤 한 곳만 고치면 된다). `app/web.py` 의 `_business_info()` 가
+**값이 있는 항목만** (라벨, 값) 으로 넘기므로, 전부 비면 서비스명(`오늘의 초성 /
+Hidden Vowels (chosung.dosaem.com)`)과 연락처만 나온다. 라벨 순서는 전자상거래법 표기
+순서. `.doc-operator` 는 `.doc` 안쪽이라 기존 `.doc h2`/`.doc dl` 규칙을 그대로 받고,
+새 CSS·새 토큰을 만들지 않았다.
+
+테스트(`tests/test_legal_pages.py`, 두 문서 × 두 언어):
+
+- `test_operator_block_shows_service_and_contact` — 블록 제목·도메인·`mailto:` 존재
+- `test_unset_business_info_is_not_rendered` — 기본(전부 빈 값)에서 `<dt>상호</dt>`
+  같은 빈 줄이 **생기지 않음**
+- `test_set_business_info_is_rendered` — 5개를 채우면 라벨·값이 전부 나옴
+- `test_partially_set_business_info_renders_only_filled_rows` — 사업자 등록만 끝난
+  중간 상태에서 채운 3줄만 나오고 통신판매업·주소는 안 나옴
+- `test_business_info_values_are_not_hardcoded` — `app/config.py` 의 5개 기본값이
+  모두 `""` 인지 (코드에 지어 넣은 상호·등록번호가 없다는 보증)
+
+문서 갱신: `docs/RELEASE.md` 에 `### 09. 법적 문서 — 출시 전 사람이 채울 값` 절(환경변수
+↔ 라벨 표 + 체크리스트 3개), README "법적 문서" 표의 연락처 행을 설정값으로 고치고
+갱신 트리거에 "사업자·통신판매업 등록이 끝났을 때" 한 줄 추가. 스펙 "미정 항목" 과
+마이그레이션은 건드리지 않았다(이 변경에 DB 가 없다).
+
+사업자 정보를 채운 상태에서도 `impeccable detect` 는 0건이다:
+
+```
+$ FLASK_ENV=testing LEGAL_BUSINESS_NAME=... LEGAL_REPRESENTATIVE=... \
+    LEGAL_BUSINESS_REG_NO=... LEGAL_MAIL_ORDER_REG_NO=... LEGAL_BUSINESS_ADDRESS=... \
+    uv run flask --app wsgi run --port 5099       # (백그라운드)
+$ impeccable detect "http://127.0.0.1:5099/privacy?lang=ko"   → exit=0
+$ impeccable detect "http://127.0.0.1:5099/terms?lang=en"     → exit=0
+```
+
+### 재현 로그 — 수정 전 빨강 → 수정 후 초록
+
+수정 전(테스트만 추가한 상태):
+
+```
+21 failed, 85 passed in 51.42s
+
+FAILED tests/test_ui_language.py::test_resolve_ui_language[None-en-US,ko;q=0.1-en]
+FAILED tests/test_ui_language.py::test_resolve_ui_language[None-ko-KR,en;q=0.1-ko]
+FAILED tests/test_ui_language.py::test_resolve_ui_language[None-en-GB,ko;q=0.5-en]
+FAILED tests/test_ui_language.py::test_resolve_ui_language[None-ko_KR,en;q=0.5-ko]
+FAILED tests/test_legal_css.py::test_doc_card_width_counts_padding
+FAILED tests/test_legal_css.py::test_doc_mobile_padding_is_16px
+FAILED tests/test_legal_css.py::test_doc_tablet_padding_is_24px
+FAILED tests/test_legal_pages.py::test_region_tag_does_not_lose_to_low_q_language[...] (4건)
+FAILED tests/test_legal_pages.py::test_transfer_section_does_not_sell_guest_play_as_opt_out[ko-...]
+FAILED tests/test_legal_pages.py::test_transfer_section_does_not_sell_guest_play_as_opt_out[en-...]
+FAILED tests/test_legal_pages.py::test_transfer_section_ko_states_real_opt_outs[...] (4건)
+FAILED tests/test_legal_pages.py::test_transfer_section_en_states_real_opt_outs[...] (4건)
+```
+
+### 전체 재검증 (로컬 main 위로 rebase 후)
+
+접속값은 이 문서 머리의 로컬 테스트 설정과 같다(DB `chosung_daily_test_t09`, Redis
+DB 11). 공용 테스트 DB 는 건드리지 않았고, 이 문서에 인증값을 새로 적지 않는다.
+
+```
+$ uv run pytest -q
+473 passed
+
+$ uv run ruff check .
+All checks passed!
+
+$ uv run ruff format --check app/web.py app/config.py app/utils/ui_language.py \
+    tests/test_legal_pages.py tests/test_token_css.py tests/test_ui_language.py \
+    tests/test_legal_css.py review/measure-doc-width-09.py
+8 files already formatted
+
+$ FLASK_ENV=testing uv run flask --app wsgi db heads
+f394da7f4d88 (head)          # 1줄. 이 티켓은 마이그레이션을 만들지 않는다.
+
+$ impeccable detect "http://127.0.0.1:5099/{privacy,terms}?lang={ko,en}"
+4 URL 전부 exit=0            # 대조군 v2_softdark_home.html 은 7건/exit=2 (탐지기 생존)
+```
+
+### 미수정 MINOR
+
+없음. 라운드 1 의 MINOR 2건(D-09-2, D-09-3) 모두 고쳤다.
+
+리뷰의 "보안·범위·테스트 품질 및 참고" 에 적힌 검증 강도 두 가지는 리뷰 자신이 "별도
+출시 차단 결함으로 중복 집계하지 않는다" 고 적은 항목이라 결함으로 세지 않았고, 이
+라운드에서 **고치지 않았다**:
+
+- `test_privacy_states_backup_retention` 의 느슨한 `"14"` 검사 — 본문에 "만 14세" 와
+  "백업 14일" 이 둘 다 필수 공시로 들어 있어서 숫자 하나로는 구분이 안 된다. 제대로
+  고치려면 두 문구를 각각 검사하도록 이 테스트를 쪼개야 한다.
+- 토큰 테스트가 OVERRIDES 파일 자체가 아니라 복사한 기대값을 비교하는 점 — 고치려면
+  `tests/test_token_css.py` 가 OVERRIDES 의 표를 파싱하게 바꿔야 한다.
+
+둘 다 결함 수정 범위를 넘는 테스트 리팩토링이라 다음 티켓/라운드 몫으로 남겨 둔다.

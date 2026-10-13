@@ -81,6 +81,20 @@ class Config:
     SESSION_COOKIE_SAMESITE = "Lax"
     SESSION_COOKIE_SECURE = os.environ.get("SESSION_COOKIE_SECURE", "false").lower() == "true"
 
+    # 법적 문서(/privacy, /terms)에 싣는 공개 정보.
+    # 연락처는 CONTEXT.md "운영자" 의 Play 조직 계정이라 기본값이 있고, 사업자 정보는
+    # 아직 등록 전이라 전부 빈 문자열이다 — app/web.py 가 값이 있는 항목만 렌더하고
+    # 전부 비면 서비스명과 연락처만 보여준다. 값을 코드에 지어 넣지 않는다
+    # (출시 전 사람이 채울 값: docs/RELEASE.md "### 09.").
+    # `.env` 에 키만 있고 값이 비어 있어도(= 빈 문자열이 환경에 들어온다) 기본값으로
+    # 떨어지게 `or` 를 쓴다 — 문서의 연락처가 비는 건 스토어 심사에서 반려 사유다.
+    LEGAL_CONTACT_EMAIL = os.environ.get("LEGAL_CONTACT_EMAIL") or "hsseo@dosaem.com"
+    LEGAL_BUSINESS_NAME = os.environ.get("LEGAL_BUSINESS_NAME", "")
+    LEGAL_REPRESENTATIVE = os.environ.get("LEGAL_REPRESENTATIVE", "")
+    LEGAL_BUSINESS_REG_NO = os.environ.get("LEGAL_BUSINESS_REG_NO", "")
+    LEGAL_MAIL_ORDER_REG_NO = os.environ.get("LEGAL_MAIL_ORDER_REG_NO", "")
+    LEGAL_BUSINESS_ADDRESS = os.environ.get("LEGAL_BUSINESS_ADDRESS", "")
+
     # Cloudflare Tunnel이 TLS를 엣지에서 끝내고 내부로는 평문 HTTP로 넘긴다.
     # 이걸 모르면 url_for(..., _external=True)가 OAuth redirect_uri를 http://로
     # 만들어버려서 구글/애플 콘솔에 등록한 https:// URI와 안 맞아 로그인이 막힌다
