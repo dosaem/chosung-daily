@@ -375,3 +375,34 @@ analyze`·`flutter test`·디버그 실행 모두). 아래는 실기기·배포�
 - [ ] 운영자 아닌 계정으로 로그인한 브라우저에서 `/admin` 이 403 인지 확인.
 - [ ] D0 단어 CSV 를 `/admin/words/import` 로 올려 추가/중복/오류 행 수를 확인한다
       (CSV 포맷·LLM 프롬프트는 README "운영: 단어 CSV 업로드").
+### 14. 계정 삭제 — 배포 전 준비물과 수동 확인 (2026-10-14)
+
+1. **마이그레이션**: `flask db upgrade` (리비전 `94a83f12fddb`,
+   `apple_revocation_retry` 테이블 추가). 롤백은 같은 리비전의 `downgrade` 로
+   테이블만 지운다.
+2. **새 환경변수 없음.** 애플 철회는 로그인이 이미 쓰는 값
+   (`APPLE_TEAM_ID`·`APPLE_KEY_ID`·`APPLE_PRIVATE_KEY`·`APPLE_CLIENT_ID`·
+   `APPLE_APP_BUNDLE_ID`)으로 자격증명을 서명한다 — 비어 있으면 철회를 건너뛰고
+   재시도 행만 남는다(7일 뒤 Slack 알림).
+3. **Celery Beat 재시작 필요.** 새 스케줄 `retry-apple-revocations`(매일 09:20 KST)
+   가 Beat 프로세스에 로드돼야 한다.
+4. **Play Data safety 의 "계정 삭제 URL" = `https://chosung.dosaem.com/account/delete`**
+   (웹 삭제 URL). 앱 내 삭제 경로는 설정 화면의 "계정 삭제"(`DELETE /api/v1/me`,
+   티켓 29). 두 값을 Play Console 의 데이터 삭제 섹션에 그대로 적는다. App Store
+   심사(가이드라인 5.1.1(v))도 같은 URL 과 앱 내 경로를 본다.
+
+**수동 체크리스트 (웹, 배포한 환경에서 1회)**
+
+- [ ] `/account/delete` 를 **로그인/방문 기록 없는 브라우저**(시크릿 창)로 열면
+      삭제 버튼이 없고 안내 + 운영자 메일만 보인다.
+- [ ] 같은 창에서 `/` 를 한 번 열고(게스트 발급 + 세션 동기화) 다시
+      `/account/delete` 로 가면 확인 폼이 보인다. ko/en 전환(`?lang=`)도 확인.
+- [ ] 삭제를 누르면 `/` 로 돌아오고, **새 게스트로 시작한다**: 보드가 비어 있고
+      개발자 도구 Application > Local Storage 의 `chosung_token` 이 새 값이며
+      `chosung_history_*` 가 지워져 있다. 주소창에 `?deleted=1` 이 남지 않는다.
+- [ ] 삭제 전 `/api/v1/me/stats` 를 옛 토큰으로 부르면 401 이다(토큰을 미리
+      복사해 두고 확인).
+- [ ] 애플로 로그인한 게스트를 지운 뒤, **애플 ID 설정 > Apple ID 를 사용하는 앱**
+      에서 이 앱이 사라졌는지 확인한다(실제 애플 계정이 필요해서 테스트가 아니라
+      사람이 본다). 남아 있으면 `apple_revocation_retry` 테이블에 행이 있는지 보고
+      Beat 로그를 확인한다.
