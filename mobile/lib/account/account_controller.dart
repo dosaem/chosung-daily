@@ -99,14 +99,15 @@ class AccountNotifier extends Notifier<AccountState> {
   Future<void> deleteAccount() async {
     await _run(AccountAction.delete, () async {
       await _api.deleteAccount();
-      await ref.read(guestTokenProvider.notifier).clear();
-      await ref.read(localFlagStoreProvider).clearPerAccount();
 
-      // 토큰이 없는 동안 재조회가 끼어들면 401 이 난다 — 새 토큰을 먼저
-      // 받아 두고 그 다음에 버린다.
+      // 지운 토큰을 버리기 전에 새 토큰을 먼저 받는다(`POST /guests` 는 인증이
+      // 없다). 먼저 버리면 발급이 실패했을 때 앱이 토큰 없이 남고, 그 사이
+      // 끼어드는 재조회가 전부 401 이다. `_adopt` 의 `replaceWith` 가 죽은
+      // 토큰을 덮어쓰므로 따로 지울 필요도 없다.
       final token = await _api.createGuest(
         puzzleLanguage: ref.read(devicePuzzleLanguageProvider),
       );
+      await ref.read(localFlagStoreProvider).clearPerAccount();
       await _adopt(token);
       return const AccountState();
     });

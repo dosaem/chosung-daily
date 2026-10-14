@@ -301,6 +301,27 @@ void main() {
       expect(world.container.read(accountProvider).error, isNull);
     });
 
+    test('새 게스트 발급이 실패해도 앱이 토큰 없이 남지 않는다', () async {
+      // 지운 토큰이라 다음 호출은 401 이지만, 그건 시작 흐름이 새 게스트를
+      // 발급해 스스로 복구하는 길이다(StartupNotifier._fetchStats).
+      // 토큰이 아예 없으면 그 길조차 없다.
+      final api = FakeApiClient()
+        ..createGuestError = const NetworkApiException(
+          code: networkErrorCode,
+          message: 'offline',
+        );
+      final world = _container(api, signIn: _signInReturning(null));
+
+      await world.container.read(accountProvider.notifier).deleteAccount();
+
+      expect(api.deleteAccountCalls, 1);
+      expect(world.store.token, isNotNull);
+      expect(
+        world.container.read(accountProvider).error,
+        'account.error_network',
+      );
+    });
+
     test('삭제가 실패하면 토큰도 플래그도 그대로다', () async {
       final api = FakeApiClient()
         ..deleteAccountError = const ServerApiException(
