@@ -282,8 +282,8 @@ Material `NavigationBar` 3개(2~5 범위, 섹션만 — 액션 없음)이고, �
 
 최종 리뷰(라운드 1, FAIL)의 **BLOCKER 1 / MAJOR 1 / MINOR 1** 을 전부 고쳤다.
 "리뷰어가 틀렸다" 로 넘긴 항목은 없다. 커밋 1개(`fix(22): 수정 라운드 1 …`),
-로컬 `main` **abf3e9a**(티켓 12 머지) 위로 `git rebase main` 완료 — 충돌 없음,
-작업 트리 clean.
+로컬 `main` 위로 `git rebase main` 완료(abf3e9a → 작업 중 bf287f6 로 갱신돼
+한 번 더) — 충돌 없음, 작업 트리 clean.
 
 ### D-22-1 (BLOCKER) — 국제화 초기화 누락으로 실제 앱 시작 실패
 
@@ -449,7 +449,14 @@ project Debug/Release/Profile: 15.0
 티켓 32·34 의 사람 체크리스트다. iOS 쪽은 위처럼 podspec·CocoaPods 판정과
 프로젝트 파일 구조로만 확인했다.
 
-### 라운드 1 수정 후 전체 재검증 (로컬 `main` abf3e9a 위에서)
+### 라운드 1 수정 후 전체 재검증 (로컬 `main` 위에서)
+
+아래 표는 로컬 `main` **abf3e9a**(티켓 11·12 머지) 위에서 받은 출력이다. 그 뒤
+`main` 이 **bf287f6**(티켓 06 머지)으로 더 가서 `git rebase main` 을 한 번 더
+하고 같은 검증을 다시 돌렸다 — 충돌 없음, 결과 동일: `flutter analyze`
+`No issues found!`, `dart format` 0 changed, `flutter test` **87 passed**,
+`ruff` `All checks passed!`, `pytest` **684 passed** in 465.52s(머지로 들어온
+티켓 06 테스트가 늘어난 수), `flask db heads` = `dae1b5af0cf7 (head)` 1개.
 
 | 명령 | 결과 |
 |---|---|
