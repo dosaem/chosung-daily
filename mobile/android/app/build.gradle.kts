@@ -23,6 +23,12 @@ android {
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
+        // flutter_local_notifications 10+ 는 **알림 예약을 안 쓰더라도** 소비하는
+        // 앱이 core library desugaring 을 켜두기를 요구한다. 없으면 Dart 테스트는
+        // 다 통과한 채 `checkDebugAarMetadata` 가 "requires core library
+        // desugaring to be enabled for :app" 으로 Android 빌드를 막는다.
+        // 아래 sourceCompatibility 17 은 Java 언어 수준일 뿐, 이 플래그와는 별개다.
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -71,6 +77,14 @@ android {
             }
         }
     }
+}
+
+dependencies {
+    // 위 isCoreLibraryDesugaringEnabled 와 한 쌍이다 — 플래그만 켜면 빌드가 깨진다.
+    // 버전은 flutter_local_notifications 22.3.2 의 android/build.gradle 이 요구하는
+    // 값과 맞춘다(test/config/android_desugaring_test.dart 가 지킨다).
+    // minSdk 24 라서 multidex 는 AGP 가 기본으로 켜준다 — 따로 선언하지 않는다.
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }
 
 flutter {
