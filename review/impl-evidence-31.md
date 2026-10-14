@@ -250,3 +250,182 @@ Xcode build done.                                            17.3s
 | P3 | 구독 권한 null | 시작 직후 `/me/stats` 가 오기 전에는 비구독자로 다뤄 배너를 요청한다. 구독자가 광고를 보는 시간은 왕복 한 번이고, 33 의 갱신이 들어오면 슬롯이 사라진다 | 티켓 33 |
 | P3 | 폰 레이아웃 | 보드가 두 행 넘게 찬 상태(390×844)에서는 배너 슬롯까지 들어가면 제출 버튼이 스크롤 아래로 내려간다. 이 티켓이 만든 게 아니라 **원래 앱의 레이아웃**이고, 슬롯을 포함한 골든이 그걸 드러냈다 | — (기존 동작) |
 | P2 | — | 시뮬레이터·실기기 스크린샷은 없다. 골든은 테스트 렌더러이고 **광고가 실제로 그려진 그림은 한 장도 없다** | 티켓 35·37 |
+
+## 수정 라운드 1 (리뷰 r1 — BLOCKER 0 / MAJOR 3 / MINOR 0)
+
+세 결함 모두 **리뷰의 재현 절차대로 먼저 실패하는 테스트를 만들고** 나서 고쳤다.
+아래 "재현(수정 전)" 출력은 고치기 전에 실제로 받은 실패다. MINOR 는 0건이라
+미수정 MINOR 가 없다.
+
+### D-31-1 — ko/en 왕복 시 같은 퍼즐에 전면 광고 재노출
+
+**원인.** `InterstitialStore` 가 **마지막 퍼즐 하나**만 기억했다
+(`interstitial_shown_puzzle_id` int 1개). "퍼즐당 1회" 를 "오늘 퍼즐 하나" 로 읽은
+전제가 틀렸다 — 오늘 퍼즐은 **언어마다 따로**이고(ko·en 각각 다른 `puzzle_id`)
+설정에서 언어를 바꾸면 `PuzzleLanguageNotifier.change` 가 오늘 퍼즐을 다시 읽는다.
+그래서 A(ko) → B(en) 로 바꾸면 `markShown(B)` 가 A 의 기록을 덮고, A 로 돌아와
+"결과 보기" 를 열면 세 번째 광고가 나간다. 왕복할 때마다 반복된다.
+
+**수정.** `mobile/lib/ads/interstitial_store.dart` — 인터페이스를
+`lastShownPuzzleId()` → `hasShown(int puzzleId)` 로 바꿔 **기록 전체에 물어보게**
+했다. 저장은 문자열 목록(`interstitial_shown_puzzle_ids`)에 최근 4개까지 남기고
+오래된 쪽부터 밀어낸다 — 동시에 "오늘" 이 될 수 있는 건 언어 수만큼이고, 자정이
+지나면 새 ID 가 들어오므로 지난 퍼즐의 기록은 들고 있을 이유가 없다. 값 타입이
+int → 목록으로 바뀌어 **키 이름도 새로 썼다**(같은 키로 `getStringList` 를 부르면
+이전 버전이 넣어둔 int 에서 타입 오류가 난다). `ResultInterstitial` 은
+`if (await store.hasShown(puzzleId)) return false;` 한 줄로 바뀌었다.
+
+**증명.** `test/ads/result_interstitial_test.dart` "언어를 왕복해도 퍼즐마다 1회다"
+— 41(ko) 1회 → 42(en) 1회 → 41 재열기 **거부** → 42 재열기 **거부**,
+`interstitialShowCalls == 2`.
+
+```
+# 재현(수정 전) — 41 재열기에서 세 번째 광고가 나갔다
+$ flutter test test/ads/result_interstitial_test.dart
++7 -1: 언어를 왕복해도 퍼즐마다 1회다 [E]
+  Expected: false
+    Actual: <true>
+  test/ads/result_interstitial_test.dart 167:5
+
+# 수정 후
+$ flutter test --plain-name "언어를 왕복해도 퍼즐마다 1회다" test/ads/result_interstitial_test.dart
+00:02 +1: All tests passed!
+```
+
+기기에 남는 기록 자체는 순수 함수(`nextShownPuzzleIds`)로 빼서
+`test/ads/interstitial_store_test.dart`(4)가 본다 — 처음 기록 / 다른 언어 퍼즐을
+같이 들고 있기 / 같은 ID 중복 방지 / 용량 초과 시 오래된 쪽부터 밀어내기.
+(`SharedPreferencesAsync` 는 플랫폼 채널을 타므로 저장 호출 자체는 테스트하지
+않는다 — `OnboardingStore` 와 같은 경계다.)
+
+가짜 저장소(`test/fakes/in_memory_interstitial_store.dart`)도 기록을 `Set<int> shown`
+으로 들고 있게 바꿨다 — 하나만 남기면 어느 쪽 기록이 밀렸는지 테스트가 볼 수 없다.
+기존 단정 `store.puzzleId` 는 `store.shown` 으로 같이 옮겼다.
+
+### D-31-2 — 제출 중 힌트 요청이 제출 응답과 입력 잠금을 손상
+
+**원인.** `unlockHint()` 가 `_submitting` 을 보지 않고 `_generation` 을 올렸다.
+세대 번호는 "나중에 떠난 요청이 이긴다" 는 규칙이라, 올리는 순간 **먼저 떠난 제출
+응답이 103행에서 폐기**된다. 그러면 ① 서버에서 이미 소비된 시도가 보드에 안 쌓이고
+② 힌트 성공은 제출 전 `puzzle` 에 `copyWith(hint:)` 를 해서 그 상태를 굳히고
+③ 힌트가 실패하면 상태를 아무도 복구하지 않아 화면의 `submitting: true` 가 남아
+재조회/재시작 전까지 입력이 잠긴다(`finally` 는 내부 `_submitting` 만 되돌린다).
+기존 보호(`refresh` 의 `_refreshQueued`)를 새 경로가 우회한 것이다.
+
+**수정.** `mobile/lib/puzzle/today_puzzle_controller.dart` — 제출이 끝나면 완료되는
+`Completer<void> _submitDone` 을 두고, `unlockHint()` 가 **그걸 먼저 기다린 뒤**
+현재 상태를 다시 읽어 요청을 보낸다(줄 세우기). 재조회처럼 호출을 버리지 않는
+이유: 힌트 버튼을 눌렀는데 아무 일도 안 일어나면 안 된다. 버튼을 잠그지 않은
+이유: 힌트는 시도·순위를 건드리지 않으므로(US 5) 제출 중에도 누를 수 있는 게 맞다.
+
+**증명.** `test/puzzle/today_puzzle_controller_test.dart` 그룹 "응답 경합" 2개.
+- "제출을 기다리는 동안 힌트를 열어도 쌓인 행과 힌트가 모두 남는다" — 제출 응답
+  전에는 `unlockHint` 가 서버로 나가지 않고(`unlockedHintPuzzleIds` 빈 목록),
+  풀린 뒤에는 시도 1개 + `attemptsLeft 4` + 힌트 + `submitting: false` 가 모두 맞다.
+- "제출 대기 중 힌트가 실패해도 제출 결과와 잠금 해제가 남는다" — 힌트를
+  `NetworkApiException` 으로 실패시켜도 제출은 `true` 로 끝나고 입력 잠금이 풀린다.
+
+```
+# 재현(수정 전) — 힌트가 제출 응답을 앞질러 나가고, 제출 결과가 폐기됐다
+$ flutter test test/puzzle/today_puzzle_controller_test.dart
++13 -2: 응답 경합 제출을 기다리는 동안 힌트를 열어도 쌓인 행과 힌트가 모두 남는다 [E]
+  Expected: empty
+    Actual: [41]
+  제출 응답 전에는 보내지 않는다
++13 -3: 응답 경합 제출 대기 중 힌트가 실패해도 제출 결과와 잠금 해제가 남는다 [E]
+  Expected: true
+    Actual: <false>
+
+# 수정 후
+$ flutter test test/puzzle/today_puzzle_controller_test.dart
+00:03 +24: All tests passed!
+```
+
+### D-31-3 — 광고 실패 후 구독 권한이 생겨도 무광고 힌트가 계속 잠김
+
+**원인.** `_HintSlot` 이 "광고를 못 띄웠다" 를 `_adUnavailable` 플래그와 `_notice`
+문구로 **따로** 들고 있었고, `blocked = !gate.canPreviewHint || _adUnavailable` 이
+구독 여부와 무관하게 그 플래그를 적용했다. 그래서 같은 퍼즐의 `_HintSlot` 이 살아
+있는 동안(`ValueKey(puzzle.puzzleId)`) 권한이 켜져도 레이블만 "힌트 미리 보기" 로
+바뀌고 버튼은 계속 비활성, 안내도 "지금은 광고를 불러올 수 없어요" 로 남았다.
+
+**수정.** `mobile/lib/screens/today_tab.dart` — 상태를 **마지막 보상형 결과 하나**
+(`RewardedOutcome? _adFailure`)로 모으고 안내 문구·버튼 잠금을 거기서 파생시킨다.
+그리고 그 기록은 **광고가 필요한 동안만** 적용한다:
+`final adFailure = gate.hintPreviewNeedsAd ? _adFailure : null;`. 권한이 켜지면
+(티켓 32 구매·33 갱신이 같은 `entitlementProvider` 를 쓴다) 잠금과 안내가 같이
+사라지고 광고 없이 바로 `hint-unlock` 이 나간다. 서버가 힌트를 못 연 경우는
+광고와 무관하므로 `_unlockFailed` 로 따로 둔다.
+
+**증명.** `test/screens/today_tab_ads_test.dart` "광고 실패 뒤 구독 권한이 생기면
+바로 열 수 있다" — `RewardedOutcome.unavailable` 로 버튼이 잠긴 뒤
+`entitlementProvider.notifier.update(active: true)`(32·33 이 쓸 실제 인터페이스)를
+부르면 레이블이 "힌트 미리 보기" 로 바뀌고 안내가 사라지고 버튼이 활성화된다.
+탭하면 `rewardedShowCalls` 가 1 그대로(광고 재요청 없음)이고
+`unlockedHintPuzzleIds == [1]`, 힌트 문구가 보인다.
+
+```
+# 재현(수정 전) — 구독 권한이 켜져도 안내와 잠금이 남았다
+$ flutter test test/screens/today_tab_ads_test.dart
++4 -1: 보상형 힌트 미리 보기 광고 실패 뒤 구독 권한이 생기면 바로 열 수 있다 [E]
+  Expected: no matching candidates
+    Actual: Found 1 widget with text "지금은 광고를 불러올 수 없어요"
+  test/screens/today_tab_ads_test.dart line 200
+
+# 수정 후
+$ flutter test test/screens/today_tab_ads_test.dart
+00:12 +12: All tests passed!
+```
+
+### 고치지 않은 지적
+
+- **SDK `canRequestAds` 직접 확인**(체크박스 "증거 부족" 행). 리뷰도 "이 차이만으로
+  실제 잘못된 노출을 단정하지 않아 별도 결함 수에는 넣지 않았다" 로 적었고 결함
+  ID 가 없다. `GoogleAdService.requestConsent()` 는 `getConsentStatus()` 를 읽고
+  `UmpStatus.canRequestAds` 가 SDK 와 같은 네 값으로 판정한다
+  (`notRequired`·`obtained` → true). 바꾸려면 `UmpStatus` 에 필드를 하나 더 들여
+  게이트·가짜·테스트를 같이 손봐야 해서 **이번 수정 범위(결함 수정)를 넘는다** —
+  실제 SDK 값과 자체 판정의 일치는 §8 의 실기기 검증(티켓 37) 몫으로 남긴다.
+- **실제 광고 렌더링·어댑티브 높이 실측·네이티브 audit**: §8 표에 이미 P2 로 적어
+  둔 한계이고 이 라운드에서 달라진 게 없다.
+
+### 수정 라운드 1 검증 (실제 실행 명령과 출력)
+
+```
+$ cd mobile && dart format --output=none --set-exit-if-changed .
+Formatted 146 files (0 changed) in 0.27 seconds.        # exit 0
+
+$ flutter analyze
+Analyzing mobile...
+No issues found! (ran in 5.1s)
+
+$ flutter test
+00:29 +465: All tests passed!                           # 리뷰 시점 457 → 465 (+8)
+```
+
+```
+$ uv run ruff check .
+All checks passed!
+
+$ TEST_DATABASE_URL=...chosung_daily_test_t31 TEST_REDIS_URL=redis://127.0.0.1:6379/5 \
+  TEST_MIGRATION_DATABASE_URL=...chosung_daily_test_t31_migrations uv run pytest -q
+........................................ [100%]
+1403 passed in 1599.82s (0:26:39)
+```
+
+더한 테스트 8개: 언어 왕복 전면 1(`result_interstitial_test.dart`), 저장 기록
+4(`interstitial_store_test.dart`), 제출↔힌트 경합 2
+(`today_puzzle_controller_test.dart`), 실패→구독 전환 1
+(`today_tab_ads_test.dart`).
+
+백엔드는 이 라운드에서도 한 줄도 건드리지 않았다
+(`git diff main..HEAD -- app/ web/ tests/ migrations/ .env.example` 빈 결과).
+`migrations/versions/` 변경이 없어 조건부 `flask db heads` 는 해당하지 않는다.
+`git rebase main`(로컬 `main` = `8ddc8fd`, 리뷰가 쓴 기준과 같다)은 "up to date" —
+main 이 움직이지 않았다. `git diff --check main...HEAD` exit 0, 작업 트리 clean.
+전용 자원만 썼다: DB `chosung_daily_test_t31`, Redis DB 5, 마이그레이션 DB
+`chosung_daily_test_t31_migrations`. 접속 문자열의 인증 값은 문서에 싣지 않는다.
+공용 테스트 DB 는 건드리지 않았다.
+
+실기기·실제 광고 호출·스토어·프로덕션 접근은 이 라운드에도 없다 — §8 의 한계가
+그대로다.
