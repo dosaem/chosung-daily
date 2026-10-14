@@ -42,6 +42,11 @@ function send(method, params = {}) {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** 샌드박스 안에서 표현식 하나를 평가한다. */
+function evaluate(expression) {
+  return send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true });
+}
+
 await send("Page.enable");
 await send("Emulation.setDeviceMetricsOverride", {
   ...VIEWPORT,
@@ -55,6 +60,13 @@ for (const scheme of ["light", "dark"]) {
   await send("Emulation.setEmulatedMedia", {
     features: [{ name: "prefers-color-scheme", value: scheme }],
   });
+  // 새 방문자로 시작한다. 저장된 토큰이 남아 있으면 그 게스트로 이어지는데, 테스트
+  // DB 는 스위트가 끝날 때 비워지므로 죽은 토큰이면 홈이 아니라 오류 카드가 찍힌다
+  // (실제로 한 번 그렇게 찍혔다).
+  await send("Page.navigate", { url: pageUrl });
+  await sleep(1500);
+  await evaluate("localStorage.clear()");
+
   await send("Page.navigate", { url: pageUrl });
   // 게스트 발급 → 오늘 퍼즐 → 순위·통계까지 네 번 왕복한다. 폰트(CDN)도 기다린다.
   await sleep(4000);

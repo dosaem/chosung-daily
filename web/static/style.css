@@ -87,11 +87,14 @@ body:lang(en) {
   margin-bottom: var(--space-4);
 }
 
+/* 제목은 스케일의 맨 위(32)다. 24 로 두면 섹션 제목(20)과 1.2 배라 단계가 사실상
+   평평해지고(`impeccable` 디자인 훅의 flat-type-hierarchy), Editorial Light 는
+   타이포가 주인공인 방향이다 — 법적 문서 페이지의 `.doc-title` 도 같은 토큰이다. */
 .header h1 {
   margin: 0;
-  font-size: var(--font-size-xl);
+  font-size: var(--font-size-2xl);
   font-weight: 700;
-  line-height: 1.25;
+  line-height: 1.2;
 }
 
 /* 스트릭 글자는 `foreground` 다 — brand 를 글자색으로 쓰면 흰 면 위에서 3.6:1 로

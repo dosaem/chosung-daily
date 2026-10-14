@@ -17,7 +17,6 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 STYLE_CSS = REPO_ROOT / "web" / "static" / "style.css"
-TEMPLATE = REPO_ROOT / "web" / "templates" / "index.html"
 
 
 @pytest.fixture(scope="module")

@@ -1,0 +1,236 @@
+# 티켓 18 구현 증거 — 웹 디자인 토큰 교체·다크모드·상태 4종·섹션 토글·앱 CTA·Smart App Banner·법적 링크
+
+- 브랜치: `dosaem/t18-web-design-cta-smart-banner`, 로컬 `main` = `055b56c`
+  "Merge 티켓 26" 위로 rebase(충돌 없음).
+- 커밋 2개: 구현+테스트 / 문서·증거 (`git log --oneline main..HEAD`).
+- 전용 테스트 자원: `TEST_DATABASE_URL=...chosung_daily_test_t18`,
+  `TEST_REDIS_URL=redis://localhost:6379/6`,
+  `TEST_MIGRATION_DATABASE_URL=...chosung_daily_test_t18_migrations`.
+  공용 테스트 DB(`chosung_daily_test`)·Redis DB 1 은 건드리지 않았다. 다른 워커의
+  컨테이너도 내리지 않았다(기존 `chosung-daily-mysql-1`·`-redis-1` 을 그대로 썼다).
+- 마이그레이션 없음(스키마 변경 없음). `flask db heads` = `d7a1f0ca0a29 (head)` 1줄.
+- 프로덕션에 닿는 행동 없음: `git push` 없음, 외부 서비스(Slack·Apple·Google·스토어·
+  AdMob) 호출 없음, `.env*` 미수정, 시크릿 값 없음. 스토어 링크·앱 ID 는 검증용
+  자리표시자(`id0000000000` 등)만 썼다.
+- 디스크: Flutter·네이티브 빌드 산출물을 만들지 않았다(웹 전용 티켓).
+
+## 1. 체크박스별 근거
+
+| 티켓 체크박스 | 무엇이 증명하는가 |
+|---|---|
+| 토큰 CSS 로 교체 — `primary-button`·`tile-empty`·`tile-correct` 토큰 이름 그대로, 그림자 없음, 480px 중앙 정렬, 다크모드 자동 | `tests/test_web_design.py::test_style_sheet_has_no_hex_colors_left`(파일 전체 hex 0개), `::test_style_sheet_has_no_shadows`, `::test_style_sheet_does_not_pin_its_own_color_scheme`, `::test_card_width_comes_from_the_shared_token`(`--content-max-width`, `420px` 없음), `::test_token_named_classes_use_the_token_of_the_same_name`(4건 parametrize), `::test_page_loads_the_pretendard_web_font` + §4 detect 라이트/다크 0건 + §5 스크린샷 2장 |
+| 상태 4종 — 스켈레톤·인라인 재시도·오프라인 배너(`navigator.onLine` + 요청 실패)·퍼즐 없음 카운트다운, 피드백 타일 색 + 아이콘/굵기 | 마크업: `::test_skeleton_is_rendered_before_the_puzzle_arrives`, `::test_offline_banner_sits_above_the_card`, `::test_inline_state_card_carries_a_retry_button_and_a_countdown_slot`, `::test_feedback_tiles_are_not_distinguished_by_color_alone`. 동작(번들 실행): `tests/test_web_js.py::test_the_skeleton_gives_way_to_the_puzzle`, `::test_a_request_that_cannot_leave_shows_the_banner_and_locks_the_input`, `::test_navigator_online_alone_raises_the_banner_before_any_request`, `::test_the_inline_retry_button_recovers_the_puzzle`, `::test_coming_back_online_reloads_without_asking`, `::test_a_day_without_a_puzzle_counts_down_to_kst_midnight`, `::test_the_countdown_follows_the_clock`, `::test_the_countdown_stops_when_the_puzzle_finally_arrives`, `::test_seconds_until_kst_midnight_is_computed_from_the_kst_day` |
+| 상단 "순위 · 내 기록" 섹션 토글, 백업/불러오기 패널 유지, pytest 렌더로 확인 | `::test_section_nav_toggles_three_sections_on_one_page`, `::test_only_the_today_section_is_visible_at_first`, `::test_active_section_link_is_marked_for_assistive_tech`, `::test_backup_and_restore_panels_moved_into_the_records_section` + 동작 `tests/test_web_js.py::test_the_top_links_show_exactly_one_section`, `::test_the_selected_section_is_announced_to_assistive_tech`. 기존 패널 계약은 `tests/test_web.py::test_backup_and_restore_panel_is_kept` 가 그대로 지킨다 |
+| 결과 화면 배지 2개 + `<meta name="apple-itunes-app">`, 설정값이 비면 미렌더(테스트 2건), 공유 텍스트에 `?utm_source=share` | `::test_store_badges_and_smart_app_banner_render_when_configured` / `::test_nothing_store_shaped_renders_while_the_app_is_not_on_the_stores` (요구된 2건), 추가로 `::test_each_badge_is_independent_of_the_other_platform`, `::test_the_app_cta_lives_in_the_result_section`. 공유 링크: `tests/test_web_js.py::test_the_share_text_ends_with_the_web_link` |
+| 푸터에 `/privacy`·`/terms`·`/account/delete` + 16 의 `legal/_business_info.html` 조각 | `::test_footer_links_the_three_legal_urls`(3건 parametrize), `::test_footer_includes_the_shared_business_info_fragment`, `::test_footer_business_info_follows_the_same_config_as_the_legal_pages`. 조각 자체는 손대지 않았다(`git diff main..HEAD -- web/templates/legal/` 가 비어 있다) |
+| 메인 페이지 `impeccable detect` 0건, 다크/라이트 헤드리스 스크린샷 | §4 (6회 스캔 전부 0건, 탐지기 대조군 7건) · §5 (`.scratch/store-launch/design/web-shots/home-light.png`·`home-dark.png`) |
+| pytest 렌더 테스트 + 수동 체크리스트(삭제 후 새 게스트 발급 포함) 갱신 | `tests/test_web_design.py` 26건 신규 + `tests/test_web_js.py` 13건 신규. 체크리스트는 README "웹 수동 체크리스트" 20행(12~20 이 이 티켓), `tests/test_web.py::test_manual_checklist_is_documented` 가 "삭제 후 새 게스트 발급" 을 포함한 14개 항목이 빠지지 않는지 지킨다 |
+
+코디네이터 메모(16 → 18 전이 포함)에 대한 답:
+
+| 지시 | 근거 |
+|---|---|
+| 17 이 남긴 중간 상태(기존 스타일 hex + `color-scheme: light`)를 반드시 해소 | `web/static/style.css` 를 통째로 다시 썼다. hex 0개·`color-scheme` 선언 0개를 테스트가 지킨다. 다크 전용 CSS 규칙은 **한 줄도 없다** — 변수만 쓰면 `tokens.css` 의 `prefers-color-scheme: dark` 가 따라온다 |
+| 라이트·다크 둘 다 detect 0건, 대비 4.5:1 | §4. 다크에서 실제로 한 건 잡혔고(입력 placeholder 3.4:1) 고친 뒤 0건이다 |
+| 웹 `app.js` 의 비동기 구조(`fetchJson`·세대·`languageWanted` 직렬화)를 깨지 마라 | 티켓 17 의 동작 테스트 26건(`tests/test_web_js.py` D-17-1~5 절)이 수정 없이 그대로 통과한다. `fetchJson` 에는 **세대 검사 뒤에** 네트워크 실패 분기만 더했고, 세대 검사 위치(본문 수신 후)는 그대로다 |
+| 푸터 사업자 정보는 16 의 조각 재사용 | `{% include "legal/_business_info.html" %}` 하나. 컨텍스트는 법적 문서와 같은 `app/web.py::_business_info` 가 만든다 |
+
+## 2. 테스트 — 전체 스위트
+
+```
+$ TEST_DATABASE_URL=mysql+pymysql://chosung:chosung@localhost:3306/chosung_daily_test_t18?charset=utf8mb4 \
+  TEST_REDIS_URL=redis://localhost:6379/6 \
+  TEST_MIGRATION_DATABASE_URL=mysql+pymysql://chosung:chosung@localhost:3306/chosung_daily_test_t18_migrations?charset=utf8mb4 \
+  uv run pytest -q
+1294 passed in 650.05s (0:10:50)        (pytest exit=0)
+```
+
+작업 시작 전 같은 명령의 기준선은 rebase **전** base(`45d790c` "Merge 티켓 16") 에서
+`1257 passed in 940.70s` 였다. 지금 base 는 `055b56c`(티켓 26 머지)라 그 사이 다른
+티켓이 더한 테스트도 1294 안에 들어 있다 — 이 티켓이 더한 건 아래 65건(그중 26 + 13 =
+39 건이 신규, 1 건은 아래 표의 사유로 삭제)이다.
+
+**중간에 한 번 77 errors 가 났고, 원인은 내 실수다.** 이 스위트가 도는 동안 같은
+테스트 DB 로 `pytest tests/test_web_design.py` 를 또 돌려서 `db.create_all()` 과
+`drop_all()` 이 겹쳤다(`(1684, "Table ... was skipped since its definition is being
+modified by concurrent DDL statement")`). 다른 워커와 DB 를 나눠 쓴 것과는 무관하고
+(내 전용 DB 안에서 내가 두 번 돈 것), 아무도 안 돌 때 다시 돌린 위 결과가 최종이다.
+
+이 티켓이 더한 테스트:
+
+```
+$ uv run pytest -q tests/test_web_design.py tests/test_web_js.py
+65 passed in 9.85s
+```
+
+바꾼 기존 테스트 3건과 이유:
+
+| 바꾼 것 | 이유 |
+|---|---|
+| `tests/test_web.py::test_new_elements_use_token_variables_not_new_hex` **삭제** | "17 이 새로 만든 선택자에는 hex 가 없다" 였다. 18 이 파일 전체를 토큰으로 옮겼으니 `test_web_design.py::test_style_sheet_has_no_hex_colors_left` 가 더 센 조건으로 대신한다(선택자 9개 → 파일 전체). 삭제 자리에 그 설명을 주석으로 남겼다 |
+| `tests/test_web_js.py::test_server_error_messages_are_shown_in_the_ui_language` 의 `today_no_puzzle` 기대값 | 퍼즐 없음 안내가 `#message` 에서 인라인 상태 카드로 옮겨가면서 문구도 `error_no_puzzle_today` → `no_puzzle_heading`("곧 새 퍼즐이 올라와요") 으로 바뀌었다(OVERRIDES §7). D-17-2 의 뜻("서버의 한국어 `message` 가 아니라 사전에서 고른다")은 그대로고, `::test_no_error_message_leaks_korean_into_the_english_ui` 가 계속 지킨다 |
+| `tests/js/error_message_language.mjs`·`stale_response_body.mjs` 가 읽는 요소 | 같은 이유로 `#message` → `#puzzle-state-text` |
+| `tests/js/harness.mjs` | 새 DOM(섹션 링크·패널, `window.addEventListener`, `navigator.onLine`, `disabled`, 새로 숨은 요소 5개)을 대역에 추가. `setInterval` 은 `unref()` 로 감쌌다 — 안 그러면 "퍼즐 없음" 으로 끝난 시나리오에서 node 가 1초 타이머를 붙들고 종료하지 않아 테스트가 타임아웃한다(실제로 겪음) |
+
+## 3. 린트
+
+```
+$ uv run ruff check .
+All checks passed!
+
+$ uv run ruff format --check tests/test_web_design.py tests/test_web_js.py \
+    review/detect-snapshot-18.py app/web.py app/utils/ui_strings.py
+5 files already formatted
+```
+
+`ruff format` 은 CI 가 돌리지 않고(`.github/workflows/ci.yml` 은 `ruff check .` 만 한다)
+레포에 이미 29개 파일이 포맷 미적용 상태라, **이 티켓이 새로 쓴 파일만** 포맷했다.
+레포 전체 포맷은 티켓 범위 밖이다(티켓 09 증거와 같은 판단).
+
+## 4. `impeccable detect` — 라이트·다크 × ko/en 전부 0건
+
+`detect` 는 Jinja 템플릿 파일을 직접 주면 `url_for` 를 못 풀어 CSS 를 못 읽는다(티켓
+01·09 메모). 그래서 개발 서버를 띄우고 **URL 로** 돌렸다.
+
+```
+$ FLASK_ENV=testing STORE_URL_IOS=... STORE_URL_ANDROID=... APP_STORE_ID=... \
+    uv run flask --app wsgi run --port 5118    # (백그라운드, 테스트 DB + Redis DB 6)
+
+$ impeccable detect "http://127.0.0.1:5118/?lang=ko"                    → exit=0 (출력 없음)
+$ impeccable detect "http://127.0.0.1:5118/?lang=en"                    → exit=0
+$ impeccable detect --viewport 390x844 "http://127.0.0.1:5118/?lang=ko" → exit=0
+```
+
+**숨은 상태와 다크 토큰은 라이브 URL 로는 못 본다.** detect 는 보이는 것만 보고
+`prefers-color-scheme` 을 바꿔 주지 않는데, 이 티켓이 만든 것 중 상당수는 JS 가 켜야
+보이거나(결과·앱 CTA·상태 카드·오프라인 배너·순위/내 기록 섹션) 다크에서만 색이
+바뀐다. 그래서 `review/detect-snapshot-18.py` 가 렌더된 `/` 를 네 벌로 떠 둔다:
+`hidden` 클래스를 떼어 숨은 상태를 전부 펼치고, JS 가 그리는 샘플 보드 한 줄
+(`tile-correct`/`tile-wrong`/`tile-empty`)을 끼우고, 다크 판은 `tokens.css` 의
+`prefers-color-scheme: dark` 블록을 **그 파일에서 읽어** `:root` 에 올린다(값을 스크립트에
+베껴 적으면 토큰이 바뀔 때 조용히 어긋난다). 스토어 링크·사업자 정보도 "등록 후" 상태로
+채워서 배지·Smart App Banner·운영자 정보 블록까지 스캔 대상에 넣었다.
+
+```
+$ uv run python review/detect-snapshot-18.py
+wrote web/static/_t18_ko_light.html / _t18_ko_dark.html / _t18_en_light.html / _t18_en_dark.html
+
+$ impeccable detect "http://127.0.0.1:5118/static/_t18_ko_light.html"   → exit=0
+$ impeccable detect "http://127.0.0.1:5118/static/_t18_ko_dark.html"    → exit=0
+$ impeccable detect "http://127.0.0.1:5118/static/_t18_en_light.html"   → exit=0
+$ impeccable detect "http://127.0.0.1:5118/static/_t18_en_dark.html"    → exit=0
+$ impeccable detect --viewport 390x844 ".../static/_t18_ko_dark.html"   → exit=0
+```
+
+스냅샷 4개는 확인 직후 `--clean` 으로 지웠다(커밋에 없다). 스크립트는 남겼다 — 다음
+웹 티켓이 같은 방식으로 다시 돌릴 수 있어야 한다.
+
+**처음부터 0건이었던 게 아니다.** 다크 판 첫 스캔에서 실제로 한 건 잡혔다:
+
+```
+  [low-contrast] placeholder "정답을 입력하세요" 3.4:1 (need 4.5:1) — text #757575 on #1c2433
+1 anti-pattern found.   (exit=2)
+```
+
+브라우저 기본 placeholder 색이 다크 면 위에서 AA 미달이었다. `::placeholder` 를
+`--color-muted-foreground` 로 올려 고쳤다(라이트 `#57534e` on `#ffffff` ≈ 7.4:1 /
+다크 `#94a3b8` on `#1c2433` ≈ 6.4:1). 같은 명령이 그 뒤로 0건이다.
+
+**detect 가 안 보는 것을 디자인 훅이 하나 더 잡았다.** `impeccable` 의 편집 훅이
+`web/templates/index.html` 에 `flat-type-hierarchy` 를 올렸다 — 제목 24 / 섹션 제목 20
+/ 본문 16 이라 단계마다 1.25 배가 안 됐다. 제목을 스케일 맨 위(`--font-size-2xl`, 32)로
+올려 1.6 배 / 1.25 배로 벌렸다. 법적 문서 페이지의 `.doc-title` 과 같은 토큰이고,
+OVERRIDES §3 스케일(12/14/16/20/24/32) 안이다. 위 스크린샷은 고친 뒤의 것이다.
+
+**"출력이 비었다" 가 "탐지기가 안 돌았다" 가 아님**을 대조군으로 확인했다 — 폐기된 V2
+목업(TOOLS.md 에 7건으로 기록된 파일):
+
+```
+$ impeccable detect .scratch/store-launch/design/archive/v2_softdark_home.html
+  [low-contrast] 2.8:1 (need 4.5:1) — text #f1f5f9 on #3fa66b   (×4)
+  [low-contrast] 2.5:1 (need 4.5:1) — text #f1f5f9 on #f0795a
+  [cramped-padding] <div> "flex": children flush against bg on all sides (no inset)
+  [overused-font] Primary font: inter
+7 anti-patterns found.   (exit=2)
+```
+
+운영자 페이지(`/admin`) detect 는 이 티켓 범위가 아니다(계획 리뷰 r1 P1-05 — 15·16 이
+각자 책임).
+
+## 5. 다크모드 — 헤드리스 스크린샷 (사람 확인 아님)
+
+```
+$ "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new \
+    --remote-debugging-port=9333 --user-data-dir=<temp> about:blank &
+$ node review/web-shots-18.mjs http://127.0.0.1:9333 "http://127.0.0.1:5118/?lang=ko" \
+    .scratch/store-launch/design/web-shots
+wrote .scratch/store-launch/design/web-shots/home-light.png (50053 bytes)
+wrote .scratch/store-launch/design/web-shots/home-dark.png (50220 bytes)
+```
+
+스크립트는 **먼저 한 번 열어 `localStorage.clear()` 를 하고 다시 연다.** 저장된 게스트
+토큰이 남아 있으면 그 게스트로 이어지는데, 테스트 DB 는 스위트가 끝날 때 비워지므로 죽은
+토큰이면 홈이 아니라 "기록을 확인할 수 없어요 + 다시 시도" 오류 카드가 찍힌다 — 실제로 한
+번 그렇게 찍혀서 고쳤다(인라인 오류 카드가 다크에서 제대로 렌더된다는 건 그때 같이 봤다).
+
+`prefers-color-scheme` 은 CDP `Emulation.setEmulatedMedia` 로 바꿨다 — 크롬 플래그
+`--force-dark-mode` 는 브라우저가 색을 **임의로 반전**시키는 기능이라 우리 다크 토큰을
+보는 게 아니다. 뷰포트 1000×1200, 전체 페이지 캡처.
+
+두 장에서 확인되는 것: 배경·글자·헤어라인·칩·주 버튼·푸터가 전부 토큰을 따라 바뀌고
+(라이트 `#FAFAF9`/`#0F172A` → 다크 `#141A26`/`#F1F5F9`, 주 버튼은 검정 면 → 밝은 면 +
+어두운 글자), 카드 폭이 두 모드 모두 480px 중앙 정렬이고, 활성 섹션 링크의 brand 밑줄과
+스트릭 불꽃(Lucide `flame`)만 오렌지다. 수동 토글 UI 는 없다(OVERRIDES §9).
+
+## 6. 테스트가 실제로 잡는지 — 역변이 확인 5건
+
+테스트를 먼저 쓴 쪽(`tests/test_web_design.py` 의 토큰·마크업 계약)과, 번들을 돌려
+동작을 고정한 쪽(`tests/test_web_js.py` 의 상태 전환)이 섞여 있다. 어느 쪽이든
+"구현을 되돌리면 빨개지는가" 를 직접 확인했다 — 아래는 구현을 일부러 망가뜨리고 해당
+테스트만 돌린 결과다(전부 원상복구, `git status` clean).
+
+| 망가뜨린 것 | 결과 |
+|---|---|
+| `style.css` 의 `background: var(--color-background)` → `#fafaf9` | `test_style_sheet_has_no_hex_colors_left` **FAILED** |
+| 템플릿의 `{% if app_store_id %}` 가드 제거 | `test_nothing_store_shaped_renders_while_the_app_is_not_on_the_stores` **FAILED** |
+| `fetchJson` 의 `.catch(() => null)` + `offline: true` 분기 제거 | `test_a_request_that_cannot_leave_shows_the_banner_and_locks_the_input` **ERROR**(시나리오가 던진다 = 지금 코드가 그 예외를 막고 있다는 뜻) |
+| `buildShareText` 의 `lines.push("", SHARE_URL)` 제거 | `test_the_share_text_ends_with_the_web_link` **FAILED** |
+| `showSection` 이 모든 패널을 보이게 | `test_the_top_links_show_exactly_one_section` **FAILED** |
+
+## 7. 설계 판단 (요약 — 본문은 README "### 18.")
+
+- **다크 전용 CSS 를 한 줄도 쓰지 않는다.** 변수만 쓰면 `tokens.css` 의 다크 블록이
+  따라온다. 다크 규칙을 따로 쓰기 시작하면 라이트/다크가 두 벌로 갈라진다.
+- **클래스 이름 = 토큰 이름.** `tile-empty`/`tile-correct`/`primary-button`. 마크업만
+  보고 어느 토큰인지 안다. 대가는 `app.js` 와 CSS 를 같이 고쳐야 한다는 것.
+- **상태 카드는 하나.** 오류와 "퍼즐 없음" 은 문구·카운트다운만 다르다. 카드를 나누면
+  "지금 어느 카드가 떠 있나" 를 양쪽에서 지워야 하고 둘이 겹치는 조합이 생긴다.
+- **오프라인은 `navigator.onLine` 과 요청 실패를 둘 다 본다.** `onLine` 은 죽은 Wi-Fi 도
+  `true` 고, 요청 실패는 서버 문제일 수도 있다. 플레이어가 할 일은 같아서 한 배너로 묶고,
+  복구는 `online` 이벤트(자동 재조회)와 재시도 버튼 둘 다 둔다.
+- **`fetchJson` 이 네트워크 실패를 삼킨다.** 던지면 부른 쪽마다 `try` 를 달아야 하고,
+  안 달면 스켈레톤이 멈춘 화면이 된다 — 그 상태를 보여주는 게 US 8 이다.
+- **카운트다운은 고정 오프셋.** KST 는 서머타임이 없어 `(지금 + 9h) % 24h` 하나면 된다.
+- **섹션 토글은 버튼 + `aria-pressed`.** 주소가 안 바뀌므로 링크가 아니고, 색·굵기를 못
+  봐도 선택이 읽힌다.
+- **스토어 값이 비면 아무것도 안 그린다.** 빈 `app-id=` 는 Safari 가 "앱 없음" 배너를
+  그리고, 없는 앱을 권하는 CTA 는 심사에서 문제가 된다.
+
+## 8. 범위에서 뺀 것 · 사람 몫
+
+- **"내 기록" 섹션에 7일 그리드를 넣지 않았다.** SCREENS S4 의 7일 그리드는 앱 화면이고,
+  웹에 들이려면 `/me/history` 조회를 새로 붙여야 한다 — 티켓 체크박스가 요구한 건
+  "섹션 토글 + 백업/불러오기 패널 유지" 다. 연속 기록 숫자는 머리말 StreakBadge 가 늘
+  보여주고 있어 섹션에서 다시 적지도 않았다.
+- **스토어 배지는 아직 텍스트 버튼이다.** Apple/Google 의 공식 배지 이미지는 각 사의
+  마케팅 가이드라인(크기·여백·언어별 파일)에 묶여 있어 레포에 임의로 그려 넣지 않았다.
+  교체 체크박스는 `docs/RELEASE.md` "### 18." 에 있다. "설정값이 비면 안 그린다" 규칙은
+  교체 후에도 그대로다.
+- **타일 크기 규칙(5글자 이하 48 / 6~8글자 40, OVERRIDES §4)은 17 이 둔 그대로다.**
+  이 티켓은 색·간격·폭의 토큰 전환이고, 글자 수에 따른 타일 크기는 레이아웃 규칙이라
+  건드리지 않았다. 지금은 문제 행이 48, 시도 행이 40 이다.
+- **브라우저로 손으로 돌려본 왕복은 없다.** 헤드리스 스크린샷 2장과 detect 6회가
+  이 티켓의 시각 근거고, Slow 3G·DevTools Offline·iOS Safari Smart App Banner 같은
+  실제 왕복은 README "웹 수동 체크리스트" 12~20 행으로 남겼다.
+- **출시 전 사람이 채울 값**: `docs/RELEASE.md` "### 18."(`STORE_URL_IOS`/
+  `STORE_URL_ANDROID`/`APP_STORE_ID`, 공식 배지 아트워크, 공유 링크 도메인 확인).
