@@ -2,6 +2,7 @@
 # .github/workflows/flutter.yml 이 r0adkll/upload-google-play 로 한다.
 default_platform(:android)
 
+require "fileutils"
 require "shellwords"
 
 # 수동 lane 도 Actions 와 같은 값으로 빌드해야 한다 — 하나라도 빠지면 앱이
@@ -31,6 +32,8 @@ def dart_defines
   names.map { |name| "--dart-define=#{name}=#{Shellwords.escape(ENV[name])}" }.join(" ")
 end
 
+AAB_PATH = "build/app/outputs/bundle/release/app-release.aab"
+
 # Flutter 루트는 fastlane 기준 두 단계 위(mobile/)다.
 def build_appbundle(clean:)
   defines = dart_defines
@@ -39,11 +42,18 @@ def build_appbundle(clean:)
       sh("flutter clean")
       sh("flutter pub get")
     end
+    # 이전 실행이 남긴 AAB 를 먼저 지운다. `clean:` 은 선택이라 문서의 기본
+    # 명령은 산출물을 그대로 두는데, 그 상태로 빌드가 실패하면 아래 존재 검사가
+    # 지난 AAB 를 보고 통과해 다른 소스·다른 API 환경의 바이너리가 스토어로
+    # 올라간다. 지우고 나면 "파일이 있다" = "이번 빌드가 만들었다" 가 된다.
+    FileUtils.rm_f(AAB_PATH)
     # debugSymbolLevel=FULL 의 스트립 오탐으로 flutter tool 이 exit 1 을 주지만
-    # AAB 는 정상 생성된다 — 파일이 생겼는지로 성공을 판정한다
+    # AAB 는 정상 생성된다 — 종료 코드 대신 산출물로 성공을 판정한다
     # (워크플로의 AAB 스텝과 같은 이유, .github/workflows/flutter.yml).
     sh("flutter build appbundle --release #{defines} || echo 'flutter exited nonzero (known strip false-positive with debugSymbolLevel=FULL)'")
-    UI.user_error!("AAB was not produced") unless File.exist?("build/app/outputs/bundle/release/app-release.aab")
+    UI.user_error!("AAB was not produced — 이번 빌드가 실패했다 (#{AAB_PATH})") unless File.exist?(AAB_PATH)
+    # 종료 코드를 삼킨 만큼 산출물을 직접 검사한다(워크플로와 같은 스크립트).
+    sh("python3 tool/verify_appbundle.py #{Shellwords.escape(AAB_PATH)}")
   end
 end
 

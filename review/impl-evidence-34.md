@@ -628,3 +628,220 @@ Build Configurations: Debug / Release / Profile    # 설정 목록 그대로
   변경은 `plutil -lint` + `xcodebuild -showBuildSettings`/`-list` 로 검증했다.
 - 실제 서명·match·업로드는 시크릿이 없어 실행하지 않았다. 프로덕션 접근·`git push`·
   외부 서비스 호출·인증 정보 입력 없음. BASELINE(`~/Code/BuildUrPalace`)은 읽기만 했다.
+
+## 수정 라운드 2
+
+리뷰 `review/impl-review-34.md` "라운드 2" 의 **D-34-4 (MAJOR) 1건**을 고쳤다.
+BLOCKER·REPEAT·MINOR 는 없다. 미수정 MINOR 도 없다. 리뷰의 지적은 그대로
+재현됐고, 틀렸다고 판단한 항목은 없다.
+
+### D-34-4 — 수동 Android 배포가 빌드 실패 후 이전 AAB 를 업로드한다
+
+**재현 (수정 전).** 리뷰가 적은 방법대로, 이전 AAB 가 남아 있는 상태에서 빌드만
+실패시켰다. 임시 트리에 원본 Fastfile 을 놓고, PATH 앞의 가짜 `flutter` 로
+컴파일 실패(`exit 1`)를 만들고, 외부 호출인 `upload_to_play_store` 만 출력으로
+바꿔 `beta` lane 을 끝까지 평가했다.
+
+```
+$ printf 'stale-aab-from-previous-build' > .../build/app/outputs/bundle/release/app-release.aab
+$ cat bin/flutter
+#!/bin/sh
+echo "compilation-failed: lib/main.dart:1: error" >&2
+exit 1
+$ ruby harness.rb Fastfile beta        # 필수 dart-define 5개는 모두 정상 지정
+compilation-failed: lib/main.dart:1: error
+flutter exited nonzero (known strip false-positive with debugSymbolLevel=FULL)
+UPLOAD_REACHED: internal               # ← 업로드 진입
+EXIT=0                                 # ← 실패가 성공으로
+--- AAB still: stale-aab-from-previous-build   # 지난 빌드의 바이너리 그대로
+```
+
+**원인.** 증상은 "실패했는데 올라간다" 지만, 원인은 두 가지가 겹친 것이다.
+
+1. `sh("flutter build appbundle ... || echo ...")` 가 **모든** 실패를 삼킨다.
+   삼키는 근거는 `debugSymbolLevel=FULL` 의 스트립 오탐뿐인데, 종료 코드로는
+   오탐과 진짜 실패를 구별할 수 없다.
+2. 그래서 성공 판정을 산출물에 맡기는데, `File.exist?` 는 **누가 만들었는지**를
+   모른다. `clean:` 은 선택이고 문서의 기본 명령(`fastlane beta`)에는 없으므로
+   `mobile/build` 의 지난 AAB 가 그대로 남아 검사를 통과한다.
+
+즉 "종료 코드를 산출물로 대체" 한 설계는 맞지만, 그 산출물이 **이번 실행의 것**
+이라는 보장과 **내용이 멀쩡하다**는 확인이 빠져 있었다. 둘 중 하나만 고치면
+증상만 가려진다(빌드 전 삭제만 하면 쓰다 만 파일이 통과하고, 내용 검사만 하면
+지난 정상 AAB 가 통과한다).
+
+**수정.**
+
+- `mobile/android/fastlane/Fastfile` — 빌드 **전에** 대상 AAB 를 지운다
+  (`FileUtils.rm_f`). 이후 "파일이 있다" = "이번 빌드가 만들었다" 가 된다.
+  그 다음 새 파일의 내용을 검사한다.
+- `mobile/tool/verify_appbundle.py` (신규) — 삼킨 종료 코드 대신 산출물을 본다.
+  ① 열리는 zip 이고 `base/manifest/AndroidManifest.xml` 이 있다(= 온전한 AAB),
+  ② `base/lib/*/libapp.so` 가 있고 전부 스트립돼 있다(= exit 1 이 오탐이었고
+  스트립이 진짜 실패한 게 아니다). 실패 사유를 한국어로 stderr 에 적고 exit 1.
+- `.github/workflows/flutter.yml` — **같은 원인이 Actions 쪽에도 있다.**
+  self-hosted 러너는 작업 디렉터리가 호스트에 남으므로 빌드 전 `rm -f` 를 넣었다.
+  AAB 스텝에 인라인돼 있던 python 검사는 위 스크립트 호출로 바꿨다 — 두 경로가
+  다른 검사를 쓰면 한쪽만 조용히 느슨해진다(테스트로 고정).
+- `docs/RELEASE.md` "34." — 수동 lane 의 이 동작과 `python3` 필요를 적고, 러너
+  준비물 목록에도 `python3` 을 넣었다.
+
+**증명 1 — 회귀 테스트 (red → green).** 새 테스트 12개. 먼저 수정 전 코드
+(`git show HEAD:...`)로 돌려 빨간 것을 확인했다.
+
+```
+$ git show HEAD:mobile/android/fastlane/Fastfile > mobile/android/fastlane/Fastfile
+$ git show HEAD:.github/workflows/flutter.yml > .github/workflows/flutter.yml
+$ uv run pytest tests/test_app_deploy_workflow.py -q -k "stale_aab or ..."
+FAILED test_manual_lane_does_not_upload_a_stale_aab_when_the_build_fails[beta]
+FAILED test_manual_lane_does_not_upload_a_stale_aab_when_the_build_fails[release]
+FAILED test_manual_lane_rejects_a_new_but_unstripped_aab
+FAILED test_aab_step_removes_the_previous_bundle_before_building
+FAILED test_workflow_and_manual_lane_share_the_aab_check
+FAILED test_aab_step_keeps_the_strip_false_positive_handling
+6 failed, 2 passed
+```
+
+실패 본문이 리뷰의 재현과 같다:
+
+```
+E  AssertionError: ('fake flutter build appbundle --release --dart-define=API_BASE_URL=...
+E    flutter exited nonzero (known strip false-positive with debugSymbolLevel=FULL)
+E    UPLOAD_REACHED: internal
+E    ', '')
+E  assert 0 != 0
+```
+
+통과한 2개는 대조군이다(`..._uploads_the_aab_this_build_produced`,
+`..._still_tolerates_the_strip_false_positive`) — 수정 전에도 통과해야 맞다.
+새 검사가 "항상 실패" 가 아니라 **산출물의 출처와 내용**을 본다는 증거다.
+
+수정 후:
+
+```
+$ uv run pytest tests/test_app_deploy_workflow.py -q
+114 passed in 4.37s                    # 라운드 2 기준 102 + 신규 12
+```
+
+테스트 구성 — lane 은 원본 Fastfile 을 `platform`/`lane` DSL 째로 평가하고 `sh`
+는 **실제 셸**을 돌린다(기존 `CAPTURE_RB` 는 `File.exist?` 를 항상 true 로 만들고
+`sh` 를 돌리지 않아 이 경로를 못 봤다 — 리뷰 지적 그대로다):
+
+| 테스트 | 입력 | 기대 |
+|---|---|---|
+| `..._does_not_upload_a_stale_aab_when_the_build_fails[beta/release]` | 이전 AAB 있음 + `flutter` exit 1, 새 산출물 없음 | exit≠0, `UPLOAD_REACHED` 없음 |
+| `..._uploads_the_aab_this_build_produced` | 새 AAB 생성 + exit 0 | exit 0, `UPLOAD_REACHED: internal` |
+| `..._still_tolerates_the_strip_false_positive` | 이전 AAB 있음 + exit 1 + **새** 정상 AAB | exit 0, 업로드 진입 (수동 배포를 막지 않는다) |
+| `..._rejects_a_new_but_unstripped_aab` | exit 1 + 새 AAB 지만 lib 미스트립 | exit≠0, 업로드 없음 |
+| `test_verify_appbundle_*` 5개 | 정상 / 미스트립 / lib 없음 / 잘린 zip / 파일 없음 | 0 / 1 / 1 / 1 / 1 |
+| `test_aab_step_removes_the_previous_bundle_before_building` | 워크플로 YAML | `rm -f` 가 `flutter build` **앞** |
+| `test_workflow_and_manual_lane_share_the_aab_check` | YAML + Fastfile | 같은 스크립트를 쓴다 |
+
+ELF 픽스처는 테스트가 로컬 NDK 나 커밋한 바이너리에 기대지 않도록 최소
+aarch64 ELF 를 직접 만든다(`.symtab` 섹션 유무 → `file` 의 "not stripped").
+같은 검사를 실제 NDK 바이너리로도 교차 확인했다:
+
+```
+$ file -b .../ndk/28.2.13676358/.../aarch64-linux-android/libc++_shared.so
+ELF 64-bit LSB shared object, ARM aarch64, ..., with debug_info, not stripped
+$ python3 mobile/tool/verify_appbundle.py <그 .so 를 넣은 AAB>
+AAB 검사 실패: base/lib/arm64-v8a/libapp.so 이 스트립되지 않았다 — 스트립 오탐이 아니라 실제 실패다
+exit=1
+$ llvm-strip -o real-stripped.so <같은 .so>   &&  python3 .../verify_appbundle.py <그걸 넣은 AAB>
+AAB 검사 통과: ... (manifest 있음, 배포 lib 스트립됨)
+exit=0
+```
+
+**증명 2 — 실제 AAB.** 가짜 산출물만으로 끝내지 않고 진짜 release AAB 를 만들어
+오탐을 **실측**했다. keystore 가 없어 디버그 키로 폴백되는 경로다(§3.2).
+
+```
+$ flutter pub get && JAVA_HOME=/opt/homebrew/opt/openjdk@17 flutter build appbundle --release
+Release app bundle failed to strip debug symbols from native libraries.
+FLUTTER_EXIT=1                          # ← 오탐. 그런데
+$ ls -la mobile/build/app/outputs/bundle/release/
+-rw-r--r--  1 saem  staff  130309073 Oct 14 13:45 app-release.aab     # ← AAB 는 정상 생성
+
+$ python3 mobile/tool/verify_appbundle.py mobile/build/.../app-release.aab
+AAB 검사 통과: ... (manifest 있음, 배포 lib 스트립됨)
+exit=0                                  # ← 오탐을 막지 않는다
+```
+
+배포 lib 18개(3 ABI × 6) 전부 `stripped`, 심볼은 `BUNDLE-METADATA` 에 들어간다 —
+워크플로 주석의 주장이 실제로 맞다:
+
+```
+base/lib/arm64-v8a/libapp.so -> ELF 64-bit ... ARM aarch64, ..., stripped
+base/lib/armeabi-v7a/libapp.so -> ELF 32-bit ... ARM, EABI5 ..., stripped
+base/lib/x86_64/libapp.so -> ELF 64-bit ... x86-64, ..., stripped
+... (libflutter/libdartjni/libsentry/libsentry-android/libdatastore_shared_counter 동일)
+BUNDLE-METADATA/com.android.tools.build.debugsymbols/arm64-v8a/libflutter.so.dbg
+```
+
+그 **실제** AAB 로 lane 을 끝까지 돌린 결과(이전 AAB 가 남아 있고, `flutter` 는
+실제와 같은 오탐 메시지로 exit 1):
+
+```
+Release app bundle failed to strip debug symbols from native libraries.
+flutter exited nonzero (known strip false-positive with debugSymbolLevel=FULL)
+AAB 검사 통과: build/app/outputs/bundle/release/app-release.aab (manifest 있음, 배포 lib 스트립됨)
+UPLOAD_REACHED: internal               # 오탐 + 새 산출물 = 업로드. 지난 AAB 는 대체됐다
+```
+
+**수정 후 원래 재현 입력**(이전 AAB 있음 + 진짜 빌드 실패)은 막힌다:
+
+```
+compilation-failed: lib/main.dart:1: error
+flutter exited nonzero (known strip false-positive with debugSymbolLevel=FULL)
+USER_ERROR: AAB was not produced — 이번 빌드가 실패했다 (build/app/outputs/bundle/release/app-release.aab)
+EXIT=1                                 # 업로드 미진입
+--- stale AAB present: no              # 지난 바이너리는 빌드 전에 지워졌다
+```
+
+빌드 검증에 쓴 `mobile/build`(4.1GB)는 디스크 여유 메모에 따라 삭제하고 부재를
+확인했다. iOS 수동 lane 은 같은 결함이 없다 — `sh("flutter build ios ...")` 에
+`|| echo` 가 없어 실패가 그대로 올라가고, `build_app` 이 IPA 를 매번 새로 만든다
+(`mobile/ios/fastlane/Fastfile:46`, `:57`).
+
+### 전체 검증 (라운드 2)
+
+로컬 `main` = `82e59ea`(티켓 23 머지가 들어왔다) 위로 rebase 한 뒤 전부 다시 돌렸다.
+`review/impl-review-34.md` 는 수정하지 않았다. 이번 수정이 건드린 파일은
+`mobile/android/fastlane/Fastfile`, `mobile/tool/verify_appbundle.py`(신규),
+`.github/workflows/flutter.yml`, `tests/test_app_deploy_workflow.py`,
+`docs/RELEASE.md`(자기 번호 절 `### 34.` 과 러너 준비물 한 줄).
+
+```
+$ git rebase main                      # 로컬 main. origin/main 아님
+Successfully rebased and updated refs/heads/dosaem/t34-app-deploy-workflows-signing
+$ git status --short
+(비어 있음 — clean)
+$ git diff --check main...HEAD
+(통과)
+
+$ uv run ruff check .
+All checks passed!
+
+$ TEST_DATABASE_URL=…/chosung_daily_test_t34 TEST_REDIS_URL=redis://…/8 uv run pytest -q
+1110 passed in 707.26s (0:11:47)       # exit 0. 라운드 2 의 1026 + main 의 티켓 23 + 신규 12
+$ uv run pytest tests/test_app_deploy_workflow.py -q
+114 passed in 3.42s                    # 102 + 신규 12
+
+$ uv run flask db heads
+d7a1f0ca0a29 (head)                    # 1줄. 이 티켓은 마이그레이션 변경 없음
+
+$ flutter analyze --no-pub             # 레포 루트
+No issues found! (ran in 9.8s)
+$ flutter test --no-pub                # mobile/
+00:22 +120: All tests passed!
+```
+
+- 테스트 DB 는 기존 `chosung_daily_test_t34`(+ 파생 `_t34_migrations`), Redis 는 DB 8.
+  공용 `chosung_daily_test` 와 다른 티켓 DB 는 건드리지 않았고 새로 만들지도 않았다.
+  접속 문자열·비밀번호는 기록하지 않는다.
+- 기존 `_capture_lane_build` 하네스는 빈 임시 디렉터리에서 돌리도록 바꿨다. 빌드
+  함수가 `Dir.chdir("../..")` 로 올라가 이전 AAB 를 지우므로, 레포 안에서 돌리면
+  레포 밖 경로를 가리킨다(테스트가 레포 밖을 건드리지 않게).
+- 실제 서명·match·스토어 업로드는 시크릿이 없어 실행하지 않았다. D-34-4 의 실측은
+  디버그 키 폴백 경로의 release AAB 빌드까지다. 프로덕션 접근·`git push`·외부 서비스
+  호출·인증 정보 입력 없음. 시크릿 값은 파일·로그·문서에 남기지 않았다.

@@ -165,27 +165,14 @@ jobs:
         # BUNDLE-METADATA 에 들어간다). 오탐을 무조건 삼키지 않도록 AAB 가 진짜
         # 생겼는지와 배포 lib 이 스트립됐는지를 직접 확인한다.
         run: |
+          # self-hosted 러너는 작업 디렉터리가 남는다 — 지난 실행의 AAB 를 먼저
+          # 지워야 아래 `test -f` 가 "이번 빌드가 만들었다" 를 뜻한다(안 지우면
+          # 빌드 실패를 삼킨 뒤 지난 바이너리를 업로드한다).
+          rm -f build/app/outputs/bundle/release/app-release.aab
           flutter build appbundle --release $DART_DEFINES \
             || echo "flutter exited nonzero (known strip false-positive with debugSymbolLevel=FULL)"
           test -f build/app/outputs/bundle/release/app-release.aab
-          python3 - <<'EOF'
-          import os
-          import subprocess
-          import sys
-          import tempfile
-          import zipfile
-
-          z = zipfile.ZipFile('build/app/outputs/bundle/release/app-release.aab')
-          data = z.read('base/lib/arm64-v8a/libapp.so')
-          with tempfile.NamedTemporaryFile(delete=False, suffix='.so') as f:
-              f.write(data)
-              path = f.name
-          out = subprocess.run(['file', path], capture_output=True, text=True).stdout
-          os.unlink(path)
-          if 'not stripped' in out:
-              sys.exit('libapp.so is NOT stripped — real strip failure, aborting')
-          print('AAB sanity OK: delivered libs are stripped')
-          EOF
+          python3 tool/verify_appbundle.py build/app/outputs/bundle/release/app-release.aab
 
       - name: Upload to Firebase App Distribution (dev)
         if: needs.setup.outputs.is_prod == 'false'

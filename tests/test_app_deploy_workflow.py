@@ -14,8 +14,10 @@ import os
 import plistlib
 import re
 import shutil
+import struct
 import subprocess
 import tempfile
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -238,7 +240,7 @@ def test_aab_step_keeps_the_strip_false_positive_handling(distribute):
 
     assert "|| echo" in run, "오탐 처리(|| echo ...)가 없다"
     assert "test -f" in run, "AAB 존재 확인이 없다"
-    assert "not stripped" in run, "libapp.so 스트립 검증이 없다"
+    assert "verify_appbundle.py" in run, "AAB 내용 검증(스트립 포함)이 없다"
 
 
 def test_both_platforms_upload_to_testflight_regardless_of_branch(distribute):
@@ -686,16 +688,21 @@ def _capture_lane_build(fastfile, function, env):
     with tempfile.NamedTemporaryFile("w", suffix=".rb", delete=False) as handle:
         handle.write(CAPTURE_RB)
         script = handle.name
+    # 빌드 함수는 `Dir.chdir("../..")` 로 Flutter 루트로 올라가고 거기서 이전 AAB 를
+    # 지운다 — 레포 안에서 돌리면 레포 밖을 가리키므로 빈 임시 디렉터리에서 돌린다.
+    sandbox = tempfile.mkdtemp()
     try:
         return subprocess.run(
             ["ruby", script, str(fastfile), function],
             check=False,
             capture_output=True,
             text=True,
+            cwd=sandbox,
             env={**os.environ, **env},
         )
     finally:
         os.unlink(script)
+        shutil.rmtree(sandbox, ignore_errors=True)
 
 
 def _manual_lane_env():
@@ -856,3 +863,229 @@ def test_asc_api_key_file_is_deleted_after_the_job(distribute):
 
     assert "api_key.json" in cleanups
     assert "delete-keychain" in cleanups
+
+
+# --- 이번 빌드가 만든 AAB 만 업로드한다 (D-34-4) ---------------------------
+
+VERIFY_AAB = MOBILE / "tool" / "verify_appbundle.py"
+AAB_IN_BUNDLE = "build/app/outputs/bundle/release/app-release.aab"
+
+
+def _elf(*, stripped):
+    """`file` 이 ELF 섹션 헤더에서 심볼 테이블을 찾아 "not stripped" 를 붙인다.
+
+    테스트가 로컬 NDK 나 커밋한 바이너리에 기대지 않도록 최소 ELF 를 직접 만든다.
+    같은 검사를 실제 NDK 의 aarch64 `.so`(스트립 전/후)로도 돌려봤다 —
+    `review/impl-evidence-34.md` "수정 라운드 2".
+    """
+    names = b"\0.shstrtab\0.symtab\0"
+    sections = [(0, 0), (1, 3)] + ([(11, 2)] if not stripped else [])
+    ehsize = shentsize = 64
+    header = b"\x7fELF\x02\x01\x01\x00" + b"\0" * 8
+    header += struct.pack("<HHI", 3, 183, 1)  # ET_DYN, EM_AARCH64, EV_CURRENT
+    header += struct.pack("<QQQ", 0, 0, ehsize + len(names))  # entry, phoff, shoff
+    header += struct.pack("<IHHHHHH", 0, ehsize, 0, 0, shentsize, len(sections), 1)
+    table = b"".join(
+        struct.pack("<IIQQQQIIQQ", name, typ, 0, 0, ehsize if typ == 3 else 0, 0, 0, 0, 1, 0)
+        for name, typ in sections
+    )
+    return header + names + table
+
+
+def _make_aab(path, *, manifest=True, lib="base/lib/arm64-v8a/libapp.so", stripped=True):
+    with zipfile.ZipFile(path, "w") as bundle:
+        if manifest:
+            bundle.writestr("base/manifest/AndroidManifest.xml", b"<manifest/>")
+        if lib:
+            bundle.writestr(lib, _elf(stripped=stripped))
+    return path
+
+
+def _verify(path):
+    return subprocess.run(
+        ["python3", str(VERIFY_AAB), str(path)], capture_output=True, text=True, check=False
+    )
+
+
+def test_verify_appbundle_accepts_a_bundle_with_stripped_delivered_libs(tmp_path):
+    result = _verify(_make_aab(tmp_path / "ok.aab"))
+
+    assert result.returncode == 0, (result.stdout, result.stderr)
+
+
+def test_verify_appbundle_rejects_a_bundle_whose_libs_are_not_stripped(tmp_path):
+    """`exit 1` 을 삼키는 유일한 근거가 "스트립 오탐" 이다 — 진짜 실패면 멈춘다."""
+    result = _verify(_make_aab(tmp_path / "unstripped.aab", stripped=False))
+
+    assert result.returncode == 1
+    assert "스트립되지 않았다" in result.stderr
+
+
+def test_verify_appbundle_rejects_a_bundle_without_the_dart_library(tmp_path):
+    result = _verify(_make_aab(tmp_path / "nolib.aab", lib=None))
+
+    assert result.returncode == 1
+    assert "libapp.so" in result.stderr
+
+
+def test_verify_appbundle_rejects_a_truncated_bundle(tmp_path):
+    """빌드가 중간에 끊겨 쓰다 만 파일이 남으면 존재 검사만으로는 통과한다."""
+    broken = tmp_path / "broken.aab"
+    broken.write_bytes(_make_aab(tmp_path / "src.aab").read_bytes()[:40])
+
+    result = _verify(broken)
+
+    assert result.returncode == 1
+    assert "zip" in result.stderr
+
+
+def test_verify_appbundle_rejects_a_missing_bundle(tmp_path):
+    result = _verify(tmp_path / "absent.aab")
+
+    assert result.returncode == 1
+    assert "만들지 못했다" in result.stderr
+
+
+# 원본 Fastfile 의 lane 을 끝까지(업로드 진입점까지) 평가한다. `sh` 는 실제 셸을
+# 돌리고, 외부 호출인 `upload_to_play_store` 만 출력으로 바꾼다.
+LANE_RB = r"""
+LANES = {}
+def default_platform(_); end
+def platform(_name); yield; end
+def desc(_text); end
+def lane(name, &block); LANES[name] = block; end
+def sh(command)
+  system(command) or raise "sh failed: #{command}"
+end
+module UI
+  def self.user_error!(message)
+    warn "USER_ERROR: #{message}"
+    exit 2
+  end
+end
+def upload_to_play_store(**options)
+  puts "UPLOAD_REACHED: #{options[:track]}"
+end
+eval(File.read(ARGV[0]))
+LANES[ARGV[1].to_sym].call({})
+"""
+
+# PATH 앞에 끼워 flutter 를 대신한다. 종료 코드와 산출물을 따로 정한다.
+FAKE_FLUTTER = f"""#!/bin/sh
+echo "fake flutter $*"
+if [ -n "$FAKE_AAB_SOURCE" ]; then
+  mkdir -p "$(dirname "{AAB_IN_BUNDLE}")"
+  cp "$FAKE_AAB_SOURCE" "{AAB_IN_BUNDLE}"
+fi
+exit "$FAKE_FLUTTER_EXIT"
+"""
+
+
+def _run_android_lane(tmp_path, *, exit_code, produces=None, stale=False, lane="beta"):
+    """임시 mobile/ 트리에 원본 Fastfile 을 놓고 lane 을 돌린다."""
+    mobile = tmp_path / "mobile"
+    fastlane_dir = mobile / "android" / "fastlane"
+    fastlane_dir.mkdir(parents=True)
+    (mobile / "tool").mkdir()
+    shutil.copy(ANDROID_FASTFILE, fastlane_dir / "Fastfile")
+    shutil.copy(VERIFY_AAB, mobile / "tool" / "verify_appbundle.py")
+
+    if stale:
+        previous = mobile / AAB_IN_BUNDLE
+        previous.parent.mkdir(parents=True)
+        _make_aab(previous)
+
+    stub_dir = tmp_path / "bin"
+    stub_dir.mkdir()
+    flutter = stub_dir / "flutter"
+    flutter.write_text(FAKE_FLUTTER)
+    flutter.chmod(0o755)
+
+    harness = tmp_path / "lane.rb"
+    harness.write_text(LANE_RB)
+
+    env = {
+        **os.environ,
+        **_manual_lane_env(),
+        "PATH": f"{stub_dir}{os.pathsep}{os.environ['PATH']}",
+        "FAKE_FLUTTER_EXIT": str(exit_code),
+        "FAKE_AAB_SOURCE": str(produces) if produces else "",
+    }
+    return subprocess.run(
+        ["ruby", str(harness), "Fastfile", lane],
+        cwd=fastlane_dir,
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+
+
+@ruby_only
+@pytest.mark.parametrize("lane", ["beta", "release"])
+def test_manual_lane_does_not_upload_a_stale_aab_when_the_build_fails(tmp_path, lane):
+    """D-34-4: 빌드 실패를 삼킨 뒤 지난 AAB 를 올리면 다른 소스·다른 API 환경이 나간다.
+
+    `clean:` 은 선택이라 문서의 기본 명령으로는 이전 산출물이 그대로 남는다.
+    """
+    result = _run_android_lane(tmp_path, exit_code=1, produces=None, stale=True, lane=lane)
+
+    assert result.returncode != 0, (result.stdout, result.stderr)
+    assert "UPLOAD_REACHED" not in result.stdout, result.stdout
+    assert "AAB was not produced" in result.stderr, result.stderr
+
+
+@ruby_only
+def test_manual_lane_uploads_the_aab_this_build_produced(tmp_path):
+    """위 테스트가 늘 실패하는 게 아니라 산출물 출처를 본다는 대조군."""
+    aab = _make_aab(tmp_path / "fresh.aab")
+    result = _run_android_lane(tmp_path, exit_code=0, produces=aab)
+
+    assert result.returncode == 0, (result.stdout, result.stderr)
+    assert "UPLOAD_REACHED: internal" in result.stdout
+
+
+@ruby_only
+def test_manual_lane_still_tolerates_the_strip_false_positive(tmp_path):
+    """오탐(exit 1 + 정상 AAB)은 그대로 통과해야 한다 — 수동 배포가 막히면 안 된다."""
+    aab = _make_aab(tmp_path / "fresh.aab")
+    result = _run_android_lane(tmp_path, exit_code=1, produces=aab, stale=True)
+
+    assert result.returncode == 0, (result.stdout, result.stderr)
+    assert "UPLOAD_REACHED: internal" in result.stdout
+
+
+@ruby_only
+def test_manual_lane_rejects_a_new_but_unstripped_aab(tmp_path):
+    """이번 빌드가 만들었어도 스트립이 진짜 실패했으면 올리지 않는다."""
+    aab = _make_aab(tmp_path / "unstripped.aab", stripped=False)
+    result = _run_android_lane(tmp_path, exit_code=1, produces=aab)
+
+    assert result.returncode != 0
+    assert "UPLOAD_REACHED" not in result.stdout
+    assert "스트립되지 않았다" in result.stderr
+
+
+def test_aab_step_removes_the_previous_bundle_before_building(distribute):
+    """self-hosted 러너는 작업 디렉터리가 남는다 — 같은 재사용 사고가 Actions 에도 있다."""
+    aab = next(
+        step
+        for step in _steps(distribute, "android")
+        if "flutter build appbundle" in step.get("run", "")
+    )
+    run = aab["run"]
+    removal = run.index(f"rm -f {AAB_IN_BUNDLE}")
+
+    assert removal < run.index("flutter build appbundle"), "빌드 뒤에 지우면 의미가 없다"
+
+
+def test_workflow_and_manual_lane_share_the_aab_check(distribute):
+    """두 경로가 다른 검사를 쓰면 한쪽만 조용히 느슨해진다."""
+    aab = next(
+        step
+        for step in _steps(distribute, "android")
+        if "flutter build appbundle" in step.get("run", "")
+    )
+
+    assert "tool/verify_appbundle.py" in aab["run"]
+    assert "tool/verify_appbundle.py" in ANDROID_FASTFILE.read_text(encoding="utf-8")

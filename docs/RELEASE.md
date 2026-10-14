@@ -527,6 +527,12 @@ ADMOB_REWARDED_AD_UNIT_ID=... \
   fastlane beta
 ```
 
+Android lane 은 빌드 전에 이전 `app-release.aab` 를 지우고, 빌드 뒤 새 AAB 를
+`mobile/tool/verify_appbundle.py` 로 검사한다(온전한 zip + 배포 lib 스트립 확인).
+`flutter build appbundle` 이 스트립 오탐으로 exit 1 을 줘도 넘기기 때문에, 그 검사가
+없으면 진짜 빌드 실패 뒤 **지난 빌드의 AAB** 가 스토어로 올라간다. 검사는 `python3`
+를 쓴다. Actions 의 AAB 스텝도 같은 스크립트를 쓴다.
+
 #### D2. 앱 배포 — 사람이 해야 하는 일
 
 코드로 할 수 없는 부분이다. 이 티켓의 워커가 확인한 것은 **D0·D2 산출물이 없는
@@ -547,7 +553,7 @@ ADMOB_REWARDED_AD_UNIT_ID=... \
       `match-certs` 레포 접근 권한 확인 후 로컬에서 `fastlane match appstore` 로
       인증서·프로파일을 **한 번 생성**(CI 는 `--readonly`).
 - [ ] 이 레포에 self-hosted 러너 등록(`Settings → Actions → Runners`). 러너 맥에
-      Xcode·CocoaPods·fastlane·`jq`·Node(npx)가 있어야 한다.
+      Xcode·CocoaPods·fastlane·`jq`·`python3`·Node(npx)가 있어야 한다.
 - [ ] 위 secrets·variables 등록 후 **`develop` 에 먼저 푸시**해서 App Distribution·
       TestFlight 경로를 리허설한다(`main` 이 아니라 develop 으로 먼저).
 - [ ] TestFlight·Play internal 에 본인을 테스터로 추가. 스토어 제출·출시 버튼은
