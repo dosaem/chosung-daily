@@ -526,6 +526,10 @@ def privacy():
 COLLECTED = {
     "USER_ID": "게스트 토큰",
     "EMAIL_ADDRESS": "계정 이메일",
+    # 아래 두 줄은 티켓 35 의 1:1 대조에서 더해졌다(docs/legal-checklist.md
+    # "9. 스토어 라벨"): refresh token 은 ASC 에 "기타 데이터" 자리가 있고,
+    # 접속기록은 티켓 36 이 만든 수집이라 34 당시에는 없었다.
+    "OTHER_DATA_TYPES": "애플 refresh token",
     "GAMEPLAY_CONTENT": "시도 기록",
     "PURCHASE_HISTORY": "구독 식별자",
     "DEVICE_ID": "광고 ID",
@@ -533,6 +537,7 @@ COLLECTED = {
     "PRODUCT_INTERACTION": "앱 사용 이벤트(Firebase Analytics)",
     "CRASH_DATA": "접속·오류 기록(Sentry)",
     "PERFORMANCE_DATA": "접속·오류 기록(Sentry)",
+    "OTHER_DIAGNOSTIC_DATA": "접속·오류 기록(접속기록·접근 로그)",
 }
 
 PURPOSES = {
