@@ -224,6 +224,7 @@ chosung.dosaem.com 은 "하루 한 문제 초성 맞추기"가 돌아가는 Flas
 30. **Sentry** 백엔드·Flutter.
 31. **CI 강화** ruff `PL,RUF,SIM,PT`, Flutter analyze+test 잡.
 32. **문서.** README "설계 판단" 추가 항목: 퍼즐 언어 모델(마이그레이션 1단계), 가림 포맷·puzzle_id 고정·시도 이력 응답, KST 고정, id_token 교환·aud 매트릭스·애플 refresh token 보관, 구독 상태 판정표·유예·Sandbox·완료 순서, 힌트 미리 보기 공정성, 로컬 알림 선택 근거와 취소 규칙, 애플 secret 요청 경로 갱신, 운영자 인증·CSRF, Slack. **Flutter 절(짧게)**: 상태 흐름·SDK 선택·테스트 경계. `docs/RELEASE.md`. `CONTEXT.md`·`docs/adr/` 루트 이관. `/impeccable init`.
+33. **개인정보 안전성 확보조치(plan-add r2, 2026-10-14 사용자 결정 "다 만들자").** 고시(개인정보의 안전성 확보조치 기준) 기준으로 ① 백업 덤프 암호화 — 공개키(`age` 수신자 env, identity 는 NAS 밖)로 암호화한 덤프만 저장, `restore.sh` 가 복호화, 키 분실 = 복구 불가 경고·키 보관 절차를 RELEASE 에 ② 개인정보처리시스템 접속기록 — 운영자 화면·계정 삭제·열람·연결 등 처리 행위의 감사 로그(DB, INSERT 전용, SHA-256 해시 체인)와 Gunicorn 접근 로그 파일(비밀값·쿠키·쿼리 제외)을 고시의 최소 기간(워커가 조문 확인해 확정, 설정값 `ACCESS_LOG_RETENTION_DAYS`) 보관 후 자동 삭제, 월 1회 점검 CLI. 구현 뒤 방침 `#destruction`·`#collection`·`#security`·`docs/legal-checklist.md`·RELEASE "### 16." 의 "미구현" 을 "구현됨" 으로. 티켓 37.
 
 ### D. 사람이 해야 하는 일 (순서)
 
@@ -290,6 +291,7 @@ chosung.dosaem.com 은 "하루 한 문제 초성 맞추기"가 돌아가는 Flas
 23. (plan-add r1) 해외 사용자 최소 고지(EU/영국·캘리포니아 권리 안내) 포함 여부 — 티켓 16 에서 결정·근거 기록(권장: 짧은 "해외 사용자" 절 1개를 ko/en 모두에)
 24. (plan-add r1) 태블릿 expanded(≥840) 2열의 세부 폭(T1 600+320, T4 480+480)·Split View 최소 폭 처리 — 티켓 24·화면 티켓에서 확정하고 README Flutter 절에 기록
 25. **해소(2026-10-14, 사용자 확정)** 앱 아이콘·스크린샷 톤 — 계획 리뷰 r1 의 사용자 확인 항목(다크 배경 `#0F172A` + 흰 "ㅊ" vs Editorial Light). 결정: 라이트 배경 `#FAFAF9` 에 글자 없는 타일 3칸(양끝 brand `#EA580C`, 가운데 `tile-wrong` `#D6D3D1`), 스플래시 동일, 스크린샷 라이트 모드. 근거: 스토어는 앱당 아이콘 하나라 "ㅊ" 은 영어 사용자에게 뜻이 없음. OVERRIDES §8·티켓 35 반영. 30px 가독성은 35 에서 확인(필요 시 가운데 칸 `#A8A29E`)
+27. (plan-add r2) 개인정보 안전성 확보조치 2건 — 백업 덤프 암호화, 개인정보처리시스템 접속기록 보관·점검(티켓 16 수정 라운드 1 이 "미구현 — 출시 전 결정 필요" 로 올린 항목) → **티켓 37 에서 구현**. 보관 기간·조문은 37 이 고시 확인 후 확정해 여기와 `docs/legal-checklist.md` 에 기록. 16 브랜치의 "(티켓 16 수정 라운드 1)" 글머리 ①·② 도 37 이 갱신
 14. (r3 MINOR) Google 상태 매핑 빈칸 — **티켓 12 에서 fixture 로 확정**(`tests/fixtures/store/play_*.json`, `tests/test_subscription_status.py`): `PAUSED → hold`, `PENDING`·`PENDING_PURCHASE_CANCELED` → 행 없음(권한 없음), `ACTIVE`·`CANCELED` → active, `IN_GRACE_PERIOD` → grace 이고 `grace_expires_at` = `expires_at` = `lineItems[].expiryTime`(Google 은 유예 종료 시각을 따로 주지 않고 유예 중에는 `expiryTime` 이 유예 종료까지 연장돼 온다), `EXPIRED` → expired, 알 수 없는 state 는 `ValueError`. **`revoked` 라벨은 v2 응답만으로는 붙이지 않는다** — `SubscriptionPurchaseV2` 에 철회 전용 필드가 없고 그 신호는 Voided Purchases API / RTDN `SUBSCRIPTION_REVOKED` 에만 있다(미정 1 과 함께 도입). 그때까지 Google 환불·철회는 "만료일 전 EXPIRED" 로 관측돼 `expired` 로 기록되며, 판정표에서 expired·revoked 가 같은 칸이라 권한 결과는 동일하다(24h 유예 없이 즉시 권한 없음 — `test_a_refunded_google_subscription_loses_the_entitlement_immediately`). 순수 함수 `google_subscription_status(purchase, *, revoked=False)` 에 플래그 자리를 뒀다.
 12. **확정(티켓 04)**: `GET /puzzles/today` 의 `attempts[].feedback` 는 정답 행도 포함해 **항상 `length` 길이로 채워 보낸다**(정답 행은 전부 `true`). 피드백은 저장하지 않고 `Attempt.guess` 와 정답을 다시 비교해 만든다 — 비교 규칙이 제출·조회 두 곳에 두 벌로 생기지 않게. 제출 응답(`POST guesses`)은 현행대로 정답일 때 `feedback: null` 이다. 근거는 README "04. 시도 이력을 서버가 돌려주는 이유".
 
@@ -311,7 +313,7 @@ chosung.dosaem.com 은 "하루 한 문제 초성 맞추기"가 돌아가는 Flas
 
 - 운영자 계정은 정확히 두 개: `dosaem90@gmail.com`, `hsseo@dosaem.com`.
 - 면접 설명 범위: 백엔드 전부 + Flutter 는 상태 흐름·SDK 선택·테스트 경계(README Flutter 절). (r3 MINOR 메모: 제출하는 코드 전체는 작성자가 설명할 수 있어야 하고, 설계 판단 문서만 핵심 중심으로 쓴다는 뜻.)
-- 티켓: `.scratch/store-launch/issues/01~36`(의존성 순, 2026-10-13; 계획 리뷰 r1 반영으로 구 24→24·25, 구 29→30·31 분할; **plan-add r1(2026-10-14)** 로 16(법적 문서 보완)·24(태블릿 뼈대) 삽입 — 구 16→23, 구 23~34→25~36, 대응표는 `review/plan-add-r1-response.md`. 머지·진행 중 티켓(01~13·15·17·19~22) 본문의 번호는 구 번호 그대로다). 미정 항목 중 9·21·22·23(16)·12(04)·13(17)·14(12)·18(13)·19(13·33)·20(26)·24(24)·25(35, 30px 확인) 은 해당 티켓에서 확정. Flutter 루트는 `mobile/`. 앱 아이콘·스플래시·스크린샷은 OVERRIDES §8 그대로 — **2026-10-14 사용자 확정: 라이트 배경 `#FAFAF9` 에 글자 없는 타일 3칸(양끝 brand, 가운데 `tile-wrong`), 스크린샷은 라이트 모드 기준**(이전 "다크 배경 + ㅊ, 다크모드 스크린샷" 폐기, 미정 25). 콘셉트를 또 바꾸려면 OVERRIDES §8 을 먼저 고친다.
+- 티켓: `.scratch/store-launch/issues/01~37`(의존성 순, 2026-10-13; 계획 리뷰 r1 반영으로 구 24→24·25, 구 29→30·31 분할; **plan-add r1(2026-10-14)** 로 16(법적 문서 보완)·24(태블릿 뼈대) 삽입 — 구 16→23, 구 23~34→25~36, 대응표는 `review/plan-add-r1-response.md`. 머지·진행 중 티켓(01~13·15·17·19~22) 본문의 번호는 구 번호 그대로다). 미정 항목 중 9·21·22·23(16)·12(04)·13(17)·14(12)·18(13)·19(13·33)·20(26)·24(24)·25(35, 30px 확인)·27(37) 은 해당 티켓에서 확정. plan-add r2(2026-10-14): 37 개인정보 안전성 확보조치 추가(§C.33), 36 Blocked by 에 37. Flutter 루트는 `mobile/`. 앱 아이콘·스플래시·스크린샷은 OVERRIDES §8 그대로 — **2026-10-14 사용자 확정: 라이트 배경 `#FAFAF9` 에 글자 없는 타일 3칸(양끝 brand, 가운데 `tile-wrong`), 스크린샷은 라이트 모드 기준**(이전 "다크 배경 + ㅊ, 다크모드 스크린샷" 폐기, 미정 25). 콘셉트를 또 바꾸려면 OVERRIDES §8 을 먼저 고친다.
 - 디자인 파이프라인·스펙 리뷰 규칙은 `~/.claude/CLAUDE.md`·NAS README 에 기록. 리뷰 응답: `review/spec-review-r1-response.md`, `review/spec-review-r2-response.md`.
 - BASELINE 읽기만. ENV.md 의 PostgreSQL/Flyway 기술은 무시(MySQL/Alembic).
 - 티켓 하나 = 워커 하나가 한 세션. §A.1, §A.8, §A.11 은 본문의 분할 지침대로 쪼갠다. 의존성은 `issues/NN-*.md` "Blocked by".

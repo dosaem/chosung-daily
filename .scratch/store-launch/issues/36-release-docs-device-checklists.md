@@ -2,7 +2,7 @@
 
 **What to build:** 운영자가 `docs/RELEASE.md` 하나로 D0~D3 사람 작업, NAS 첫 배포, 복구 리허설, 실기기 체크(알림·광고·구독 Sandbox·UMP), 심사 제출 순서를 따라갈 수 있다. README 가 백엔드 "설계 판단" 전 항목과 짧은 Flutter 절을 갖추고 면접 설명 범위를 명시한다.
 
-**Blocked by:** 16, 18, 20, 21, 23, 29, 30, 32, 33, 35
+**Blocked by:** 16, 18, 20, 21, 23, 29, 30, 32, 33, 35, 37
 
 **Status:** ready-for-agent
 
