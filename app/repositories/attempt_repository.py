@@ -48,3 +48,20 @@ def summarize_by_date_and_language(
         (puzzle_date, language): DaySummary(attempts=attempts, solved=bool(solved))
         for puzzle_date, language, attempts, solved in rows
     }
+
+
+def count_by_puzzle(puzzle_ids: list[int]) -> dict[int, int]:
+    """퍼즐별 시도 수. 배정표가 "이 날짜는 이미 누가 풀었다" 를 판단하는 데 쓴다.
+
+    배정표는 30일을 한 화면에 그려서 날짜마다 세면 쿼리가 30개가 된다 —
+    GROUP BY 로 한 번에 읽고, 시도가 없는 퍼즐은 키가 없다(호출부가 0으로 읽는다).
+    """
+    if not puzzle_ids:
+        return {}
+
+    return dict(
+        db.session.query(Attempt.puzzle_id, db.func.count(Attempt.id))
+        .filter(Attempt.puzzle_id.in_(puzzle_ids))
+        .group_by(Attempt.puzzle_id)
+        .all()
+    )

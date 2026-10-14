@@ -1,0 +1,78 @@
+{% extends "admin/_layout.html" %}
+{% block title %}배정표{% endblock %}
+{% block heading %}30일 배정표{% endblock %}
+
+{% block content %}
+{# 잔량이 먼저다 — 배정표를 보러 온 이유가 보통 "며칠 남았나" 다. #}
+<ul class="admin-stock" aria-label="언어별 단어 잔량">
+  {% for stock_language, remaining in stock.items() %}
+  <li class="admin-stock-card {% if remaining < low_threshold %}admin-stock-low{% endif %}">
+    <p class="admin-stock-language">{{ stock_language.value }}</p>
+    <p class="admin-stock-days">{{ remaining }}일치</p>
+    <p class="admin-stock-note">
+      {% if remaining < low_threshold %}{{ low_threshold }}일치 미만. CSV 를 올려 채워주세요
+      {% else %}한 번도 배정 안 된 단어 수{% endif %}
+    </p>
+  </li>
+  {% endfor %}
+</ul>
+
+<nav class="admin-tabs" aria-label="퍼즐 언어">
+  {% for tab_language in languages %}
+  <a
+    class="admin-tab {% if tab_language == language %}admin-tab-current{% endif %}"
+    href="{{ url_for('admin.schedule', language=tab_language.value) }}"
+    {% if tab_language == language %}aria-current="page"{% endif %}
+  >{{ tab_language.value }}</a>
+  {% endfor %}
+</nav>
+
+<table class="admin-table">
+  <caption class="admin-table-caption">
+    오늘부터 30일. 빈 날짜는 자정 배정이 채우고, 시도가 있는 날짜는 단어를 바꿀 수 없다.
+  </caption>
+  <thead>
+    <tr>
+      <th scope="col">날짜</th>
+      <th scope="col">카테고리</th>
+      <th scope="col">단어</th>
+      <th scope="col">가림</th>
+      <th scope="col">관리</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for day in days %}
+    <tr>
+      <td class="admin-cell-date">{{ day.puzzle_date.isoformat() }} ({{ weekday_names[day.puzzle_date.weekday()] }})</td>
+      <td>{{ day.word.category.value if day.word else "" }}</td>
+      <td class="admin-cell-answer">
+        {% if day.word %}{{ day.word.answer }}
+        {% else %}<span class="admin-muted">자정에 배정</span>{% endif %}
+      </td>
+      {# 운영자가 플레이어에게 보이는 문제를 그대로 확인할 수 있어야 한다(목록과 같은 규칙). #}
+      <td>
+        {% if day.word %}
+        <span class="admin-mask">
+          {% for tile in day.word.mask %}
+            {% if tile.t == "s" %}<span class="admin-mask-gap"></span>
+            {% elif tile.t == "h" %}<span class="admin-mask-tile admin-mask-tile-hidden"></span>
+            {% else %}<span class="admin-mask-tile">{{ tile.c }}</span>{% endif %}
+          {% endfor %}
+        </span>
+        {% endif %}
+      </td>
+      <td class="admin-cell-actions">
+        {% if day.is_locked %}
+        <span class="admin-tag">시도 {{ day.attempt_count }}건 (교체 불가)</span>
+        {% else %}
+        <a
+          class="admin-link"
+          href="{{ url_for('admin.replace_form', puzzle_date=day.puzzle_date.isoformat(), language=language.value) }}"
+        >{{ "교체" if day.word else "배정" }}</a>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

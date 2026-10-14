@@ -1,3 +1,6 @@
+import pytest
+
+from app.errors import ValidationError
 from app.models import PuzzleLanguage, Word, WordCategory
 from app.schemas.book import BookSearchResult
 from app.services.word_service import (
@@ -284,3 +287,15 @@ def test_seed_words_from_csv_reports_a_row_with_values_past_the_header(app, tmp_
     assert len(result.skipped) == 1
     assert "헤더보다 많습니다" in result.skipped[0]
     assert [word.answer for word in Word.query.all()] == ["사과"]
+
+
+def test_add_word_from_book_rejects_a_title_over_the_answer_column(app):
+    """검색 결과 제목은 50자를 쉽게 넘는다(부제가 붙은 책) — 폼·CSV 와 같은
+    검증을 거쳐 사유 있는 ValidationError 가 되어야 한다(그대로 넣으면 MySQL
+    에러가 운영자에게 500 으로 보인다)."""
+    long_title = BookSearchResult(title="T" * 51, author="누군가", source="google_books")
+
+    with pytest.raises(ValidationError, match="정답이 너무 깁니다"):
+        add_word_from_book(long_title, PuzzleLanguage.EN)
+
+    assert Word.query.count() == 0

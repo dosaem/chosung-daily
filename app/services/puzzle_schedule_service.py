@@ -1,9 +1,17 @@
 import random
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
 from app.config import KST
+from app.errors import ValidationError
 from app.extensions import db
 from app.models import DailyPuzzle, PuzzleLanguage, Word, WordCategory
+from app.repositories import attempt_repository, puzzle_repository
+from app.services.puzzle_cache import invalidate_cached_puzzle
+
+# 운영자 배정표가 보는 날 수 = 자정 배정이 미리 채워두는 날 수. 두 수가 갈리면
+# 배정표 끝 며칠이 영영 "자정에 배정" 으로 남는다(티켓 23).
+SCHEDULE_DAYS = 30
 
 # 월=0 ... 일=6 (datetime.date.weekday() 기준). 책 제목은 매일 섞으면 체감 난이도가
 # 들쭉날쭉해서(안 읽어본 사람한텐 그냥 모르는 단어 + 여러 단어짜리면 초성도 김)
@@ -12,7 +20,7 @@ BOOK_TITLE_WEEKDAY = 6
 
 
 def schedule_puzzles(
-    language: PuzzleLanguage, days: int = 30, avoid_days: int = 14
+    language: PuzzleLanguage, days: int = SCHEDULE_DAYS, avoid_days: int = 14
 ) -> int:
     """오늘(KST)부터 days일치, 주어진 언어의 DailyPuzzle을 배정한다.
 
@@ -110,3 +118,113 @@ def _least_recently_used_word(language: PuzzleLanguage) -> Word:
             f"{language.value} 단어가 하나도 없습니다. flask seed-words로 먼저 시드하세요."
         )
     return word
+
+
+@dataclass(frozen=True)
+class ScheduledDay:
+    """배정표 한 줄. 아직 배정이 없는 날짜도 `word=None` 으로 한 줄을 차지한다 —
+    운영자가 비어 있는 날짜를 봐야 "자정에 배정" 인지 알 수 있다."""
+
+    puzzle_date: date
+    puzzle_id: int | None
+    word: Word | None
+    attempt_count: int
+
+    @property
+    def is_locked(self) -> bool:
+        """시도가 한 건이라도 있으면 그 날짜의 단어는 못 바꾼다 — 이미 푼 사람의
+        시도 이력이 다른 정답을 가리키게 된다."""
+        return self.attempt_count > 0
+
+
+def upcoming_schedule(
+    language: PuzzleLanguage, days: int = SCHEDULE_DAYS
+) -> list[ScheduledDay]:
+    """오늘(KST)부터 days일치 배정 현황. 운영자 배정표가 그대로 그린다.
+
+    날짜 창은 `schedule_puzzles` 와 같다(오늘 + days일) — 배정표에 보이는 날짜가
+    자정 배정이 채우는 날짜여야 "미배정 = 자정에 배정" 이 참이 된다. 쓰기는 하지
+    않는다: GET 으로 들어온 조회가 배정을 만들면 운영자가 보기만 해도 단어 풀이
+    줄어든다(배정은 Beat 와 교체 폼만 한다).
+    """
+    today = datetime.now(KST).date()
+    last_date = today + timedelta(days=days - 1)
+
+    puzzles = {
+        puzzle.puzzle_date: puzzle
+        for puzzle in puzzle_repository.list_in_range(language, today, last_date)
+    }
+    attempt_counts = attempt_repository.count_by_puzzle(
+        [puzzle.id for puzzle in puzzles.values()]
+    )
+
+    schedule = []
+    for offset in range(days):
+        target_date = today + timedelta(days=offset)
+        puzzle = puzzles.get(target_date)
+        schedule.append(
+            ScheduledDay(
+                puzzle_date=target_date,
+                puzzle_id=puzzle.id if puzzle else None,
+                word=puzzle.word if puzzle else None,
+                attempt_count=attempt_counts.get(puzzle.id, 0) if puzzle else 0,
+            )
+        )
+    return schedule
+
+
+def replace_assignment(
+    puzzle_date: date, language: PuzzleLanguage, word_id: int
+) -> DailyPuzzle:
+    """그 날짜·언어의 퍼즐 단어를 바꾼다(배정이 없으면 새로 만든다).
+
+    막는 두 경우:
+
+    - **지난 날짜.** 이미 지난 퍼즐은 기록이다 — 통계·리더보드·시도 이력이 그
+      단어를 가리키고 있다.
+    - **시도가 있는 날짜(보통 오늘).** 누군가 이미 제출했으면 그 사람의 시도는
+      다른 정답과 비교된 결과다. 오늘이어도 시도가 없으면 바꿀 수 있다 —
+      운영자가 자정 직후에 기념일 문제로 갈아끼우는 게 US 54 의 주 용도다.
+
+    "시도 없음" 검사는 퍼즐 행을 `FOR UPDATE` 로 잠근 뒤에 한다 — 검사와 UPDATE
+    사이에 첫 제출이 커밋되면 그 시도는 옛 정답으로 판정됐는데 보드는 새 정답을
+    가리키게 된다(리뷰 D-23-1). 제출 쪽도 같은 행을 공유 잠금으로 잡으므로
+    (`guess_service.submit_guess`) 어느 쪽이 먼저 오든 뒤에 온 쪽이 멈춘다: 제출이
+    먼저면 여기서 "시도 1건" 을 보고 거부하고, 교체가 먼저면 제출이 바뀐 정답을 보고
+    PUZZLE_CHANGED 로 끊긴다.
+
+    커밋이 끝난 뒤 `puzzle:{date}:{lang}` 캐시를 지운다 — 오늘 퍼즐 읽기가
+    cache-aside 라(`puzzle_service.get_today_puzzle_or_404`) 안 지우면 TTL 26시간
+    동안 옛 단어가 계속 나간다. 롤백된 교체가 캐시를 날리지 않게 순서를 그렇게 뒀다.
+    """
+    today = datetime.now(KST).date()
+    if puzzle_date < today:
+        raise ValidationError(f"지난 날짜({puzzle_date.isoformat()})의 퍼즐은 바꿀 수 없습니다.")
+
+    word = db.session.get(Word, word_id)
+    if word is None:
+        raise ValidationError("단어를 찾을 수 없습니다 (목록에서 다시 골라주세요).")
+    if word.language is not language:
+        raise ValidationError(
+            f"퍼즐과 단어의 언어가 다릅니다 — {language.value} 퍼즐에는 "
+            f"{language.value} 단어만 배정할 수 있어요 (고른 단어는 {word.language.value})."
+        )
+
+    puzzle = puzzle_repository.lock_by_date(puzzle_date, language)
+    if puzzle is not None:
+        attempts = attempt_repository.count_by_puzzle([puzzle.id]).get(puzzle.id, 0)
+        if attempts:
+            raise ValidationError(
+                f"이미 시도가 {attempts}건 있는 날짜({puzzle_date.isoformat()})는 "
+                "단어를 바꿀 수 없습니다."
+            )
+        puzzle.word_id = word.id
+    else:
+        puzzle = DailyPuzzle(
+            puzzle_date=puzzle_date, language=language, word_id=word.id
+        )
+        db.session.add(puzzle)
+
+    db.session.commit()
+    invalidate_cached_puzzle(puzzle_date, language)
+    return puzzle

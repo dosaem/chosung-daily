@@ -7,6 +7,7 @@ from app.models import Attempt, Guest, GuestStats
 from app.repositories.attempt_repository import list_for_guest_puzzle
 from app.repositories.guest_stats_repository import lock_for_guest
 from app.repositories.hint_unlock_repository import is_unlocked
+from app.repositories.puzzle_repository import lock_shared_answer
 from app.schemas.guess import GuessResponse
 from app.services.game_rules import (
     MAX_ATTEMPTS,
@@ -15,6 +16,7 @@ from app.services.game_rules import (
     normalize_for_compare,
     summarize_attempts,
 )
+from app.services.puzzle_cache import invalidate_cached_puzzle
 from app.services.puzzle_metrics import record_finish, record_leaderboard
 from app.services.puzzle_service import get_today_puzzle_or_404
 
@@ -22,8 +24,9 @@ from app.services.puzzle_service import get_today_puzzle_or_404
 def submit_guess(guest: Guest, puzzle_id: int | None, raw_guess: str) -> GuessResponse:
     """정답 제출 하나 = 트랜잭션 하나.
 
-    실행 순서: 퍼즐 조회(일반 SELECT) → GuestStats 잠금(SELECT ... FOR UPDATE) →
-    이후 attempts 재조회. 잠금보다 먼저 일반 SELECT가 있는데도 안전한 이유는
+    실행 순서: 퍼즐 조회(일반 SELECT 또는 캐시) → GuestStats 잠금(SELECT ... FOR
+    UPDATE) → 퍼즐 행 공유 잠금 + 정답 재확인(`_hold_the_puzzle_answer`) → 이후
+    attempts 재조회. 잠금보다 먼저 일반 SELECT가 있는데도 안전한 이유는
     app/config.py에서 격리수준을 READ COMMITTED로 낮췄기 때문이다 — MySQL 기본
     REPEATABLE READ였다면, 잠금 뒤의 일반 SELECT(attempts)가 이 트랜잭션이 맨
     처음 읽은 시점의 스냅샷을 계속 봐서, 잠금을 기다렸다가 받아도 방금 커밋된
@@ -53,6 +56,7 @@ def submit_guess(guest: Guest, puzzle_id: int | None, raw_guess: str) -> GuessRe
 
     word = puzzle.word
     answer = normalize_for_compare(puzzle.language, word.answer)
+    _hold_the_puzzle_answer(puzzle, answer)
     guess = normalize_for_compare(puzzle.language, raw_guess)
 
     if len(guess) != len(answer):
@@ -97,6 +101,32 @@ def submit_guess(guest: Guest, puzzle_id: int | None, raw_guess: str) -> GuessRe
         hint=word.hint if (show_hint or hint_unlocked) else None,
         answer=word.answer if finished else None,
     )
+
+
+def _hold_the_puzzle_answer(puzzle, answer: str) -> None:
+    """이 제출이 판정에 쓸 정답을 커밋까지 공유 잠금으로 붙잡는다.
+
+    운영자 교체(US 54)는 "시도 없는 날짜" 만 바꿀 수 있는데, 시도 행을 넣기까지
+    퍼즐 행을 아무도 잠그지 않으면 교체가 그 틈으로 들어온다 — 제출은 사과로
+    판정받고 보드는 학교를 정답으로 복원하는 상태가 남는다(리뷰 D-23-1).
+
+    같은 행을 `puzzle_repository.lock_by_date` 의 `FOR UPDATE` 와 공유하므로:
+
+    - 제출이 먼저 잠그면 교체가 이 커밋을 기다렸다가 "시도 1건" 을 보고 거부한다.
+    - 교체가 먼저 잠그면 이 잠금이 교체의 커밋까지 기다렸다가 바뀐 정답을 읽는다.
+      그땐 이 요청이 들고 있던 정답(캐시 또는 잠금 전 SELECT)이 이미 과거라서,
+      퍼즐 고정 규칙 그대로 PUZZLE_CHANGED 로 끊는다 — 시도 행도 통계도 안 남는다.
+
+    캐시도 같이 지운다: 이 요청이 옛 단어를 캐시에서 읽었을 수 있고, 그 키를 지운
+    쪽(교체)의 삭제와 이 요청의 채우기가 엇갈렸을 수 있다. 다음 조회가 DB 를 보게
+    만들어 클라이언트의 새로고침이 새 퍼즐을 받도록 한다.
+    """
+    current_answer = lock_shared_answer(puzzle.id)
+    if current_answer is None or normalize_for_compare(
+        puzzle.language, current_answer
+    ) != answer:
+        invalidate_cached_puzzle(puzzle.puzzle_date, puzzle.language)
+        raise PuzzleChangedError()
 
 
 def _record_metrics(
