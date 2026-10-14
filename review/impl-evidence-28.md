@@ -287,3 +287,140 @@ scripts/ '*.py'` 가 비어 있어 §6.3 의 1403개와 같은 코드다.
   iOS 사용 설명 문자열은 `test/config/native_permissions_test.dart` 가 검사한다.
 - 실기기/시뮬레이터에서의 **실제 권한 다이얼로그** — 위젯 테스트는 플랫폼 채널을 가짜로
   바꾼다. 티켓 37 실기기 체크리스트 몫이다.
+
+## 수정 라운드 1
+
+리뷰 `review/impl-review-28.md` 라운드 1 (BLOCKER 0 / MAJOR 1 / MINOR 0) 대응.
+
+### D-28-1 — MAJOR — 알림 플러그인의 Android desugaring 설정 누락 → 수정
+
+리뷰어 지적이 맞다. 아래처럼 실제 Gradle 실패를 먼저 재현한 뒤 고쳤다.
+
+**원인.** `flutter_local_notifications` 10+ 는 **알림 예약을 쓰지 않아도** 소비하는 앱이
+core library desugaring 을 켜두기를 요구한다. 플러그인의 `android/build.gradle` 이
+`coreLibraryDesugaringEnabled true` + `coreLibraryDesugaring
+'com.android.tools:desugar_jdk_libs:2.1.4'` 로 선언하고, 그 요구가 AAR 메타데이터로
+흘러나와 AGP 의 `checkDebugAarMetadata` 가 소비 앱을 검사한다. 앱
+`compileOptions` 에는 Java **언어 수준** 17 만 있었고 — 이것은 라이브러리
+desugaring 활성화가 아니다 — 플래그와 `desugar_jdk_libs` 의존성이 둘 다 없었다.
+
+6.6 에서 `flutter build apk` 를 건너뛴 것이 이 결함이 통과한 직접적인 이유다. Dart
+테스트 392개는 권한 requester 를 fake 로 치환하고 매니페스트 문자열만 읽으므로
+이 통합 결함을 원리적으로 잡을 수 없다.
+
+**재현 (수정 전).** 리뷰어는 `--offline` 에서 `androidx.media:media:1.1.0` 캐시 누락으로
+먼저 멈춰 최종 오류 로그를 확보하지 못했다. 의존성 다운로드를 허용해 같은 검사를
+다시 돌려 **정확한 AGP 오류를 확보**했다 (Gradle 8.14 + JDK 17):
+
+```
+$ cd mobile/android && JAVA_HOME=/opt/homebrew/opt/openjdk@17 gradle :app:checkDebugAarMetadata
+> Task :app:checkDebugAarMetadata FAILED
+
+* What went wrong:
+Execution failed for task ':app:checkDebugAarMetadata'.
+> A failure occurred while executing com.android.build.gradle.internal.tasks.CheckAarMetadataWorkAction
+   > An issue was found when checking AAR metadata:
+
+       1.  Dependency ':flutter_local_notifications' requires core library desugaring to be enabled
+           for :app.
+
+           See https://developer.android.com/studio/write/java8-support.html for more
+           details.
+
+BUILD FAILED in 7s      # exit 1
+```
+
+**수정 내용.** `mobile/android/app/build.gradle.kts`:
+
+- `compileOptions` 에 `isCoreLibraryDesugaringEnabled = true`
+- `dependencies { coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4") }`
+  — 플러그인이 요구하는 것과 같은 버전
+- `multiDexEnabled` 는 넣지 않았다. 플러그인 README 가 안내하지만 이 앱은
+  `minSdk = flutter.minSdkVersion` = **24** 이고 AGP 는 minSdk 21+ 에서 native
+  multidex 를 기본으로 켠다. 없어도 아래 APK 빌드가 통과한다.
+
+**증명하는 테스트.** `mobile/test/config/android_desugaring_test.dart` 1개 추가
+(`native_permissions_test.dart`·`ios_project_test.dart` 와 같은 "네이티브 설정 파일을
+직접 읽어 지킨다" 방식). 요구 버전을 **하드코딩하지 않고** 설치된 플러그인의
+`android/build.gradle` 에서 읽어 앱 설정과 비교하므로, 플러그인이 desugar 버전을
+올리면 이 테스트가 먼저 깨진다. 플러그인 경로는 `.dart_tool/package_config.json`
+으로 찾아 기기별 pub cache 위치에 의존하지 않는다.
+
+수정 전(red) — 같은 테스트가 원인 그대로를 가리킨다:
+
+```
+$ cd mobile && flutter test test/config/android_desugaring_test.dart
+  Expected: contains 'isCoreLibraryDesugaringEnabled = true'
+    Actual: <android/app/build.gradle.kts 전문>
+     Which: does not contain 'isCoreLibraryDesugaringEnabled = true'
+  compileOptions 에서 라이브러리 desugaring 을 켜야 한다
+00:01 +0 -1: Some tests failed.
+```
+
+수정 후(green):
+
+```
+$ cd mobile && flutter test test/config/android_desugaring_test.dart
+00:00 +1: All tests passed!
+```
+
+**Gradle 검사 재실행 (수정 후).**
+
+```
+$ cd mobile/android && JAVA_HOME=/opt/homebrew/opt/openjdk@17 gradle :app:checkDebugAarMetadata
+BUILD SUCCESSFUL in 1s
+19 actionable tasks: 1 executed, 18 up-to-date      # exit 0
+```
+
+**전체 Android 빌드 (6.6 의 누락을 메움).** 코디네이터 지시대로 실제 APK 를 빌드했다.
+의존성은 다운로드했고(Google Maven·Maven Central), 빌드 후 `mobile/build` 는 지웠다.
+
+```
+$ cd mobile && JAVA_HOME=/opt/homebrew/opt/openjdk@17 flutter build apk --debug
+Running Gradle task 'assembleDebug'...                             41.8s
+✓ Built build/app/outputs/flutter-apk/app-debug.apk                # exit 0
+```
+
+AGP 버전은 이미 플러그인 요구치를 만족한다 — `android/settings.gradle.kts:22` 가
+`com.android.application` **8.11.1**, 플러그인 README 의 최소 권고도 8.11.1 이다.
+
+### 미수정 MINOR
+
+없다 — 리뷰 라운드 1 의 MINOR 는 0건이다.
+
+### 수정 라운드 1 재검증 (rebase 후 전체 재실행)
+
+`git rebase main` (로컬 `main` = `34ec7ec`, 라운드 1 리뷰 기준점과 같다). `main` 이
+움직이지 않아 no-op 이었고, 그 위에서 전체를 다시 돌렸다.
+
+```
+$ cd mobile && flutter test
+00:28 +393: All tests passed!            # 392 → 393 (D-28-1 재현 테스트 1개)
+
+$ cd mobile && flutter analyze
+No issues found! (ran in 2.2s)
+
+$ cd mobile && dart format --output=none --set-exit-if-changed .
+Formatted 122 files (0 changed) in 0.19 seconds.      # exit 0
+
+$ uv run ruff check .
+All checks passed!
+
+$ TEST_DATABASE_URL=... (chosung_daily_test_t28) \
+  TEST_REDIS_URL=redis://127.0.0.1:6379/2 \
+  TEST_MIGRATION_DATABASE_URL=... (chosung_daily_test_t28_migrations) \
+  uv run pytest -q
+........................................................................ [ 97%]
+...................................                                      [100%]
+1403 passed in 938.70s (0:15:38)
+
+$ ./scripts/check_migration_heads.sh
+b1c7d4e0a932 (head)
+OK: Alembic head 1개
+
+$ git status --short
+(비어 있음)
+```
+
+이 티켓에 마이그레이션 변경은 없다. 백엔드·웹·서버 파일은 수정 라운드에서도
+건드리지 않았다 — 변경은 `mobile/android/app/build.gradle.kts` 와 새 테스트 1개뿐이다.
