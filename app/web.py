@@ -3,13 +3,17 @@ from datetime import date
 from flask import Blueprint, current_app, redirect, render_template, request, session
 
 from app.csrf import csrf_protected, issue_csrf_token
-from app.errors import UnauthorizedError
+from app.errors import ForbiddenError, UnauthorizedError
 from app.extensions import db
 from app.models import Guest
 from app.services.account_deletion_service import delete_guest_account
 from app.utils.ui_language import resolve_ui_language
 
 bp = Blueprint("web", __name__)
+
+# 확인 폼을 그릴 때 "이 폼이 지우려는 게스트" 를 적어 두는 세션 키. CSRF 토큰과
+# 짝으로 쓴다 — 토큰은 "이 폼을 우리가 그려줬다" 만 증명하고 대상은 증명하지 않는다.
+DELETE_TARGET_SESSION_KEY = "delete_target_guest_id"
 
 # 법적 문서의 시행일. 본문을 고칠 때 이 날짜도 같이 올린다 (README "법적 문서" 절).
 LEGAL_EFFECTIVE_DATE = date(2026, 10, 14)
@@ -100,7 +104,7 @@ def account_delete():
         ui_language=language,
         contact_email=current_app.config["LEGAL_CONTACT_EMAIL"],
         # 폼을 그릴 때만 토큰을 발급한다 — 템플릿은 이 값의 유무로 두 갈래를 고른다.
-        csrf_token=issue_csrf_token() if guest is not None else None,
+        csrf_token=_issue_form_for(guest) if guest is not None else None,
     )
     return html, 200, {"Content-Language": language}
 
@@ -113,11 +117,29 @@ def account_delete_submit():
     "폼이 위조됐다"(403)가 아니라 "지울 게 누군지 모른다"(401)이기 때문이다
     (스펙 §A.7). 그래서 데코레이터를 겹쳐 쓰지 않고, 게스트를 먼저 찾은 뒤
     CSRF 로 보호된 함수를 부른다.
+
+    세션 게스트가 **그 폼을 그릴 때 본 게스트** 와 같은지도 본다. 확인 화면을 띄워
+    둔 채 다른 탭에서 백업 코드를 복원하거나 계정을 전환하면 세션이 다른 게스트를
+    가리키는데, 그때 옛 버튼이 "지금 세션의 게스트" 를 지우면 플레이어가 지우려던
+    계정은 남고 멀쩡한 계정이 사라진다.
     """
     guest = _session_guest()
     if guest is None:
         raise UnauthorizedError("삭제할 기록이 없습니다. 기록이 있는 기기에서 다시 시도해주세요.")
+    if session.get(DELETE_TARGET_SESSION_KEY) != guest.id:
+        # 폼을 다시 받아야 한다. 다른 계정을 지워주는 쪽보다 한 번 더 확인받는 쪽이 싸다.
+        raise ForbiddenError()
     return _delete_session_guest(guest)
+
+
+def _issue_form_for(guest: Guest) -> str:
+    """이 게스트를 지우는 폼 하나를 발급한다: 1회용 CSRF 토큰 + 삭제 대상 기록.
+
+    둘을 같은 자리에서 심는다 — 토큰만 심고 대상을 안 적으면 "우리가 그려준 폼" 이
+    그릴 때와 다른 계정을 지울 수 있다(제출 시점의 세션 게스트를 따라가므로).
+    """
+    session[DELETE_TARGET_SESSION_KEY] = guest.id
+    return issue_csrf_token()
 
 
 @csrf_protected

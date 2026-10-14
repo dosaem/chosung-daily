@@ -24,7 +24,7 @@
 | `app/models/__init__.py` | 새 모델 export |
 | `migrations/versions/94a83f12fddb_add_apple_revocation_retry_table.py` | 신설. `apple_revocation_retry` 테이블. `down_revision = dae1b5af0cf7`(티켓 06 머지 리비전) |
 | `app/services/account_deletion_service.py` | 신설. `delete_guest_account` — 5개 자식 테이블 + Guest 한 트랜잭션 커밋 → 오늘 리더보드 ZREM(언어별) → 애플 철회 |
-| `app/services/apple_revocation_service.py` | 신설. `revoke_or_schedule_retry`, `retry_pending_revocations`(Beat), `RETRY_MAX_AGE = 7일` |
+| `app/services/apple_revocation_service.py` | 신설. `schedule_revocation`·`complete_scheduled_revocation`(수정 라운드 1 에서 `revoke_or_schedule_retry` 를 쪼갰다 — D-14-3), `retry_pending_revocations`(Beat), `RETRY_MAX_AGE = 7일` |
 | `app/clients/apple.py` | `APPLE_REVOKE_URL` + 외부 호출 래퍼 `revoke_refresh_token` 추가 |
 | `app/services/puzzle_metrics.py` | `remove_from_leaderboard` (ZREM 한 줄) 추가 |
 | `app/api/me.py` | `DELETE /api/v1/me` (Bearer) → 204 |
@@ -241,3 +241,129 @@ $ git status --short
    생기는 상태지만, 옛 행이 있다면 애플 쪽 연결이 남는다 —
    `::test_apple_account_without_a_stored_client_cannot_be_revoked` 가 그 동작을
    고정하고 로그에 경고를 남긴다.
+
+## 수정 라운드 1
+
+최종 리뷰(`review/impl-review-14.md` 라운드 1, 판정 FAIL)의 MAJOR 3건을 고쳤다.
+BLOCKER·MINOR 는 없었다. 각 결함을 **리뷰에 적힌 재현 방법 그대로 먼저 재현하고,
+그 재현을 실패하는 테스트로 고정한 뒤** 고쳤다. 테스트 자원은 라운드 1 과 같다
+(`TEST_DATABASE_URL` = `chosung_daily_test_t14`, `TEST_REDIS_URL` = Redis DB 2).
+
+### D-14-1 — 임의 `?deleted` 링크로 살아 있는 게스트의 토큰·기록이 지워졌다
+
+- **원인**: `discardDeletedAccountState()`(web/static/app.js)가 **쿼리 키의 존재만**
+  보고 `chosung_token` 과 `chosung_history_*` 를 지웠다. 그 신호는 서버 삭제의
+  증거가 아니다 — 외부 사이트가 보낸 `/?deleted=1` 링크로도 붙고, 삭제 POST 의
+  CSRF 방어를 거치지 않는다. 증상(지워짐)이 아니라 "증거 없이 지운다" 가 원인이다.
+- **수정**: 신호를 받으면 **저장된 토큰이 정말 죽었는지 서버에 먼저 확인한다** —
+  `guestTokenIsGone(token)` 이 옛 토큰으로 `GET /api/v1/me/history?days=1` 를 불러
+  401 이면 true, 2xx 면 false, 확인 자체를 못 했으면(오프라인·5xx) null. true 일
+  때만 토큰·보드 기록을 버린다. false 면 주소창의 신호만 지우고 저장소는 그대로
+  두고, null 이면 아무것도 지우지 않고 신호도 남겨 다음 로드에서 다시 확인한다
+  ("모른다" 와 "지워졌다" 를 섞으면 네트워크가 끊겼을 때 멀쩡한 토큰을 버린다).
+  `init()` 이 `await` 로 부른다 — 확인이 끝나기 전에 `ensureToken()` 이 돌면
+  순서가 뒤집힌다.
+- **재현·증명**: 리뷰와 같은 방식(실제 `web/static/app.js` 를 Node `vm` 에서 실행,
+  대역은 localStorage·DOM·fetch·location 뿐)을 테스트 자원으로 만들었다 —
+  `tests/fixtures/js/deleted_state_harness.mjs` + `tests/test_web.py` 3개.
+  수정 전 실행(살아 있는 토큰 시나리오)에서 재현됐다:
+
+```
+tests/test_web.py::test_deleted_signal_in_a_link_cannot_discard_a_living_guests_token
+>       assert out["originalTokenRetained"] is True
+E       assert False is True
+tests/test_web.py::test_deleted_signal_keeps_the_token_when_the_check_cannot_reach_the_server
+>       assert out["originalTokenRetained"] is True
+E       assert False is True
+2 failed, 1 passed
+```
+
+  수정 후:
+
+```
+$ uv run pytest tests/test_web.py -k deleted_signal -v
+tests/test_web.py::test_deleted_signal_discards_the_token_only_after_the_server_confirms_deletion PASSED
+tests/test_web.py::test_deleted_signal_in_a_link_cannot_discard_a_living_guests_token PASSED
+tests/test_web.py::test_deleted_signal_keeps_the_token_when_the_check_cannot_reach_the_server PASSED
+3 passed, 4 deselected in 0.18s
+```
+
+- 리뷰가 지적한 "기존 검증의 빈틈"(번들 문자열만 보는 `tests/test_web.py`)을 이
+  하네스가 메꾼다: 이제 그 분기의 **동작** 이 테스트 대상이다. Node 가 없는
+  환경에서는 세 테스트가 `skip` 된다(레포는 런타임에 Node 를 쓰지 않는다).
+
+### D-14-2 — 폼을 그린 뒤 계정을 전환하면 전환 **후** 게스트가 지워졌다
+
+- **원인**: 확인 폼이 "누구를 지우는 폼인가" 를 들고 있지 않았다. CSRF 토큰은
+  "이 폼을 우리가 그려줬다" 만 증명하고 세션 전환 뒤에도 유효한데, POST 가
+  삭제 대상을 **제출 시점의** `current_guest_id` 로 다시 조회해서 대상이 바뀌었다.
+- **수정**: 폼을 그릴 때 CSRF 토큰과 **삭제 대상 게스트 id** 를 같은 자리에서
+  심고(`_issue_form_for`, 세션 키 `delete_target_guest_id`), POST 는 세션 게스트가
+  그 대상과 같을 때만 지운다. 다르면 `403 FORBIDDEN` — 화면을 다시 받아야 한다.
+  순서는 그대로 세션(401) → 대상 일치(403) → CSRF(403) 다.
+- **재현·증명**: `tests/test_account_delete_page.py` 2개. 수정 전:
+
+```
+tests/test_account_delete_page.py::test_a_form_rendered_for_another_guest_is_refused_after_a_session_switch
+>       assert res.status_code == 403
+E       assert 302 == 403
+E        +  where 302 = <WrapperTestResponse streamed [302 FOUND]>.status_code
+```
+
+  수정 후(전환 뒤 화면을 다시 받으면 정상 삭제되는 것까지 같이 고정):
+
+```
+$ uv run pytest tests/test_account_delete_page.py -k switch -v
+...::test_a_form_rendered_for_another_guest_is_refused_after_a_session_switch PASSED
+...::test_the_switched_guest_can_delete_itself_from_a_freshly_rendered_form PASSED
+2 passed, 22 deselected in 3.45s
+```
+
+### D-14-3 — 삭제 커밋과 철회 의무 저장이 분리돼 자격증명이 유실될 수 있었다
+
+- **원인**: 순서가 "삭제 커밋 → 애플 호출 → (실패하면) 재시도 행 INSERT + 커밋"
+  이었다. 그 사이에서 DB·프로세스가 죽으면 계정만 지워지고 유일한 철회 자격증명
+  (암호문 refresh token + 발급 client)이 사라진다 — 게스트 행이 없어 아무도 다시
+  만들어낼 수 없고, 같은 Bearer 의 재요청도 401 이다.
+- **수정**: 철회 **의무를 삭제와 같은 커밋**에 넣었다. `revoke_or_schedule_retry`
+  를 둘로 쪼갰다: `schedule_revocation()` 은 `AppleRevocationRetry` 행을 세션에
+  더하고 **커밋하지 않으며**(삭제 트랜잭션이 같이 커밋한다),
+  `complete_scheduled_revocation()` 은 커밋 뒤에 애플 호출을 한 번 하고 성공하면
+  그 행을 지운다. 실패하면 행이 남아 Beat 가 매일 재시도한다(기존 동작 그대로).
+  남는 대가는 Beat 가 "방금 삭제돼 아직 철회 중인" 행을 집어 올 수 있다는 것뿐이고,
+  같은 토큰에 철회가 두 번 가도 애플 쪽 결과는 같다(코드 주석·README §14 4항).
+- **재현·증명**: `tests/test_apple_revocation.py` 2개. 리뷰의 재현(커밋 두 번째
+  호출을 `OperationalError` 로 막기)을 그대로 쓴 쪽과, 커밋 직후 프로세스가 죽는
+  쪽(`_revoke` 가 예외) 둘 다 고정했다. 수정 전 둘 다 실패했고(전자는
+  `revoke_or_schedule_retry` 의 `db.session.commit()` 에서 터지고 재시도 행이
+  남지 않았다), 수정 후:
+
+```
+$ uv run pytest tests/test_apple_revocation.py -k "duty or outage" -v
+...::test_the_revocation_duty_is_committed_together_with_the_deletion PASSED
+...::test_a_failed_revoke_survives_a_db_outage_after_the_deletion_commit PASSED
+2 passed, 16 deselected in 3.64s
+```
+
+- 기존 경계 동작은 그대로다: `provider_client_id` 가 없으면 행을 만들지 않고
+  (`::test_apple_account_without_a_stored_client_cannot_be_revoked`), 복호화 실패는
+  행을 남긴다(`::test_a_token_that_cannot_be_decrypted_does_not_break_deletion`).
+
+### 틀렸다고 판단해 고치지 않은 지적
+
+없다. MAJOR 3건 모두 재현됐다. 리뷰 "참고" 의 두 항목은 아래처럼 처리했다.
+
+- `docs/RELEASE.md` §14 수동 체크리스트의 "삭제 전 … 옛 토큰 … 401" 문구가
+  헷갈린다는 지적(결함 아님)은 한 줄로 고쳤다: "삭제 **뒤** … 401, 삭제 전에는
+  200". 같은 체크리스트에 D-14-1·D-14-2 의 수동 확인 두 줄을 추가했다.
+- Redis ZREM 이 DB 트랜잭션 밖이라는 지적은 설계대로다(README §14 2항, 위 §6-4).
+  이번 라운드에서 바꾸지 않았다.
+
+### 안 한 것 (이 라운드)
+
+- 브라우저 클릭 E2E 와 실제 애플 철회 수락은 여전히 사람 몫이다
+  (`docs/RELEASE.md` §14). D-14-1 은 이제 실제 `app.js` 를 실행해 검증하지만,
+  브라우저 엔진이 아니라 Node `vm` 이다.
+- `impeccable detect` 는 다시 돌리지 않았다 — 이 라운드에서 템플릿·CSS 를 한
+  글자도 바꾸지 않았다(변경 파일: `app/web.py`, `app/services/*`,
+  `web/static/app.js`, 테스트·문서).

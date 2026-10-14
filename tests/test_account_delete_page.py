@@ -266,3 +266,37 @@ def test_replaying_the_form_cannot_delete_a_second_time(logged_in_client):
 
     client.set_cookie("session", original_cookie)
     assert client.post(PATH, data={CSRF_FORM_FIELD: token}).status_code == 401
+
+
+def test_a_form_rendered_for_another_guest_is_refused_after_a_session_switch(client, web_login):
+    """D-14-2: 확인 폼은 **그릴 때 본 게스트** 만 지운다.
+
+    한 탭에 A 의 삭제 확인 화면을 띄워 둔 채 다른 탭에서 백업 코드를 복원하거나
+    계정을 전환하면(= 세션이 B 를 가리킨다) 옛 탭의 버튼은 B 를 지우게 된다.
+    CSRF 토큰은 "이 폼을 우리가 그려줬다" 만 증명하고 "누구를 지우는 폼인가" 는
+    증명하지 않기 때문이다. 그래서 둘 다 요구한다.
+    """
+    first_id = web_login().id
+    token = _form_token(_html(client))
+
+    second_id = web_login().id  # 같은 브라우저가 다른 게스트로 전환
+
+    res = client.post(PATH, data={CSRF_FORM_FIELD: token})
+
+    assert res.status_code == 403
+    assert res.get_json()["code"] == "FORBIDDEN"
+    assert db.session.get(Guest, first_id) is not None
+    assert db.session.get(Guest, second_id) is not None
+
+
+def test_the_switched_guest_can_delete_itself_from_a_freshly_rendered_form(client, web_login):
+    """전환 뒤 화면을 다시 받으면 그 게스트는 정상적으로 지워진다(위 거부가 막는
+    건 "옛 폼" 뿐이다)."""
+    web_login()
+    _html(client)
+
+    switched_id = web_login().id
+    token = _form_token(_html(client))
+
+    assert client.post(PATH, data={CSRF_FORM_FIELD: token}).status_code == 302
+    assert db.session.get(Guest, switched_id) is None

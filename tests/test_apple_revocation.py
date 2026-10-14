@@ -14,6 +14,7 @@ from datetime import timedelta
 import jwt
 import pytest
 import requests
+from sqlalchemy.exc import OperationalError
 
 from app.clients import apple
 from app.extensions import db
@@ -300,3 +301,55 @@ def test_nothing_pending_means_no_apple_call(app, apple_post):
 
     assert (outcome.revoked, outcome.discarded, outcome.pending) == (0, 0, 0)
     assert apple_post.calls == []
+
+
+# --- 철회 의무의 영속성(D-14-3) ---------------------------------------------
+#
+# 삭제 커밋과 "철회해야 한다" 의 기록이 **같은 커밋** 이 아니면, 그 사이에 프로세스나
+# DB 가 죽은 요청은 계정만 지우고 철회 자격증명(refresh token, 발급 client)을 영구히
+# 버린다 — 게스트 행이 없어서 다시 찾을 수도, 플레이어가 다시 요청할 수도 없다.
+
+
+def test_the_revocation_duty_is_committed_together_with_the_deletion(app, monkeypatch, apple_post):
+    """철회를 시도하다 프로세스가 터져도 재시도 행은 이미 DB 에 있다."""
+    guest = _apple_guest(app, app.config["APPLE_APP_BUNDLE_ID"])
+    guest_id = guest.id
+
+    def exploding_revoke(*_args, **_kwargs):
+        raise RuntimeError("프로세스가 여기서 죽었다")
+
+    monkeypatch.setattr(apple_revocation_service, "_revoke", exploding_revoke)
+
+    with pytest.raises(RuntimeError):
+        delete_guest_account(guest)
+    db.session.rollback()  # 요청 종료의 teardown 과 같은 자리
+
+    assert db.session.get(Guest, guest_id) is None
+    assert apple_post.calls == []
+    assert AppleRevocationRetry.query.count() == 1
+
+
+def test_a_failed_revoke_survives_a_db_outage_after_the_deletion_commit(
+    app, monkeypatch, failing_apple_post
+):
+    """삭제가 커밋된 뒤의 모든 커밋이 DB 장애로 막혀도 철회 의무는 남는다."""
+    guest = _apple_guest(app, app.config["APPLE_APP_BUNDLE_ID"])
+    guest_id = guest.id
+
+    real_commit = db.session.commit
+    commits = []
+
+    def flaky_commit():
+        commits.append(1)
+        if len(commits) == 1:
+            return real_commit()
+        raise OperationalError("COMMIT", {}, Exception("db down"))
+
+    monkeypatch.setattr(db.session, "commit", flaky_commit)
+
+    delete_guest_account(guest)  # 철회 실패는 삭제를 막지 않는다(스펙 §A.7)
+
+    monkeypatch.undo()
+    db.session.rollback()
+    assert db.session.get(Guest, guest_id) is None
+    assert AppleRevocationRetry.query.count() == 1

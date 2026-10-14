@@ -14,7 +14,10 @@ from app.models import (
     Subscription,
 )
 from app.repositories.account_repository import find_by_guest
-from app.services.apple_revocation_service import revoke_or_schedule_retry
+from app.services.apple_revocation_service import (
+    complete_scheduled_revocation,
+    schedule_revocation,
+)
 from app.services.puzzle_metrics import remove_from_leaderboard
 
 # 지우는 테이블. 자식(게스트를 참조하는 행)이 먼저, 마지막이 Guest 다 — 순서를
@@ -41,18 +44,29 @@ def delete_guest_account(guest: Guest) -> None:
     된다. 반대로 커밋 뒤에 하면 Redis·애플 장애는 플레이어의 삭제를 막지 못한다 —
     "지워졌다" 는 약속을 DB 가 지키고, 나머지는 복구 경로가 따로 있는 정리 작업이다
     (리더보드는 그날 키뿐, 철회는 `AppleRevocationRetry` 가 다시 시도한다).
+
+    그래서 애플 철회 **의무** 는 삭제와 같은 커밋에 들어간다(`schedule_revocation`).
+    애플 호출이 실패한 뒤에 그 행을 저장하면, 커밋과 저장 사이에서 DB·프로세스가
+    죽은 요청이 계정만 지우고 철회 자격증명을 영구히 버린다 — 게스트 행이 없어서
+    아무도 다시 만들어낼 수 없는 유실이다. 커밋 뒤의 호출이 성공하면 그 행을 지운다
+    (즉 커밋 둘: 삭제 하나, 의무 해제 하나).
     """
     apple_connection = _apple_connection(guest)
     guest_id = guest.id
 
+    revocation = (
+        schedule_revocation(apple_connection.refresh_token_enc, apple_connection.client_id)
+        if apple_connection is not None
+        else None
+    )
     for model in _GUEST_OWNED_MODELS:
         db.session.query(model).filter_by(guest_id=guest_id).delete(synchronize_session=False)
     db.session.query(Guest).filter_by(id=guest_id).delete(synchronize_session=False)
     db.session.commit()
 
     _remove_from_todays_leaderboards(guest_id)
-    if apple_connection is not None:
-        revoke_or_schedule_retry(apple_connection.refresh_token_enc, apple_connection.client_id)
+    if revocation is not None:
+        complete_scheduled_revocation(revocation)
 
 
 def _apple_connection(guest: Guest) -> _AppleConnection | None:
