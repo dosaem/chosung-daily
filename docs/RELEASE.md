@@ -428,3 +428,136 @@ analyze`·`flutter test`·디버그 실행 모두). 아래는 실기기·배포�
       넣고 재기동한다(값은 이 문서에 적지 않는다 — 이름만 둔다).
 - [ ] 책 검색으로 넣은 en `book_title` 단어가 일요일 라운드에 실제로 뽑히는지
       (`flask schedule-puzzles --language en`) 한 번 확인한다.
+### 34. 앱 배포 (`.github/workflows/flutter.yml` + 서명)
+
+`develop` 푸시는 Android APK 를 **Firebase App Distribution**, iOS 를 **TestFlight** 로
+보내고, `main` 푸시는 Android AAB 를 **Play internal 트랙**, iOS 를 **TestFlight** 로
+보낸다. App Store·Play 프로덕션 승격은 콘솔 버튼(사람)이다. 분석·테스트는
+`flutter-ci.yml`(ubuntu-latest)이 그대로 맡고, 이 워크플로는 서명·업로드만 한다 —
+러너가 사용자 맥 한 대(`self-hosted`)라서 PR 마다 그 맥을 묶지 않으려고 나눴다.
+구조는 BASELINE(`~/Code/Habitopia` 의 하위 디렉터리 레포 변형 + BuildUrPalace 의
+AAB 검증)을 복사해 식별자만 바꿨다.
+
+| | develop 푸시 | main 푸시 |
+|---|---|---|
+| Android 산출물 | APK (`flutter build apk --release`) | AAB (`flutter build appbundle --release`) |
+| Android 대상 | Firebase App Distribution, 그룹 `testers` | Play **internal** 트랙 (`com.dosaem.chosung`) |
+| iOS 대상 | TestFlight (`xcrun altool`) | TestFlight |
+| 서버 주소 | `API_BASE_URL_DEV` (develop 인스턴스, 8090) | `API_BASE_URL_PROD` |
+
+`workflow_dispatch` 로 손으로 돌릴 수도 있고, `platform` 입력으로 한쪽 플랫폼만
+고를 수 있다. 사람이 맥에서 직접 올릴 때는 fastlane lane 을 쓴다 —
+`mobile/android/fastlane`(`beta`=internal 초안, `release`=production 초안),
+`mobile/ios/fastlane`(`beta`=TestFlight, `release`=App Store). 메타데이터·스크린샷
+(`fastlane/metadata/`)은 티켓 35 가 넣는다.
+
+#### GitHub Actions secrets
+
+레포 → Settings → Secrets and variables → **Secrets**. 값은 레포·로그·문서에
+남기지 않는다(이름만 둔다).
+
+| 이름 | 쓰는 곳 | 값 |
+|---|---|---|
+| `KEYSTORE_BASE64` | Android 서명 | 업로드 keystore(`.jks`)를 `base64` 로 인코딩한 전문. 없으면 워크플로가 빌드 전에 멈춘다(디버그 키로 서명된 APK 가 스토어로 가는 걸 막는다). |
+| `KEYSTORE_PASSWORD` | Android 서명 | keystore 비밀번호 |
+| `KEY_ALIAS` | Android 서명 | 키 별칭(예 `upload`) |
+| `KEY_PASSWORD` | Android 서명 | 키 비밀번호 |
+| `GOOGLE_PLAY_KEY_JSON` | Play 업로드 | Play Console 서비스 계정 JSON **전문**. "앱 출시 관리" 권한 필요. |
+| `FIREBASE_APP_ID` | App Distribution | Firebase 콘솔 Android 앱의 App ID (`1:...:android:...`) |
+| `FIREBASE_SERVICE_ACCOUNT` | App Distribution | Firebase 서비스 계정 JSON 전문(`firebaseappdistro.admin`) |
+| `GOOGLE_SERVICES_JSON_BASE64` | Android 빌드 | `google-services.json`(D0)을 base64 로. **없으면 경고만 내고 Firebase 없이 빌드한다**(Gradle 플러그인·런타임 초기화 모두 건너뛰는 경로). |
+| `GOOGLE_SERVICE_INFO_PLIST_BASE64` | iOS 빌드 | `GoogleService-Info.plist`(D0)을 base64 로. Runner 타깃에 파일을 추가하는 것은 사람(위 "22.")이고, 추가한 뒤에는 파일이 없으면 Xcode 빌드가 죽으므로 CI 는 이 secret 으로 파일을 만든다. |
+| `APP_STORE_CONNECT_API_KEY` | match·altool | ASC API 키 JSON(`key_id`/`issuer_id`/`key`). `key` 는 `.p8` 전문. |
+| `MATCH_PASSWORD` | fastlane match | match 저장소 암호화 비밀번호 |
+| `MATCH_GIT_BASIC_AUTHORIZATION` | fastlane match | `match-certs` 레포를 읽을 PAT 를 `user:token` 으로 base64 인코딩한 값 |
+| `FLUTTER_SENTRY_DSN` | 빌드 | 앱용 Sentry DSN(`--dart-define=SENTRY_DSN`). 비워 두면 앱이 Sentry 를 초기화하지 않는다. |
+
+인증서·프로파일 저장소는 **`github.com/dosaem/match-certs`**(`mobile/ios/fastlane/Matchfile`)
+이고, CI 는 `fastlane match appstore --readonly` 로만 읽는다 — 인증서를 새로 만드는
+것(`match appstore` 쓰기)은 사람이 로컬에서 한 번 한다. App Distribution 테스터
+그룹 이름은 `testers` 로 고정이라 Firebase 콘솔에 **같은 이름의 그룹**이 있어야 한다.
+
+#### GitHub Actions variables
+
+같은 화면의 **Variables** 탭. 앱 바이너리에 그대로 들어가는 공개 식별자라 secret
+으로 두지 않는다(마스킹해도 APK 를 뜯으면 보인다). 서버 주소가 비어 있으면 빌드가
+멈춘다 — 빈 주소로 빌드된 앱은 테스터 손에서만 깨지기 때문이다.
+
+| 이름 | 값 |
+|---|---|
+| `API_BASE_URL_PROD` | prod 서버의 API 루트 — `https://chosung.dosaem.com/api/v1` |
+| `API_BASE_URL_DEV` | develop 인스턴스(8090)의 API 루트. NAS DNS·터널 작업(D3) 뒤에 정해지므로 워크플로에 하드코딩하지 않았다. |
+| `GOOGLE_SERVER_CLIENT_ID` | GCP **웹** 클라이언트 ID(`serverClientId`, D0). Android `google_sign_in` 과 `POST /auth/token-exchange` 가 같은 값을 본다. |
+| `ADMOB_BANNER_AD_UNIT_ID_ANDROID` | AdMob Android 앱의 배너 유닛 ID |
+| `ADMOB_INTERSTITIAL_AD_UNIT_ID_ANDROID` | 〃 전면 유닛 ID |
+| `ADMOB_REWARDED_AD_UNIT_ID_ANDROID` | 〃 보상형 유닛 ID |
+| `ADMOB_BANNER_AD_UNIT_ID_IOS` | AdMob iOS 앱의 배너 유닛 ID |
+| `ADMOB_INTERSTITIAL_AD_UNIT_ID_IOS` | 〃 전면 유닛 ID |
+| `ADMOB_REWARDED_AD_UNIT_ID_IOS` | 〃 보상형 유닛 ID |
+
+#### 빌드에 넘어가는 `--dart-define`
+
+워크플로가 잡별로 `DART_DEFINES` 를 만들어 모든 `flutter build` 에 넘긴다. 광고
+유닛은 플랫폼마다 다른 값이지만 **앱이 읽는 이름은 한 벌**이라, 자기 플랫폼 변수만
+그 이름으로 넘긴다(Dart 코드에 플랫폼 분기가 생기지 않는다). 광고·로그인 티켓
+(31·29)은 아래 이름을 그대로 읽는다.
+
+| dart-define | 출처 | 읽는 곳 |
+|---|---|---|
+| `API_BASE_URL` | 브랜치별 variable | `mobile/lib/config/app_env.dart` |
+| `SENTRY_DSN` | secret | `mobile/lib/config/app_env.dart` |
+| `GOOGLE_SERVER_CLIENT_ID` | variable | 티켓 29 (계정 연결) |
+| `ADMOB_BANNER_AD_UNIT_ID` | 플랫폼별 variable | 티켓 31 (광고) |
+| `ADMOB_INTERSTITIAL_AD_UNIT_ID` | 플랫폼별 variable | 티켓 31 |
+| `ADMOB_REWARDED_AD_UNIT_ID` | 플랫폼별 variable | 티켓 31 |
+
+손으로 fastlane lane 을 돌릴 때는 Actions 가 넘기던 값을 **환경변수로 직접** 줘야
+한다 — 이름은 위 표의 dart-define 과 같다. 하나라도 비어 있으면 lane 이 빌드 전에
+멈춘다(빈 주소·빈 광고 ID 로 빌드된 바이너리가 스토어로 가는 걸 막는다). 광고 유닛은
+**올리려는 플랫폼의 값**을 그 이름으로 넣는다(위 variables 표의 `..._ANDROID` /
+`..._IOS` 중 하나). `SENTRY_DSN` 만 비워 둘 수 있다.
+
+```sh
+cd mobile/android   # iOS 는 mobile/ios
+API_BASE_URL=https://chosung.dosaem.com/api/v1 \
+GOOGLE_SERVER_CLIENT_ID=... \
+ADMOB_BANNER_AD_UNIT_ID=... \
+ADMOB_INTERSTITIAL_AD_UNIT_ID=... \
+ADMOB_REWARDED_AD_UNIT_ID=... \
+  fastlane beta
+```
+
+Android lane 은 빌드 전에 이전 `app-release.aab` 를 지우고, 빌드 뒤 새 AAB 를
+`mobile/tool/verify_appbundle.py` 로 검사한다(온전한 zip + 배포 lib 스트립 확인).
+`flutter build appbundle` 이 스트립 오탐으로 exit 1 을 줘도 넘기기 때문에, 그 검사가
+없으면 진짜 빌드 실패 뒤 **지난 빌드의 AAB** 가 스토어로 올라간다. 검사는 `python3`
+를 쓴다. Actions 의 AAB 스텝도 같은 스크립트를 쓴다.
+
+#### D2. 앱 배포 — 사람이 해야 하는 일
+
+코드로 할 수 없는 부분이다. 이 티켓의 워커가 확인한 것은 **D0·D2 산출물이 없는
+상태에서 `flutter build apk --debug` 가 되는 것**까지다(Firebase 스킵 경로,
+`review/impl-evidence-34.md`). 아래가 끝나기 전에는 `--release`·`build ipa` 와
+실제 업로드가 돌지 않는다.
+
+- [ ] **업로드 keystore 생성**(사람, 로컬): `keytool -genkey -v -keystore
+      upload-keystore.jks -keyalg RSA -keysize 2048 -validity 10000 -alias upload`.
+      `.jks` 와 비밀번호는 레포에 넣지 않고 위 4개 secret 으로만 올린다.
+      잃어버리면 Play 업로드 키 재설정(구글 문의)이 필요하다.
+- [ ] Firebase 콘솔에서 Android·iOS 앱 등록 후 설정 파일 2개를 base64 로 secret 에
+      등록(위 "22." 의 로컬 파일과 같은 내용). App Distribution 에 **`testers`**
+      그룹을 만들고 본인 계정을 넣는다.
+- [ ] Play Console 에 앱 생성 + 서비스 계정 초대. **첫 AAB 는 콘솔에 손으로 한 번
+      올려야** API 업로드가 열린다(패키지가 등록되기 전에는 API 가 404 를 준다).
+- [ ] App Store Connect 앱 생성(번들 ID `com.dosaem.chosung`), ASC API 키 발급,
+      `match-certs` 레포 접근 권한 확인 후 로컬에서 `fastlane match appstore` 로
+      인증서·프로파일을 **한 번 생성**(CI 는 `--readonly`).
+- [ ] 이 레포에 self-hosted 러너 등록(`Settings → Actions → Runners`). 러너 맥에
+      Xcode·CocoaPods·fastlane·`jq`·`python3`·Node(npx)가 있어야 한다.
+- [ ] 위 secrets·variables 등록 후 **`develop` 에 먼저 푸시**해서 App Distribution·
+      TestFlight 경로를 리허설한다(`main` 이 아니라 develop 으로 먼저).
+- [ ] TestFlight·Play internal 에 본인을 테스터로 추가. 스토어 제출·출시 버튼은
+      스크린샷·메타데이터(티켓 35)와 앱 콘텐츠 설문(D3) 뒤에.
+- [ ] 버전은 `mobile/pubspec.yaml` 의 `version:` 하나에서 온다(`1.0.0+1`). 같은
+      빌드 번호를 두 번 올리면 TestFlight·Play 가 거부하므로 올릴 때마다 `+N` 을
+      올린다(자동 증가는 넣지 않았다 — 레포의 값과 스토어의 값이 갈라지지 않게).

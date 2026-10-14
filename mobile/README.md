@@ -31,6 +31,18 @@ flutter test
 
 CI 는 `.github/workflows/flutter-ci.yml`(ubuntu-latest, `mobile/` 작업 디렉터리).
 
+## 배포
+
+`develop` 푸시는 APK 를 Firebase App Distribution, `main` 푸시는 AAB 를 Play
+internal 트랙으로 보내고 iOS 는 두 브랜치 모두 TestFlight 로 간다
+(`.github/workflows/flutter.yml`, 러너는 `self-hosted`). 서명 키·스토어 키는
+GitHub secrets, 서버 주소·광고 유닛 ID 는 GitHub variables 로 넣는다 — 이름과
+사람이 해야 하는 준비는 [`docs/RELEASE.md`](../docs/RELEASE.md) "34.".
+
+`android/key.properties` 가 없으면 release 빌드도 디버그 키로 서명하므로
+(`android/app/build.gradle.kts`), keystore 없이도 `flutter build apk --release`
+까지 로컬에서 돌려볼 수 있다. 예시는 `android/key.properties.example`.
+
 ## 구조
 
 ```

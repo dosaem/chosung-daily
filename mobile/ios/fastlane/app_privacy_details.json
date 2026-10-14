@@ -1,0 +1,56 @@
+[
+  {
+    "_comment": "게스트 토큰 — 기록의 주인(/privacy 1절). 한 사람의 기록으로 이어진다.",
+    "category": "USER_ID",
+    "purposes": ["APP_FUNCTIONALITY"],
+    "data_protections": ["DATA_LINKED_TO_YOU"]
+  },
+  {
+    "_comment": "계정 이메일 — 구글·애플 연결 시에만 받는다.",
+    "category": "EMAIL_ADDRESS",
+    "purposes": ["APP_FUNCTIONALITY"],
+    "data_protections": ["DATA_LINKED_TO_YOU"]
+  },
+  {
+    "_comment": "시도 기록 — 제출 단어·정답 여부·연속 기록. 순위·통계에 쓴다.",
+    "category": "GAMEPLAY_CONTENT",
+    "purposes": ["APP_FUNCTIONALITY"],
+    "data_protections": ["DATA_LINKED_TO_YOU"]
+  },
+  {
+    "_comment": "구독 식별자 — 스토어 구매 토큰·만료 시각(광고 제거 구독 상태 판정).",
+    "category": "PURCHASE_HISTORY",
+    "purposes": ["APP_FUNCTIONALITY"],
+    "data_protections": ["DATA_LINKED_TO_YOU"]
+  },
+  {
+    "_comment": "광고 ID(IDFA) — AdMob SDK 가 광고 요청에 쓴다. 서버에 저장하지 않는다. ATT 프롬프트를 띄우므로 추적으로 신고한다.",
+    "category": "DEVICE_ID",
+    "purposes": ["THIRD_PARTY_ADVERTISING"],
+    "data_protections": ["DATA_NOT_LINKED_TO_YOU", "DATA_USED_TO_TRACK_YOU"]
+  },
+  {
+    "_comment": "광고 상호작용(노출·클릭) — AdMob 측정.",
+    "category": "ADVERTISING_DATA",
+    "purposes": ["THIRD_PARTY_ADVERTISING"],
+    "data_protections": ["DATA_NOT_LINKED_TO_YOU", "DATA_USED_TO_TRACK_YOU"]
+  },
+  {
+    "_comment": "앱 사용 이벤트 — Firebase Analytics 의 퍼즐 완료·공유·구독 화면 조회 등 집계용.",
+    "category": "PRODUCT_INTERACTION",
+    "purposes": ["ANALYTICS", "APP_FUNCTIONALITY"],
+    "data_protections": ["DATA_NOT_LINKED_TO_YOU"]
+  },
+  {
+    "_comment": "오류 기록 — Sentry. 식별 정보는 마스킹해서 보낸다(/privacy 1절).",
+    "category": "CRASH_DATA",
+    "purposes": ["APP_FUNCTIONALITY"],
+    "data_protections": ["DATA_NOT_LINKED_TO_YOU"]
+  },
+  {
+    "_comment": "성능 기록 — Sentry 의 느린 요청·지연 정보.",
+    "category": "PERFORMANCE_DATA",
+    "purposes": ["APP_FUNCTIONALITY"],
+    "data_protections": ["DATA_NOT_LINKED_TO_YOU"]
+  }
+]

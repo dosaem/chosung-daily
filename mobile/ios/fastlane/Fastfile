@@ -1,0 +1,100 @@
+# 사람이 맥에서 손으로 올릴 때 쓰는 lane 들. 자동 배포(develop·main 푸시)는
+# .github/workflows/flutter.yml 이 match + xcrun altool 로 한다.
+default_platform(:ios)
+
+require "shellwords"
+
+# 수동 lane 도 Actions 와 같은 값으로 빌드해야 한다 — 하나라도 빠지면 앱이
+# 에뮬레이터 기본 주소(`mobile/lib/config/app_env.dart`)로 서버를 찾고, 광고·
+# 로그인은 빈 ID 로 나간다. 값은 환경변수로 받는다(docs/RELEASE.md "34.").
+REQUIRED_DEFINES = %w[
+  API_BASE_URL
+  GOOGLE_SERVER_CLIENT_ID
+  ADMOB_BANNER_AD_UNIT_ID
+  ADMOB_INTERSTITIAL_AD_UNIT_ID
+  ADMOB_REWARDED_AD_UNIT_ID
+].freeze
+
+# 비어 있어도 되는 것(워크플로도 빈 값을 넘긴다 — 앱이 Sentry 를 초기화하지 않는다).
+OPTIONAL_DEFINES = %w[SENTRY_DSN].freeze
+
+def dart_defines
+  missing = REQUIRED_DEFINES.reject { |name| ENV[name].to_s.strip != "" }
+  unless missing.empty?
+    UI.user_error!(
+      "환경변수 #{missing.join(', ')} 가 비어 있다 — 잘못 설정된 바이너리가 " \
+      "스토어로 가지 않게 빌드 전에 멈춘다 (docs/RELEASE.md \"34.\")"
+    )
+  end
+
+  names = REQUIRED_DEFINES + OPTIONAL_DEFINES.select { |name| ENV[name].to_s != "" }
+  names.map { |name| "--dart-define=#{name}=#{Shellwords.escape(ENV[name])}" }.join(" ")
+end
+
+APP_IDENTIFIER = "com.dosaem.chosung"
+TEAM_ID = "J8QUD7B666"
+
+# Flutter 루트는 fastlane 기준 한 단계 위(mobile/)다. 서명은 Xcode 쪽에서
+# match 프로파일로 하므로 Flutter 빌드는 --no-codesign 으로 돌린다.
+def build_flutter_ios(clean:)
+  defines = dart_defines
+  Dir.chdir("..") do
+    if clean
+      sh("flutter clean")
+      sh("flutter pub get")
+    end
+    sh("flutter build ios --release --no-codesign #{defines}")
+  end
+end
+
+def archive_ipa
+  sigh(
+    api_key_path: "fastlane/api_key.json",
+    app_identifier: APP_IDENTIFIER,
+    readonly: true
+  )
+
+  build_app(
+    workspace: "Runner.xcworkspace",
+    scheme: "Runner",
+    export_method: "app-store",
+    export_options: {
+      signingStyle: "manual",
+      teamID: TEAM_ID,
+      provisioningProfiles: {
+        APP_IDENTIFIER => "match AppStore #{APP_IDENTIFIER}"
+      }
+    },
+    output_directory: "./build",
+    output_name: "chosung.ipa"
+  )
+end
+
+platform :ios do
+  desc "TestFlight 에 올린다"
+  lane :beta do |options|
+    build_flutter_ios(clean: options[:clean])
+    archive_ipa
+
+    upload_to_testflight(
+      api_key_path: "fastlane/api_key.json",
+      skip_waiting_for_build_processing: true,
+      changelog: options[:changelog] || "Internal test build"
+    )
+  end
+
+  desc "App Store 에 올린다 (심사 제출은 사람)"
+  lane :release do |options|
+    build_flutter_ios(clean: options[:clean])
+    archive_ipa
+
+    # 메타데이터·스크린샷은 fastlane/metadata/ (티켓 35) 에서 올라간다.
+    upload_to_app_store(
+      api_key_path: "fastlane/api_key.json",
+      overwrite_screenshots: true,
+      submit_for_review: false,
+      precheck_include_in_app_purchases: false,
+      force: true
+    )
+  end
+end

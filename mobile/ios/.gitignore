@@ -32,3 +32,8 @@ Runner/GeneratedPluginRegistrant.*
 !default.mode2v3
 !default.pbxuser
 !default.perspectivev3
+
+# App Store Connect API 키(fastlane). 워크플로는 secret 으로 만들고, 손으로 올릴
+# 때만 사람이 이 자리에 둔다 — docs/RELEASE.md "34."
+fastlane/api_key.json
+fastlane/report.xml
