@@ -287,10 +287,12 @@ $ npx impeccable detect .scratch/store-launch/design/archive/v2_softdark_home.ht
 ## 수정 라운드 1 (리뷰 라운드 1 FAIL 대응)
 
 - 대상: `review/impl-review-23.md` "라운드 1" 의 BLOCKER 0 / **MAJOR 1(D-23-1)** / MINOR 0.
-- base: 로컬 `main` **`4d83feb`** (티켓 13 머지 — 리뷰 때의 `7df7809` 에서 올라갔다).
-  이 라운드에서 그 위로 다시 rebase 했다(충돌 1건: `.scratch/store-launch/spec.md`
+- base: 로컬 `main` **`a520223`** (티켓 17 머지). 리뷰 때의 base 는 `7df7809` 였고
+  이 라운드 작업 중에 main 이 티켓 13 머지(`4d83feb`) → 티켓 17 머지(`a520223`) 로 두
+  번 올라가서, 마지막 base 위로 다시 rebase 하고 전체 검증을 다시 돌렸다(§"최종 base
+  재검증"). 충돌은 `4d83feb` rebase 때 1건뿐이었다: `.scratch/store-launch/spec.md`
   "미정 항목" 에 티켓 13 줄과 티켓 23 줄이 같은 자리에 붙어서 생긴 추가·추가 충돌 —
-  두 줄을 모두 남겼다).
+  두 줄을 모두 남겼다. `a520223` rebase 는 충돌 없음.
 - 테스트 자원은 라운드 0 과 같다(DB `chosung_daily_test_t23`, Redis DB 11,
   `TEST_DATABASE_URL`·`TEST_REDIS_URL`). 공용 테스트 DB·Redis 는 건드리지 않았다.
 - 틀렸다고 판단해 고치지 않은 지적: **없다**. D-23-1 은 재현됐고 원인도 리뷰가 지적한
@@ -385,7 +387,7 @@ $ uv run pytest tests/test_concurrency.py tests/test_puzzle_schedule_service.py 
 exit=0
 ```
 
-### 이 라운드의 전체 검증 (base = 로컬 `main` `4d83feb`)
+### 이 라운드의 전체 검증 (base = 로컬 `main` `4d83feb`, 티켓 13 머지)
 
 ```
 $ git rebase main                  # 충돌 1건(spec.md "미정 항목") 해결, 그 외 깨끗
@@ -405,6 +407,33 @@ exit=0
 
 실패·skip·xfail **0**. 라운드 0 의 870 → **937**: main 이 티켓 13 머지로 올라가며
 따라온 테스트(+65)와 이 라운드의 재현 테스트 **+2**.
+
+### 최종 base 재검증 (base = 로컬 `main` `a520223`, 티켓 17 머지)
+
+위 검증 직후 main 이 티켓 17 머지로 또 올라갔다. 그 위로 다시 rebase 하고(충돌 없음)
+전체를 다시 돌렸다 — 보고하는 상태는 이 base 다.
+
+```
+$ git rebase main                  # 충돌 없음
+Successfully rebased and updated refs/heads/dosaem/t23-admin-schedule-stock-toggles-books.
+
+$ git status --short               # 출력 없음 = clean
+$ git diff --check main...HEAD     # 출력 없음, exit=0
+
+$ uv run ruff check .
+All checks passed!
+
+$ FLASK_ENV=testing uv run flask --app wsgi db heads
+d7a1f0ca0a29 (head)
+exit=0        ← 한 줄
+
+$ uv run pytest -q
+996 passed in 686.02s (0:11:26)
+exit=0
+```
+
+937 → **996**(+59)은 티켓 17 이 가져온 테스트다. 이 라운드가 더한 테스트는 그대로 2개
+(`tests/test_concurrency.py`), 실패·skip·xfail **0**.
 
 ### 이 라운드에서 하지 않은 것
 
