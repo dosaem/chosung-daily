@@ -114,6 +114,10 @@ class FakeApiClient implements ApiClient {
   /// "로딩 중(스켈레톤)" 화면을 그 상태로 세워두고 보는 데 쓴다.
   Completer<void>? fetchTodayPuzzleGate;
 
+  /// 같은 방식으로 제출 응답을 붙잡는다 — 제출이 날아간 뒤 응답이 오기 전에
+  /// 재조회가 끼어드는 순서를 테스트가 직접 만들어 보는 데 쓴다.
+  Completer<void>? submitGuessGate;
+
   final List<PuzzleLanguage> createGuestLanguages = [];
   int fetchConfigCalls = 0;
   int fetchMyStatsCalls = 0;
@@ -150,9 +154,12 @@ class FakeApiClient implements ApiClient {
   @override
   Future<TodayPuzzle> fetchTodayPuzzle() async {
     fetchTodayPuzzleCalls++;
+    // 응답은 **호출 시점의** 값이다 — 붙잡아 둔 조회가 그 사이 바뀐 `puzzle` 을
+    // 돌려주면 "늦게 도착한 옛 응답" 을 테스트가 만들 수 없다.
+    final response = puzzle;
     if (fetchTodayPuzzleGate case final gate?) await gate.future;
     if (fetchTodayPuzzleError case final error?) throw error;
-    return puzzle;
+    return response;
   }
 
   @override
@@ -161,6 +168,7 @@ class FakeApiClient implements ApiClient {
     required String guess,
   }) async {
     submittedGuesses.add((puzzleId: puzzleId, guess: guess));
+    if (submitGuessGate case final gate?) await gate.future;
     if (submitGuessError case final error?) throw error;
     return guessResult;
   }

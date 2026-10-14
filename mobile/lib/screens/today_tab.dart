@@ -39,6 +39,11 @@ class _TodayTabState extends ConsumerState<TodayTab> {
     super.dispose();
   }
 
+  /// 보드 위의 인라인 재시도(오프라인 배너·재조회 실패 안내). 오류 카드의
+  /// [TodayPuzzleNotifier.retry] 와 달리 스켈레톤으로 돌아가지 않는다 —
+  /// 멀쩡한 보드를 깜빡이게 하지 않으려고.
+  void _retry() => unawaited(ref.read(todayPuzzleProvider.notifier).refresh());
+
   Future<void> _submit() async {
     final recorded = await ref
         .read(todayPuzzleProvider.notifier)
@@ -54,20 +59,27 @@ class _TodayTabState extends ConsumerState<TodayTab> {
 
     return SafeArea(
       child: switch (state) {
-        // 재조회가 실패해도(state.error) 앞의 보드는 남는다 — 그 경우 오프라인
-        // 배너만 얹고 보드를 지우지 않는다.
+        // 보드가 있으면 보드를 지우지 않는다. 재조회 실패는 컨트롤러가
+        // `TodayNotice.offline`/`refreshFailed` 로 바꿔 놓으므로 판정은 notice
+        // 하나로 한다 — 두 곳에서 같은 걸 판정하면 한쪽이 틀린다. 남은
+        // `state.error` 는 `||` 로 같이 본다(`??` 면 안내가 있을 때 오프라인을
+        // 건너뛴다).
         AsyncValue(value: final TodayPuzzleReady ready) => _Board(
           ready: ready,
           guess: _guess,
           onSubmit: _submit,
-          offline: ready.notice?.blocksInput ?? _isOffline(state.error),
+          onRetry: _retry,
+          offline:
+              (ready.notice?.blocksInput ?? false) || _isOffline(state.error),
         ),
-        AsyncValue(value: TodayNoPuzzle()) => const _CenteredCard(
-          child: _NoPuzzleCard(),
-        ),
+        // 보드가 없을 때의 오류가 "퍼즐 없음" 보다 먼저다 — 카운트다운 카드에서
+        // 재시도가 실패하면 이전 값이 남아(`copyWithPrevious`) 실패가 안 보인다.
         AsyncValue(hasError: true, :final error) => _CenteredCard(
           offline: _isOffline(error),
           child: const _ErrorCard(),
+        ),
+        AsyncValue(value: TodayNoPuzzle()) => const _CenteredCard(
+          child: _NoPuzzleCard(),
         ),
         _ => const _LoadingSkeleton(),
       },
@@ -83,6 +95,7 @@ class _Board extends StatelessWidget {
     required this.ready,
     required this.guess,
     required this.onSubmit,
+    required this.onRetry,
     required this.offline,
   });
 
@@ -94,6 +107,7 @@ class _Board extends StatelessWidget {
   final TodayPuzzleReady ready;
   final TextEditingController guess;
   final Future<void> Function() onSubmit;
+  final VoidCallback onRetry;
   final bool offline;
 
   @override
@@ -111,8 +125,13 @@ class _Board extends StatelessWidget {
     final notice = ready.notice;
     final input = <Widget>[
       const SizedBox(height: 24),
-      if (notice != null) ...[
-        _NoticeLine(notice: notice),
+      // 오프라인 문구는 상단 배너가 이미 말한다 — 같은 문장을 두 번 쓰지 않고,
+      // 그 경우의 재시도는 배너가 들고 있다.
+      if (notice != null && !notice.blocksInput) ...[
+        _NoticeLine(
+          notice: notice,
+          onRetry: notice.showsRetry ? onRetry : null,
+        ),
         const SizedBox(height: 8),
       ],
       if (puzzle.status.isFinished)
@@ -131,7 +150,7 @@ class _Board extends StatelessWidget {
 
     return Column(
       children: [
-        if (offline) const OfflineBanner(),
+        if (offline) OfflineBanner(onRetry: onRetry),
         Expanded(
           child: isExpanded
               // expanded: 왼쪽 열(보드·입력) + 오른쪽 열(힌트·남은 기회).
@@ -262,11 +281,13 @@ class _DateLine extends StatelessWidget {
   }
 }
 
-/// 보드를 지우지 않고 그 자리에 띄우는 한 줄(409·오프라인·제출 실패).
+/// 보드를 지우지 않고 그 자리에 띄우는 한 줄(409·제출 실패·재조회 실패).
+/// 다시 조회해야 풀리는 안내엔 재시도를 같이 둔다(OVERRIDES §7).
 class _NoticeLine extends StatelessWidget {
-  const _NoticeLine({required this.notice});
+  const _NoticeLine({required this.notice, this.onRetry});
 
   final TodayNotice notice;
+  final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) {
@@ -282,6 +303,8 @@ class _NoticeLine extends StatelessWidget {
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ),
+        if (onRetry case final onRetry?)
+          TextButton(onPressed: onRetry, child: Text('today.retry'.tr())),
       ],
     );
   }

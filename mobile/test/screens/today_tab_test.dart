@@ -32,6 +32,7 @@ Widget _app({
   Brightness brightness = Brightness.light,
   Locale locale = const Locale('ko'),
   double textScale = 1,
+  bool disableAnimations = false,
 }) => ProviderScope(
   retry: noAutoRetry,
   overrides: [
@@ -49,9 +50,10 @@ Widget _app({
         supportedLocales: context.supportedLocales,
         localizationsDelegates: context.localizationDelegates,
         home: MediaQuery(
-          data: MediaQuery.of(
-            context,
-          ).copyWith(textScaler: TextScaler.linear(textScale)),
+          data: MediaQuery.of(context).copyWith(
+            textScaler: TextScaler.linear(textScale),
+            disableAnimations: disableAnimations,
+          ),
           child: const Scaffold(body: TodayTab()),
         ),
       ),
@@ -69,6 +71,7 @@ Future<void> _pumpToday(
   Locale locale = const Locale('ko'),
   Size size = const Size(390, 844),
   double textScale = 1,
+  bool disableAnimations = false,
 }) async {
   setViewSize(tester, size);
   await tester.runAsync(() async {
@@ -79,12 +82,37 @@ Future<void> _pumpToday(
         brightness: brightness,
         locale: locale,
         textScale: textScale,
+        disableAnimations: disableAnimations,
       ),
     );
     await tester.pump();
   });
   await tester.pumpAndSettle();
 }
+
+/// 백그라운드로 내려갔다 돌아오는 실제 순서(hidden 을 건너뛰면 binding 이
+/// 전이를 무효로 본다). 복귀는 `GET /puzzles/today` 재조회를 띄운다.
+Future<void> _resume(WidgetTester tester) async {
+  await tester.runAsync(() async {
+    const [
+      AppLifecycleState.inactive,
+      AppLifecycleState.hidden,
+      AppLifecycleState.paused,
+      AppLifecycleState.hidden,
+      AppLifecycleState.inactive,
+      AppLifecycleState.resumed,
+    ].forEach(tester.binding.handleAppLifecycleStateChanged);
+    await tester.pump();
+  });
+  await tester.pumpAndSettle();
+}
+
+/// 뒤집히는 중인 시도 행. 다 열린 행은 변환을 걷어내므로 보드 안의
+/// `Transform` 은 "지금 뒤집히는 행" 과 같은 뜻이다.
+Finder _flippingRows() => find.descendant(
+  of: find.byType(PuzzleBoard),
+  matching: find.byType(Transform),
+);
 
 Future<void> _tapAndSettle(WidgetTester tester, Finder finder) async {
   await tester.runAsync(() async {
@@ -377,18 +405,7 @@ void main() {
     expect(api.fetchTodayPuzzleCalls, 1);
 
     api.puzzle = fakeTodayPuzzle(attemptsLeft: 2);
-    await tester.runAsync(() async {
-      // 백그라운드로 내려갔다 돌아오는 실제 순서(hidden 을 건너뛰면 binding 이
-      // 전이를 무효로 본다).
-      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
-      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
-      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
-      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
-      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
-      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-      await tester.pump();
-    });
-    await tester.pumpAndSettle();
+    await _resume(tester);
 
     expect(api.fetchTodayPuzzleCalls, 2);
     expect(find.text('남은 기회 2/5'), findsOne);
@@ -424,5 +441,135 @@ void main() {
     expect(find.byType(HintCard), findsOne);
     expect(find.text('서울에 많다'), findsOne);
     expect(find.text('힌트는 3번째 오답 후 열려요'), findsNothing);
+  });
+
+  // 리뷰 r1 D-25-2/D-25-3: 보드가 있는 상태에서 실패했을 때 복구 경로가 있어야
+  // 하고, 앞선 안내가 지금의 오프라인을 가려선 안 된다(US 8, OVERRIDES §7).
+  group('보드가 있을 때의 실패 복구', () {
+    testWidgets('제출이 오프라인으로 실패해도 배너의 재시도로 입력이 다시 열린다', (tester) async {
+      final api = FakeApiClient()
+        ..submitGuessError = const NetworkApiException(
+          code: networkErrorCode,
+          message: 'offline',
+        );
+      await _pumpToday(tester, api: api);
+
+      await tester.enterText(find.byType(TextField), '지하촌역');
+      await tester.pump();
+      await _tapAndSettle(tester, find.widgetWithText(FilledButton, '제출'));
+
+      expect(find.byType(OfflineBanner), findsOne);
+      expect(tester.widget<TextField>(find.byType(TextField)).enabled, isFalse);
+      // 연결이 돌아와도 앱을 내렸다 올릴 필요는 없다 — 보드 위에 재시도가 있다.
+      final retry = find.widgetWithText(TextButton, '다시 시도');
+      expect(retry, findsOne);
+
+      api.submitGuessError = null;
+      await _tapAndSettle(tester, retry);
+
+      expect(find.byType(OfflineBanner), findsNothing);
+      expect(tester.widget<TextField>(find.byType(TextField)).enabled, isTrue);
+      expect(api.fetchTodayPuzzleCalls, 2);
+      expect(find.byType(PuzzleBoard), findsOne);
+    });
+
+    testWidgets('재조회가 서버 오류로 실패하면 보드 위에 안내 + 재시도가 남는다', (tester) async {
+      final api = FakeApiClient();
+      await _pumpToday(tester, api: api);
+
+      api.fetchTodayPuzzleError = const ServerApiException(
+        code: 'INTERNAL_ERROR',
+        message: '서버 오류',
+      );
+      await _resume(tester);
+
+      // 보드는 그대로 있고, 실패를 숨기지 않는다.
+      expect(find.byType(PuzzleBoard), findsOne);
+      expect(find.text('다시 불러오지 못했어요. 다시 시도해주세요'), findsOne);
+      expect(find.widgetWithText(TextButton, '다시 시도'), findsOne);
+      expect(find.byType(OfflineBanner), findsNothing);
+      // 서버 오류는 입력을 잠그지 않는다 — 제출은 다시 보낼 수 있다.
+      expect(tester.widget<TextField>(find.byType(TextField)).enabled, isTrue);
+
+      api.fetchTodayPuzzleError = null;
+      await _tapAndSettle(tester, find.widgetWithText(TextButton, '다시 시도'));
+
+      expect(find.text('다시 불러오지 못했어요. 다시 시도해주세요'), findsNothing);
+      expect(api.fetchTodayPuzzleCalls, 3);
+    });
+
+    // D-25-3: "새 퍼즐이 있어요" 가 떠 있으면 오프라인 판정을 건너뛰었다.
+    testWidgets('앞선 안내가 있어도 재조회가 오프라인이면 배너가 뜨고 입력이 잠긴다', (
+      tester,
+    ) async {
+      final api = FakeApiClient(puzzle: fakeTodayPuzzle(puzzleId: 41))
+        ..submitGuessError = const PuzzleChangedApiException(
+          code: 'PUZZLE_CHANGED',
+          message: '퍼즐이 바뀌었어요.',
+        );
+      await _pumpToday(tester, api: api);
+
+      await tester.enterText(find.byType(TextField), '지하촌역');
+      await tester.pump();
+      api.puzzle = fakeTodayPuzzle(puzzleId: 42);
+      await _tapAndSettle(tester, find.widgetWithText(FilledButton, '제출'));
+      expect(find.text('새 퍼즐이 있어요'), findsOne);
+
+      api.fetchTodayPuzzleError = const NetworkApiException(
+        code: networkErrorCode,
+        message: 'offline',
+      );
+      await _resume(tester);
+
+      expect(find.byType(OfflineBanner), findsOne);
+      expect(tester.widget<TextField>(find.byType(TextField)).enabled, isFalse);
+      expect(
+        tester
+            .widget<FilledButton>(find.widgetWithText(FilledButton, '제출'))
+            .onPressed,
+        isNull,
+      );
+      expect(find.byType(PuzzleBoard), findsOne);
+    });
+  });
+
+  // 리뷰 r1 D-25-4: OVERRIDES §7 의 타일 뒤집기(350ms, 행 단위 stagger 60ms).
+  group('타일 피드백 모션', () {
+    testWidgets('제출한 행은 뒤집히며 들어오고 끝나면 변환이 걷힌다', (tester) async {
+      await _pumpToday(tester, api: FakeApiClient());
+      expect(_flippingRows(), findsNothing, reason: '빈 보드엔 시도 행이 없다');
+
+      await tester.enterText(find.byType(TextField), '지하촌역');
+      await tester.pump();
+      await tester.runAsync(() async {
+        await tester.tap(find.widgetWithText(FilledButton, '제출'));
+        await tester.pump();
+      });
+
+      // 350ms 가 지나기 전엔 아직 뒤집히는 중이다.
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(_flippingRows(), findsWidgets);
+
+      await tester.pumpAndSettle();
+      expect(_flippingRows(), findsNothing);
+      expect(find.text('촌'), findsOne);
+    });
+
+    testWidgets('모션 감소 설정이면 뒤집지 않고 바로 보여준다', (tester) async {
+      final api = FakeApiClient(
+        puzzle: fakeTodayPuzzle(
+          attemptsLeft: 4,
+          attempts: const [
+            PuzzleAttempt(guess: '지하촌역', feedback: [true, false, false, true]),
+          ],
+        ),
+      );
+
+      await _pumpToday(tester, api: api, disableAnimations: true);
+
+      expect(_flippingRows(), findsNothing);
+      expect(find.text('촌'), findsOne);
+      expect(tester.hasRunningAnimations, isFalse);
+    });
   });
 }

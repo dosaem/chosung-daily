@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:math' as math;
+
 import 'package:chosung/api/api_models.dart';
 import 'package:chosung/puzzle/board_layout.dart';
 import 'package:chosung/puzzle/guess_rules.dart';
@@ -33,11 +36,14 @@ class PuzzleBoard extends StatelessWidget {
         ),
         const SizedBox(height: 16),
         for (final (index, attempt) in puzzle.attempts.indexed) ...[
-          _BoardRow(
-            cells: attemptCells(puzzle.mask, attempt),
-            size: size,
-            semanticsLabel: 'today.attempt_row'.tr(
-              namedArgs: {'index': '${index + 1}'},
+          _FlipIn(
+            row: index,
+            child: _BoardRow(
+              cells: attemptCells(puzzle.mask, attempt),
+              size: size,
+              semanticsLabel: 'today.attempt_row'.tr(
+                namedArgs: {'index': '${index + 1}'},
+              ),
             ),
           ),
           const SizedBox(height: tileGap),
@@ -49,6 +55,75 @@ class PuzzleBoard extends StatelessWidget {
       ],
     );
   }
+}
+
+/// 시도 행이 **처음 그려질 때** 타일이 뒤집히며 들어온다(OVERRIDES §7 —
+/// 350ms, 행 단위 stagger 60ms). 상태가 아니라 "행이 새로 붙었다" 에 매달려
+/// 있어서, 보드가 다시 그려져도 이미 있던 행은 다시 뒤집지 않는다.
+class _FlipIn extends StatefulWidget {
+  const _FlipIn({required this.row, required this.child});
+
+  static const _flip = Duration(milliseconds: 350);
+  static const _stagger = Duration(milliseconds: 60);
+
+  /// 몇 번째 시도 행인가 — 행마다 [_stagger] 만큼 늦게 시작한다.
+  final int row;
+  final Widget child;
+
+  @override
+  State<_FlipIn> createState() => _FlipInState();
+}
+
+class _FlipInState extends State<_FlipIn> with SingleTickerProviderStateMixin {
+  late final Duration _delay = _FlipIn._stagger * widget.row;
+  late final AnimationController _controller = AnimationController(
+    duration: _delay + _FlipIn._flip,
+    vsync: this,
+  );
+
+  /// 기다리는 구간을 커브 앞에 끼워 stagger 를 만든다 — `Timer` 를 따로 두면
+  /// 위젯이 먼저 사라졌을 때 취소할 자리를 하나 더 챙겨야 한다.
+  late final Animation<double> _open = CurvedAnimation(
+    parent: _controller,
+    curve: Interval(
+      _delay.inMilliseconds / _controller.duration!.inMilliseconds,
+      1,
+      curve: Curves.easeOut,
+    ),
+  );
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // 모션 감소(iOS "동작 줄이기"·Android 애니메이션 제거)면 즉시 표시한다.
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _controller.value = 1;
+    } else {
+      unawaited(_controller.forward());
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: _open,
+    // 다 열린 행은 변환을 걷어낸다 — 끝난 뒤까지 3D 레이어를 남기지 않는다.
+    builder: (context, child) => _open.value == 1
+        ? child!
+        : Transform(
+            alignment: Alignment.center,
+            transform: Matrix4.identity()
+              ..setEntry(3, 2, 0.001)
+              ..rotateX((1 - _open.value) * math.pi / 2),
+            child: child,
+          ),
+    child: widget.child,
+  );
 }
 
 /// 한 행. 9글자 이상은 가로 스크롤 없이 줄바꿈한다(OVERRIDES §4).

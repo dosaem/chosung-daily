@@ -41,7 +41,12 @@ enum TodayNotice {
   offline('today.offline'),
 
   /// 그 밖의 제출 실패(rate limit·서버 오류). 다시 눌러보면 된다.
-  submitFailed('today.submit_failed')
+  submitFailed('today.submit_failed'),
+
+  /// 보드는 있는데 재조회가 실패했다(서버 오류·시간 초과). 보고 있던 보드를
+  /// 지우지 않고 그 자리에 재시도를 둔다 — 오류를 `AsyncError` 로만 두면
+  /// 이전 값이 같이 남아(`copyWithPrevious`) 화면이 정상처럼 보인다.
+  refreshFailed('today.refresh_failed')
   ;
 
   const TodayNotice(this.messageKey);
@@ -50,4 +55,8 @@ enum TodayNotice {
 
   /// 오프라인은 메시지만 띄우는 게 아니라 입력을 잠근다(SCREENS S1 상태).
   bool get blocksInput => this == offline;
+
+  /// 다시 조회해야 풀리는 상태인가 — 그때만 인라인 재시도를 띄운다(US 8,
+  /// OVERRIDES §7). 409·제출 실패는 제출 버튼이 그대로 살아 있어 필요 없다.
+  bool get showsRetry => this == offline || this == refreshFailed;
 }

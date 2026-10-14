@@ -47,6 +47,7 @@
     "puzzle_changed": "새 퍼즐이 있어요",
     "offline": "오프라인이에요. 연결을 확인해주세요",
     "submit_failed": "제출하지 못했어요. 잠시 후 다시 시도해주세요",
+    "refresh_failed": "다시 불러오지 못했어요. 다시 시도해주세요",
     "error_title": "퍼즐을 불러오지 못했어요",
     "error_body": "네트워크를 확인하고 다시 시도해주세요.",
     "retry": "다시 시도",

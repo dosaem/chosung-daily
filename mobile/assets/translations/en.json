@@ -47,6 +47,7 @@
     "puzzle_changed": "There's a new puzzle",
     "offline": "You're offline. Check your connection",
     "submit_failed": "Couldn't submit. Please try again in a moment",
+    "refresh_failed": "Couldn't refresh. Please try again",
     "error_title": "Couldn't load the puzzle",
     "error_body": "Check your network and try again.",
     "retry": "Try again",
