@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:chosung/api/api_client.dart';
+import 'package:chosung/api/api_exception.dart';
 import 'package:chosung/api/api_models.dart';
 
 AppConfig fakeAppConfig({
@@ -161,6 +162,7 @@ class FakeApiClient implements ApiClient {
     Leaderboard? leaderboard,
     List<HistoryDay>? history,
     this.nextGuestToken = 'fake-guest-token',
+    this.nextLinkedToken = 'linked-token',
   }) : config = config ?? fakeAppConfig(),
        stats = stats ?? fakeMyStats(),
        puzzle = puzzle ?? fakeTodayPuzzle(),
@@ -178,6 +180,13 @@ class FakeApiClient implements ApiClient {
   List<HistoryDay> history;
   String nextGuestToken;
 
+  /// `POST /auth/token-exchange` 가 돌려줄 토큰. 지금 토큰과 **다르게** 두면
+  /// "다른 기기 기록으로 전환" 이고, 같게 두면 "지금 게스트에 연결" 이다.
+  String nextLinkedToken;
+
+  /// 백업 코드별 `GET /me/stats` 응답. 여기 없는 코드는 401 이다.
+  final Map<String, MyStats> statsByToken = {};
+
   /// 넣어두면 그 호출이 이 예외를 던진다.
   Exception? createGuestError;
   Exception? fetchConfigError;
@@ -188,6 +197,8 @@ class FakeApiClient implements ApiClient {
   Exception? fetchTodayLeaderboardError;
   Exception? fetchMyHistoryError;
   Exception? updatePuzzleLanguageError;
+  Exception? exchangeIdTokenError;
+  Exception? deleteAccountError;
 
   /// 넣어두면 이 Completer 가 끝날 때까지 오늘 퍼즐 응답을 붙잡는다 —
   /// "로딩 중(스켈레톤)" 화면을 그 상태로 세워두고 보는 데 쓴다.
@@ -219,6 +230,14 @@ class FakeApiClient implements ApiClient {
   /// 409 흐름의 전제라 테스트가 직접 본다.
   final List<({int puzzleId, String guess})> submittedGuesses = [];
   final List<PuzzleLanguage> updatedPuzzleLanguages = [];
+
+  /// 교환 요청으로 보낸 값들 — provider 별 버튼이 실제로 무엇을 보냈는지 본다.
+  final List<({String provider, String idToken, String? authorizationCode})>
+  exchangedCredentials = [];
+
+  /// 백업 코드 확인에 쓰인 토큰들(`GET /me/stats` with token).
+  final List<String> statsTokens = [];
+  int deleteAccountCalls = 0;
 
   int get createGuestCalls => createGuestLanguages.length;
 
@@ -284,6 +303,40 @@ class FakeApiClient implements ApiClient {
     if (updatePuzzleLanguageGate case final gate?) await gate.future;
     if (updatePuzzleLanguageError case final error?) throw error;
     return puzzleLanguage;
+  }
+
+  @override
+  Future<String> exchangeIdToken({
+    required String provider,
+    required String idToken,
+    String? authorizationCode,
+  }) async {
+    exchangedCredentials.add((
+      provider: provider,
+      idToken: idToken,
+      authorizationCode: authorizationCode,
+    ));
+    if (exchangeIdTokenError case final error?) throw error;
+    return nextLinkedToken;
+  }
+
+  @override
+  Future<void> deleteAccount() async {
+    deleteAccountCalls++;
+    if (deleteAccountError case final error?) throw error;
+  }
+
+  @override
+  Future<MyStats> fetchMyStatsWithToken(String token) async {
+    statsTokens.add(token);
+    final found = statsByToken[token];
+    if (found == null) {
+      throw const UnauthorizedApiException(
+        code: 'UNAUTHORIZED',
+        message: '게스트를 찾을 수 없습니다.',
+      );
+    }
+    return found;
   }
 
   @override

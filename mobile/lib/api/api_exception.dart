@@ -52,6 +52,24 @@ class PuzzleChangedApiException extends ApiException {
   });
 }
 
+/// 앱이 보낸 `id_token` 을 서버가 검증하지 못했다(401 `INVALID_ID_TOKEN`).
+/// 토큰 만료와 달리 **지금 게스트 토큰은 멀쩡하다** — 새 게스트를 발급하면
+/// 안 되고, 로그인을 다시 시도하라고만 말한다.
+class InvalidIdTokenApiException extends ApiException {
+  const InvalidIdTokenApiException({
+    required super.code,
+    required super.message,
+  });
+}
+
+/// 지금 게스트에 이미 다른 계정이 연결돼 있다(409 `ACCOUNT_ALREADY_LINKED`).
+class AccountAlreadyLinkedApiException extends ApiException {
+  const AccountAlreadyLinkedApiException({
+    required super.code,
+    required super.message,
+  });
+}
+
 /// 위 어디에도 안 맞는 응답. 화면은 "알 수 없는 오류 + 재시도" 로 다룬다.
 class UnknownApiException extends ApiException {
   const UnknownApiException({required super.code, required super.message});
@@ -60,7 +78,7 @@ class UnknownApiException extends ApiException {
 const String unknownErrorCode = 'UNKNOWN_ERROR';
 const String networkErrorCode = 'NETWORK_ERROR';
 
-/// 서버 `code` → 예외 타입. 뒤 티켓(23·24·25·27·29·30)이 자기 코드를 더한다.
+/// 서버 `code` → 예외 타입. 뒤 티켓(30·31·32)이 자기 코드를 더한다.
 const Map<
   String,
   ApiException Function({required String code, required String message})
@@ -70,6 +88,8 @@ _exceptionsByCode = {
   'VALIDATION_ERROR': ValidationApiException.new,
   'NO_PUZZLE_TODAY': NoPuzzleTodayApiException.new,
   'PUZZLE_CHANGED': PuzzleChangedApiException.new,
+  'INVALID_ID_TOKEN': InvalidIdTokenApiException.new,
+  'ACCOUNT_ALREADY_LINKED': AccountAlreadyLinkedApiException.new,
 };
 
 /// `code` 를 모를 때(본문이 JSON 이 아닌 경우 포함) HTTP status 로 떨어뜨린다.
