@@ -132,3 +132,66 @@
 기존 결함 FIXED 3 / REPEAT 0. 현재 결함 합계: BLOCKER 0 / MAJOR 1 / MINOR 0 (신규 D-16-4).
 
 판정: FAIL
+
+## 라운드 3
+
+- 검토일: 2026-10-14. 대상 HEAD: `71f0b05`, 로컬 `main`과 공통 조상: `24c584d`.
+- `git diff main...HEAD`와 `git log main..HEAD`의 12개 커밋, 이전 리뷰 이후의 `git diff 66854fb..HEAD`를 확인했다. origin/main은 사용하지 않았다.
+- 티켓 16, 스펙 §A.15·US 29/45/45a·미정 9/21/22/23, 구현 증거, SCREENS 웹 절·OVERRIDES §10을 직접 대조했다. Standards와 Spec을 직접 검토했고 하위 에이전트는 띄우지 않았다.
+- 코디네이터의 재리뷰 메모에 따라 새 수정 문장과 이전부터 있던 문장을 구분했다. 법 해석의 최종 적합성은 판정하지 않으며, 불확실한 해석은 전문가 확인 참고로 남긴다.
+
+### 티켓 체크박스별 판정
+
+| 체크박스 | 충족 여부 | 직접 확인한 근거 |
+|---|---|---|
+| 조문·정책 → 요구 → 절 id → 테스트 체크리스트 전체 | 충족 | `docs/legal-checklist.md` §1~5에 필수 항목·국외 이전 5개 수신자·전자상거래·스토어 구독·EULA·해외 사용자 행이 있다. Apple 철회 전송 문구와 회귀 테스트도 §2에 연결됐다. 표 파싱·절 매핑 테스트 통과. |
+| ko/en 본문·동일 구조/순서/동치·현행 구현 일치 | 미충족 | 절 id/순서와 핵심 문구 검증은 통과했다. Apple 철회 전송·삭제 후 재시도 고지는 양 언어에서 같은 내용으로 수정됐고 D-16-1~4는 해소됐다. 다만 기존의 별도 연결 해제 안내가 실제 기능과 맞지 않는 경미한 잔존 사항이 있다(D-16-5). |
+| 사업자 정보 설정값만·전화 선택·주소 코드 축약 금지·등록번호 패턴 부재 | 충족 | `app/config.py` 사업자 필드의 기본값은 빈 문자열이고 `_business_info`는 strip만 한다. 관련 렌더·패턴 검사 테스트 통과. diff에 실제 사업자명·주소·등록번호 추가를 발견하지 않았다. |
+| 공통 사업자 Jinja 조각·양 문서 재사용·빈 신고번호 미표시 | 충족 | ko/en privacy·terms가 `_business_info.html`을 include한다. 조각이 값이 있는 행만 렌더하며 테스트가 전체/부분/빈 설정을 확인한다. 티켓 18의 푸터 연결은 후속 소비자 범위다. |
+| 체크리스트 파싱·ko/en id/순서·핵심 문구·삭제 링크/항목 집합 테스트 | 충족 | `test_legal_checklist.py`는 빈 표와 빈 삭제 항목 집합을 거부하고 실제 렌더 결과를 비교한다. 구독 검증 테스트는 외부 스토어 경계만 대체하고 게스트 인증·서비스·DB를 실행한다. 추가 Apple 문구 테스트는 행의 거부 설명을 좁혀 확인하며, 실제 철회 동작은 별도의 18개 테스트로 대조했다. |
+| impeccable 0건·시행일·README 링크/트리거/16절 | 증거 부족 | 직접 렌더한 8개 HTML과 CSS 3개의 오프라인 정적 detect는 0건이다. 외부 서비스 호출 금지로 CDN을 포함한 URL 브라우저 검사는 재실행하지 않았다. README 요구는 충족했고 시행일은 수정일과 같은 2026-10-14여서 유지가 결함은 아니다. |
+| RELEASE 16절 사람 확인·사용자 확인 결과 3건 | 충족 | `docs/RELEASE.md:564` 이하에 사용자 결정 3행과 신고·책임자·주소/전화·전문가·ASC EULA·Data safety 체크박스가 있다. 로그 보관·백업 암호화는 미구현 상태와 출시 전 사람 작업으로 구분된다. 사용자 결정의 승인은 앞 라운드에서 확인한 기록을 유지한다. |
+| 스펙 미정 9/21/22/23 결과·A.15 미변경 | 충족 | diff는 티켓 16 결과·수정 원칙 행 추가이며 §A.15의 목록을 바꾸지 않았다. |
+| 필요 시 분할·통지·후속 표시 | 충족 | 해외 고지·스토어 구독 고지를 모두 포함했으므로 조건부 분할 절차는 해당 없음. |
+
+### 이전 결함 판정
+
+| ID | 이전 심각도 | 판정 | 직접 확인한 근거 |
+|---|---|---|---|
+| D-16-1 | MAJOR | FIXED | ko `:160`, `:171`·en `:174`, `:185`는 로그인과 구독 검증을 분리한다. `test_verify_reaches_the_store_without_a_linked_account`의 Google/Apple 사례가 연결 Account 없이 실제 API를 통해 스토어 경계가 호출됨을 확인하며 통과했다. |
+| D-16-2 | MAJOR | FIXED | ko `:230`·en `:245`는 압축 덤프 자체를 암호화하지 않는다고 동일하게 설명한다. `scripts/backup.sh:66`의 gzip 처리와 실제 스크립트의 압축 해제 검증을 포함한 백업 테스트가 통과했다. |
+| D-16-3 | MAJOR | FIXED | ko `:90`~`:97`, `:235`~`:236`, `:271`과 en 대응 절은 별도 로그 보관 없음·출시 전 적용 예정으로 구분한다. Gunicorn 기본 accesslog와 Dockerfile·compose에 별도 접근 로그 구성이 없는 사실 및 관련 테스트를 확인했다. NAS 설정은 확인하지 않았다. |
+| D-16-4 | MAJOR | FIXED | ko `:171`·en `:185`가 로그인/연결 철회/구독 검증을 구분하고, 철회는 저장 토큰의 전송이며 실패 시 계정 삭제 뒤에도 재시도한다고 명시한다. `account_deletion_service.py:57`~`:69`의 삭제 커밋 후 철회 호출 및 `apple_revocation_service.py:64` 이후 재시도 처리와 부합한다. 기존 보유 기간 절 ko `:53`~`:57`·en `:55`~`:59`에도 재시도 보존 설명이 있어 이번에 중복 수정할 필요는 없다. |
+
+D-16-4 재현 대조: `tests/test_apple_revocation.py`의 `test_ios_linked_account_is_revoked_with_the_app_bundle_id`, `test_failed_revoke_still_deletes_the_account_and_records_a_retry`, `test_retry_removes_the_row_when_apple_accepts`를 포함한 파일 전체를 실행했다. 기대는 삭제 시 토큰 전송·실패 후 재시도 행 보존·연결 계정 없이 재전송이고 실제로 모두 통과했다. 외부 HTTP 경계는 대역으로 차단한다. 새 `test_apple_row_discloses_revocation_as_a_transfer`와 `test_apple_row_does_not_fold_revocation_into_the_no_transfer_scope`의 ko/en 4개 사례도 통과했다. 단순 문구 테스트만으로 서비스 동작을 증명했다고 보지 않았다.
+
+### 새로 기록한 결함 — Spec
+
+#### D-16-5 — MINOR — 별도 기능이 없는 “연결 해제”를 이메일 보유 종료·이전 거부 수단으로 안내
+
+- 파일: `web/templates/legal/privacy.ko.html:50`, `:160`; `web/templates/legal/privacy.en.html:52`, `:174`.
+- **이전 라운드 검토 범위에 이미 있던 문장이다. 이번 D-16-4 수정으로 생긴 결함이 아니다.** `git show 66854fb:web/templates/legal/privacy.ko.html`에도 같은 문장이 있고, `git show main:web/templates/legal/privacy.ko.html`에도 “연결 해제 또는 계정 삭제 시 삭제합니다”라는 선행 표현이 있다. 증거 문서의 관찰을 그대로 채택하지 않고 라우트·클라이언트 검색으로 재확인했다.
+- 재현: `/privacy?lang=ko` 또는 `en`에서 계정 이메일 보유 기간과 Google 거부 방법을 읽으면 계정 삭제와 별개인 unlink를 선택할 수 있는 것으로 안내한다. `rg -n 'unlink|연결 해제' app/api app/web.py mobile/lib web/static`는 일치 없음이며, testing 앱의 `app.url_map.iter_rules()`에서 unlink 경로는 `[]`, 계정 삭제는 `POST /account/delete`와 `DELETE /api/v1/me`로 존재한다.
+- 기대: 현재 제공하는 계정 삭제 방법을 안내하거나, “연결 해제”가 이 서비스의 계정 삭제를 뜻한다면 그렇게 한정해야 한다. 실제: 별도 연결 해제 경로·화면 없이 두 방법을 병렬로 제시한다. 제공자 쪽에서 연결을 끊는 행위도 이 서버의 이메일 행을 삭제하는 구현으로 이어지지 않는다.
+- 영향/심각도 근거: 이용자가 기록을 유지한 채 이메일만 없앨 수 있는 경로를 찾게 되는 안내 불일치다. 실제 계정 삭제 경로와 데이터 삭제는 정상이며 D-16-4의 철회 전송 은폐는 해결됐으므로 MINOR다. 새 unlink 기능 구현을 요구하는 지적은 아니다.
+
+### 직접 실행한 검증
+
+- 기존 로컬 DB `chosung_daily_test_t16`, Redis DB 4를 `TEST_DATABASE_URL` / `TEST_REDIS_URL`로 지정해 재사용했다. 접속 성공, 기본 DB 대체 없음, 새 DB 생성 없음. 접속 URL의 자격증명은 기록하지 않는다. Sentry DSN은 비워 외부 전송을 비활성화했다.
+- `uv run pytest tests/test_legal_checklist.py tests/test_legal_pages.py tests/test_account_delete_page.py tests/test_subscription_verify.py tests/test_backup_restore.py tests/test_apple_revocation.py -q` → **366 passed in 274.63s (0:04:34)**, exit 0. 실패·에러 없음, 경합 재실행 불필요. 삭제 페이지 인증·CSRF 검증 및 Apple 철회 18건을 포함한다.
+- `uv run ruff check .` → **All checks passed!**, exit 0.
+- `FLASK_ENV=testing SENTRY_DSN='' uv run flask --app wsgi db heads` → **d7a1f0ca0a29 (head)** 한 줄, exit 0. 티켓 diff에 마이그레이션 변경은 없다.
+- `git diff main...HEAD --check` → exit 0.
+- impeccable: Flask testing 앱으로 privacy/terms ko/en 4개, 삭제 안내 ko/en 2개를 렌더하고, 삭제 확인 폼 ko/en 2개를 합성 컨텍스트로 렌더했다. 임시 디렉터리에만 쓰고 외부 CDN stylesheet link를 제거한 뒤 static 경로를 상대 경로로 바꿔 tokens/legal/account CSS와 검사했다. `~/.impeccable/bin/0.1.14/impeccable detect --json <임시 디렉터리>` → **[]**, exit 0. 임시 디렉터리는 삭제했다. URL 브라우저·외부 폰트 레이아웃 검사와 동등하지 않다.
+- 구현 증거의 전체 스위트 1257건 성공을 독립 재실행했다고 주장하지 않는다. 이 라운드의 직접 테스트 범위는 위 366건이다.
+
+### Standards 및 참고
+
+- 인증·CSRF·DB 모델·삭제 트랜잭션 변경 없음. 사업자 값은 Jinja 기본 escaping을 거친다. diff에서 새 데이터 손상 경로·운영 시크릿 추가를 발견하지 않았다. 합성 테스트 자격증명·기존 로컬 테스트 접속 예시는 운영 시크릿으로 판정하지 않았고 리뷰에 복사하지 않았다.
+- README 설계 판단·RELEASE는 자기 16절, `.env.example`은 자기 16 표시와 신규 설정 행, 스펙은 자기 결과 행을 추가한다. 다른 티켓 행을 덮어쓰지 않았다. README 법적 문서 절 변경은 티켓에 명시된 작업이다.
+- 전문가 확인 권장: 축약 주소 표시·통신판매업 해당 여부, 국외 이전 근거와 국가 표현, 해외 광고 처리 근거·캘리포니아 공유 표현. 출시 전 사람 체크리스트 및 후속 SDK/스토어 라벨 대조 사항이며 이번 결함 수에는 포함하지 않는다.
+- 애플리케이션·테스트·설정·`.scratch/`를 수정하지 않았고, NAS·프로덕션·실제 외부 서비스 호출·push 없이 리뷰 파일만 변경했다.
+
+기존 결함 FIXED 4 / REPEAT 0. 현재 결함 합계: BLOCKER 0 / MAJOR 0 / MINOR 1 (D-16-5, 이전부터 있던 안내 불일치).
+
+판정: PASS
