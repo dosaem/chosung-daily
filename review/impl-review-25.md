@@ -73,3 +73,79 @@
 취향·스타일 제안은 결함에 포함하지 않았다. 테스트·빌드 통과와 별개로 MAJOR 3건, MINOR 1건, BLOCKER 0건이다.
 
 판정: FAIL
+
+## 라운드 2
+
+### 범위와 방법
+
+- 검토 HEAD `42333e7`, 로컬 `main` 및 merge-base `82e59ea`. `git diff main...HEAD`, `git log main..HEAD`의 11개 커밋을 확인했다. `origin/main`은 사용하지 않았다.
+- 티켓 25와 spec §B.21·US 1~3·3a·3b·6~8·15, CONTEXT, SCREENS S1/T1, OVERRIDES, 구현 증거 §8 및 이전 리뷰를 대조했다. 골든 PNG 3장을 직접 열었고 관련 API·컨트롤러·위젯·레이아웃 테스트를 읽고 실행했다.
+- 하위 에이전트 없이 검토했다. 소스 추적으로 확인한 결함과 실행한 기존 테스트를 구분한다. 새 테스트나 애플리케이션·설정·`.scratch/` 수정은 하지 않았다.
+
+### 티켓 체크박스별 판정
+
+| 항목 | 판정 | 근거 |
+|---|---|---|
+| ApiClient GET today / POST guesses / PATCH me, Dio + Fake | 충족 | Dio 어댑터 테스트가 실제 메서드·경로·Bearer·puzzle_id·언어 본문 및 404/409 매핑을 확인한다. 토큰 없는 요청 차단도 확인했다. |
+| PuzzleBoard / GuessInput / HintCard / StreakBadge / 날짜·칩 | 충족 | r/h/s, 시도 5행, correct 체크/오답 취소선, 길이 카운터, 잠김/열림 힌트, flame/숫자 색과 날짜·칩을 확인했다. 뒤집기와 모션 감소도 구현됐다. |
+| Riverpod 상태·제출·409·en 간격 복원 | 충족 | 보드 유무별 오류 복구, 제출 잠금, 세대 검사, 409 재조회, 완료 버튼, 퍼즐 없음 카드, en 구분자 재삽입을 소스 및 통과한 테스트로 확인했다. D-25-1~3 FIXED. |
+| 앱 시작·포그라운드 GET 재조회 | 충족 | build 및 AppLifecycleListener.onResume 경로, 실제 lifecycle 전이 테스트 확인. 제출 중 복귀는 제출 뒤 재조회하도록 직렬화한다. |
+| Fake 위젯 테스트: 상태·409·완료·다크 | 충족 | Flutter 전체 202개 통과. 오프라인 복구·재조회 서버 오류·기존 안내 이후 오프라인과 모션 회귀 테스트가 추가됐다. |
+| 태블릿 ReadingWidth / expanded 우측 열 / 타일 유지 / 폭 변경 | 미충족 | 보드·입력 600 이하, 우측 320 이하, 390/744/1024 분기와 744→390 입력·보드 유지 및 1024→744 입력 유지는 충족. 참조 명세 T1의 상태 UI 왼쪽 열 배치는 D-25-5로 미충족이다. |
+| audit.native·목업 대비 스크린샷 기록 | 미충족 | 라이트·다크·태블릿 골든 3장 존재 및 재검증 통과. 소스·위젯 수준 접근성/테마/폭 검증은 확인했으나 T1 상태 배치 누락으로 완전 충족으로 보지 않는다. 실기기 IME·스크린리더 확인은 이 실행에서 하지 않았다. |
+
+### 이전 결함 재판정
+
+| ID | 이전 심각도 | 판정 | 현재 근거 |
+|---|---|---|---|
+| D-25-1 | MAJOR | **FIXED** | `today_puzzle_controller.dart:63`의 제출 중 재조회 큐, `:70`의 초기 로딩 중 중복 조회 차단, `:91`의 제출 세대 증가, `:134`의 공통 반영 조건으로 늦은 응답을 버린다. `:42`의 build 세대 증가도 확인. 컨트롤러 테스트 241/274/297/312/335행이 응답 순서를 제어하며 상태·호출 수·잠금을 검사하고 모두 통과했다. |
+| D-25-2 | MAJOR | **FIXED** | `_commitLoad`가 보드를 보존하면서 offline/refreshFailed 안내와 해제된 제출 잠금으로 바꾼다. `today_tab.dart:140`, `:153`, `:307` 및 `offline_banner.dart:41`의 재시도는 refresh를 호출한다. 위젯 테스트에서 실제 재시도 버튼을 누른 뒤 배너 제거·입력 활성·GET 호출 수를 확인한다. 409 뒤 GET 실패 테스트도 잠금 해제를 확인한다. |
+| D-25-3 | MAJOR | **FIXED** | `today_tab.dart:73`은 notice와 네트워크 오류를 OR로 판정하며, `_commitLoad`가 이전 puzzleChanged 안내를 새 offline 안내로 교체한다. 409 성공→복귀 GET 네트워크 실패 순서의 컨트롤러/위젯 테스트가 배너·보드 유지·입력 및 제출 비활성을 확인한다. |
+| D-25-4 | MINOR | **FIXED** | `puzzle_board.dart:66`의 350ms/60ms 값, `_FlipIn`의 행별 Interval·회전, `:99`의 disableAnimations 즉시 완료 경로 확인. 위젯 테스트가 진행 중 Transform, 완료 후 제거, 모션 감소 시 애니메이션 없음을 검증한다. |
+
+### 구현 증거의 경합 표 직접 대조
+
+| 표 행 | 실제 검증 및 판단 |
+|---|---|
+| #1 제출→복귀, 새 퍼즐 | `today_puzzle_controller_test.dart:241`: POST gate를 잡고 퍼즐을 41→42로 바꾼 뒤 refresh. GET이 아직 안 떠났고 이전 보드/잠금이 유지되며, POST 완료 후 GET으로 42가 되는 것을 검사한다. 통과. |
+| #2 제출→복귀, 같은 퍼즐/잠금 | #1과 같은 테스트에서 `submitting == true` 및 GET 호출 수를 검사한다. 별도 같은-ID 데이터 사례나 두 번째 submit 호출 검증은 없지만 큐 분기는 ID와 무관하고 submit의 잠금 검사도 확인했다. 증거 표가 같은 테스트를 가리키는 설명은 정확하다. |
+| #3 재조회→제출→늦은 GET | `:274`: Fake GET은 호출 시점 보드를 캡처하고 gate로 지연한다. POST 후 GET을 풀어도 새 행 1개·기회 4가 유지된다. 통과. |
+| #4 재조회→더 최신 재조회 | `:335`: 첫 응답 기회 4를 붙잡고 두 번째 응답 기회 3을 먼저 완료한다. 늦은 응답 이후에도 3 유지. 통과. |
+| #5 첫 build→복귀 | `:297`: 첫 GET gate 중 refresh를 호출해 GET이 1회인지 검사한 후 첫 응답을 완료한다. 통과. |
+| #6 409→재조회 실패 | `:430`: POST 409 뒤 GET 서버 오류로 보드 41·refreshFailed·submitting false를 검사한다. 통과. |
+| #7 retry 재빌드→이전 POST | `:312`: POST를 붙잡고 invalidateSelf로 다시 build한 뒤 POST를 완료하여 false 반환·행 없음·잠금 해제를 검사한다. 통과. notifier를 새 객체로 교체한다는 테스트 주석은 부정확하지만, 실제 코드는 동일 notifier의 build에서 세대를 올려 응답을 무효화한다. |
+| #8 언어 PATCH→조회 | 현재 앱 호출자가 없어 이 티켓 범위 밖이다. 코디네이터의 범위 확인과 일치하며 검증 완료로 세지 않는다. |
+
+Fake는 API 경계에만 있고 실제 notifier/위젯을 실행한다. GET의 호출 시점 응답 캡처 덕분에 늦은 옛 응답이 실제로 만들어지며 항상 통과하도록 새 값을 읽는 mock이 아니다. 모션 테스트는 정확한 350/60ms 경계값 각각을 단언하지 않으므로 그 수치는 소스 검토 근거로 구분한다.
+
+### 새 결함
+
+#### D-25-5 — expanded 상태 UI가 T1의 왼쪽 열을 따르지 않는다
+
+- 심각도: **MINOR**
+- 위치: `mobile/lib/screens/today_tab.dart:153`, `:334`, `:430`
+- 요구: SCREENS T1은 “상태 4종(스켈레톤·오프라인 배너·퍼즐 없음·완료)은 왼쪽 열 안에서 폰과 같은 자리”라고 명시한다.
+- 재현 입력: 폭 1024dp의 AdaptiveScaffold에서 (1) 정상 보드를 받은 뒤 GET을 NetworkApiException으로 실패시키거나, (2) 최초 GET을 지연하거나, (3) NO_PUZZLE_TODAY로 응답한다.
+- 기대: 배너·스켈레톤·퍼즐 없음 카드가 보드와 같은 왼쪽 열(최대 600dp) 위치에 놓인다. 실제: (1)은 두 열을 만드는 Row 밖 상위 Column에 배너가 있어 우측 힌트 열까지 걸치며, (2)/(3)은 expanded 분기 없이 ReadingWidth로 전체 콘텐츠 중앙에 놓인다. 완료 버튼만 보드의 왼쪽 열 안에 있다.
+- 확인 방법: 위 위치의 부모/자식 배치와 ReadingWidth의 Center 동작을 직접 추적했다. 새로운 화면 재현 테스트를 실행한 것은 아니다. 기존 태블릿 테스트는 정상 보드 배치만 검증하고 상태별 좌표를 검사하지 않는다.
+- 영향: 오류 복구나 플레이 데이터는 정상이고 지정된 태블릿 상태 배치만 어긋나므로 MINOR다. 취향 제안이 아닌 명시된 배치 요구 누락이다.
+
+### 직접 실행한 검증
+
+- `uv run ruff check .`: **All checks passed**, exit 0.
+- `cd mobile && flutter analyze`: **No issues found**, exit 0.
+- `cd mobile && dart format --output=none --set-exit-if-changed .`: **69 files, 0 changed**, exit 0. 파일을 쓰는 format 옵션은 사용하지 않았다.
+- `cd mobile && flutter test`: **202 passed**, exit 0, 골든 3장 포함.
+- `cd mobile && JAVA_HOME=/opt/homebrew/opt/openjdk@17 flutter build apk --debug`: **assembleDebug 44.9s, APK 생성 성공**, exit 0. 실행이 만든 `mobile/build`와 `mobile/android/.kotlin`은 제거했다.
+- 백엔드 전체 `uv run pytest -q`: **996 passed in 707.63s (0:11:47)**, exit 0. `TEST_DATABASE_URL`은 기존 로컬 `chosung_daily_test_t25`, `TEST_REDIS_URL`은 `redis://127.0.0.1:6379/13`, `TEST_MIGRATION_DATABASE_URL`은 기존 `chosung_daily_test_t25_migrations`를 지정했다. 새 DB 생성·기본 DB 폴백·간헐 실패 재실행은 없었다. 접속 문자열의 인증 부분은 기록하지 않는다.
+- 변경 파일에 마이그레이션이 없어 티켓별 `flask db heads` 검사는 해당 없음.
+- `git diff --check main...HEAD`: exit 0.
+
+### 범위·보안·참고
+
+- 변경된 인증 API는 Bearer를 사용하고 토큰 부재 시 요청을 차단한다. 제출에는 puzzle_id와 정규화된 답을 동봉하고 길이·완료·제출 중 상태를 검사한다. 새 쿠키 쓰기 경로가 없으므로 CSRF 경계를 추가하지 않는다. 서버 저장 규칙 변경이나 데이터 손상 경로, 실제 시크릿을 추가한 흔적은 발견하지 못했다.
+- README는 자기 번호 `### 25.` 내용만 추가하며 다른 티켓 본문은 고치지 않는다. `.env.example`, `.scratch/`, 백엔드·마이그레이션은 diff에 없다. 이번 리뷰의 추적 파일 변경은 이 문서 하나뿐이다.
+- 결과 시트/광고 힌트 버튼 연결은 각각 26/31 소관이므로 비활성 자체를 결함으로 세지 않았다. 실기기/시뮬레이터 증거는 골든으로 대체됐다고 주장하지 않는다. 취향·스타일 제안은 추가하지 않았다.
+- 미해결 결함: **BLOCKER 0 / MAJOR 0 / MINOR 1**. 기존 4건 FIXED, REPEAT 0건. 새 D-25-5만 남는다.
+
+판정: PASS
