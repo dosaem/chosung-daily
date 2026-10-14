@@ -367,3 +367,28 @@ $ uv run pytest tests/test_apple_revocation.py -k "duty or outage" -v
 - `impeccable detect` 는 다시 돌리지 않았다 — 이 라운드에서 템플릿·CSS 를 한
   글자도 바꾸지 않았다(변경 파일: `app/web.py`, `app/services/*`,
   `web/static/app.js`, 테스트·문서).
+
+### 라운드 1 전체 검증 (로컬 `main` 위로 rebase 후)
+
+```
+$ git rebase main    # 로컬 main = b8f63cc (티켓 24 머지). 충돌 없음
+Successfully rebased and updated refs/heads/dosaem/t14-account-deletion-apple-revoke.
+
+$ uv run pytest -q
+........................................................................ [  9%]
+... (중략)
+800 passed in 723.02s (0:12:03)
+
+$ FLASK_ENV=testing uv run flask --app wsgi db heads
+94a83f12fddb (head)
+
+$ uv run ruff check .
+All checks passed!
+
+$ git status --short
+(출력 없음 — clean)
+```
+
+전체 스위트는 중단 없이 끝까지 돌았다(라운드 1 리뷰가 중단했던 실행과 달리 800개
+전부 통과). 마이그레이션 왕복 테스트도 이 실행에 포함되고 head 는 그대로 하나다 —
+이번 라운드는 마이그레이션을 추가하지 않았다.
