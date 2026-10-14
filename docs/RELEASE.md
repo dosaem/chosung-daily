@@ -602,16 +602,119 @@ Android lane 은 빌드 전에 이전 `app-release.aab` 를 지우고, 빌드 �
 - [ ] **스토어 구독 고지 일치.** ASC·Play 콘솔의 구독 설명과 약관 `#subscription` 절의
       가격·결제 주기·자동 갱신·해지 경로가 같은지 확인한다(Apple 3.1.2(a),
       Google Play 구독 정책).
-- [ ] **개인정보처리시스템 접속기록 보관 구성** (법정 보관 기간). 지금 레포의 운영 실행
-      경로에는 요청 접근 로그 설정이 없다(`Dockerfile` 의 Gunicorn 기본값 = 접근 로그
-      없음, compose 에도 로그 수집·보존 설정 없음). 방침 `#collection`·`#security` 절은
-      이 상태를 그대로 적고 "출시 전 적용 예정" 으로 두었다 — 접속기록을 남기고 법정
-      기간 보관하도록 구성한 뒤 그 두 절의 보유 기간 문구와 `LEGAL_EFFECTIVE_DATE` 를
-      함께 고친다(`tests/test_legal_checklist.py::test_the_production_entrypoint_has_no_access_log`
-      이 현재 상태를 고정하고 있어, 구성하면 그 테스트도 같이 바꾼다).
-- [ ] **백업 덤프 암호화 여부 결정.** `scripts/backup.sh` 는 `mysqldump | gzip` 만 하고
-      덤프를 암호화하지 않는다. 방침 `#destruction` 절은 이 상태를 그대로 적는다 —
-      암호화를 넣기로 하면 그 절 문구도 함께 고친다.
+- 접속기록 보관 구성과 백업 덤프 암호화는 **티켓 36 에서 구현했다** — 사람이 할 일(키 생성·
+      보관, 월 1회 점검, `LOG_DIR`·`BACKUP_ENCRYPTION_CERT_FILE` 설정)은 아래 "### 36." 에 있다.
 - [ ] 위 값을 채운 뒤 `/privacy?lang=ko|en`·`/terms?lang=ko|en` 에서 "운영자 정보"
       블록을 눈으로 확인하고, 본문을 고쳤으면 `app/web.py` 의 `LEGAL_EFFECTIVE_DATE`
       를 올린다.
+
+### 36. 개인정보 안전성 확보조치 — 백업 암호화 키와 접속기록 점검
+
+근거: **개인정보의 안전성 확보조치 기준**(개인정보보호위원회 고시 제2023-6호) 제8조
+(접속기록의 보관 및 점검)·제7조(개인정보의 암호화). 조문 → 문서 절 → 테스트 매핑은
+`docs/legal-checklist.md` "1-1." 절. 구현 근거는 README "설계 판단 36.".
+
+#### (a) 백업 덤프 암호화 — 키 생성·보관·교체
+
+덤프는 `mysqldump | gzip | openssl cms -encrypt` 로 **공개키(CMS 봉투) 암호화**해서
+`chosung_daily-YYYYmmdd-HHMMSS.sql.gz.enc` 로만 떨어진다. 평문 덤프는 임시 파일로도
+안 남고, `BACKUP_ENCRYPTION_CERT_FILE` 이 비어 있으면 **백업을 만들지 않고 실패한다**
+(Slack 알림). `age` 를 쓰지 않은 이유는 README "설계 판단 36.".
+
+```bash
+# 1. 키 쌍을 만든다 — NAS 가 아니라 운영자 로컬(또는 오프라인 머신)에서 한다.
+openssl req -x509 -newkey rsa:4096 -nodes -days 7300 \
+  -keyout chosung-backup-key.pem -out chosung-backup-cert.pem \
+  -subj "/CN=chosung-daily backup $(date +%Y)"
+
+# 2. 공개키 인증서만 NAS 로 올린다 (BACKUP_DIR 안에 둔다 — 이미 bind mount 돼 있다).
+#    scp chosung-backup-cert.pem nas:/volume1/backup/chosung-daily-prod/backup-cert.pem
+#    prod .env:
+#      BACKUP_ENCRYPTION_CERT_FILE=/backups/backup-cert.pem
+
+# 3. 개인키(chosung-backup-key.pem)는 NAS 에 두지 않는다. 아래 "키 보관" 참고.
+
+# 4. 확인: 덤프를 하나 만들고 복호화해 본다(복구 리허설 전 최소 확인).
+docker compose -f docker-compose.prod.yml -p chosung-daily-prod --env-file .env \
+  exec backup /scripts/backup.sh
+openssl cms -decrypt -binary -inform DER -inkey chosung-backup-key.pem \
+  -in <덤프>.sql.gz.enc | gzip -dc | head -5
+```
+
+**키 보관 (사람)**
+
+- [ ] 개인키를 **NAS 밖 두 곳**에 둔다: ① 운영자 비밀번호 관리자(파일 첨부) ② 오프라인
+      사본(암호화한 USB 또는 인쇄). 레포·NAS·Slack·메일에 올리지 않는다.
+- [ ] **개인키를 잃으면 모든 백업을 복구할 수 없다.** 암호화된 덤프는 다른 어떤 방법으로도
+      열리지 않는다 — 이 경고를 두 보관처에 메모로 같이 남긴다.
+- [ ] 공개키 인증서(`backup-cert.pem`)는 공개 정보다. 잃어버리면 같은 개인키로 다시 만들
+      수 있으므로 백업 대상이 아니다.
+
+**키 교체 절차 (사람)**
+
+- [ ] 새 키 쌍을 만들고 새 공개키를 `BACKUP_ENCRYPTION_CERT_FILE` 로 바꾼 뒤 `backup`
+      컨테이너를 재시작한다. 그 시점부터 새 덤프는 새 키로 암호화된다.
+- [ ] **구 개인키는 구 덤프의 보존 기간(`BACKUP_RETENTION_DAYS`, 기본 14일)이 끝날 때까지
+      유지한다.** 그 전에 버리면 그 기간의 덤프가 복구 불가가 된다.
+- [ ] 교체 후 복구 리허설을 한 번 더 돌린다(아래).
+
+**복구 리허설 (암호화 기준)**
+
+"### 21. 매일 백업과 복구 리허설" 의 절차를 그대로 쓰되, 2번 복구 단계에 개인키를 준다.
+그 절의 실측 기록(2026-10-13)은 평문 덤프 기준이므로, 아래로 한 번 더 돌린 결과를 남긴다.
+
+```bash
+./scripts/restore.sh -y -k chosung-backup-key.pem \
+  <BACKUP_DIR>/chosung_daily-...sql.gz.enc <프로젝트>
+# 또는 BACKUP_DECRYPTION_KEY_FILE=... ./scripts/restore.sh -y <덤프> <프로젝트>
+```
+
+- [ ] 암호화 덤프로 복구 리허설을 1회 수행하고 결과를 이 절에 적는다(상태 A → 변경 →
+      복구 → 상태 A). 키 없이 돌리면 **MySQL 을 건드리기 전에** 멈추는 것도 같이 확인한다.
+- [ ] **전환기 정리.** 암호화 전에 뜬 평문 `.sql.gz` 덤프도 `restore.sh` 가 당분간 복원한다.
+      그 덤프가 보존 기간이 지나 사라지면(= `BACKUP_DIR` 에 `.sql.gz` 가 0개) `restore.sh`
+      의 평문 경로와 `backup.sh` 보존 정리의 `.sql.gz` 패턴을 뺀다.
+
+#### (b) 접속기록 — 설정과 월 1회 점검
+
+| | 값 |
+|---|---|
+| 접근 로그 파일 | 호스트 `${LOG_DIR}`(기본 `./logs`) ← 컨테이너 `/logs`, `gunicorn.conf.py` 가 `access.log` 로 기록 |
+| 감사 로그(DB) | `access_log` 테이블 — 개인정보 처리 행위만(README "설계 판단 36." 의 표) |
+| 보관 기간 | `ACCESS_LOG_RETENTION_DAYS` (기본 **365** = 고시 제8조 제1항의 법정 최소 1년) |
+| 만료 삭제 | DB: Beat 매일 04:10 (`tasks.purge_access_logs`) / 파일: backup 컨테이너 cron 이 일 회전·gzip 후 같은 기간으로 삭제 |
+| 점검 | `flask access-log report --month YYYY-MM` · `flask access-log verify` |
+| 실패 알림 | `SLACK_WEBHOOK_URL` (DB 삭제 실패는 `notify_operator`, 파일 회전 실패는 스크립트가 직접) |
+
+**NAS 설정 메모**
+
+- `LOG_DIR` 은 `BACKUP_DIR` 과 같은 방식으로 체크아웃 밖의 공유 폴더를 권장한다(예
+  `/volume1/backup/chosung-daily-prod-logs`). prod·develop 에 **다른 경로**를 준다.
+- **DSM ACL 문제는 해당 없음** — app 컨테이너는 root 로 돌고(`Dockerfile` 에 `USER` 가
+  없다) backup 컨테이너도 root 다(§21 메모와 같은 이유).
+- `LOG_DIR` 이 쓰기 불가면 Gunicorn 이 **기동하면서 죽는다**(접속기록이 조용히 빠지는
+  쪽보다 배포 시점에 멈추는 쪽을 골랐다). 첫 배포 때 `docker compose logs app` 으로
+  확인한다.
+
+**사람이 할 일**
+
+- [ ] prod·develop `.env` 에 `LOG_DIR` 을 넣고 그 폴더를 만든다(`ACCESS_LOG_RETENTION_DAYS`
+      는 비워 두면 365).
+- [ ] **매월 1회 점검** — 지난달 보고서를 돌리고 결과(총 건수·거부 건수·체인 검증)를
+      운영 기록에 보관한다. 고시 제8조 제2항이 요구하는 "월 1회 이상 점검" 이다.
+      거부 건수가 평소와 다르거나 체인이 끊겼으면 원인을 확인한다.
+
+      ```bash
+      docker compose -f docker-compose.prod.yml -p chosung-daily-prod --env-file .env \
+        exec app uv run flask access-log report --month 2026-10
+      docker compose -f docker-compose.prod.yml -p chosung-daily-prod --env-file .env \
+        exec app uv run flask access-log verify
+      ```
+- [ ] **정보주체 5만명을 넘기면** `ACCESS_LOG_RETENTION_DAYS=730` 으로 올리고 방침
+      `#collection`·`#security` 의 "1년(365일)" 문구와 `docs/legal-checklist.md` "1-1." 을
+      같이 고친다(고시 제8조 제1항 단서). 고유식별정보·민감정보를 처리하기 시작하면
+      규모와 무관하게 2년이다.
+- [ ] **현행 고시 조 번호 확인.** 위 번호는 고시 제2023-6호(시행 2023. 9. 22.) 기준이다.
+      2025-10 개정에서 접속기록 조항이 유예 대상으로 들어가 조 번호가 바뀔 수 있다 —
+      출시 전에 국가법령정보센터 현행 고시로 §8 번호를 확인하고, 바뀌었으면 방침·
+      `docs/legal-checklist.md`·README 의 인용을 갱신한다(보관 기간 1년/2년은 같다).
