@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:chosung/api/api_models.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../fakes/fake_api_client.dart';
+
 void main() {
   group('AppConfig.fromJson', () {
     test('서버 응답(/api/v1/config)을 그대로 읽는다', () {
@@ -264,6 +266,106 @@ void main() {
       expect(result.isCorrect, isTrue);
       expect(result.feedback, isNull);
       expect(result.answer, '\uc9c0\ud558\ucca0\uc5ed');
+    });
+  });
+
+  group('TodayStats.fromJson', () {
+    test('by_attempt 는 시도 횟수를 키로 가진 비율 표가 된다', () {
+      final stats = TodayStats.fromJson(
+        jsonDecode(
+              '{"date": "2026-10-13", "language": "ko", "total_solved": 100, '
+              '"by_attempt": {"1": 0.08, "2": 0.31, "3": 0.4, "4": 0.15, '
+              '"5": 0.06}}',
+            )
+            as Map<String, dynamic>,
+      );
+
+      expect(stats.date, DateTime(2026, 10, 13));
+      expect(stats.language, PuzzleLanguage.ko);
+      expect(stats.totalSolved, 100);
+      expect(stats.byAttempt, {1: 0.08, 2: 0.31, 3: 0.4, 4: 0.15, 5: 0.06});
+    });
+
+    // 아직 아무도 못 푼 퍼즐은 서버가 전부 0.0 을 보낸다(정수 0 으로 올 수도 있다).
+    test('정수로 온 비율도 double 로 읽는다', () {
+      final stats = TodayStats.fromJson(
+        jsonDecode(
+              '{"date": "2026-10-13", "language": "en", "total_solved": 0, '
+              '"by_attempt": {"1": 0, "2": 0}}',
+            )
+            as Map<String, dynamic>,
+      );
+
+      expect(stats.totalSolved, 0);
+      expect(stats.byAttempt, {1: 0.0, 2: 0.0});
+    });
+
+    // 서버가 앱보다 먼저 칸을 늘려도(또는 모르는 키를 보내도) 떠야 한다.
+    test('숫자가 아닌 키는 버린다', () {
+      final stats = TodayStats.fromJson(
+        jsonDecode(
+              '{"date": "2026-10-13", "language": "ko", "total_solved": 1, '
+              '"by_attempt": {"1": 1.0, "fail": 0.0}}',
+            )
+            as Map<String, dynamic>,
+      );
+
+      expect(stats.byAttempt, {1: 1.0});
+    });
+  });
+
+  group('TodayStats.isFor', () {
+    TodayStats statsOf(DateTime date, PuzzleLanguage language) => TodayStats(
+      date: date,
+      language: language,
+      totalSolved: 1,
+      byAttempt: const {1: 1.0},
+    );
+
+    test('같은 날짜·언어면 그 퍼즐의 집계다', () {
+      final puzzle = fakeTodayPuzzle(date: DateTime(2026, 10, 13));
+
+      expect(
+        statsOf(DateTime(2026, 10, 13), PuzzleLanguage.ko).isFor(puzzle),
+        isTrue,
+      );
+    });
+
+    // 결과 시트를 열어 둔 채 KST 자정을 넘기면 재조회가 다음 날 집계를 받는다.
+    test('날짜가 하루라도 다르면 아니다(D-26-1)', () {
+      final puzzle = fakeTodayPuzzle(date: DateTime(2026, 10, 13));
+
+      expect(
+        statsOf(DateTime(2026, 10, 14), PuzzleLanguage.ko).isFor(puzzle),
+        isFalse,
+      );
+      expect(
+        statsOf(DateTime(2026, 10, 12), PuzzleLanguage.ko).isFor(puzzle),
+        isFalse,
+      );
+    });
+
+    test('언어가 다르면 아니다(D-26-1)', () {
+      // 가짜 퍼즐의 기본 언어는 ko 다.
+      final puzzle = fakeTodayPuzzle(date: DateTime(2026, 10, 13));
+
+      expect(
+        statsOf(DateTime(2026, 10, 13), PuzzleLanguage.en).isFor(puzzle),
+        isFalse,
+      );
+    });
+
+    // 서버는 `YYYY-MM-DD` 만 보내지만, 시각이 섞여 와도 날짜로만 본다.
+    test('시각이 붙어 와도 날짜만 본다', () {
+      final puzzle = fakeTodayPuzzle(date: DateTime(2026, 10, 13));
+
+      expect(
+        statsOf(
+          DateTime(2026, 10, 13, 23, 59),
+          PuzzleLanguage.ko,
+        ).isFor(puzzle),
+        isTrue,
+      );
     });
   });
 }

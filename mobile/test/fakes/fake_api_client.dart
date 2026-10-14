@@ -83,6 +83,24 @@ GuessResult fakeGuessResult({
   answer: answer,
 );
 
+TodayStats fakeTodayStats({
+  DateTime? date,
+  PuzzleLanguage language = PuzzleLanguage.ko,
+  int totalSolved = 100,
+  Map<int, double> byAttempt = const {
+    1: 0.08,
+    2: 0.31,
+    3: 0.4,
+    4: 0.15,
+    5: 0.06,
+  },
+}) => TodayStats(
+  date: date ?? DateTime(2026, 10, 13),
+  language: language,
+  totalSolved: totalSolved,
+  byAttempt: byAttempt,
+);
+
 /// 테스트용 [ApiClient]. 서버가 돌려줄 값을 그대로 들고 있고, 호출 횟수와
 /// 보낸 인자를 기록한다. 응답을 바꾸려면 필드를 다시 넣으면 된다.
 class FakeApiClient implements ApiClient {
@@ -91,16 +109,19 @@ class FakeApiClient implements ApiClient {
     MyStats? stats,
     TodayPuzzle? puzzle,
     GuessResult? guessResult,
+    TodayStats? todayStats,
     this.nextGuestToken = 'fake-guest-token',
   }) : config = config ?? fakeAppConfig(),
        stats = stats ?? fakeMyStats(),
        puzzle = puzzle ?? fakeTodayPuzzle(),
-       guessResult = guessResult ?? fakeGuessResult();
+       guessResult = guessResult ?? fakeGuessResult(),
+       todayStats = todayStats ?? fakeTodayStats();
 
   AppConfig config;
   MyStats stats;
   TodayPuzzle puzzle;
   GuessResult guessResult;
+  TodayStats todayStats;
   String nextGuestToken;
 
   /// 넣어두면 그 호출이 이 예외를 던진다.
@@ -109,6 +130,7 @@ class FakeApiClient implements ApiClient {
   Exception? fetchMyStatsError;
   Exception? fetchTodayPuzzleError;
   Exception? submitGuessError;
+  Exception? fetchTodayStatsError;
 
   /// 넣어두면 이 Completer 가 끝날 때까지 오늘 퍼즐 응답을 붙잡는다 —
   /// "로딩 중(스켈레톤)" 화면을 그 상태로 세워두고 보는 데 쓴다.
@@ -118,10 +140,18 @@ class FakeApiClient implements ApiClient {
   /// 재조회가 끼어드는 순서를 테스트가 직접 만들어 보는 데 쓴다.
   Completer<void>? submitGuessGate;
 
+  /// 분포 응답도 붙잡을 수 있다 — 결과 시트의 통계 스켈레톤을 세워 두는 데 쓴다.
+  Completer<void>? fetchTodayStatsGate;
+
   final List<PuzzleLanguage> createGuestLanguages = [];
   int fetchConfigCalls = 0;
   int fetchMyStatsCalls = 0;
   int fetchTodayPuzzleCalls = 0;
+  int fetchTodayStatsCalls = 0;
+
+  /// `fetchTodayStats` 가 받은 언어들 — 시트가 "지금 선호 언어" 가 아니라
+  /// 그린 퍼즐의 언어로 묻는지 보려고 기록한다.
+  final List<PuzzleLanguage> fetchTodayStatsLanguages = [];
 
   /// 제출로 보낸 (puzzle_id, guess) 를 순서대로 기록한다 — `puzzle_id` 동봉은
   /// 409 흐름의 전제라 테스트가 직접 본다.
@@ -171,6 +201,17 @@ class FakeApiClient implements ApiClient {
     if (submitGuessGate case final gate?) await gate.future;
     if (submitGuessError case final error?) throw error;
     return guessResult;
+  }
+
+  @override
+  Future<TodayStats> fetchTodayStats({
+    required PuzzleLanguage language,
+  }) async {
+    fetchTodayStatsCalls++;
+    fetchTodayStatsLanguages.add(language);
+    if (fetchTodayStatsGate case final gate?) await gate.future;
+    if (fetchTodayStatsError case final error?) throw error;
+    return todayStats;
   }
 
   @override

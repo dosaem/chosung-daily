@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:chosung/analytics/analytics_event.dart';
+import 'package:chosung/analytics/analytics_service.dart';
 import 'package:chosung/api/api_exception.dart';
 import 'package:chosung/api/api_models.dart';
 import 'package:chosung/layout/app_breakpoint.dart';
@@ -7,16 +9,20 @@ import 'package:chosung/layout/reading_width.dart';
 import 'package:chosung/puzzle/guess_rules.dart';
 import 'package:chosung/puzzle/today_puzzle_controller.dart';
 import 'package:chosung/puzzle/today_puzzle_state.dart';
+import 'package:chosung/routing/app_routes.dart';
 import 'package:chosung/startup/startup_controller.dart';
 import 'package:chosung/theme/app_colors.dart';
 import 'package:chosung/widgets/guess_input.dart';
 import 'package:chosung/widgets/hint_card.dart';
 import 'package:chosung/widgets/offline_banner.dart';
 import 'package:chosung/widgets/puzzle_board.dart';
+import 'package:chosung/widgets/puzzle_countdown.dart';
+import 'package:chosung/widgets/result_sheet.dart';
 import 'package:chosung/widgets/skeleton_box.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
 /// S1 오늘 탭. 로딩·오류·오프라인·퍼즐 없음·플레이 중·완료를 한 자리에서 고른다.
@@ -51,7 +57,35 @@ class _TodayTabState extends ConsumerState<TodayTab> {
     // 보드에 한 행이 쌓였을 때만 비운다 — 409·오프라인은 같은 답을 다시
     // 보낼 수 있어야 한다.
     if (recorded) _guess.clear();
+    if (!recorded || !mounted) return;
+
+    // **이 제출로 퍼즐이 끝난 순간**에만 이벤트를 찍고 시트를 띄운다. "결과
+    // 보기" 로 다시 열 때는 둘 다 하지 않는다 — `puzzle_complete` 는 퍼즐당
+    // 한 번이고, 다른 기기에서 이미 끝낸 퍼즐을 여는 경로(서버 상태가 처음부터
+    // finished)에도 찍히면 안 된다.
+    if (ref.read(todayPuzzleProvider).value case TodayPuzzleReady(
+      :final puzzle,
+    ) when puzzle.status.isFinished) {
+      await ref
+          .read(analyticsServiceProvider)
+          .log(
+            puzzleCompleteEvent(
+              language: puzzle.language,
+              success: puzzle.status == PuzzleStatus.success,
+              attempts: attemptsUsed(puzzle),
+            ),
+          );
+      if (!mounted) return;
+      await _openResult(puzzle);
+    }
   }
+
+  /// S2 결과 시트. 폭에 따라 바텀시트/다이얼로그로 갈린다(SCREENS T2).
+  Future<void> _openResult(TodayPuzzle puzzle) => showResultSheet(
+    context: context,
+    puzzle: puzzle,
+    onShowRanking: () => context.go(AppRoutes.ranking),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -69,6 +103,7 @@ class _TodayTabState extends ConsumerState<TodayTab> {
           guess: _guess,
           onSubmit: _submit,
           onRetry: _retry,
+          onShowResult: () => unawaited(_openResult(ready.puzzle)),
           offline:
               (ready.notice?.blocksInput ?? false) || _isOffline(state.error),
         ),
@@ -96,6 +131,7 @@ class _Board extends StatelessWidget {
     required this.guess,
     required this.onSubmit,
     required this.onRetry,
+    required this.onShowResult,
     required this.offline,
   });
 
@@ -108,6 +144,7 @@ class _Board extends StatelessWidget {
   final TextEditingController guess;
   final Future<void> Function() onSubmit;
   final VoidCallback onRetry;
+  final VoidCallback onShowResult;
   final bool offline;
 
   @override
@@ -135,7 +172,7 @@ class _Board extends StatelessWidget {
         const SizedBox(height: 8),
       ],
       if (puzzle.status.isFinished)
-        const _ShowResultButton()
+        _ShowResultButton(onPressed: onShowResult)
       else
         GuessInput(
           puzzle: puzzle,
@@ -310,13 +347,17 @@ class _NoticeLine extends StatelessWidget {
   }
 }
 
-/// 완료 상태. 시트는 티켓 26 이 붙인다 — 그때까지 버튼은 자리만 잡는다.
+/// 완료 상태. 자동으로 뜬 결과 시트를 닫았어도 여기서 다시 열 수 있다.
 class _ShowResultButton extends StatelessWidget {
-  const _ShowResultButton();
+  const _ShowResultButton({required this.onPressed});
+
+  final VoidCallback onPressed;
 
   @override
-  Widget build(BuildContext context) =>
-      FilledButton(onPressed: null, child: Text('today.show_result'.tr()));
+  Widget build(BuildContext context) => FilledButton(
+    onPressed: onPressed,
+    child: Text('today.show_result'.tr()),
+  );
 }
 
 /// 오류·퍼즐 없음 카드는 보드가 없으니 읽기 폭 안에서 가운데 둔다.
@@ -369,35 +410,12 @@ class _ErrorCard extends ConsumerWidget {
   }
 }
 
-/// 자정 전환 직후. 다음 KST 자정까지 남은 시간을 1초마다 다시 그린다.
-class _NoPuzzleCard extends ConsumerStatefulWidget {
+/// 자정 전환 직후. 카운트다운은 결과 시트(S2)와 같은 [PuzzleCountdown] 이다.
+class _NoPuzzleCard extends ConsumerWidget {
   const _NoPuzzleCard();
 
   @override
-  ConsumerState<_NoPuzzleCard> createState() => _NoPuzzleCardState();
-}
-
-class _NoPuzzleCardState extends ConsumerState<_NoPuzzleCard> {
-  Timer? _ticker;
-  Duration _remaining = timeUntilNextPuzzle(DateTime.now());
-
-  @override
-  void initState() {
-    super.initState();
-    _ticker = Timer.periodic(
-      const Duration(seconds: 1),
-      (_) => setState(() => _remaining = timeUntilNextPuzzle(DateTime.now())),
-    );
-  }
-
-  @override
-  void dispose() {
-    _ticker?.cancel();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final text = Theme.of(context).textTheme;
 
     return Column(
@@ -405,11 +423,11 @@ class _NoPuzzleCardState extends ConsumerState<_NoPuzzleCard> {
       children: [
         Text('today.none_title'.tr(), style: text.titleMedium),
         const SizedBox(height: 8),
-        Text(
-          'today.none_body'.tr(
-            namedArgs: {'time': formatCountdown(_remaining)},
+        PuzzleCountdown(
+          builder: (context, remaining) => Text(
+            'today.none_body'.tr(namedArgs: {'time': remaining}),
+            style: text.bodySmall,
           ),
-          style: text.bodySmall,
         ),
         const SizedBox(height: 16),
         OutlinedButton(
