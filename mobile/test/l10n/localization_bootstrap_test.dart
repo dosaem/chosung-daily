@@ -3,6 +3,7 @@ import 'package:chosung/config/firebase_bootstrap.dart';
 import 'package:chosung/l10n/app_localization.dart';
 import 'package:chosung/l10n/localization_bootstrap.dart';
 import 'package:chosung/main.dart';
+import 'package:chosung/notifications/notification_bootstrap.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -39,7 +40,7 @@ void main() {
     expect(AppLocalization.supportedLocales, contains(seen));
   });
 
-  test('시작 순서: Firebase → 국제화 초기화 → runApp', () async {
+  test('시작 순서: Firebase → 국제화 초기화 → 알림 초기화 → runApp', () async {
     TestWidgetsFlutterBinding.ensureInitialized();
     final calls = <String>[];
 
@@ -49,9 +50,17 @@ void main() {
         return FirebaseBootstrap.skipped;
       },
       initializeLocalizationFn: () async => calls.add('localization'),
+      // 알림 예약은 문구를 번역해서 넣으므로 국제화 **뒤**여야 한다(티켓 30).
+      initializeNotificationsFn: () async {
+        calls.add('notifications');
+        return NotificationBootstrap(
+          available: false,
+          taps: NotificationTaps(launchedByNotification: false),
+        );
+      },
       start: (_) => calls.add('runApp'),
     );
 
-    expect(calls, ['firebase', 'localization', 'runApp']);
+    expect(calls, ['firebase', 'localization', 'notifications', 'runApp']);
   });
 }

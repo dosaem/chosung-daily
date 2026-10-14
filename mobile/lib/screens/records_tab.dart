@@ -3,6 +3,10 @@ import 'package:chosung/api/api_providers.dart';
 import 'package:chosung/layout/adaptive_sheet.dart';
 import 'package:chosung/layout/app_breakpoint.dart';
 import 'package:chosung/layout/reading_width.dart';
+import 'package:chosung/notifications/notification_settings.dart';
+import 'package:chosung/notifications/notification_settings_controller.dart';
+import 'package:chosung/notifications/system_notification_settings.dart';
+import 'package:chosung/permissions/notification_permission.dart';
 import 'package:chosung/records/history_controller.dart';
 import 'package:chosung/records/my_stats_controller.dart';
 import 'package:chosung/routing/app_routes.dart';
@@ -16,6 +20,7 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:lucide_icons/lucide_icons.dart';
 
 /// 뒤 티켓이 채울 자리. 담당 티켓 번호를 주석으로 달아 두고, 키는 그 티켓과
 /// 태블릿 열 배치 테스트가 같이 쓴다(SCREENS T4 — 자리의 열은 바뀌지 않는다).
@@ -29,11 +34,18 @@ abstract final class RecordsSlot {
   /// 티켓 29: 백업 코드로 다른 기기 기록 불러오기.
   static const backupCode = Key('records.slot.backup_code');
 
-  /// 티켓 30: 일일 알림 시각(권한 거부면 "알림 꺼짐" 안내).
+  /// 일일 알림 시각(권한 거부면 "알림 꺼짐" 안내, 티켓 30).
   static const dailyNotification = Key('records.slot.daily_notification');
 
-  /// 티켓 30: 리마인더 on/off.
+  /// 리마인더 on/off(티켓 30).
   static const reminder = Key('records.slot.reminder');
+
+  /// 권한이 꺼져 있을 때만 보이는 안내(티켓 30).
+  static const notificationOff = Key('records.slot.notification_off');
+
+  /// 일일 알림 시각 목록(시트/다이얼로그). 뒤에 깔린 설정 행에도 같은 시각
+  /// 문자열이 있어서, 테스트가 목록 안쪽만 보려면 손잡이가 필요하다.
+  static const reminderPicker = Key('records.reminder_picker');
 
   /// 티켓 31: 광고 개인정보 설정(UMP privacy options 가 required 일 때만 표시).
   static const adPrivacy = Key('records.slot.ad_privacy');
@@ -267,8 +279,7 @@ class _AccountSlots extends StatelessWidget {
   }
 }
 
-/// 오른쪽 열의 설정 리스트(T4). 여기서 도는 건 퍼즐 언어·법적 문서·라이선스·
-/// 버전뿐이고, 알림·광고 개인정보·하는 법은 자리만 있다.
+/// 오른쪽 열의 설정 리스트(T4). 광고 개인정보(티켓 31)만 자리로 남아 있다.
 class _SettingsList extends ConsumerWidget {
   const _SettingsList();
 
@@ -292,19 +303,7 @@ class _SettingsList extends ConsumerWidget {
         const SizedBox(height: 4),
         const _PuzzleLanguageRow(),
         const _Hairline(),
-        // 티켓 30 이 시각 선택과 권한 상태를 채운다.
-        SettingsRow(
-          key: RecordsSlot.dailyNotification,
-          label: 'records.daily_notification'.tr(),
-          value: pending,
-        ),
-        const _Hairline(),
-        // 티켓 30 이 on/off 스위치를 채운다.
-        SettingsRow(
-          key: RecordsSlot.reminder,
-          label: 'records.reminder'.tr(),
-          value: pending,
-        ),
+        const _NotificationRows(),
         const _Hairline(),
         // 티켓 31 이 UMP privacy options 가 required 일 때만 보이게 한다.
         SettingsRow(
@@ -351,6 +350,227 @@ class _SettingsList extends ConsumerWidget {
         const _Hairline(),
         SettingsRow(label: 'records.version'.tr(), value: version ?? '—'),
       ],
+    );
+  }
+}
+
+/// 알림 두 줄(S4): 일일 알림 시각 · 리마인더 on/off. 권한이 꺼져 있으면 그
+/// 사이에 안내 한 줄이 끼어든다.
+///
+/// 값을 읽기 전에는 두 조작을 다 잠근다 — 지금 값을 모르는 채 picker 를 열면
+/// 엉뚱한 시각이 선택된 것처럼 보이고, 스위치는 눌린 뒤 되돌아간다.
+class _NotificationRows extends ConsumerWidget {
+  const _NotificationRows();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final settings = ref.watch(notificationSettingsProvider).value;
+    final colors = AppColors.from(context);
+    final text = Theme.of(context).textTheme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SettingsRow(
+          key: RecordsSlot.dailyNotification,
+          label: 'records.daily_notification'.tr(),
+          value: settings == null
+              ? null
+              : MaterialLocalizations.of(
+                  context,
+                ).formatTimeOfDay(settings.dailyTime),
+          onTap: settings == null
+              ? null
+              : () => _pickTime(context, ref, settings),
+        ),
+        const _NotificationsOffNotice(),
+        const _Hairline(),
+        SettingsRow(
+          key: RecordsSlot.reminder,
+          label: 'records.reminder'.tr(),
+          // 스위치가 탭을 먹으므로 행 자체는 누를 수 없다(SettingsRow.trailing).
+          trailing: Switch.adaptive(
+            value: settings?.reminderEnabled ?? false,
+            onChanged: settings == null
+                ? null
+                : (enabled) => ref
+                      .read(notificationSettingsProvider.notifier)
+                      .setReminderEnabled(enabled: enabled),
+          ),
+        ),
+        // 리마인더가 저녁 8시라는 건 화면 어디에도 안 적혀 있으면 알 수가 없다.
+        Padding(
+          padding: const EdgeInsets.only(left: 4, bottom: 8),
+          child: Text(
+            'records.reminder_hint'.tr(),
+            style: text.bodySmall?.copyWith(color: colors.mutedForeground),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _pickTime(
+    BuildContext context,
+    WidgetRef ref,
+    NotificationSettings settings,
+  ) async {
+    final picked = await showAdaptiveSheet<TimeOfDay>(
+      context: context,
+      builder: (context) => _ReminderPicker(selected: settings.dailyTime),
+    );
+    if (picked == null || picked == settings.dailyTime) return;
+
+    await ref.read(notificationSettingsProvider.notifier).setDailyTime(picked);
+  }
+}
+
+/// 권한이 꺼져 있을 때만 보이는 한 줄. 누르면 OS 알림 설정으로 보낸다 —
+/// 거부된 뒤에는 앱이 프롬프트를 다시 띄울 수 없어서 그게 유일한 길이다.
+///
+/// 색으로만 말하지 않는다: 종에 사선이 그어진 아이콘 + 문장이 같이 있다.
+class _NotificationsOffNotice extends ConsumerWidget {
+  const _NotificationsOffNotice();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (ref.watch(notificationPermissionProvider).isGranted) {
+      return const SizedBox.shrink();
+    }
+    final colors = AppColors.from(context);
+    final text = Theme.of(context).textTheme;
+
+    return InkWell(
+      key: RecordsSlot.notificationOff,
+      onTap: ref.read(openNotificationSettingsProvider),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: SettingsRow.minHeight),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(4, 4, 4, 12),
+          child: Row(
+            children: [
+              Icon(
+                LucideIcons.bellOff,
+                size: 14,
+                color: colors.mutedForeground,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  'records.notification_off'.tr(),
+                  style: text.bodySmall,
+                ),
+              ),
+              Icon(
+                LucideIcons.chevronRight,
+                size: 16,
+                color: colors.mutedForeground,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// OVERRIDES §6 `ReminderPicker`. 폭에 따라 시트/다이얼로그로 뜬다(T2).
+///
+/// 30분 단위 목록이다 — 분 단위 휠보다 고르기 쉽고(터치 타깃 하나), 스크린
+/// 리더가 그냥 읽고, `LanguagePicker` 와 같은 모양이라 설정 안에서 조작이
+/// 한 가지로 보인다. 목록은 현재 값이 보이는 자리에서 열린다.
+class _ReminderPicker extends StatefulWidget {
+  const _ReminderPicker({required this.selected});
+
+  static const _stepMinutes = 30;
+  static const _itemExtent = 56.0;
+
+  /// 목록이 열렸을 때 고른 시각 위로 몇 칸을 더 보여줄지.
+  static const _leadingItems = 2;
+
+  /// 00:00 부터 30분 간격으로 하루치.
+  static final List<TimeOfDay> choices = [
+    for (
+      var minutes = 0;
+      minutes < Duration.minutesPerDay;
+      minutes += _stepMinutes
+    )
+      TimeOfDay(hour: minutes ~/ 60, minute: minutes % 60),
+  ];
+
+  final TimeOfDay selected;
+
+  @override
+  State<_ReminderPicker> createState() => _ReminderPickerState();
+}
+
+class _ReminderPickerState extends State<_ReminderPicker> {
+  late final ScrollController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    // 목록을 현재 값이 보이는 자리에서 연다 — 48칸짜리 목록이 늘 00:00 에서
+    // 열리면 매번 아침까지 스크롤해야 한다.
+    final selectedIndex = _ReminderPicker.choices.indexOf(widget.selected);
+    _controller = ScrollController(
+      initialScrollOffset:
+          _ReminderPicker._itemExtent *
+          (selectedIndex - _ReminderPicker._leadingItems).clamp(
+            0,
+            _ReminderPicker.choices.length - 1,
+          ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final materialLocalizations = MaterialLocalizations.of(context);
+
+    return SafeArea(
+      key: RecordsSlot.reminderPicker,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: Text(
+              'records.daily_notification_picker'.tr(),
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+          ),
+          Flexible(
+            child: RadioGroup<TimeOfDay>(
+              // 저장된 값이 30분 눈금에 없으면(이전 버전에서 고른 값) 아무것도
+              // 선택되지 않은 채로 연다 — 엉뚱한 칸을 고른 것처럼 보이지 않는다.
+              groupValue: _ReminderPicker.choices.contains(widget.selected)
+                  ? widget.selected
+                  : null,
+              onChanged: (picked) => Navigator.of(context).pop(picked),
+              child: ListView.builder(
+                controller: _controller,
+                itemExtent: _ReminderPicker._itemExtent,
+                itemCount: _ReminderPicker.choices.length,
+                itemBuilder: (context, index) => RadioListTile<TimeOfDay>(
+                  value: _ReminderPicker.choices[index],
+                  title: Text(
+                    materialLocalizations.formatTimeOfDay(
+                      _ReminderPicker.choices[index],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
     );
   }
 }

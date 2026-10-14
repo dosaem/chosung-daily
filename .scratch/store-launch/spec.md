@@ -324,6 +324,15 @@ chosung.dosaem.com 은 "하루 한 문제 초성 맞추기"가 돌아가는 Flas
 `mobile/lib/analytics/analytics_event.dart` 한 곳이고 순수 함수 테스트
 (`test/analytics/analytics_event_test.dart`)가 고정한다. 근거는 README "26.".
 
+- (티켓 30 반영) 미정 6 의 판단 재료: **기본 09:00 은 사용자가 바꾸는 값**이고
+(S4 `notification_daily_minutes`, 30분 단위) **리마인더 20:00 은 상수 한 곳**이다
+(`NotificationPlan.reminderHour`) — 값을 바꾸는 비용은 양쪽 다 한 줄이다. 다만 **효과를
+Analytics 로 보려면 이벤트가 먼저 필요하다**: 미정 20 이 확정한 이벤트 4개
+(`puzzle_complete`·`share`·`paywall_view`·`subscribe_start`)에 알림 관련 이벤트가 없고,
+티켓 30 은 이벤트를 추가하지 않았다(스펙 §A.9 는 분석을 요구하지 않는다). 2주 뒤에
+"미주 사용자에게 20:00 이 맞는가" 를 보려면 알림 탭 유입을 구분할 이벤트(예:
+`notification_open(kind)`)를 먼저 정해야 한다.
+
 
 ## Further Notes
 

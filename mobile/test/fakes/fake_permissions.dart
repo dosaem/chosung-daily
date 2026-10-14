@@ -7,16 +7,41 @@ class FakeNotificationPermissionRequester
     implements NotificationPermissionRequester {
   FakeNotificationPermissionRequester({
     this.result = NotificationPermission.granted,
+    this.currentResult = NotificationPermission.notDetermined,
   });
 
+  /// 프롬프트에서 사용자가 누를 답.
   NotificationPermission result;
+
+  /// OS 가 "지금" 상태로 돌려줄 답(시스템 설정에서 바뀐 뒤를 만들 때 쓴다).
+  NotificationPermission currentResult;
+
   int requests = 0;
+  int currentReads = 0;
 
   @override
   Future<NotificationPermission> request() async {
     requests++;
     return result;
   }
+
+  @override
+  Future<NotificationPermission> current() async {
+    currentReads++;
+    return currentResult;
+  }
+}
+
+/// 권한 상태를 고정해 두는 notifier. OS 를 묻는 경계를 거치지 않고 화면만
+/// 볼 때(골든 등) 쓴다.
+class FixedNotificationPermissionNotifier
+    extends NotificationPermissionNotifier {
+  FixedNotificationPermissionNotifier(this.fixed);
+
+  final NotificationPermission fixed;
+
+  @override
+  NotificationPermission build() => fixed;
 }
 
 class FakeTrackingAuthorization implements TrackingAuthorization {

@@ -143,7 +143,10 @@
     "result_success": "성공",
     "result_fail": "실패",
     "result_in_progress": "진행 중",
-    "result_none": "미플레이"
+    "result_none": "미플레이",
+    "notification_off": "알림 꺼짐 — 시스템 설정에서 켜기",
+    "daily_notification_picker": "일일 알림 시각",
+    "reminder_hint": "그 날 안 풀었으면 저녁 8시에 한 번 더"
   },
   "onboarding": {
     "skip": "건너뛰기",
@@ -169,5 +172,13 @@
     "tracking_title": "맞춤 광고 허용",
     "tracking_body": "허용하면 관심사에 맞는 광고가 보여요. 허용하지 않아도 앱은 그대로 쓸 수 있어요.",
     "tracking_continue": "계속"
+  },
+  "notification": {
+    "channel_name": "일일 알림",
+    "channel_description": "매일 퍼즐 알림과 저녁 리마인더",
+    "daily_title": "오늘 퍼즐 풀었어요?",
+    "daily_body": "초성만 보고 단어를 맞혀보세요.",
+    "reminder_title": "아직 안 풀었어요",
+    "reminder_body": "연속 기록을 지켜요."
   }
 }

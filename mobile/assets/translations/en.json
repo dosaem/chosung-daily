@@ -147,7 +147,10 @@
     "result_success": "solved",
     "result_fail": "failed",
     "result_in_progress": "in progress",
-    "result_none": "not played"
+    "result_none": "not played",
+    "notification_off": "Notifications are off — turn them on in system settings",
+    "daily_notification_picker": "Daily reminder time",
+    "reminder_hint": "One more nudge at 8 PM if the puzzle is unsolved"
   },
   "onboarding": {
     "skip": "Skip",
@@ -173,5 +176,13 @@
     "tracking_title": "Allow personalised ads",
     "tracking_body": "Allowing this makes the ads more relevant. The app works the same either way.",
     "tracking_continue": "Continue"
+  },
+  "notification": {
+    "channel_name": "Daily reminders",
+    "channel_description": "Your daily puzzle nudge and evening reminder",
+    "daily_title": "Solved today's puzzle?",
+    "daily_body": "Guess the word from its consonants.",
+    "reminder_title": "Not solved yet",
+    "reminder_body": "Keep your streak alive."
   }
 }
