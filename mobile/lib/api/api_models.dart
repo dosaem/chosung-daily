@@ -138,3 +138,221 @@ class MyStats {
   final int solvedCount;
   final LinkedAccount? linkedAccount;
 }
+
+/// 가림 타일 한 칸의 종류. 서버 `app/utils/mask.py` 의 `t` 값과 같다.
+enum MaskTileType {
+  /// 보이는 타일 — `char` 가 화면에 찍힌다(ko 초성, en 자음).
+  revealed('r'),
+
+  /// 빈 타일 — 맞춰야 하는 글자. `char` 는 항상 빈 문자열이다.
+  hidden('h'),
+
+  /// 구분자(공백·하이픈). 타일이 아니라 타일 사이 간격이고 글자 수에 안 들어간다.
+  separator('s')
+  ;
+
+  const MaskTileType(this.wire);
+
+  final String wire;
+
+  /// 모르는 종류는 빈 타일로 떨어뜨린다 — 서버가 앱보다 먼저 타일을 늘렸을 때
+  /// 글자로 그려버리면 정답이 새어나갈 수 있다.
+  static MaskTileType fromWire(String? value) {
+    for (final type in MaskTileType.values) {
+      if (type.wire == value) return type;
+    }
+    return hidden;
+  }
+}
+
+@immutable
+class MaskTile {
+  const MaskTile({required this.type, required this.char});
+
+  factory MaskTile.fromJson(Map<String, dynamic> json) => MaskTile(
+    type: MaskTileType.fromWire(json['t'] as String?),
+    char: json['c'] as String? ?? '',
+  );
+
+  final MaskTileType type;
+  final String char;
+}
+
+enum WordCategory {
+  general('general'),
+  bookTitle('book_title')
+  ;
+
+  const WordCategory(this.wire);
+
+  final String wire;
+
+  /// 운영자가 카테고리를 늘려도 앱이 떠야 한다 — 모르는 값은 일반 단어로 본다.
+  static WordCategory fromWire(String? value) {
+    for (final category in WordCategory.values) {
+      if (category.wire == value) return category;
+    }
+    return general;
+  }
+
+  String get labelKey => switch (this) {
+    general => 'category.general',
+    bookTitle => 'category.book_title',
+  };
+}
+
+enum PuzzleStatus {
+  inProgress('in_progress'),
+  success('success'),
+  fail('fail')
+  ;
+
+  const PuzzleStatus(this.wire);
+
+  final String wire;
+
+  static PuzzleStatus fromWire(String? value) {
+    for (final status in PuzzleStatus.values) {
+      if (status.wire == value) return status;
+    }
+    return inProgress;
+  }
+
+  /// 끝난 퍼즐은 입력 대신 "결과 보기" 를 보여준다.
+  bool get isFinished => this != inProgress;
+}
+
+/// 시도 이력 한 행. `feedback` 은 구분자를 뺀 글자 수(`length`)만큼 항상 채워져
+/// 온다 — 정답 행도 전부 `true` 다(README "04. 시도 이력을 서버가 돌려주는 이유").
+@immutable
+class PuzzleAttempt {
+  const PuzzleAttempt({required this.guess, required this.feedback});
+
+  factory PuzzleAttempt.fromJson(Map<String, dynamic> json) => PuzzleAttempt(
+    guess: json['guess'] as String,
+    feedback: (json['feedback'] as List<dynamic>)
+        .map((value) => value as bool)
+        .toList(growable: false),
+  );
+
+  final String guess;
+  final List<bool> feedback;
+}
+
+/// `GET /api/v1/puzzles/today` 응답. 보드는 이 값 하나로 전부 그려진다 —
+/// 로컬에 이력을 쌓지 않는다(README "04. 시도 이력을 서버가 돌려주는 이유").
+@immutable
+class TodayPuzzle {
+  const TodayPuzzle({
+    required this.puzzleId,
+    required this.date,
+    required this.language,
+    required this.mask,
+    required this.length,
+    required this.category,
+    required this.attemptsLeft,
+    required this.attempts,
+    required this.status,
+    required this.hintUnlocked,
+    this.hint,
+    this.answer,
+  });
+
+  factory TodayPuzzle.fromJson(Map<String, dynamic> json) => TodayPuzzle(
+    puzzleId: json['puzzle_id'] as int,
+    // 서버가 KST 로 계산한 퍼즐 날짜다. 날짜 줄에 그대로 찍는다.
+    date: DateTime.parse(json['date'] as String),
+    language:
+        PuzzleLanguage.fromWire(json['language'] as String?) ??
+        PuzzleLanguage.ko,
+    mask: (json['mask'] as List<dynamic>)
+        .map((tile) => MaskTile.fromJson(tile as Map<String, dynamic>))
+        .toList(growable: false),
+    length: json['length'] as int,
+    category: WordCategory.fromWire(json['category'] as String?),
+    attemptsLeft: json['attempts_left'] as int,
+    attempts: (json['attempts'] as List<dynamic>)
+        .map(
+          (attempt) => PuzzleAttempt.fromJson(attempt as Map<String, dynamic>),
+        )
+        .toList(growable: false),
+    status: PuzzleStatus.fromWire(json['status'] as String?),
+    hintUnlocked: json['hint_unlocked'] as bool,
+    hint: json['hint'] as String?,
+    answer: json['answer'] as String?,
+  );
+
+  final int puzzleId;
+  final DateTime date;
+  final PuzzleLanguage language;
+  final List<MaskTile> mask;
+
+  /// 구분자를 뺀 글자 수. 보드 한 행의 타일 수이자 제출 길이 검증 기준이다.
+  final int length;
+  final WordCategory category;
+  final int attemptsLeft;
+  final List<PuzzleAttempt> attempts;
+  final PuzzleStatus status;
+  final bool hintUnlocked;
+
+  /// 3번째 오답 뒤 또는 힌트 미리 보기(티켓 31)를 쓴 뒤에만 채워진다.
+  final String? hint;
+
+  /// 끝난 퍼즐에만 채워진다.
+  final String? answer;
+
+  /// 입력창 최대 글자 수를 정할 때 쓴다 — en 은 구분자까지 칠 수 있다.
+  int get separatorCount =>
+      mask.where((tile) => tile.type == MaskTileType.separator).length;
+
+  TodayPuzzle copyWith({
+    int? attemptsLeft,
+    List<PuzzleAttempt>? attempts,
+    PuzzleStatus? status,
+    String? hint,
+    String? answer,
+  }) => TodayPuzzle(
+    puzzleId: puzzleId,
+    date: date,
+    language: language,
+    mask: mask,
+    length: length,
+    category: category,
+    attemptsLeft: attemptsLeft ?? this.attemptsLeft,
+    attempts: attempts ?? this.attempts,
+    status: status ?? this.status,
+    hintUnlocked: hintUnlocked,
+    hint: hint ?? this.hint,
+    answer: answer ?? this.answer,
+  );
+}
+
+/// `POST /api/v1/puzzles/today/guesses` 응답.
+@immutable
+class GuessResult {
+  const GuessResult({
+    required this.isCorrect,
+    required this.attemptsLeft,
+    this.feedback,
+    this.hint,
+    this.answer,
+  });
+
+  factory GuessResult.fromJson(Map<String, dynamic> json) => GuessResult(
+    isCorrect: json['is_correct'] as bool,
+    attemptsLeft: json['attempts_left'] as int,
+    feedback: (json['feedback'] as List<dynamic>?)
+        ?.map((value) => value as bool)
+        .toList(growable: false),
+    hint: json['hint'] as String?,
+    answer: json['answer'] as String?,
+  );
+
+  final bool isCorrect;
+  final int attemptsLeft;
+
+  /// 정답일 때는 null 이다 — 그 행은 전부 맞음이라 서버가 따로 안 보낸다.
+  final List<bool>? feedback;
+  final String? hint;
+  final String? answer;
+}

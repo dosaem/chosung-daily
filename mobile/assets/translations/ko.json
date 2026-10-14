@@ -31,5 +31,37 @@
   },
   "ads": {
     "slot_label": "광고 자리"
+  },
+  "category": {
+    "general": "일반 단어",
+    "book_title": "책 제목"
+  },
+  "today": {
+    "new_puzzle_chip": "KST 00:00 새 퍼즐",
+    "length": "{count}글자",
+    "attempts_left": "남은 기회 {left}/{max}",
+    "input_hint": "정답을 입력하세요",
+    "counter": "{typed}/{total}",
+    "submit": "제출",
+    "show_result": "결과 보기",
+    "puzzle_changed": "새 퍼즐이 있어요",
+    "offline": "오프라인이에요. 연결을 확인해주세요",
+    "submit_failed": "제출하지 못했어요. 잠시 후 다시 시도해주세요",
+    "refresh_failed": "다시 불러오지 못했어요. 다시 시도해주세요",
+    "error_title": "퍼즐을 불러오지 못했어요",
+    "error_body": "네트워크를 확인하고 다시 시도해주세요.",
+    "retry": "다시 시도",
+    "none_title": "곧 새 퍼즐이 나와요",
+    "none_body": "다음 퍼즐까지 {time}",
+    "attempt_row": "시도 {index}",
+    "tile_correct": "맞음",
+    "tile_wrong": "아님",
+    "tile_blank": "빈 칸",
+    "streak": "연속 기록 {count}일"
+  },
+  "hint": {
+    "locked": "힌트는 3번째 오답 후 열려요",
+    "watch_ad": "광고 보고 힌트 미리 보기",
+    "label": "힌트"
   }
 }

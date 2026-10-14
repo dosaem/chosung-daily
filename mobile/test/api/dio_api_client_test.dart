@@ -224,4 +224,130 @@ void main() {
       );
     });
   });
+
+  group('퍼즐 엔드포인트', () {
+    Map<String, dynamic> todayBody() => {
+      'puzzle_id': 42,
+      'date': '2026-10-13',
+      'language': 'ko',
+      'mask': [
+        {'t': 'r', 'c': 'ㅈ'},
+        {'t': 'h', 'c': ''},
+      ],
+      'chosung': 'ㅈ_',
+      'length': 2,
+      'category': 'general',
+      'attempts_left': 5,
+      'attempts': <Map<String, dynamic>>[],
+      'status': 'in_progress',
+      'hint_unlocked': false,
+      'hint': null,
+      'answer': null,
+    };
+
+    test('GET /puzzles/today 는 Bearer 로 호출하고 보드를 읽어온다', () async {
+      final adapter = _RecordingAdapter((_) => _json(todayBody(), 200));
+      final client = _clientWith(adapter, token: 'guest-token');
+
+      final puzzle = await client.fetchTodayPuzzle();
+
+      expect(puzzle.puzzleId, 42);
+      expect(puzzle.length, 2);
+      expect(adapter.requests.single.path, '/puzzles/today');
+      expect(adapter.requests.single.method, 'GET');
+      expect(
+        adapter.requests.single.headers['Authorization'],
+        'Bearer guest-token',
+      );
+    });
+
+    test('퍼즐이 아직 없으면 NoPuzzleTodayApiException', () async {
+      final adapter = _RecordingAdapter(
+        (_) => _json({
+          'code': 'NO_PUZZLE_TODAY',
+          'message': '오늘의 퍼즐이 아직 준비되지 않았습니다.',
+        }, 404),
+      );
+      final client = _clientWith(adapter, token: 'guest-token');
+
+      await expectLater(
+        client.fetchTodayPuzzle(),
+        throwsA(isA<NoPuzzleTodayApiException>()),
+      );
+    });
+
+    test('POST /puzzles/today/guesses 는 puzzle_id 를 같이 보낸다', () async {
+      final adapter = _RecordingAdapter(
+        (_) => _json({
+          'is_correct': false,
+          'feedback': [true, false],
+          'attempts_left': 4,
+          'hint': null,
+          'answer': null,
+        }, 200),
+      );
+      final client = _clientWith(adapter, token: 'guest-token');
+
+      final result = await client.submitGuess(puzzleId: 42, guess: '지하');
+
+      expect(result.isCorrect, isFalse);
+      expect(result.feedback, [true, false]);
+      expect(result.attemptsLeft, 4);
+      expect(adapter.requests.single.path, '/puzzles/today/guesses');
+      expect(adapter.requests.single.method, 'POST');
+      expect(adapter.requests.single.data, {
+        'puzzle_id': 42,
+        'guess': '지하',
+      });
+      expect(
+        adapter.requests.single.headers['Authorization'],
+        'Bearer guest-token',
+      );
+    });
+
+    // 자정 경과·다른 기기에서 언어 변경. 시도는 소비되지 않았고 할 일은 새로고침뿐이다.
+    test('409 PUZZLE_CHANGED 는 전용 예외로 온다', () async {
+      final adapter = _RecordingAdapter(
+        (_) => _json({
+          'code': 'PUZZLE_CHANGED',
+          'message': '퍼즐이 바뀌었어요. 새로고침해주세요.',
+        }, 409),
+      );
+      final client = _clientWith(adapter, token: 'guest-token');
+
+      await expectLater(
+        client.submitGuess(puzzleId: 41, guess: '지하'),
+        throwsA(isA<PuzzleChangedApiException>()),
+      );
+    });
+
+    test('PATCH /me 는 바뀐 퍼즐 언어를 돌려준다', () async {
+      final adapter = _RecordingAdapter(
+        (_) => _json({'puzzle_language': 'en'}, 200),
+      );
+      final client = _clientWith(adapter, token: 'guest-token');
+
+      final language = await client.updatePuzzleLanguage(PuzzleLanguage.en);
+
+      expect(language, PuzzleLanguage.en);
+      expect(adapter.requests.single.path, '/me');
+      expect(adapter.requests.single.method, 'PATCH');
+      expect(adapter.requests.single.data, {'puzzle_language': 'en'});
+      expect(
+        adapter.requests.single.headers['Authorization'],
+        'Bearer guest-token',
+      );
+    });
+
+    test('토큰이 없으면 서버까지 가지 않고 401 과 같은 예외를 낸다', () async {
+      final adapter = _RecordingAdapter((_) => _json(todayBody(), 200));
+      final client = _clientWith(adapter);
+
+      await expectLater(
+        client.fetchTodayPuzzle(),
+        throwsA(isA<UnauthorizedApiException>()),
+      );
+      expect(adapter.requests, isEmpty);
+    });
+  });
 }

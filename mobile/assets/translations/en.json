@@ -31,5 +31,37 @@
   },
   "ads": {
     "slot_label": "Ad slot"
+  },
+  "category": {
+    "general": "Everyday word",
+    "book_title": "Book title"
+  },
+  "today": {
+    "new_puzzle_chip": "New puzzle at 00:00 KST",
+    "length": "{count} letters",
+    "attempts_left": "{left}/{max} tries left",
+    "input_hint": "Type your answer",
+    "counter": "{typed}/{total}",
+    "submit": "Submit",
+    "show_result": "See result",
+    "puzzle_changed": "There's a new puzzle",
+    "offline": "You're offline. Check your connection",
+    "submit_failed": "Couldn't submit. Please try again in a moment",
+    "refresh_failed": "Couldn't refresh. Please try again",
+    "error_title": "Couldn't load the puzzle",
+    "error_body": "Check your network and try again.",
+    "retry": "Try again",
+    "none_title": "A new puzzle is on the way",
+    "none_body": "Next puzzle in {time}",
+    "attempt_row": "Try {index}",
+    "tile_correct": "correct",
+    "tile_wrong": "wrong",
+    "tile_blank": "blank",
+    "streak": "{count} day streak"
+  },
+  "hint": {
+    "locked": "The hint opens after your third wrong answer",
+    "watch_ad": "Watch an ad to peek at the hint",
+    "label": "Hint"
   }
 }

@@ -72,8 +72,16 @@ ThemeData appTheme(Brightness brightness) {
             borderRadius: BorderRadius.circular(_buttonRadius),
           ),
         ),
+        // 글꼴을 여기서도 적어준다 — ButtonStyle 의 textStyle 은 ThemeData 의
+        // textTheme 을 거치지 않아서, 비워 두면 주 버튼 글자만 시스템 글꼴로
+        // 나온다(OVERRIDES §3 은 UI 전체를 Pretendard 로 둔다).
         textStyle: const WidgetStatePropertyAll(
-          TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+          TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            fontFamily: _fontFamily,
+            fontFamilyFallback: _fontFamilyFallback,
+          ),
         ),
       ),
     ),
