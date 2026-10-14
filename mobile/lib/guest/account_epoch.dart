@@ -27,7 +27,8 @@ class AccountEpochNotifier extends Notifier<int> {
   /// 남의 것이라는 뜻으로 읽고 자기 상태를 버린다.
   ///
   /// 토큰을 읽는 곳(`_authorized()`)과 이 비교 사이에 `await` 가 없어야 한다 —
-  /// 그래서 요청을 **만드는** 자리에서 감싼다.
+  /// 그래서 요청을 **만드는** 자리에서 감싼다. 응답이 null 일 수 있는 쓰기에는
+  /// 쓰지 않는다: 거절과 응답을 구별할 수 없다.
   Future<T?> sendIfSameAccount<T>(int epoch, Future<T> Function() send) async =>
       epoch == state ? await send() : null;
 }
