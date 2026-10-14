@@ -1,9 +1,11 @@
 from app.models import PuzzleLanguage, Word, WordCategory
 from app.schemas.book import BookSearchResult
 from app.services.word_service import (
+    CSV_EXTRA_FIELD_KEY,
     WORD_CSV_COLUMNS,
     RowStatus,
     add_word_from_book,
+    duplicate_csv_columns,
     import_word_rows,
     missing_csv_columns,
     seed_words_from_csv,
@@ -244,3 +246,41 @@ def test_missing_csv_columns_lists_what_the_header_lacks(app):
     assert missing_csv_columns(["language", "category", "answer", "hint"]) == []
     # 열 순서와 앞뒤 공백은 따지지 않는다 — 사람이 만든 CSV 다.
     assert missing_csv_columns([" answer", "hint ", "category", "language"]) == []
+
+
+def test_duplicate_csv_columns_lists_required_names_that_repeat(app):
+    """D-15-3 재현 B 의 규칙. `missing_csv_columns` 는 집합이라 중복을 못 본다."""
+    assert duplicate_csv_columns(["language", "category", "answer", "answer", "hint"]) == ["answer"]
+    assert duplicate_csv_columns(["language", "category", "answer", "hint"]) == []
+    assert duplicate_csv_columns([" answer ", "answer"]) == ["answer"]
+    assert duplicate_csv_columns(None) == []
+
+
+def test_import_word_rows_rejects_a_row_with_values_past_the_header(app):
+    """D-15-3 재현 A 의 규칙: 초과 값이 있는 행은 저장하지 않고 사유를 돌려준다."""
+    outcomes = import_word_rows(
+        [
+            {**_row(answer="학교", hint="배우는"), CSV_EXTRA_FIELD_KEY: ["장소"]},
+            _row(answer="사과"),
+        ]
+    )
+
+    assert [outcome.status for outcome in outcomes] == [RowStatus.ERROR, RowStatus.ADDED]
+    assert "헤더보다 많습니다" in outcomes[0].reason
+    assert [word.answer for word in Word.query.all()] == ["사과"]
+
+
+def test_seed_words_from_csv_reports_a_row_with_values_past_the_header(app, tmp_path):
+    """CLI 시드도 같은 규칙을 쓴다 — 적재 규칙이 업로드 쪽에만 생기면 어긋난다."""
+    path = tmp_path / "words.csv"
+    path.write_text(
+        "language,category,answer,hint\nko,general,학교,배우는,장소\nko,general,사과,과일\n",
+        encoding="utf-8",
+    )
+
+    result = seed_words_from_csv(str(path))
+
+    assert result.created == 1
+    assert len(result.skipped) == 1
+    assert "헤더보다 많습니다" in result.skipped[0]
+    assert [word.answer for word in Word.query.all()] == ["사과"]

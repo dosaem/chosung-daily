@@ -64,15 +64,24 @@ def search(
     return db.paginate(stmt, page=page, per_page=per_page, error_out=False)
 
 
-def assigned_puzzle_dates(word_id: int) -> list[date]:
-    """이 단어가 배정된 퍼즐 날짜들. 삭제를 막을지 판단하는 데 쓴다."""
+def assigned_puzzle_slots(word_id: int) -> list[tuple[date, PuzzleLanguage]]:
+    """이 단어가 배정된 퍼즐의 (날짜, 언어). 날짜만으로는 캐시 키를 못 만든다 —
+    캐시가 `puzzle:{date}:{lang}` 로 갈려 있어서(app/services/puzzle_cache.py)
+    수정 후 무효화할 키를 고르려면 언어가 같이 필요하다."""
     return [
-        puzzle_date
-        for (puzzle_date,) in db.session.query(DailyPuzzle.puzzle_date)
+        (puzzle_date, language)
+        for puzzle_date, language in db.session.query(
+            DailyPuzzle.puzzle_date, DailyPuzzle.language
+        )
         .filter_by(word_id=word_id)
         .order_by(DailyPuzzle.puzzle_date)
         .all()
     ]
+
+
+def assigned_puzzle_dates(word_id: int) -> list[date]:
+    """이 단어가 배정된 퍼즐 날짜들. 삭제를 막을지 판단하는 데 쓴다."""
+    return [puzzle_date for puzzle_date, _ in assigned_puzzle_slots(word_id)]
 
 
 def _escape_like(keyword: str) -> str:

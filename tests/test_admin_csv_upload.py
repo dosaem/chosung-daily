@@ -123,3 +123,55 @@ def test_upload_without_a_csrf_token_is_forbidden(admin_session):
 
     assert res.status_code == 403
     assert Word.query.count() == 0
+
+
+# --- 깨진 CSV 구조 (수정 라운드 1: D-15-3, D-15-4) -------------------------
+
+
+def test_upload_rejects_a_row_with_more_values_than_the_header(admin_session):
+    """D-15-3 재현 A: 4열 헤더에 값 5개 — 초과 값이 조용히 버려졌다.
+
+    `DictReader` 는 남는 값을 restkey 에 모아두므로, 그 자리를 안 보면 `장소` 가
+    사라진 걸 운영자가 알 길이 없다.
+    """
+    res = _upload(admin_session, f"{HEADER}\nko,general,학교,배우는,장소\n")
+    html = res.get_data(as_text=True)
+
+    assert res.status_code == 200
+    assert Word.query.count() == 0
+    assert "열이 헤더보다 많습니다" in html
+
+
+def test_upload_rejects_a_duplicated_required_header(admin_session):
+    """D-15-3 재현 B: `answer` 가 두 번 — 앞 값이 뒤 값에 덮여 사라졌다."""
+    res = _upload(
+        admin_session, "language,category,answer,answer,hint\nko,general,기차,버스,교통\n"
+    )
+    html = res.get_data(as_text=True)
+
+    assert res.status_code == 200
+    assert Word.query.count() == 0
+    assert "같은 열이 두 번 있어요: answer" in html
+
+
+def test_upload_reports_a_field_over_the_csv_parser_limit(admin_session):
+    """D-15-4 재현: 131072자를 넘는 필드에서 `csv.Error` 가 그대로 터져 500 이 됐다."""
+    body = f"{HEADER}\nko,general,기차," + "x" * 131073 + "\n"
+
+    res = _upload(admin_session, body)
+    html = res.get_data(as_text=True)
+
+    assert res.status_code == 200
+    assert Word.query.count() == 0
+    assert "CSV 를 읽지 못했어요" in html
+
+
+def test_upload_keeps_loading_good_rows_next_to_a_too_wide_row(admin_session):
+    """깨진 행 하나가 나머지 행을 막지 않는다 — 행별 결과의 기존 약속이다."""
+    res = _upload(
+        admin_session,
+        f"{HEADER}\nko,general,학교,배우는,장소\nko,general,사과,빨간 과일\n",
+    )
+
+    assert res.status_code == 200
+    assert [word.answer for word in Word.query.all()] == ["사과"]

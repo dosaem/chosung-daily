@@ -7,10 +7,16 @@ from app.extensions import db
 from app.models import PuzzleLanguage, Word, WordCategory
 from app.repositories import word_repository
 from app.schemas.book import BookSearchResult
+from app.services.puzzle_cache import invalidate_cached_puzzle
 
 # CSV 열 이름과 순서. CLI `flask seed-words` 가 읽는 파일과 운영자 페이지 업로드가
 # 같은 포맷을 쓴다 (README "운영: 단어 CSV 업로드").
 WORD_CSV_COLUMNS = ("language", "category", "answer", "hint")
+
+# `csv.DictReader(..., restkey=...)` 가 헤더보다 많은 값을 모아둘 키. 기본값(None)으로
+# 두면 "열이 하나 더 있었다" 와 "그런 열은 없었다" 가 구분되지 않아 초과 값이 조용히
+# 버려진다 — 이름을 붙여서 `import_word_rows` 가 그 자리를 보고 행 오류를 낸다.
+CSV_EXTRA_FIELD_KEY = "__extra__"
 
 # 운영자 목록 한 페이지의 줄 수.
 WORDS_PER_PAGE = 20
@@ -112,6 +118,17 @@ def missing_csv_columns(fieldnames: list[str] | None) -> list[str]:
     return [column for column in WORD_CSV_COLUMNS if column not in present]
 
 
+def duplicate_csv_columns(fieldnames: list[str] | None) -> list[str]:
+    """CSV 헤더에 두 번 이상 나온 필수 열 이름.
+
+    `missing_csv_columns` 는 집합으로 존재만 보기 때문에 `answer` 가 두 번 있어도
+    통과한다. 그러면 `DictReader` 가 같은 키를 뒤 값으로 덮어써서 앞 열의 값이
+    사라지는데, 운영자는 "추가 1개" 만 보고 넘어간다. 그래서 여기서 거부한다.
+    """
+    names = [(name or "").strip() for name in fieldnames or ()]
+    return [column for column in WORD_CSV_COLUMNS if names.count(column) > 1]
+
+
 def import_word_rows(rows: list[dict[str, str]]) -> list[RowResult]:
     """CSV 행 리스트를 적재하고 행별 결과를 돌려준다.
 
@@ -130,8 +147,28 @@ def import_word_rows(rows: list[dict[str, str]]) -> list[RowResult]:
         # 헤더가 1행이라 데이터 첫 줄이 2행이다. 헤더 이름의 앞뒤 공백도 떼서
         # `missing_csv_columns` 가 통과시킨 헤더를 여기서도 같은 이름으로 읽는다.
         line = index + 2
-        row = {(key or "").strip(): value for key, value in raw_row.items()}
+        extra = raw_row.get(CSV_EXTRA_FIELD_KEY)
+        row = {
+            (key or "").strip(): value
+            for key, value in raw_row.items()
+            if key != CSV_EXTRA_FIELD_KEY
+        }
         answer = (row.get("answer") or "").strip()
+
+        # 값이 헤더보다 많은 행은 어느 값이 어느 열인지 알 수 없다. 앞 4개만 받고
+        # 나머지를 버리면 쉼표를 빠뜨린 힌트("배우는, 장소")가 잘린 채 저장된다.
+        if extra:
+            results.append(
+                RowResult(
+                    line,
+                    answer,
+                    RowStatus.ERROR,
+                    f"열이 헤더보다 많습니다 (헤더 {len(WORD_CSV_COLUMNS)}칸, 이 행 "
+                    f"{len(WORD_CSV_COLUMNS) + len(extra)}칸). 쉼표가 들어간 값은 "
+                    '따옴표로 감싸주세요.',
+                )
+            )
+            continue
 
         try:
             parsed = parse_word_input(
@@ -165,7 +202,7 @@ def seed_words_from_csv(csv_path: str) -> SeedResult:
     """
     # utf-8-sig: 엑셀이 저장한 CSV 의 BOM 을 헤더 이름에 끌어들이지 않는다.
     with open(csv_path, encoding="utf-8-sig") as f:
-        rows = list(csv.DictReader(f))
+        rows = list(csv.DictReader(f, restkey=CSV_EXTRA_FIELD_KEY))
 
     outcomes = import_word_rows(rows)
     return SeedResult(
@@ -218,18 +255,44 @@ def update_word(
     hint: str | None,
 ) -> Word:
     """단어를 고친다. `mask`·`chosung` 은 `Word` 의 before_update 이벤트가 다시 계산한다
-    (app/models/word.py) — 저장 경로마다 가림 계산을 기억하지 않아도 되는 이유다."""
+    (app/models/word.py) — 저장 경로마다 가림 계산을 기억하지 않아도 되는 이유다.
+
+    이미 퍼즐로 배정된 단어는 두 가지를 더 신경 쓴다:
+
+    - **언어는 못 바꾼다.** `DailyPuzzle.language` 는 그대로 남으니, ko 퍼즐이
+      참조하는 단어를 en 으로 바꾸면 ko 조회·채점이 영어 단어를 쓴다. 정답·힌트
+      수정(오타·부적절한 내용)은 그대로 되고, 언어만 막는다 — 언어를 정말 바꿔야
+      하면 그 날짜의 배정을 먼저 바꿔야 한다(티켓 16). 삭제 차단과 같은 이유다.
+    - **그 퍼즐의 캐시를 지운다.** 오늘 퍼즐 읽기는 cache-aside 라
+      (`puzzle_service.get_today_puzzle_or_404`) 커밋만 하면 TTL 26시간 동안 옛
+      값이 계속 나간다. 커밋이 끝난 뒤에 지워서, 롤백된 수정이 캐시를 날리지
+      않게 한다.
+    """
     parsed = parse_word_input(language, category, answer, hint)
     if word_repository.find_duplicate(
         parsed.language, parsed.answer, parsed.category, exclude_id=word.id
     ):
         raise ValidationError(DUPLICATE_MESSAGE)
 
+    assigned = word_repository.assigned_puzzle_slots(word.id)
+    if assigned and parsed.language is not word.language:
+        shown = ", ".join(
+            puzzle_date.isoformat() for puzzle_date, _ in assigned[:_SHOWN_ASSIGNED_DATES]
+        )
+        more = " 등" if len(assigned) > _SHOWN_ASSIGNED_DATES else ""
+        raise ValidationError(
+            f"이미 퍼즐로 배정된 단어는 언어를 바꿀 수 없습니다 (배정일 {shown}{more}). "
+            "정답·힌트는 고칠 수 있어요."
+        )
+
     word.language = parsed.language
     word.category = parsed.category
     word.answer = parsed.answer
     word.hint = parsed.hint
     db.session.commit()
+
+    for puzzle_date, puzzle_language in assigned:
+        invalidate_cached_puzzle(puzzle_date, puzzle_language)
     return word
 
 

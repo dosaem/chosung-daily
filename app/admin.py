@@ -181,14 +181,31 @@ def import_csv():
             error="UTF-8 로 저장한 CSV 만 읽을 수 있어요 (엑셀은 'CSV UTF-8' 로 저장)."
         )
 
-    reader = csv.DictReader(io.StringIO(text))
-    missing = word_service.missing_csv_columns(reader.fieldnames)
+    # restkey 에 이름을 줘서 헤더보다 많은 값이 온 행을 서비스가 알아볼 수 있게 한다
+    # (기본값 None 이면 초과 값이 이름 없는 키에 담겨 조용히 버려진다).
+    reader = csv.DictReader(io.StringIO(text), restkey=word_service.CSV_EXTRA_FIELD_KEY)
+    try:
+        fieldnames = reader.fieldnames
+        rows = list(reader)
+    except csv.Error as err:
+        # 한 칸이 파서 한도(131072자)를 넘으면 여기서 터진다. 그냥 올려보내면 500 이
+        # 되고 결과 표도 못 그리니, 운영자가 고칠 수 있는 문구로 바꿔 돌려준다.
+        return _render_import(error=f"CSV 를 읽지 못했어요: {err}. 한 칸에 너무 긴 값이 있어요.")
+
+    missing = word_service.missing_csv_columns(fieldnames)
     if missing:
         return _render_import(
             error=f"헤더에 없는 열: {', '.join(missing)}. 첫 줄은 {_csv_header()} 여야 해요."
         )
 
-    return _render_import(results=word_service.import_word_rows(list(reader)))
+    duplicated = word_service.duplicate_csv_columns(fieldnames)
+    if duplicated:
+        return _render_import(
+            error=f"헤더에 같은 열이 두 번 있어요: {', '.join(duplicated)}. "
+            f"첫 줄은 {_csv_header()} 여야 해요."
+        )
+
+    return _render_import(results=word_service.import_word_rows(rows))
 
 
 def _csv_header() -> str:
