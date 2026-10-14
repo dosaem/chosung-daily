@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:chosung/api/api_exception.dart';
 import 'package:chosung/api/api_models.dart';
 import 'package:chosung/api/api_providers.dart';
@@ -211,6 +213,26 @@ void main() {
     expect(api.updatedPuzzleLanguages, [PuzzleLanguage.en]);
     expect(api.fetchTodayPuzzleCalls, 2);
     expect(find.text('영어'), findsOneWidget);
+  });
+
+  testWidgets('바꾸는 동안 퍼즐 언어 행은 다시 눌리지 않는다', (tester) async {
+    final gate = Completer<void>();
+    final api = FakeApiClient()..updatePuzzleLanguageGate = gate;
+    await _pumpRecords(tester, api: api);
+
+    await tester.tap(_row('퍼즐 언어'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('영어').last);
+    await tester.pumpAndSettle();
+
+    // 응답을 기다리는 동안은 비활성이다(쓰기 직렬화).
+    expect(tester.widget<SettingsRow>(_row('퍼즐 언어')).onTap, isNull);
+
+    gate.complete();
+    await tester.pumpAndSettle();
+
+    expect(tester.widget<SettingsRow>(_row('퍼즐 언어')).onTap, isNotNull);
+    expect(api.updatedPuzzleLanguages, [PuzzleLanguage.en]);
   });
 
   testWidgets('언어를 바꾸지 못하면 그 행 아래에 안내가 남는다', (tester) async {

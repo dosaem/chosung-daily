@@ -200,6 +200,9 @@ class FakeApiClient implements ApiClient {
   /// 분포 응답도 붙잡을 수 있다 — 결과 시트의 통계 스켈레톤을 세워 두는 데 쓴다.
   Completer<void>? fetchTodayStatsGate;
 
+  /// 퍼즐 언어 변경 응답을 붙잡는다 — "바꾸는 중" 상태를 세워두고 본다.
+  Completer<void>? updatePuzzleLanguageGate;
+
   final List<PuzzleLanguage> createGuestLanguages = [];
   int fetchConfigCalls = 0;
   int fetchMyStatsCalls = 0;
@@ -278,6 +281,7 @@ class FakeApiClient implements ApiClient {
     PuzzleLanguage puzzleLanguage,
   ) async {
     updatedPuzzleLanguages.add(puzzleLanguage);
+    if (updatePuzzleLanguageGate case final gate?) await gate.future;
     if (updatePuzzleLanguageError case final error?) throw error;
     return puzzleLanguage;
   }

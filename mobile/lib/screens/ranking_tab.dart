@@ -59,7 +59,7 @@ class _Board extends ConsumerWidget {
     final header = _Header(
       date: board?.date,
       // 퍼즐이 없어 응답이 없을 때도 칩은 내 설정 언어를 보여준다.
-      language: board?.language ?? ref.watch(puzzleLanguageProvider),
+      language: board?.language ?? ref.watch(puzzleLanguageProvider).language,
       me: me,
       sideBySide: isTable,
     );

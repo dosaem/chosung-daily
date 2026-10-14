@@ -358,7 +358,7 @@ class _PuzzleLanguageRowState extends ConsumerState<_PuzzleLanguageRow> {
   bool _failed = false;
 
   Future<void> _pick() async {
-    final current = ref.read(puzzleLanguageProvider);
+    final current = ref.read(puzzleLanguageProvider).language;
     final picked = await showAdaptiveSheet<PuzzleLanguage>(
       context: context,
       builder: (context) => _LanguagePicker(selected: current),
@@ -373,15 +373,17 @@ class _PuzzleLanguageRowState extends ConsumerState<_PuzzleLanguageRow> {
 
   @override
   Widget build(BuildContext context) {
-    final language = ref.watch(puzzleLanguageProvider);
+    final setting = ref.watch(puzzleLanguageProvider);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         SettingsRow(
           label: 'records.puzzle_language'.tr(),
-          value: 'language.${language.wire}'.tr(),
-          onTap: _pick,
+          value: 'language.${setting.language.wire}'.tr(),
+          // 쓰기가 끝나기 전엔 다시 못 연다 — 두 요청이 겹치면 서버와 화면이
+          // 서로 다른 언어로 끝날 수 있다.
+          onTap: setting.changing ? null : _pick,
         ),
         if (_failed)
           Padding(

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:chosung/api/api_exception.dart';
 import 'package:chosung/api/api_models.dart';
 import 'package:chosung/api/api_providers.dart';
@@ -35,7 +37,10 @@ void main() {
   test('처음 값은 시작할 때 읽은 /me/stats 의 퍼즐 언어다', () {
     final container = _container(FakeApiClient(), stored: PuzzleLanguage.en);
 
-    expect(container.read(puzzleLanguageProvider), PuzzleLanguage.en);
+    expect(
+      container.read(puzzleLanguageProvider).language,
+      PuzzleLanguage.en,
+    );
   });
 
   test('언어를 바꾸면 PATCH /me 를 보내고 홈·순위를 다시 읽는다', () async {
@@ -51,7 +56,10 @@ void main() {
 
     expect(changed, isTrue);
     expect(api.updatedPuzzleLanguages, [PuzzleLanguage.en]);
-    expect(container.read(puzzleLanguageProvider), PuzzleLanguage.en);
+    expect(
+      container.read(puzzleLanguageProvider).language,
+      PuzzleLanguage.en,
+    );
     await container.read(todayPuzzleProvider.future);
     await container.read(leaderboardProvider.future);
     expect(api.fetchTodayPuzzleCalls, 2);
@@ -83,6 +91,31 @@ void main() {
         .change(PuzzleLanguage.en);
 
     expect(changed, isFalse);
-    expect(container.read(puzzleLanguageProvider), PuzzleLanguage.ko);
+    final setting = container.read(puzzleLanguageProvider);
+    expect(setting.language, PuzzleLanguage.ko);
+    expect(setting.changing, isFalse);
+  });
+
+  test('바꾸는 중에는 다음 요청을 받지 않는다 — 서버 쓰기를 직렬화한다', () async {
+    final gate = Completer<void>();
+    final api = FakeApiClient()..updatePuzzleLanguageGate = gate;
+    final container = _container(api);
+
+    final first = container
+        .read(puzzleLanguageProvider.notifier)
+        .change(PuzzleLanguage.en);
+    expect(container.read(puzzleLanguageProvider).changing, isTrue);
+
+    // 응답을 기다리는 동안 들어온 요청은 서버로 나가지 않는다.
+    await container
+        .read(puzzleLanguageProvider.notifier)
+        .change(PuzzleLanguage.ko);
+    expect(api.updatedPuzzleLanguages, [PuzzleLanguage.en]);
+
+    gate.complete();
+    expect(await first, isTrue);
+    final setting = container.read(puzzleLanguageProvider);
+    expect(setting.language, PuzzleLanguage.en);
+    expect(setting.changing, isFalse);
   });
 }
