@@ -57,6 +57,12 @@ class AccountState {
 class AccountNotifier extends Notifier<AccountState> {
   ApiClient get _api => ref.read(apiClientProvider);
 
+  /// 서버 삭제가 이미 끝났는가. `DELETE /me` 는 **두 번 부를 수 없다** —
+  /// 두 번째는 지워진 게스트 인증이라 401 이고(`app/api/me.py` `delete_me`),
+  /// 그 401 이 사용자에게는 "삭제 실패" 로 보인다. 뒷단계(게스트 발급)가
+  /// 실패했을 때 재시도가 거기서부터 이어지게 하려고 기억해 둔다.
+  bool _serverDeleted = false;
+
   @override
   AccountState build() => const AccountState();
 
@@ -97,12 +103,6 @@ class AccountNotifier extends Notifier<AccountState> {
     }, invalidCodeKey: 'account.error_backup_code');
   }
 
-  /// 서버 삭제가 이미 끝났는가. `DELETE /me` 는 **두 번 부를 수 없다** —
-  /// 두 번째는 지워진 게스트 인증이라 401 이고(`app/api/me.py` `delete_me`),
-  /// 그 401 이 사용자에게는 "삭제 실패" 로 보인다. 뒷단계(게스트 발급)가
-  /// 실패했을 때 재시도가 거기서부터 이어지게 하려고 기억해 둔다.
-  bool _serverDeleted = false;
-
   /// `DELETE /me` → 로컬 삭제 → 새 게스트. 온보딩을 다시 보여주지 않으려고
   /// 기기 단위 플래그는 남긴다([LocalFlag.perAccount]).
   Future<void> deleteAccount() async {
@@ -135,6 +135,7 @@ class AccountNotifier extends Notifier<AccountState> {
   /// 시작 흐름(`startupProvider`)을 통째로 다시 돌리지 않는 이유: 그러면
   /// 스플래시를 거쳐 홈 탭으로 튕겨 나가 사용자가 방금 누른 계정 카드를
   /// 떠나게 된다. 대신 토큰을 쓰는 provider 만 집어서 버린다.
+  ///
   /// [stats] 를 이미 읽어 뒀으면(백업 코드 확인 응답) 그걸 새 계정 값으로
   /// 쓰고, 없으면 새 토큰으로 읽는다. 읽기가 실패하면 `adopt` 가 예외를
   /// 올리고 [_run] 이 그 자리에 실패 문구를 둔다 — `refresh` 처럼 조용히
