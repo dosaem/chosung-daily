@@ -54,3 +54,6 @@ app.*.map.json
 
 # 구글 로그인 iOS 클라이언트 ID. `.example` 자리표시자만 커밋한다.
 /ios/Flutter/Secrets.xcconfig
+
+# 골든 비교 실패 시 flutter_test 가 떨구는 이미지(로컬 산출물).
+/test/golden/failures/
