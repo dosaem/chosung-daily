@@ -36,6 +36,14 @@ abstract interface class ApiClient {
   /// 분포가 온다(스펙 §A' `GET /puzzles/today/stats?language=`).
   Future<TodayStats> fetchTodayStats({required PuzzleLanguage language});
 
-  /// `PATCH /me` → 바뀐 퍼즐 언어. 설정 화면(티켓 29·30)이 쓴다.
+  /// `PATCH /me` → 바뀐 퍼즐 언어. S4 설정의 퍼즐 언어 행이 쓴다.
   Future<PuzzleLanguage> updatePuzzleLanguage(PuzzleLanguage puzzleLanguage);
+
+  /// `GET /puzzles/today/leaderboard` → 오늘 상위 [limit] 명 + 내 순위.
+  /// 언어는 보내지 않는다 — 서버가 게스트 선호 언어로 고르고, S3 의 언어 칩은
+  /// 그 응답을 보여주기만 한다(전환은 S4 설정).
+  Future<Leaderboard> fetchTodayLeaderboard({int limit});
+
+  /// `GET /me/history?days=` → 최근 [days] 일의 언어별 결과(오래된 날짜부터).
+  Future<List<HistoryDay>> fetchMyHistory({int days});
 }

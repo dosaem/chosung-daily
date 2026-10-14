@@ -114,6 +114,33 @@ class DioApiClient implements ApiClient {
         puzzleLanguage;
   }
 
+  @override
+  Future<Leaderboard> fetchTodayLeaderboard({int limit = 20}) async {
+    final body = await _send<Map<String, dynamic>>(
+      () => _dio.get<Map<String, dynamic>>(
+        '/puzzles/today/leaderboard',
+        queryParameters: {'limit': limit},
+        options: _authorized(),
+      ),
+    );
+    return Leaderboard.fromJson(body);
+  }
+
+  @override
+  Future<List<HistoryDay>> fetchMyHistory({int days = 7}) async {
+    // 이 엔드포인트만 최상위가 객체가 아니라 배열이다.
+    final body = await _send<List<dynamic>>(
+      () => _dio.get<List<dynamic>>(
+        '/me/history',
+        queryParameters: {'days': days},
+        options: _authorized(),
+      ),
+    );
+    return body
+        .map((day) => HistoryDay.fromJson(day as Map<String, dynamic>))
+        .toList(growable: false);
+  }
+
   /// Bearer 가 필요한 호출은 토큰이 없으면 서버까지 가지 않고 401 과 같은
   /// 예외를 낸다 — 호출부가 "토큰 없음" 과 "토큰 만료" 를 따로 다룰 이유가 없다.
   Options _authorized() {
