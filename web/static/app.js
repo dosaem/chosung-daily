@@ -50,6 +50,11 @@ const state = {
   puzzleId: null,
   // 플레이 중인 퍼즐의 언어. 칩 표시와 통계·리더보드 조회에 쓴다.
   puzzleLanguage: null,
+  // 사용자가 **마지막으로 고른** 퍼즐 언어와, 그걸 서버에 쓰는 중인지 여부.
+  // 칩(puzzleLanguage)은 서버 응답이 와야 바뀌니, 쓰는 사이의 클릭을 가려내고
+  // 마지막 선택으로 수렴시키려면 이 둘이 따로 필요하다(handleLanguageChange).
+  languageWanted: null,
+  languageWriting: false,
   // 가림 타일 목록. 문제 행도, 시도 행의 구분자 위치도 전부 여기서 나온다.
   mask: [],
   length: 0,
@@ -233,23 +238,60 @@ function renderLanguageChips(language) {
   }
 }
 
-async function handleLanguageChange(language) {
-  if (language === state.puzzleLanguage) return;
-
-  const { stale, ok, body } = await fetchJson(`${API_BASE}/me`, {
-    method: "PATCH",
-    headers: jsonHeaders(),
-    body: JSON.stringify({ puzzle_language: language }),
-  });
-  // PATCH 가 도는 사이 409 재조회나 백업 코드 전환이 화면을 갈아끼웠을 수 있다.
-  // 그 위에 이 전환을 마저 얹으면 사용자가 보고 있는 퍼즐이 한 번 더 바뀐다.
-  if (stale) return;
-  if (!ok) {
-    showMessage(t("puzzle_language_failed"));
-    return;
+/** 고른 언어를 서버에 쓴다 — **한 번에 하나만**, 마지막 선택으로 수렴할 때까지.
+ *
+ * 세대 검사는 늦게 온 *응답* 을 버릴 뿐이고, 이미 보낸 PATCH 는 버려도 서버에
+ * 커밋된다. 그래서 쓰기를 겹쳐 보내면 커밋 순서가 클릭 순서와 달라질 수 있고,
+ * 화면은 마지막 선택을·서버 선호는 중간 선택을 들고 갈라진다 — 다음 제출이
+ * 409 로 그 선택을 취소하고 새 탭도 틀린 언어를 연다
+ * (review/impl-review-17.md D-17-5). 쓰기를 직렬화하면 "클릭 순서 = 커밋 순서"가
+ * 되고, 쓰는 사이에 더 고른 언어는 응답을 받은 뒤 이어서 쓴다.
+ *
+ * @returns {Promise<string|null>} 마지막으로 커밋된 언어. 폐기·실패면 null.
+ */
+async function drainLanguageWrites() {
+  while (state.languageWanted !== null) {
+    const language = state.languageWanted;
+    const { stale, ok, body } = await fetchJson(`${API_BASE}/me`, {
+      method: "PATCH",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ puzzle_language: language }),
+    });
+    // PATCH 가 도는 사이 409 재조회나 백업 코드 전환이 화면을 갈아끼웠을 수 있다.
+    // 그 위에 이 전환을 마저 얹으면 사용자가 보고 있는 퍼즐이 한 번 더 바뀐다.
+    if (stale) return null;
+    if (!ok) {
+      showMessage(t("puzzle_language_failed"));
+      return null;
+    }
+    // 쓰는 사이에 또 골랐으면 그 언어로 한 번 더 쓴다. 중간 언어는 칩에 올리지도,
+    // 퍼즐을 재조회하지도 않는다 — 헛된 왕복이고 화면만 두 번 바뀐다.
+    if (state.languageWanted === language) return body.puzzle_language;
   }
+  return null;
+}
 
-  renderLanguageChips(body.puzzle_language);
+async function handleLanguageChange(language) {
+  // 아직 쓰고 있는 선택까지 보고 비교한다. 칩(`state.puzzleLanguage`)은 응답이
+  // 와야 바뀌니, 그것만 보면 같은 칩 연속 클릭이 그대로 중복 PATCH 가 되고
+  // (D-17-5) 쓰는 사이의 다른 칩 클릭은 "이미 그 언어"로 보여 삼켜진다.
+  if (language === (state.languageWanted ?? state.puzzleLanguage)) return;
+  state.languageWanted = language;
+  // 이미 도는 쓰기가 있으면 그쪽이 이 선택까지 이어서 쓴다. 여기서 기다리지는
+  // 않는다 — 칩 클릭은 앞선 왕복에 묶이지 않아야 한다.
+  if (state.languageWriting) return;
+
+  state.languageWriting = true;
+  let committed;
+  try {
+    committed = await drainLanguageWrites();
+  } finally {
+    state.languageWriting = false;
+    state.languageWanted = null;
+  }
+  if (committed === null) return;
+
+  renderLanguageChips(committed);
   await reloadPuzzle();
 }
 

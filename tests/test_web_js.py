@@ -272,3 +272,69 @@ def test_a_submit_body_that_arrives_after_a_switch_does_not_touch_the_new_board(
 def test_a_200_with_an_unparsable_body_falls_back_to_the_load_failure_message(stale_body):
     """본문을 한 곳에서 읽으니 파싱 실패도 던지지 않고 안내로 눕는다."""
     assert stale_body["unparsable_body"]["message"] == UI_STRINGS["ko"]["puzzle_load_failed"]
+
+
+# --- D-17-5: 겹친 언어 쓰기의 적용 순서 ---------------------------------------
+
+
+@pytest.fixture(scope="module")
+def concurrent_language_writes() -> dict:
+    return run_scenario("concurrent_language_writes.mjs", "ko")
+
+
+def test_the_last_language_choice_wins_on_the_server_even_if_an_earlier_write_commits_last(
+    concurrent_language_writes,
+):
+    """겹친 PATCH 가 B→C→A 순으로 적용돼도 마지막 선택이 서버 선호로 남는다.
+
+    응답을 버리는 것(세대)은 화면만 지킨다 — 이미 보낸 쓰기는 서버에 커밋되므로,
+    쓰기 자체를 한 번에 하나로 줄여 "클릭 순서 = 커밋 순서"를 만들어야 한다.
+    """
+    after = concurrent_language_writes["duplicate_clicks_then_switch"]
+
+    assert after["puzzleLanguage"] == "ko"
+    assert after["puzzleId"] == 1
+    assert after["chips"] == {"ko": "true", "en": "false"}
+    # 화면과 서버가 갈리지 않는다 — 새 탭·새로고침도 같은 언어를 연다.
+    assert after["serverPreference"] == "ko"
+    assert after["commits"][-1] == "ko"
+
+
+def test_the_next_submit_after_concurrent_language_writes_is_not_rejected(
+    concurrent_language_writes,
+):
+    """갈라져 있으면 다음 제출이 409 로 마지막 선택을 취소한다."""
+    submit = concurrent_language_writes["duplicate_clicks_then_switch"]["submit"]
+
+    assert submit["puzzleLanguage"] == "ko"
+    assert submit["puzzleId"] == 1
+    assert submit["message"] != UI_STRINGS["ko"]["puzzle_changed"]
+
+
+def test_a_click_while_a_language_write_is_in_flight_is_not_swallowed(
+    concurrent_language_writes,
+):
+    """칩은 응답이 와야 바뀐다 — 쓰기 중의 클릭을 "이미 그 언어"로 보면 입력이 사라진다."""
+    after = concurrent_language_writes["switch_during_write"]
+
+    assert after["puzzleLanguage"] == "ko"
+    assert after["serverPreference"] == "ko"
+    assert after["commits"] == ["en", "ko"]
+
+
+def test_repeated_clicks_on_the_same_chip_write_once(concurrent_language_writes):
+    after = concurrent_language_writes["duplicate_clicks_only"]
+
+    assert after["commits"] == ["en"]
+    assert after["puzzleLanguage"] == "en"
+    assert after["serverPreference"] == "en"
+
+
+def test_a_plain_language_switch_still_writes_and_renders_once(concurrent_language_writes):
+    """대조군 — 겹치지 않는 전환은 평소대로 한 번 쓰고 새 퍼즐을 연다."""
+    after = concurrent_language_writes["plain_switch"]
+
+    assert after["commits"] == ["en"]
+    assert after["puzzleId"] == 2
+    assert after["chips"] == {"ko": "false", "en": "true"}
+    assert after["submit"]["message"] != UI_STRINGS["en"]["puzzle_changed"]
