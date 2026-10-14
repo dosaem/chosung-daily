@@ -297,6 +297,7 @@ chosung.dosaem.com 은 "하루 한 문제 초성 맞추기"가 돌아가는 Flas
 
 - (티켓 10 반영) 미정 17 확정: 앱 애플 로그인은 설정값 `APPLE_APP_BUNDLE_ID` 하나만 추가하고 서명 키(`APPLE_TEAM_ID`·`APPLE_KEY_ID`·`APPLE_PRIVATE_KEY`)는 웹과 공유한다(Sign in with Apple 키 하나가 App ID 와 그 Services ID 를 모두 서명). client_secret 생성은 `apple_client_secret(app, client_id)` 로 인자화해 웹은 Services ID, 앱은 번들 ID 로 서명한다 — §A.13 자동 갱신(티켓 11)은 이 **두 client 의 secret 을 모두** 대상으로 해야 한다.
 - (티켓 24 반영) 미정 24 확정: expanded 2열 세부 폭은 **T1 600+320(합 ≤920)**, **T4 480+480**, iPad Split View 최소 폭(약 320dp)은 compact 로 떨어뜨린다 — 판정은 기기 종류가 아니라 `MediaQuery` 현재 폭(`AppBreakpoint`), 근거는 README "24. 태블릿 대응". 추가로 **배너 슬롯 예약 높이는 폭 <728 → 50 / ≥728 → 90 의 잠정값**이다(어댑티브 배너 상한 90dp, 728×90 태블릿 표준). 광고 SDK 가 아직 없어 실측이 불가능해서 **티켓 31 이 `getCurrentOrientationAnchoredAdaptiveBannerAdSize` 실제 값으로 대체·검증한다**(코디네이터 확정 2026-10-14).
+26. **알려진 한계(티켓 17, 사용자 결정 2026-10-14)** D-17-6(웹): 영어 전환 PATCH 응답 대기 중 한국어를 다시 고르고 동시에 이전 화면에서 제출해 409 재조회가 겹치면 마지막 언어 선택이 취소되어 서버·화면이 en 으로 남음. 칩을 한 번 더 누르면 복구. 세 조작이 겹쳐야 발생해 알려진 한계로 수용. 앱(Flutter)의 같은 흐름은 티켓 25 에서 같은 경합을 처음부터 피하도록 설계. 근거: `review/impl-review-17.md` 라운드 5 "D-17-6"
 
 ## Further Notes
 
