@@ -1,0 +1,51 @@
+{#
+  사업자 신원 블록 (전자상거래법 제10조 제1항). `/terms` 하단과 `/privacy` 의 책임자·
+  연락처 절이 **같은 조각** 을 쓴다 — 표시 범위를 여기서만 정하면 두 문서가 어긋나지
+  않는다. 티켓 18 의 메인 푸터도 이 파일을 `include` 만 한다.
+
+  필요한 컨텍스트: `ui_language`, `business_info`(app/web.py `_business_info` — 설정에
+  값이 있는 항목만 `{key, label, value}`), `contact_email`. 값을 코드에 넣지 않는다:
+  사업자 등록 전에는 `business_info` 가 비고, 그러면 서비스명·연락처·호스팅만 렌더된다.
+
+  주소는 **값 자체를 사람이 축약해 넣는다**(코드가 자르지 않는다 — 사용자 결정
+  2026-10-14, 미정 21: 시·구까지만 + "상세 주소는 요청 시 이메일로 제공"). 그래서
+  주소 행이 렌더될 때만 그 안내 문구를 붙인다.
+#}
+{% set labels = {
+  "ko": {
+    "heading": "운영자 정보",
+    "service_label": "서비스",
+    "service_value": "오늘의 초성 (chosung.dosaem.com)",
+    "contact": "연락처",
+    "hosting": "호스팅",
+    "hosting_value": "자체 호스팅 (운영자가 직접 운영하는 서버)",
+    "address_note": "상세 주소는 요청 시 위 이메일로 알려드립니다.",
+  },
+  "en": {
+    "heading": "Operator information",
+    "service_label": "Service",
+    "service_value": "Hidden Vowels (chosung.dosaem.com)",
+    "contact": "Contact",
+    "hosting": "Hosting",
+    "hosting_value": "Self-hosted (a server the operator runs)",
+    "address_note": "The full address is available on request at the email above.",
+  },
+}[ui_language] %}
+<section class="doc-operator" aria-labelledby="business-info">
+  <h2 id="business-info">{{ labels.heading }}</h2>
+  <dl>
+    <dt>{{ labels.service_label }}</dt>
+    <dd>{{ labels.service_value }}</dd>
+    {% for field in business_info %}
+    <dt>{{ field.label }}</dt>
+    <dd>{{ field.value }}</dd>
+    {% endfor %}
+    <dt>{{ labels.contact }}</dt>
+    <dd><a href="mailto:{{ contact_email }}">{{ contact_email }}</a></dd>
+    <dt>{{ labels.hosting }}</dt>
+    <dd>{{ labels.hosting_value }}</dd>
+  </dl>
+  {% if business_info | selectattr("key", "equalto", "LEGAL_BUSINESS_ADDRESS") | first %}
+  <p class="doc-note">{{ labels.address_note }}</p>
+  {% endif %}
+</section>

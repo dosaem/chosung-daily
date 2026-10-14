@@ -160,9 +160,11 @@ uv run flask notify-operator-test           # 운영자 Slack 알림 도착 확�
 | 라우트 | `app/web.py` (`privacy`, `terms`) |
 | 본문 | `web/templates/legal/{privacy,terms}.{ko,en}.html` — 언어마다 파일 하나 |
 | 공통 틀 | `web/templates/legal/_layout.html` (내비·푸터 문구만 언어별로 고름) |
+| 사업자 정보 조각 | `web/templates/legal/_business_info.html` — 두 문서(와 티켓 18 의 메인 푸터)가 같은 조각을 `include`. 표시 범위를 한 곳에서만 정한다 |
+| 법 기준 체크리스트 | [`docs/legal-checklist.md`](docs/legal-checklist.md) — 조문 → 요구 내용 → 문서 절 id → 확인 테스트. `tests/test_legal_checklist.py` 가 표를 파싱해 양방향으로 지킨다 |
 | 스타일 | `web/static/tokens.css` (공용 디자인 토큰) + `web/static/legal.css` (문서 레이아웃) |
 | 시행일 | `app/web.py` 의 `LEGAL_EFFECTIVE_DATE` |
-| 연락처·사업자 정보 | 설정값 `LEGAL_CONTACT_EMAIL`, `LEGAL_BUSINESS_*` (`app/config.py`). 값이 있는 항목만 "운영자 정보" 블록에 렌더 — 출시 전 채울 값은 `docs/RELEASE.md` "### 09." |
+| 연락처·사업자 정보 | 설정값 `LEGAL_CONTACT_EMAIL`, `LEGAL_BUSINESS_*`, `LEGAL_PRIVACY_OFFICER` (`app/config.py`). 값이 있는 항목만 "운영자 정보" 블록에 렌더 — 출시 전 채울 값은 `docs/RELEASE.md` "### 09."·"### 16." |
 
 **갱신 책임은 운영자(= 프로젝트 주인)에게 있다.** 아래가 바뀌면 두 언어 본문을 **같은
 커밋에서** 고치고 `LEGAL_EFFECTIVE_DATE` 를 올린다 — 한쪽 언어만 고쳐진 문서가 나가면
@@ -172,12 +174,17 @@ uv run flask notify-operator-test           # 운영자 Slack 알림 도착 확�
 - 제3자·수탁업체가 바뀔 때 (Google, Apple, AdMob, Firebase Analytics, Sentry)
 - 보유 기간이 바뀔 때 (예: `BACKUP_RETENTION_DAYS` 를 14일에서 바꾸면 방침의 14일도 고친다)
 - 구독 상품·가격·해지 경로가 바뀔 때
-- EULA 선택이 확정될 때 (현재는 Apple 표준 EULA 링크 — 스펙 미정 9)
+- EULA 선택이 바뀔 때 (**2026-10-14 결정: Apple 표준 EULA 유지** — 미정 9 해소, 약관 `#eula`)
 - 사업자·통신판매업 등록이 끝났을 때 (`LEGAL_BUSINESS_*` 를 `.env` 에 채운다 — 본문 수정은 없다)
+- **관련 법·스토어 정책이 개정될 때** (개인정보 보호법·시행령, 전자상거래법, Apple App Review
+  3.1.2(a), Google Play 구독 정책 — `docs/legal-checklist.md` 의 근거 칸을 먼저 고치고,
+  그 행이 가리키는 절을 두 언어에서 같이 고친다)
 
-`tests/test_legal_pages.py` 가 "필수 공시 문구가 두 언어 본문에 있는지" 를 지키니, 항목을
-지우면 테스트가 먼저 깨진다. `/account/delete` 링크는 문서가 먼저 가리키고 페이지는 티켓
-14 에서 생긴다.
+`tests/test_legal_pages.py` 가 "필수 공시 문구가 두 언어 본문에 있는지" 를,
+`tests/test_legal_checklist.py` 가 "체크리스트의 모든 절이 ko·en 에 같은 순서로 있는지" 를
+지키니, 항목을 지우면 테스트가 먼저 깨진다. 절을 새로 만들면 체크리스트에도 행을 넣어야
+한다(본문에만 있는 절도 실패로 잡는다). 삭제 페이지(`/account/delete`)가 "지운다" 고 적은
+항목 이름은 방침 `#collection` 절의 부분집합이어야 한다.
 
 ## 운영: 백업 / 복구
 
@@ -1747,6 +1754,40 @@ API 오류 응답의 `message` 는 한국어 한 벌뿐이다(`app/errors.py`) �
 | 11 | 언어 칩 연타 | Slow 3G 로 조이고 `English` 를 두 번 누른 뒤 바로 `한국어` 클릭 | 마지막 선택(ko) 퍼즐이 남고, 새 탭으로 `/` 를 열어도 ko 다 — 이어서 제출해도 "새 퍼즐이 있어요" 가 안 뜬다 |
 
 > 로딩 스켈레톤·오프라인 배너·앱 CTA·푸터 링크는 티켓 18 범위라 아직 없다.
+
+### 16. 법적 문서 — 사업자 정보는 설정값으로만, 공개 범위는 사람이 정한다
+
+법 기준 보완(개인정보 보호법 제30조·제28조의8, 전자상거래법 제10조·제13조·제17조,
+Apple 3.1.2(a)·Google Play 구독 정책)에서 판단이 갈린 곳은 **값을 어디에 두느냐** 였다.
+사업자 정보(상호·대표자·주소·전화·사업자등록번호·통신판매업 신고번호)는 전부
+`LEGAL_*` 설정값이고 **코드에 기본값이 없다**. 이유는 둘이다.
+
+1. **공개 레포에 자택 주소·등록번호를 남기지 않는다.** 사업장 소재지가 자택이라, 코드
+   기본값으로 넣으면 git 이력에 영구히 남는다. `tests/test_legal_checklist.py::test_repo_has_no_business_registration_number`
+   가 템플릿·설정·문서에서 `\d{3}-\d{2}-\d{5}` 패턴을 찾아 실패시킨다.
+2. **공개 범위 결정이 코드 변경 없이 된다.** 주소를 어디까지 쓸지는 법 해석이 섞인 사람
+   결정이다(전상법 §10①2 는 "영업소 소재지 주소" 를 요구하고 축약 허용 규정이 없다).
+   사용자 결정(2026-10-14)은 "시·구까지만 + 상세 주소는 요청 시 이메일로 제공" 이고,
+   **코드가 주소를 자르지 않는다** — 사람이 `.env` 에 축약한 값을 넣는다. 자르는 코드를
+   두면 "어디까지 자르는가" 가 코드 리뷰 대상이 되고, 값이 길어질 때마다 규칙을 고쳐야
+   한다. 전화번호(`LEGAL_BUSINESS_PHONE`)·보호책임자 성명(`LEGAL_PRIVACY_OFFICER`)도
+   같은 이유로 "비면 미표시" 자리만 뒀다.
+
+블록 자체는 Jinja 조각 `legal/_business_info.html` 하나다. `/privacy`(책임자·연락처 절
+뒤)·`/terms`(하단)·티켓 18 의 메인 푸터가 같은 파일을 `include` 하므로, 표시 범위가 세
+곳에서 어긋날 수 없다. `_business_info()` 가 (라벨, 값) 대신 `{key, label, value}` 를
+돌려주는 이유도 조각 때문이다 — "주소 행이 렌더됐는가" 를 **언어와 무관하게** 물어야
+"상세 주소는 요청 시 제공" 안내를 그 행이 있을 때만 붙일 수 있다.
+
+문서 절 순서는 개인정보보호위원회 작성지침 권장 구성으로 재배열하고, 조문 → 절 id →
+테스트를 `docs/legal-checklist.md` 표 하나로 묶었다. 절 id 를 테스트가 **양방향으로**
+검사한다: 표에 있는 절이 ko·en 본문에 없으면 실패하고, 본문에만 있는 절(체크리스트에
+근거 없이 늘어난 절)도 실패한다. 법은 "빠진 항목" 으로 걸리는데 긴 문서에서 그건 눈으로
+안 보여서, 조문 쪽을 먼저 고치게 만드는 장치가 필요했다.
+
+워커는 법률가가 아니다 — 통신판매업 신고 대상 여부, 축약 주소 표시의 적법성, 보호책임자
+지정은 사람이 출시 전에 확인할 항목으로 `docs/RELEASE.md` "### 16." 에 체크박스로 남겼다.
+
 
 ## 부하 테스트 요약
 

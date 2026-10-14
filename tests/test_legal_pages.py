@@ -6,6 +6,7 @@
 """
 
 import importlib
+import re
 from pathlib import Path
 
 import pytest
@@ -190,10 +191,16 @@ def test_empty_contact_email_env_falls_back_to_the_default(monkeypatch):
 
 
 def _international_transfer_section(client, lang: str) -> str:
-    """4절(국외 이전) 본문만 떼어낸다. 절 번호는 두 언어가 같다."""
+    """국외 이전 절 본문만 떼어낸다 — 다음 절 제목까지.
+
+    절 번호가 아니라 `id="overseas"` 로 찾는다(티켓 16 에서 절 순서를 작성지침 권장
+    구성으로 재배열했다 — 번호로 자르면 구성이 바뀔 때마다 테스트가 엉뚱한 절을 본다).
+    절 id 는 `docs/legal-checklist.md` 가 조문과 묶어 고정한다.
+    """
     html = _body(client, f"/privacy?lang={lang}")
-    start = html.index("<h2>4.")
-    return html[start : html.index("<h2>5.", start)]
+    start = html.index('<h2 id="overseas"')
+    next_heading = re.search(r'<h2 id="', html[start + 1 :])
+    return html[start : start + 1 + next_heading.start()]
 
 
 @pytest.mark.parametrize("lang", ["ko", "en"])
@@ -306,25 +313,28 @@ def test_cross_links_the_other_document(client, path):
 OPERATOR_FIELD_LABELS_KO = [
     "상호",
     "대표자",
+    "주소",
+    "전화번호",
     "사업자등록번호",
     "통신판매업 신고번호",
-    "주소",
 ]
 
 OPERATOR_FIELD_LABELS_EN = [
     "Business name",
     "Representative",
+    "Address",
+    "Phone",
     "Business registration number",
     "Mail-order business registration no.",
-    "Address",
 ]
 
 FILLED_BUSINESS_CONFIG = {
     "LEGAL_BUSINESS_NAME": "테스트 상호",
     "LEGAL_REPRESENTATIVE": "테스트 대표",
+    "LEGAL_BUSINESS_ADDRESS": "서울특별시 테스트구",
+    "LEGAL_BUSINESS_PHONE": "02-0000-0000",
     "LEGAL_BUSINESS_REG_NO": "000-00-00000",
     "LEGAL_MAIL_ORDER_REG_NO": "제0000-서울-0000호",
-    "LEGAL_BUSINESS_ADDRESS": "서울특별시 테스트구 테스트로 1",
 }
 
 
@@ -397,5 +407,111 @@ def test_business_info_values_are_not_hardcoded():
         "LEGAL_BUSINESS_REG_NO",
         "LEGAL_MAIL_ORDER_REG_NO",
         "LEGAL_BUSINESS_ADDRESS",
+        "LEGAL_BUSINESS_PHONE",
+        "LEGAL_PRIVACY_OFFICER",
     ]:
         assert f'{name} = os.environ.get("{name}", "")' in config_py
+
+
+# --- 수정 라운드 1 · D-16-1: 스토어 행의 거부 방법이 실제 호출과 맞는다 -----
+#
+# 구독 검증은 계정 연결과 무관하게 스토어로 나간다
+# (`tests/test_subscription_verify.py::test_verify_reaches_the_store_without_a_linked_account`).
+# 그래서 Google·Apple 행의 "거부 방법·효과" 는 로그인과 구독 검증을 갈라서 적어야 하고,
+# "계정을 연결하지 않으면 이전이 없다" 로 뭉쳐 쓰면 안 된다.
+
+STORE_ROW_PREFIXES = ["Google (", "Apple ("]
+
+# 각 행이 갈라서 적어야 하는 것: 거부 수단의 범위(로그인) / 구독 검증은 별개 / 계정
+# 연결과 무관하게 전송된다는 사실 / 그 전송을 거부하는 유일한 방법.
+STORE_ROW_PHRASES = {
+    "ko": ["로그인", "구독 검증", "계정을 연결하지 않아도", "구독을 구매하지 않"],
+    "en": [
+        "sign-in",
+        "subscription verification",
+        "even without a linked account",
+        "do not buy the subscription",
+    ],
+}
+
+
+def _overseas_rows(client, lang: str) -> dict[str, str]:
+    """국외 이전 절의 `<dt>받는 자</dt><dd>…</dd>` 를 받는 자별로 떼어낸다."""
+    section = _international_transfer_section(client, lang)
+    rows = re.findall(r"<dt>(.+?)</dt>\s*<dd>(.+?)</dd>", section, re.DOTALL)
+    assert rows, "국외 이전 절에 받는 자 행이 없다"
+    return {term.strip(): body for term, body in rows}
+
+
+def _store_row(client, lang: str, prefix: str) -> str:
+    rows = _overseas_rows(client, lang)
+    matched = [body for term, body in rows.items() if term.startswith(prefix)]
+    assert len(matched) == 1, f"{prefix!r} 행을 하나만 찾아야 한다: {sorted(rows)}"
+    return matched[0]
+
+
+@pytest.mark.parametrize("prefix", STORE_ROW_PREFIXES)
+@pytest.mark.parametrize("lang", ["ko", "en"])
+def test_store_rows_separate_sign_in_from_subscription_verification(client, lang, prefix):
+    row = _store_row(client, lang, prefix).lower()
+
+    for phrase in STORE_ROW_PHRASES[lang]:
+        assert phrase.lower() in row, f"{prefix} {lang} 행에 없는 문구: {phrase}"
+
+
+def _refusal_text(client, lang: str, prefix: str) -> str:
+    """받는 자 행에서 "거부 방법·효과" 칸만 떼어낸다."""
+    row = _store_row(client, lang, prefix)
+    return row[row.index("거부 방법" if lang == "ko" else "How to refuse") :]
+
+
+@pytest.mark.parametrize("prefix", STORE_ROW_PREFIXES)
+@pytest.mark.parametrize("lang", ["ko", "en"])
+def test_store_rows_do_not_claim_unlinking_stops_every_transfer(client, lang, prefix):
+    """거부 수단을 범위 없이 단정하는 옛 문구가 돌아오는 것을 막는다."""
+    refusal = _refusal_text(client, lang, prefix)
+
+    # 거부 효과를 적은 문장이 "로그인" / "sign-in" 범위를 먼저 밝혀야 한다.
+    scope = "로그인" if lang == "ko" else "Sign-in"
+    no_transfer = "이전이 없" if lang == "ko" else "there is no transfer"
+    assert refusal.index(scope) < refusal.index(no_transfer), (
+        f"{prefix} {lang}: 범위를 밝히지 않은 '이전이 없다' 단정"
+    )
+
+
+# 애플 행만의 사실: 연결 철회는 이전을 멈추는 수단이 아니라 그 자체가 이전이다.
+# `account_deletion_service.delete_guest_account` 가 계정 행을 지운 **뒤** 보관한
+# refresh token 을 애플로 보내고, 그 호출이 실패하면 계정이 없는 상태로 토큰만
+# `AppleRevocationRetry` 에 남아 `apple_revocation_service.retry_pending_revocations`
+# 가 최대 7일 동안 다시 보낸다. 방침이 이 세 경우를 갈라 적어야 한다.
+APPLE_REVOCATION_PHRASES = {
+    "ko": ["연결 철회", "연결한 계정을 삭제하면", "철회를 위해 Apple 로 전송", "7일"],
+    "en": [
+        "Revocation",
+        "delete an account you linked",
+        "send the Apple refresh token",
+        "7 days",
+    ],
+}
+
+
+@pytest.mark.parametrize("lang", ["ko", "en"])
+def test_apple_row_discloses_revocation_as_a_transfer(client, lang):
+    """철회가 그 자체로 이전이고 실패 시 7일 재전송이 있음을 적어야 한다."""
+    refusal = _refusal_text(client, lang, "Apple (")
+
+    for phrase in APPLE_REVOCATION_PHRASES[lang]:
+        assert phrase in refusal, f"애플 {lang} 거부 방법에 없는 문구: {phrase}"
+
+
+@pytest.mark.parametrize("lang", ["ko", "en"])
+def test_apple_row_does_not_fold_revocation_into_the_no_transfer_scope(client, lang):
+    """"연결을 철회하면 이전이 없다" 는 옛 범위가 돌아오는 것을 막는다."""
+    refusal = _refusal_text(client, lang, "Apple (")
+    no_transfer = "이전이 없" if lang == "ko" else "there is no transfer"
+    scope = refusal[: refusal.index(no_transfer)].lower()
+
+    revocation = "철회" if lang == "ko" else "revocation"
+    assert revocation not in scope, (
+        f"애플 {lang}: 연결 철회를 '이전이 없다' 범위에 넣었다 — 철회는 토큰을 애플로 보낸다"
+    )
