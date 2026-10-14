@@ -203,7 +203,7 @@ def test_unlock_does_not_change_the_leaderboard_entry(client, today_puzzle):
         "/api/v1/puzzles/today/leaderboard", headers=_headers(unlocker)
     ).get_json()
 
-    attempts = {entry["display"]: entry["attempts"] for entry in body["entries"]}
+    attempts = {entry["anon_tag"]: entry["attempts"] for entry in body["entries"]}
     assert len(attempts) == 2
     assert set(attempts.values()) == {1}
     # 걸린 초(= 리더보드 점수의 tie-breaker)도 힌트 때문에 벌어지지 않는다.

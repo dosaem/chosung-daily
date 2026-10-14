@@ -7,7 +7,9 @@ from app.models.enums import PuzzleLanguage
 
 class LeaderboardEntry(BaseModel):
     rank: int
-    display: str
+    # 언어 중립 익명 태그("a3f1"). "게스트 #"/"Guest #" 는 UI 언어를 아는 쪽이
+    # 붙인다 — 서버가 만들면 영어 화면에 한글이 섞인다(README "38.").
+    anon_tag: str
     attempts: int
     seconds: int
     is_me: bool

@@ -117,6 +117,34 @@ void main() {
     expect(find.text('41문제'), findsOneWidget);
   });
 
+  // 티켓 38: en 에서 `1 days` / `1 puzzles` 가 나오던 자리. ko 는 단·복수가 같다.
+  testWidgets('en: 1 일·1 문제는 단수, 2 이상은 복수다', (tester) async {
+    await _pumpRecords(
+      tester,
+      api: FakeApiClient(),
+      stats: fakeMyStats(currentStreak: 1, maxStreak: 2, solvedCount: 1),
+      locale: const Locale('en'),
+    );
+
+    expect(find.text('1 day'), findsOneWidget);
+    expect(find.text('2 days'), findsOneWidget);
+    expect(find.text('1 puzzle'), findsOneWidget);
+    expect(find.text('1 days'), findsNothing);
+    expect(find.text('1 puzzles'), findsNothing);
+  });
+
+  testWidgets('ko: 1 일·1 문제 문구는 2 이상과 같은 꼴이다', (tester) async {
+    await _pumpRecords(
+      tester,
+      api: FakeApiClient(),
+      stats: fakeMyStats(currentStreak: 1, maxStreak: 2, solvedCount: 1),
+    );
+
+    expect(find.text('1일'), findsOneWidget);
+    expect(find.text('2일'), findsOneWidget);
+    expect(find.text('1문제'), findsOneWidget);
+  });
+
   testWidgets('7일 그리드는 날짜 7칸을 한 언어라도 풀었으면 성공으로 칠한다', (tester) async {
     final api = FakeApiClient(
       history: fakeHistory(

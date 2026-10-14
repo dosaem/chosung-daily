@@ -1,5 +1,7 @@
+import re
+
 from app.services.guest_service import issue_guest
-from app.services.puzzle_metrics import display_name
+from app.services.puzzle_metrics import anon_tag
 
 
 def _guess(client, token, puzzle, text):
@@ -25,8 +27,8 @@ def test_leaderboard_ranks_fewer_attempts_first(client, today_puzzle):
     body = res.get_json()
 
     assert res.status_code == 200
-    displays = [e["display"] for e in body["entries"]]
-    assert displays == [display_name(fast.id), display_name(slow.id)]
+    tags = [e["anon_tag"] for e in body["entries"]]
+    assert tags == [anon_tag(fast.id), anon_tag(slow.id)]
     assert body["entries"][0]["attempts"] == 1
     assert body["entries"][0]["is_me"] is True
     assert body["entries"][1]["attempts"] == 2
@@ -58,16 +60,34 @@ def test_leaderboard_entries_do_not_leak_guest_id(client, today_puzzle):
     ).get_json()
 
     entry = body["entries"][0]
-    assert set(entry) == {"rank", "display", "attempts", "seconds", "is_me"}
-    assert entry["display"] == display_name(guest.id)
+    assert set(entry) == {"rank", "anon_tag", "attempts", "seconds", "is_me"}
+    assert entry["anon_tag"] == anon_tag(guest.id)
 
 
-def test_display_name_is_guest_id_in_four_hex_digits():
-    assert display_name(1) == "게스트 #0001"
-    assert display_name(0xA3F1) == "게스트 #a3f1"
-    # 0x10000 로 나눈 나머지만 쓰기 때문에 65536번째 게스트부터 표시가 겹친다
+def test_anon_tag_is_guest_id_in_four_hex_digits():
+    assert anon_tag(1) == "0001"
+    assert anon_tag(0xA3F1) == "a3f1"
+    # 0x10000 로 나눈 나머지만 쓰기 때문에 65536번째 게스트부터 태그가 겹친다
     # (식별용이 아니라 표시용이라 충돌을 허용한다).
-    assert display_name(0x10001) == display_name(1)
+    assert anon_tag(0x10001) == anon_tag(1)
+
+
+def test_the_leaderboard_response_carries_no_ui_language(client, today_puzzle):
+    """티켓 38: 서버는 '게스트/Guest' 접두사를 붙이지 않는다 — 붙이는 건 웹·앱이다.
+
+    영어 UI·영문 스토어 스크린샷에 한글 '게스트' 가 보이던 결함이라, 응답 **전체**
+    에 한글이 없는지 본다. 필드 하나만 보면 다음에 라벨을 또 서버에서 만들 때
+    같은 결함이 조용히 돌아온다.
+    """
+    guest = issue_guest()
+    _guess(client, guest.token, today_puzzle, "사과")
+
+    raw = client.get(
+        "/api/v1/puzzles/today/leaderboard",
+        headers={"Authorization": f"Bearer {guest.token}"},
+    ).get_data(as_text=True)
+
+    assert not re.search(r"[가-힣]", raw), raw
 
 
 def test_my_rank_comes_down_even_when_outside_the_page(client, today_puzzle):

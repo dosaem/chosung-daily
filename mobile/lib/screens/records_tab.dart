@@ -149,19 +149,15 @@ class _StreakCard extends ConsumerWidget {
       children: [
         _StatCell(
           label: 'streak.current'.tr(),
-          value: 'streak.days'.tr(
-            namedArgs: {'count': '${stats.currentStreak}'},
-          ),
+          value: 'streak.days'.plural(stats.currentStreak, name: 'count'),
         ),
         _StatCell(
           label: 'streak.max'.tr(),
-          value: 'streak.days'.tr(namedArgs: {'count': '${stats.maxStreak}'}),
+          value: 'streak.days'.plural(stats.maxStreak, name: 'count'),
         ),
         _StatCell(
           label: 'streak.solved'.tr(),
-          value: 'streak.puzzles'.tr(
-            namedArgs: {'count': '${stats.solvedCount}'},
-          ),
+          value: 'streak.puzzles'.plural(stats.solvedCount, name: 'count'),
         ),
       ],
     );

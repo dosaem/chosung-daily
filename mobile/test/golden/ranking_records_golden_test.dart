@@ -45,23 +45,23 @@ Future<void> _loadFonts() async {
 FakeApiClient _api() => FakeApiClient(
   leaderboard: fakeLeaderboard(
     entries: [
-      fakeLeaderboardEntry(rank: 1, display: '게스트 #a3f1'),
-      fakeLeaderboardEntry(rank: 2, display: '게스트 #7b20', seconds: 63),
+      fakeLeaderboardEntry(rank: 1, anonTag: 'a3f1'),
+      fakeLeaderboardEntry(rank: 2, anonTag: '7b20', seconds: 63),
       fakeLeaderboardEntry(
         rank: 3,
-        display: '게스트 #1c08',
+        anonTag: '1c08',
         attempts: 2,
         seconds: 95,
       ),
       fakeLeaderboardEntry(
         rank: 4,
-        display: '게스트 #92de',
+        anonTag: '92de',
         attempts: 3,
         seconds: 188,
       ),
       fakeLeaderboardEntry(
         rank: 5,
-        display: '게스트 #4f61',
+        anonTag: '4f61',
         attempts: 3,
         seconds: 402,
       ),

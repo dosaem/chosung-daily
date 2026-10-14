@@ -12,15 +12,19 @@ from app.utils.redis_safe import safe_redis_call
 # 먼저 비교되고 그 안에서만 걸린 시간으로 갈린다.
 SECONDS_PER_DAY = 86400
 
-# 리더보드 표시 이름의 자리수. guest.id 를 이 값으로 나눈 나머지를 16진 4자리로
-# 쓴다 — 게스트가 65536명을 넘으면 표시가 겹치지만, 이 문자열은 식별용이 아니라
+# 리더보드 익명 태그의 자리수. guest.id 를 이 값으로 나눈 나머지를 16진 4자리로
+# 쓴다 — 게스트가 65536명을 넘으면 태그가 겹치지만, 이 문자열은 식별용이 아니라
 # "남"과 "나"를 구분해 보여주기 위한 라벨이라 충돌을 허용한다(스펙 US 13).
-DISPLAY_ID_MODULUS = 0x10000
+ANON_TAG_MODULUS = 0x10000
 
 
-def display_name(guest_id: int) -> str:
-    """리더보드에 보여줄 익명 이름. 이메일·게스트 ID 원본은 응답에 넣지 않는다."""
-    return f"게스트 #{guest_id % DISPLAY_ID_MODULUS:04x}"
+def anon_tag(guest_id: int) -> str:
+    """리더보드 행을 가리키는 **언어 중립** 익명 태그("a3f1").
+
+    "게스트 #" / "Guest #" 접두사는 붙이지 않는다 — 그건 자기 UI 언어를 아는
+    웹·앱이 붙인다(README "38."). 이메일·게스트 ID 원본은 여전히 응답에 넣지 않는다.
+    """
+    return f"{guest_id % ANON_TAG_MODULUS:04x}"
 
 
 def _split_score(score: float) -> tuple[int, int]:
@@ -109,7 +113,7 @@ def get_today_leaderboard(
         entries.append(
             LeaderboardEntry(
                 rank=rank,
-                display=display_name(guest_id),
+                anon_tag=anon_tag(guest_id),
                 attempts=attempts,
                 seconds=elapsed_seconds,
                 is_me=(guest_id == requesting_guest_id),

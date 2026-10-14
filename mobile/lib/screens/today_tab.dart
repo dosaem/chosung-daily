@@ -489,7 +489,7 @@ class StreakBadge extends StatelessWidget {
             Icon(LucideIcons.flame, size: 20, color: colors.brand),
             const SizedBox(width: 4),
             Text(
-              'streak.days'.tr(namedArgs: {'count': '$days'}),
+              'streak.days'.plural(days, name: 'count'),
               style: Theme.of(context).textTheme.titleMedium,
             ),
           ],

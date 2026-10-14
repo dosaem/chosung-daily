@@ -84,7 +84,7 @@ web/                  # Jinja 템플릿 1장 + vanilla JS
 | GET | `/api/v1/puzzles/today` | 게스트 선호 언어의 오늘 퍼즐(`puzzle_id`/`language`/`mask`/`length`/`chosung`/카테고리/남은시도/`attempts`/`hint_unlocked`/상태/힌트), 정답 미포함 | Bearer |
 | POST | `/api/v1/puzzles/today/guesses` | 정답 제출 (`{puzzle_id, guess}`) → 판정/피드백/남은시도/(종료 시)정답, 퍼즐 불일치 409 `PUZZLE_CHANGED` | Bearer |
 | GET | `/api/v1/puzzles/today/stats?language=` | 시도 횟수별 정답자 비율 (언어별, 기본 게스트 선호) | Bearer |
-| GET | `/api/v1/puzzles/today/leaderboard?language=&limit=20` | 랭킹(적은 시도 우선, 같으면 빨리 푼 순, 언어별) → `entries [{rank, display, attempts, seconds, is_me}]` + `me {rank, attempts, seconds} \| null`(21위 밖이어도 내 순위) | Bearer |
+| GET | `/api/v1/puzzles/today/leaderboard?language=&limit=20` | 랭킹(적은 시도 우선, 같으면 빨리 푼 순, 언어별) → `entries [{rank, anon_tag, attempts, seconds, is_me}]` + `me {rank, attempts, seconds} \| null`(21위 밖이어도 내 순위) | Bearer |
 | GET | `/api/v1/me/stats` | 내 퍼즐 언어 · streak · 최대streak · 누적 정답 | Bearer |
 | GET | `/api/v1/me/history?days=7` | 최근 N일(KST, 상한 31) 퍼즐 언어별 결과 → `[{date, results: {ko, en}}]`, 각 값 `success\|fail\|in_progress\|none` | Bearer |
 | POST | `/api/v1/session/sync` | 이 브라우저=이 게스트를 세션 쿠키에 동기화 (로그인 전 필수) | Bearer |
@@ -997,6 +997,10 @@ ID 를 그대로 쓰지 않고 `% 0x10000` 으로 자른 건 가입 순서·규�
 갈라 보여주기 위한 라벨이고, 내 행은 `is_me`(서버가 요청자 ID 로 판정)로 따로
 표시하기 때문에 충돌이 기능을 깨지 않는다. 해시·솔트로 충돌을 줄일 수도 있었지만,
 면접에서 설명해야 하는 코드에 "표시용 라벨"보다 무거운 장치를 들이지 않았다.
+
+> **티켓 38 이 이 절의 "서버가 표시 문자열까지 만든다" 를 뒤집었다.** 서버는
+> 언어 중립 태그(`anon_tag: "a3f1"`)만 주고 접두사는 웹·앱이 자기 UI 언어로
+> 붙인다 — 이유와 대가는 아래 "38." 에 있다. ID 를 안 내려보낸다는 원칙은 그대로다.
 
 ### 07. 내 순위는 페이지가 아니라 ZRANK 로 따로 읽는다
 
@@ -2146,6 +2150,58 @@ StreakBadge 가 늘 보여주고 있어 다시 적지 않았고, 앱 S4 의 7일
 컨텍스트(`business_info`·`contact_email`)를 법적 문서 페이지와 **같은 함수**
 (`app/web.py` 의 `_business_info`)에서 넘긴다.
 
+
+### 38. 리더보드 익명 이름 — 서버는 태그만, 접두사는 UI 언어가 붙인다
+
+영어 UI 와 영문 스토어 스크린샷에 한글 '게스트' 가 그대로 찍혀 있었다. 원인은
+서버가 표시 문자열을 완성해서 보냈기 때문이다(`display: "게스트 #a3f1"`) — 그
+문자열에는 **요청자의 UI 언어가 들어갈 자리가 없다**. 리더보드 조회는 UI 언어를
+받지도 않는다(`?language=` 는 **퍼즐** 언어다). 그래서 응답을 언어 중립으로
+낮췄다: `anon_tag: "a3f1"` 만 주고, "게스트 #" / "Guest #" 는 자기 UI 언어를 아는
+웹·앱이 붙인다(웹 `leaderboard_guest`, 앱 `ranking.guest`).
+
+이것은 "07. 리더보드 익명 표시" 가 적어둔 결론 — *서버가 표시 문자열까지 만든다* —
+의 **반대**다. 07 의 근거는 "클라이언트마다 라벨 규칙이 갈린다" 였는데, 라벨 규칙이
+갈리는 비용보다 **번역 불가**의 비용이 컸다. 규칙이 갈리는 건 테스트로 막는다
+(`tests/test_web_js.py` 의 ko/en 렌더, `mobile/test/screens/ranking_tab_test.dart`
+의 ko/en 렌더·semantics). ID 를 응답에 넣지 않는다는 07 의 **본래 원칙은 그대로**다 —
+태그는 여전히 `guest.id % 0x10000` 을 16진 4자리로 자른 값이고(`puzzle_metrics.anon_tag`),
+이메일·게스트 ID 원본은 응답에 없다. `tests/test_leaderboard.py` 가 응답 본문
+**전체**에 한글이 없는지도 본다 — 필드 하나만 보면 다음에 또 서버에서 라벨을 만들 때
+같은 결함이 조용히 돌아온다.
+
+**`display` 는 남기지 않고 지웠다.** 하위 호환으로 둘 수도 있었지만 그러면 같은
+이름의 정본이 둘이 되고, 둘 중 하나는 영어 화면에서 틀린 값이다 — "안 쓰는 필드"
+하나가 다음 클라이언트에서 다시 쓰이면 결함이 그대로 돌아온다. 지워도 되는 근거는
+배포 모양이다: **웹은 서버와 같은 저장소에서 같이 배포되고**(Flask 가
+`web/static/app.js` 를 직접 서빙하고, 정적 URL 에 프로세스 시작 시각이
+`?v=` 로 붙어 배포마다 캐시가 새로 받아진다 — `app/__init__.py`), **앱은 아직 스토어에
+출시되지 않았다.** 그래서 옛 필드를 읽는 클라이언트가 바깥에 하나도 없다. 티켓 07 이
+`guest_id`·`solved_in_seconds` 를 같은 식으로 지운 선례도 있다. 남는 위험은 **배포
+순간에 이미 열려 있던 탭** 하나다 — 그 탭의 옛 JS 는 `entry.display` 가 없어서
+이름 칸에 `undefined` 를 그린다. 새로고침 한 번으로 끝나고, 출시 전이라 그 탭의 수가
+0 에 가깝기 때문에 하위 호환 필드를 유지하는 비용과 맞바꿀 만하다고 봤다.
+
+**en 복수형: `1 tries` 를 고친 자리.** 숫자가 들어가는 문구에 단위를 패턴으로 박아
+두면(`"{count} tries"`) 1 일 때 고를 자리가 없다. 앱은 easy_localization 의
+`plural` 로 바꿨다 — `ranking.attempts`, `result.stats_row`, `streak.days`,
+`streak.puzzles` 네 키가 en 에서 `one`/`other` 두 형태를 갖고, ko 는 단·복수가 같아서
+`other` 하나만 둔다. easy_localization 은 `ignorePluralRules` 기본값(`true`)에서
+1→`one`·2→`two`·그 밖→`other` 를 찾고 **없는 형태는 `other` 로 눕는다**(3.0.8
+`Localization._resolvePlural`). 그래서 ko 의 `other` 하나가 모든 수를 받고, en 의
+`two` 없음도 `other`("2 tries")로 떨어진다 — 이게 CLDR 규칙을 켜지 않고 끝낸 이유다.
+웹에는 plural 장치가 없으니 사전에 `attempts_one`/`attempts_other` 두 키를 양쪽 언어에
+두고 번들의 `attemptsText(count)` 가 고른다. 대신 `leaderboard_entry`·`my_rank`·
+`stats_row` 는 숫자가 아니라 **완성된 문구**를 받는다(`{attempts}`) — 단위가 패턴에
+남아 있으면 복수형을 고를 자리가 다시 없어지므로 `tests/test_ui_strings.py` 가
+자리표시자 모양까지 못 박는다.
+
+같은 파일에 숫자가 들어가지만 **고치지 않은** 문구도 있다. `today.attempts_left` /
+웹 `attempts_left`(`{left}/{max} tries left`)는 비율 표기라 `1/5 tries left` 가 자연스럽다.
+`result.fail_body`(`All {max} tries used`)의 `max` 는 항상 5 라 1 이 될 수 없다.
+`today.length` / `share.puzzle` / `error_guess_length`(`{length} letters`)는 시도 횟수가
+아니라 글자 수라서 이 티켓이 보는 결함 계열이 아니다 — 한 글자 퍼즐을 낼 때
+같이 본다.
 
 ## 부하 테스트 요약
 

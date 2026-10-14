@@ -105,3 +105,34 @@ def test_api_error_codes_map_to_keys_that_exist():
 
     assert mapping, "오류 code 매핑이 비어 있다"
     assert set(mapping.values()) <= set(UI_STRINGS["ko"])
+
+
+def test_attempts_has_a_singular_and_a_plural_form_in_english():
+    """티켓 38: en 에서 `1 tries` 가 나오던 자리. ko 는 두 형태가 같다.
+
+    번들은 `attemptsText(count)` 로 둘 중 하나를 고른다 — 문구를 다시
+    `{attempts} tries` 처럼 패턴에 박으면 이 테스트가 먼저 깨진다.
+    """
+    assert UI_STRINGS["en"]["attempts_one"] == "{count} try"
+    assert UI_STRINGS["en"]["attempts_other"] == "{count} tries"
+    assert UI_STRINGS["ko"]["attempts_one"] == UI_STRINGS["ko"]["attempts_other"]
+
+
+def test_leaderboard_strings_take_a_prebuilt_name_and_attempts_phrase():
+    """리더보드·분포 문구는 숫자가 아니라 **완성된 문구**를 받는다.
+
+    `{attempts} tries` 처럼 단위를 패턴에 박으면 복수형을 고를 자리가 없어진다.
+    이름도 같은 이유로 `{name}` 이다 — 접두사는 `leaderboard_guest` 가 만든다.
+    """
+    for language in UI_STRINGS:
+        strings = UI_STRINGS[language]
+        assert _placeholders(strings["leaderboard_entry"]) == ["attempts", "name", "time"]
+        assert _placeholders(strings["my_rank"]) == ["attempts", "rank", "time"]
+        assert _placeholders(strings["stats_row"]) == ["attempts", "percent"]
+        assert _placeholders(strings["leaderboard_guest"]) == ["tag"]
+
+
+def test_the_guest_prefix_is_translated():
+    """서버가 보내는 태그는 언어 중립이라, 접두사가 양쪽 언어에 따로 있어야 한다."""
+    assert UI_STRINGS["ko"]["leaderboard_guest"] == "게스트 #{tag}"
+    assert UI_STRINGS["en"]["leaderboard_guest"] == "Guest #{tag}"

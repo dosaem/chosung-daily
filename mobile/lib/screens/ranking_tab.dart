@@ -87,7 +87,11 @@ class _Board extends ConsumerWidget {
                         final entry = entries[index];
                         return LeaderboardRow(
                           rank: entry.rank,
-                          name: entry.display,
+                          // 서버는 언어 중립 태그만 준다 — 접두사는 UI 언어가
+                          // 붙인다(README "38.").
+                          name: 'ranking.guest'.tr(
+                            namedArgs: {'tag': entry.anonTag},
+                          ),
                           attempts: entry.attempts,
                           seconds: entry.seconds,
                           isMe: entry.isMe,
@@ -207,7 +211,7 @@ class _MyRankCard extends StatelessWidget {
         ? 'ranking.not_played'.tr()
         : [
             '#${me.rank}',
-            'ranking.attempts'.tr(namedArgs: {'count': '${me.attempts}'}),
+            'ranking.attempts'.plural(me.attempts, name: 'count'),
             formatCountdown(Duration(seconds: me.seconds)),
           ].join(' · ');
 

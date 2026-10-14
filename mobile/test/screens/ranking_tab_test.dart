@@ -71,7 +71,7 @@ void main() {
             fakeLeaderboardEntry(rank: 1),
             fakeLeaderboardEntry(
               rank: 2,
-              display: '게스트 #7b20',
+              anonTag: '7b20',
               attempts: 2,
               seconds: 221,
               isMe: true,
@@ -212,7 +212,7 @@ void main() {
     api
       ..fetchTodayLeaderboardError = null
       ..leaderboard = fakeLeaderboard(
-        entries: [fakeLeaderboardEntry(rank: 1, display: '게스트 #a3f1')],
+        entries: [fakeLeaderboardEntry(rank: 1, anonTag: 'a3f1')],
       );
     await tester.tap(find.text('다시 시도'));
     await tester.pumpAndSettle();
@@ -263,5 +263,116 @@ void main() {
 
     expect(find.text('English'), findsOneWidget);
     expect(find.text('Not solved yet'), findsOneWidget);
+  });
+
+  // --- 티켓 38: 익명 이름은 UI 언어가 만든다 --------------------------------
+
+  /// 서버가 주는 건 언어 중립 태그(`anon_tag: "a3f1"`) 하나뿐이다. 같은 응답을
+  /// ko·en 으로 띄워서 접두사가 UI 언어를 따라가는지 본다 — 영문 스토어
+  /// 스크린샷에 한글 '게스트' 가 보이던 결함이다.
+  Future<void> pumpSameBoard(WidgetTester tester, Locale locale) =>
+      _pumpRanking(
+        tester,
+        api: FakeApiClient(
+          leaderboard: fakeLeaderboard(
+            entries: [
+              fakeLeaderboardEntry(rank: 1, anonTag: 'a3f1'),
+              // 내 행을 목록 안에 둔다 — 하단 고정 행까지 생기면
+              // "2 tries" 가 두 번 나와서 단수/복수를 세는 게 흐려진다.
+              fakeLeaderboardEntry(
+                rank: 2,
+                anonTag: '7b20',
+                attempts: 2,
+                seconds: 221,
+                isMe: true,
+              ),
+            ],
+            me: const MyRank(rank: 2, attempts: 2, seconds: 221),
+          ),
+        ),
+        locale: locale,
+      );
+
+  testWidgets('ko: 태그에 "게스트 #" 를 붙인다', (tester) async {
+    await pumpSameBoard(tester, const Locale('ko'));
+
+    expect(find.text('게스트 #a3f1'), findsOneWidget);
+    expect(find.text('게스트 #7b20'), findsOneWidget);
+    expect(find.text('a3f1'), findsNothing, reason: '태그만 그리면 안 된다');
+  });
+
+  testWidgets('en: 같은 태그에 "Guest #" 를 붙인다 — 한글이 없다', (tester) async {
+    await pumpSameBoard(tester, const Locale('en'));
+
+    expect(find.text('Guest #a3f1'), findsOneWidget);
+    expect(find.text('Guest #7b20'), findsOneWidget);
+    expect(
+      find.byWidgetPredicate(
+        (widget) => widget is Text && (widget.data ?? '').contains('게스트'),
+      ),
+      findsNothing,
+    );
+  });
+
+  testWidgets('en: 시도 횟수는 1 에서 단수, 2 이상에서 복수다', (tester) async {
+    await pumpSameBoard(tester, const Locale('en'));
+
+    // 1위 행은 1회, 2위 행과 내 순위 카드는 2회다.
+    expect(find.text('1 try'), findsOneWidget);
+    expect(find.text('2 tries'), findsOneWidget);
+    expect(find.text('#2 · 2 tries · 00:03:41'), findsOneWidget);
+    expect(find.text('1 tries'), findsNothing);
+  });
+
+  testWidgets('ko: 시도 횟수 문구는 1 과 2 에서 같다', (tester) async {
+    await pumpSameBoard(tester, const Locale('ko'));
+
+    expect(find.text('1회'), findsOneWidget);
+    expect(find.text('2회'), findsOneWidget);
+    expect(find.text('#2 · 2회 · 00:03:41'), findsOneWidget);
+  });
+
+  testWidgets('en: 내 순위 카드가 1회면 단수다', (tester) async {
+    await _pumpRanking(
+      tester,
+      api: FakeApiClient(
+        leaderboard: fakeLeaderboard(
+          entries: [fakeLeaderboardEntry(rank: 1, isMe: true)],
+          me: const MyRank(rank: 1, attempts: 1, seconds: 41),
+        ),
+      ),
+      locale: const Locale('en'),
+    );
+
+    expect(find.text('#1 · 1 try · 00:00:41'), findsOneWidget);
+  });
+
+  /// 행은 칸 4개를 `Semantics` 라벨 한 줄로 묶는다 — 그 라벨에도 UI 언어로 만든
+  /// 이름과 복수형이 들어가야 한다. 스크린리더만 쓰는 사용자가 본문과 다른
+  /// 문구를 듣게 되면 안 된다.
+  testWidgets('en: 행 semantics 라벨도 Guest # 와 복수형을 쓴다', (tester) async {
+    final handle = tester.ensureSemantics();
+    await pumpSameBoard(tester, const Locale('en'));
+
+    expect(
+      find.bySemanticsLabel('Rank 1, Guest #a3f1, 1 try, time 00:00:41'),
+      findsOneWidget,
+    );
+    expect(
+      find.bySemanticsLabel('Rank 2, Guest #7b20, 2 tries, time 00:03:41'),
+      findsOneWidget,
+    );
+    handle.dispose();
+  });
+
+  testWidgets('ko: 행 semantics 라벨은 게스트 # 를 쓴다', (tester) async {
+    final handle = tester.ensureSemantics();
+    await pumpSameBoard(tester, const Locale('ko'));
+
+    expect(
+      find.bySemanticsLabel('1위 게스트 #a3f1, 시도 1회, 걸린 시간 00:00:41'),
+      findsOneWidget,
+    );
+    handle.dispose();
   });
 }

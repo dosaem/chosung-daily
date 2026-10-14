@@ -27,6 +27,18 @@ function t(key, vars = {}) {
   return STRINGS[key].replace(/\{(\w+)\}/g, (_, name) => vars[name]);
 }
 
+// 시도 횟수 문구. en 은 1 과 2 이상이 다르고(`1 try` / `2 tries`) ko 는 같다 —
+// 사전이 양쪽 언어에 두 키를 다 들고 있으니 여기서 언어를 묻지 않는다.
+function attemptsText(count) {
+  return t(count === 1 ? "attempts_one" : "attempts_other", { count });
+}
+
+// 리더보드 행 이름. 서버는 언어 중립 태그(`anon_tag: "a3f1"`)만 주고, "게스트 #" /
+// "Guest #" 는 자기 UI 언어를 아는 이쪽이 붙인다(README "38.").
+function guestName(anonTag) {
+  return t("leaderboard_guest", { tag: anonTag });
+}
+
 // API 오류 응답의 `message` 는 한국어 한 벌뿐이다(app/errors.py) — 기기 언어가
 // en 이면 그대로 띄울 수 없다. 그래서 화면 문구는 `code` 로 UI 사전에서 고른다.
 // 사전에 없는 code(INTERNAL_ERROR 등)는 부른 쪽이 준 기본 문구로 눕힌다.
@@ -797,8 +809,8 @@ function renderLeaderboard(data) {
       textSpan(
         "entry-text",
         t("leaderboard_entry", {
-          display: entry.display,
-          attempts: entry.attempts,
+          name: guestName(entry.anon_tag),
+          attempts: attemptsText(entry.attempts),
           time: formatSeconds(entry.seconds),
         })
       )
@@ -810,7 +822,7 @@ function renderLeaderboard(data) {
   document.getElementById("my-rank").textContent = data.me
     ? t("my_rank", {
         rank: data.me.rank,
-        attempts: data.me.attempts,
+        attempts: attemptsText(data.me.attempts),
         time: formatSeconds(data.me.seconds),
       })
     : t("my_rank_unsolved");
@@ -840,7 +852,10 @@ function renderTodayStats(stats) {
     const ratio = stats.by_attempt[String(attempt)] ?? 0;
     const row = document.createElement("li");
     row.className = "stats-row";
-    row.textContent = t("stats_row", { attempt, percent: Math.round(ratio * 100) });
+    row.textContent = t("stats_row", {
+      attempts: attemptsText(attempt),
+      percent: Math.round(ratio * 100),
+    });
     list.appendChild(row);
   }
 }

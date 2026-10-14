@@ -23,11 +23,17 @@
     "open_store": "Open the store"
   },
   "streak": {
-    "days": "{count} days",
+    "days": {
+      "one": "{count} day",
+      "other": "{count} days"
+    },
     "current": "Current",
     "max": "Best",
     "solved": "Solved",
-    "puzzles": "{count} puzzles"
+    "puzzles": {
+      "one": "{count} puzzle",
+      "other": "{count} puzzles"
+    }
   },
   "ads": {
     "slot_label": "Ad slot"
@@ -74,7 +80,10 @@
     "stats_title": "Today's stats",
     "stats_attempt": "{count}",
     "stats_percent": "{percent}%",
-    "stats_row": "{count} tries {percent} percent",
+    "stats_row": {
+      "one": "{count} try {percent} percent",
+      "other": "{count} tries {percent} percent"
+    },
     "stats_mine": "your result",
     "stats_empty": "Nobody has solved it yet",
     "stats_failed": "Couldn't load the stats",
@@ -100,7 +109,11 @@
     "not_played": "Not solved yet",
     "empty": "Nobody has solved it yet. Be the first",
     "me": "You",
-    "attempts": "{count} tries",
+    "guest": "Guest #{tag}",
+    "attempts": {
+      "one": "{count} try",
+      "other": "{count} tries"
+    },
     "column_rank": "Rank",
     "column_name": "Name",
     "column_attempts": "Tries",
