@@ -135,5 +135,30 @@
     "result_fail": "실패",
     "result_in_progress": "진행 중",
     "result_none": "미플레이"
+  },
+  "onboarding": {
+    "skip": "건너뛰기",
+    "close": "닫기",
+    "next": "다음",
+    "progress": "안내 {current}/{total}",
+    "one_a_day_title": "하루 한 문제",
+    "one_a_day_body": {
+      "ko": "초성만 보고 단어를 맞춰요.\n매일 KST 자정에 새 문제가 나와요.",
+      "en": "자음만 보고 단어를 맞춰요.\n매일 KST 자정에 새 문제가 나와요."
+    },
+    "five_tries_title": "5번의 기회",
+    "five_tries_body": "자리까지 맞은 글자는 초록, 아닌 글자는 회색으로 알려줘요.",
+    "five_tries_correct": "자리까지 맞음",
+    "five_tries_wrong": "아님",
+    "keep_streak_title": "매일 이어가기",
+    "keep_streak_body": "하루만 빠져도 연속 기록은 0일부터 다시 시작해요.",
+    "keep_streak_sample": "연속 12일",
+    "notification_title": "매일 아침 알려드릴까요?",
+    "notification_body": "기본 오전 9시에 이 기기에서 알려드려요. 설정에서 언제든 끌 수 있어요.",
+    "notification_allow": "알림 켜기",
+    "notification_later": "나중에",
+    "tracking_title": "맞춤 광고 허용",
+    "tracking_body": "허용하면 관심사에 맞는 광고가 보여요. 허용하지 않아도 앱은 그대로 쓸 수 있어요.",
+    "tracking_continue": "계속"
   }
 }

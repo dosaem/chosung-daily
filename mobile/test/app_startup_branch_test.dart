@@ -5,6 +5,7 @@ import 'package:chosung/config/provider_retry.dart';
 import 'package:chosung/guest/guest_token_store.dart';
 import 'package:chosung/l10n/localization_bootstrap.dart';
 import 'package:chosung/layout/reading_width.dart';
+import 'package:chosung/onboarding/onboarding_store.dart';
 import 'package:chosung/screens/home_shell.dart';
 import 'package:chosung/screens/maintenance_screen.dart';
 import 'package:chosung/screens/ranking_tab.dart';
@@ -22,9 +23,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'fakes/fake_api_client.dart';
 import 'fakes/in_memory_guest_token_store.dart';
+import 'fakes/in_memory_onboarding_store.dart';
 
 /// 실제 앱 트리(ProviderScope → EasyLocalization → ChosungApp)를 띄우고,
-/// 서버 경계(`ApiClient`)와 secure storage 만 가짜로 바꾼다.
+/// 서버 경계(`ApiClient`)와 기기 저장소만 가짜로 바꾼다.
+///
+/// 온보딩은 "이미 본" 상태로 둔다 — 여기서 보는 건 점검·업데이트·홈 분기지
+/// 첫 실행 온보딩이 아니다(그쪽은 `screens/onboarding_screen_test.dart`).
 Future<void> _pumpApp(
   WidgetTester tester, {
   required FakeApiClient api,
@@ -44,6 +49,9 @@ Future<void> _pumpApp(
           apiClientProvider.overrideWithValue(api),
           guestTokenStoreProvider.overrideWithValue(
             store ?? InMemoryGuestTokenStore('guest-token'),
+          ),
+          onboardingStoreProvider.overrideWithValue(
+            InMemoryOnboardingStore(seen: true),
           ),
           appVersionProvider.overrideWith((_) async => appVersion),
           isIosProvider.overrideWithValue(isIos),
