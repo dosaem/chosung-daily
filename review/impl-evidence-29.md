@@ -749,3 +749,190 @@ main...HEAD` 에 `migrations/` 없음) `flask db heads` 는 이번에도 대상�
 둘 다 shared_preferences 위다). 지금은 서로 간섭 없이 함께 돌고 테스트도 둘 다
 통과하지만, 같은 일을 하는 길이 둘인 상태다. 결함이 아니고 이번 수정 범위도
 아니라 건드리지 않았다 — 통합은 별도 티켓이 맞다.
+
+## 수정 라운드 3
+
+라운드 3 리뷰의 잔여 결함은 MAJOR 1건(D-29-5)이다. 코디네이터가 추가 지시를
+보냈다: "계정 경계를 넘은 뒤에는 이전 계정에서 만든 화면 값으로 **어떤 쓰기
+요청도** 나가면 안 된다. 개별 화면마다 막지 말고 토큰 세대 같은 **하나의
+장치**로 보장하고, 지연되는 Fake(Completer)로 재현 테스트를 만들어라." 그대로
+했다.
+
+### D-29-5 — MAJOR — 계정 전환 후 홈 재조회 중 이전 계정 보드에서 새 계정에 답을 제출할 수 있음
+
+**재현(리뷰의 입력 그대로, 저장소 테스트로 고정).** A 의 보드를 한 번 읽고 →
+B 의 백업 코드로 복원(`GET /me/stats` 200) → B 의 `GET /puzzles/today` 만
+`fetchTodayPuzzleGate` 로 붙잡고 → 길이가 맞는 답을 제출. 수정 전:
+
+```
+$ cd mobile && flutter test test/account/account_controller_test.dart --reporter expanded
+00:00 +11 -1: 백업 코드 새 계정 보드를 읽기 전에는 옛 보드가 폐기되고 제출도 막힌다 [E]
+  Expected: null
+    Actual: <Instance of 'TodayPuzzleReady'>
+  옛 계정 보드가 남았다
+```
+
+실제 `TodayTab` 에서도 같다 — 보드와 입력창이 그대로 있고 제출 버튼이 살아
+있었다(`test/screens/today_tab_test.dart`, 수정 전 1 failed).
+
+**원인은 두 겹이다.**
+
+1. `AccountNotifier._adopt` 가 `ref.invalidate(todayPuzzleProvider)` 만 했다.
+   Riverpod 의 무효화는 **값을 지우는 API 가 아니다** — 다시 빌드하는 동안
+   직전 값을 새 상태에 실어 준다(`AsyncValue.copyWithPrevious`,
+   `riverpod-3.3.2/lib/src/core/element.dart:67` `asyncTransition`). 그래서
+   `todayPuzzleProvider` 는 `isLoading == true` 이면서 `value` 에 A 의
+   `TodayPuzzleReady` 를 들고 있었고, `TodayTab` 은 그 값 분기를 먼저 고른다
+   (`lib/screens/today_tab.dart:93`). 오류도 제출 중 상태도 없어서 입력과
+   제출 버튼이 열려 있었다. `MyStatsNotifier` 는 이미 이 함정을 알고
+   `discard()`(= `AsyncData(null)`)를 쓰고 있었는데(D-29-1 수정) 홈에는 그
+   처리가 없었다. — `AsyncLoading`·`AsyncError` 로 눕히는 것도 답이 아니다:
+   `AsyncLoading.copyWithPrevious` 는 `isRefresh` 가 false 여도 `value` 를
+   그대로 실어 준다(`core/async_value.dart:780`). 직접 읽고 확인했다.
+2. **토큰이 바뀌는 길은 `_adopt` 만이 아니다.** 시작 흐름의 401 복구
+   (`StartupNotifier._fetchStats` → `clear()` + `_issueGuestToken()`)도 토큰을
+   갈아끼우고, 그 길은 보드를 버려 주지 않는다. 즉 화면 폐기만으로는 "옛 계정
+   값으로 쓰기가 나가지 않는다" 를 보장할 수 없다. 제출 쪽도 `state.value` 만
+   보고 그 값이 **어느 계정에서** 온 것인지 보지 않았다.
+
+**수정.** 두 겹을 각각 끊었다. 둘 다 새 추상화가 아니라 이미 있는 방식
+(`MyStatsNotifier.discard`, 세대 번호)을 그대로 쓴다.
+
+- `TodayPuzzleNotifier.discard()`(`lib/puzzle/today_puzzle_controller.dart`):
+  보던 보드를 비우고(`AsyncData(null)` — 화면은 스켈레톤) 세대를 올려 떠나
+  있던 옛 계정의 응답까지 버린 뒤 새 계정 보드를 읽는다. provider 상태 타입이
+  `TodayState?` 가 된 이유가 이것이다 — "보드를 아직 모른다" 를 null 로 두는
+  건 `MyStatsNotifier` 와 같은 규칙이고, 로딩·오류를 `TodayState` 안에 또
+  세지 않는다. 경계에서 부르는 자리는 `discardTodayPuzzle(ref)` 하나이고
+  (계정 경계 + 언어 경계), "아직 아무도 읽지 않은 홈은 만들지 않는다"
+  (`ref.exists`)는 규칙도 그 함수가 들고 있다 — 무효화와 같은 게으름을 지킨다.
+- **계정 세대**(`lib/guest/account_epoch.dart`, 코디네이터가 말한 "하나의
+  장치"): 토큰이 바뀔 때마다 하나 올라가는 숫자다. 올리는 자리는
+  `GuestTokenNotifier.replaceWith`·`clear` 둘뿐이라 — 앱에서 토큰이 바뀌는
+  길이 그 둘뿐이라 — 계정 경계의 정의가 한 곳에 있다. 서버에서 읽어 만든 화면
+  값은 그때의 세대를 적어 두고, **쓰기는 `sendIfSameAccount(epoch, send)` 로
+  감싼다**: 세대가 어긋나면 요청을 보내지 않는다. 지금 이 문을 지나는 쓰기는
+  제출(`POST /puzzles/today/guesses`)과 퍼즐 언어(`PATCH /me`) 둘이고, 화면
+  폐기를 빼먹은 길이 생겨도 남의 계정에 쓰이지 않는다.
+  - 비교를 **요청을 만드는 자리**에 둔 이유: `DioApiClient._authorized()` 는
+    매 요청 지금 토큰을 동기적으로 읽어 Bearer 에 붙인다. 보내고 나서
+    걸러낼 방법이 없고, 비교와 토큰 읽기 사이에 `await` 가 없어야 한다.
+
+**증명하는 테스트(5개 추가, 전부 수정 전 실패를 확인했다).**
+
+| 테스트 | 무엇을 고정하는가 |
+|---|---|
+| `test/account/account_controller_test.dart` 백업 코드 — 새 계정 보드를 읽기 전에는 옛 보드가 폐기되고 제출도 막힌다 | 리뷰의 재현 그대로. 보드 폐기 + 제출 0회 + 보드가 도착하면 다시 제출됨 |
+| 같은 파일, 계정 삭제 — 삭제한 계정의 보드는 새 게스트 보드가 오기 전에 사라진다 | 삭제 → 새 게스트도 같은 `_adopt` 길이다 |
+| `test/screens/today_tab_test.dart` — 계정을 전환하면 새 보드를 읽기 전까지 옛 보드로 제출할 수 없다 | 실제 `TodayTab`: `PuzzleBoard`·`GuessInput` 이 사라지고 스켈레톤이 그 자리를 받는다 |
+| `test/puzzle/today_puzzle_controller_test.dart` — 계정이 바뀐 뒤에는 옛 보드로 제출하지 않는다 | `_adopt` **밖**에서 토큰이 바뀐 경우(시작 흐름의 401 복구). 계정 세대가 마지막 문이다 |
+| `test/settings/puzzle_language_controller_test.dart` — 계정이 바뀐 뒤의 탭은 새 계정 언어를 덮어쓰지 않는다 | 같은 장치가 두 번째 쓰기(`PATCH /me`)도 막는다 |
+
+수정 전 실패 출력(각각 해당 수정만 되돌려 확인했다):
+
+```
+$ cd mobile && flutter test test/account/account_controller_test.dart test/screens/today_tab_test.dart --reporter compact
+  (보드 폐기를 되돌림: `_adopt` 가 invalidate 만)
+00:06 +11 -1: ... 백업 코드 새 계정 보드를 읽기 전에는 옛 보드가 폐기되고 제출도 막힌다 [E]
+00:08 +31 -2: ... 계정을 전환하면 새 보드를 읽기 전까지 옛 보드로 제출할 수 없다 [E]
+00:09 +46 -2: Some tests failed.
+
+$ cd mobile && flutter test test/account/account_controller_test.dart --reporter compact
+00:04 +13 -2: 계정 삭제 삭제한 계정의 보드는 새 게스트 보드가 오기 전에 사라진다 [E]
+
+$ cd mobile && flutter test test/puzzle/today_puzzle_controller_test.dart test/settings/puzzle_language_controller_test.dart --reporter compact
+  (계정 세대 비교만 되돌림)
+00:02 +28 -2: ... 계정이 바뀐 뒤에는 옛 보드로 제출하지 않는다 [E]
+00:02 +6 -1: ... 계정이 바뀐 뒤의 탭은 새 계정 언어를 덮어쓰지 않는다 [E]
+```
+
+### 같이 고친 같은 원인 한 자리 (언어 경계)
+
+스펙 §A.2 는 "**언어 변경**·계정 전환 시 로컬 상태 폐기" 다. 언어를 바꾸는
+길도 주석으로는 "스켈레톤부터 다시 간다" 라고 적어 두고 무효화를 하고 있었다 —
+같은 함정이라 같은 `discardTodayPuzzle(ref)` 를 쓰게 했고, 옛 언어 보드가 새
+보드 전에 사라지는 테스트를 하나 더 붙였다(라운드 3 리뷰의 결함은 아니다).
+쓰기(`PATCH /me`)는 계정 세대로 이미 막힌다.
+
+### 리뷰어 지적이 틀렸다고 본 것
+
+없다. D-29-5 는 리뷰의 재현 입력 그대로 저장소 테스트에서 재현됐다.
+
+### 미수정 MINOR·관찰
+
+라운드 3 리뷰에 MINOR·BLOCKER 는 없었다. 고치지 않고 적어 두는 것 둘:
+
+- **7일 그리드(S4)는 계정 전환 중 옛 계정 값이 남는다.** `historyProvider` 는
+  `FutureProvider` 라 버릴 notifier 가 없고(`lib/records/history_controller.dart`
+  — "읽기 한 번이라 Notifier 를 둘 이유가 없다"), `records_tab.dart:234` 가
+  `AsyncValue(:final List<HistoryDay> value)` 분기를 먼저 고른다. 읽기 전용
+  표시라 **남의 계정에 쓰는 길은 아니고**, 고치려면 provider 를 Notifier 로
+  바꿔야 해서(= 티켓 27 화면의 리팩토링) 이번 결함 범위 밖으로 뒀다. 계정 줄과
+  streak 3칸은 `myStatsProvider.discard` 로 이미 비워지므로 화면에 남는 것은
+  7일 칸 하나다. 후속 티켓이 `historyProvider` 를 Notifier 로 바꿀 때 같은
+  `discard` 를 붙이는 게 맞다.
+- **공식 Google/Apple 로그인 버튼 에셋**은 여전히 `docs/RELEASE.md` "### 29."
+  의 사람 확인 항목이다(라운드 1~3 과 같음).
+
+### 재실행 (로컬 main 위, 전부 수정 후)
+
+로컬 `main` 은 `8ddc8fd`(티켓 28 머지) 그대로여서 `git rebase main` 은
+`up to date` 였다 — 라운드 2 에서 이미 그 위로 올려 둔 상태다.
+
+```
+$ git log --oneline -1 main
+8ddc8fd Merge 티켓 28: 앱 온보딩·권한 사전 안내
+
+$ git rebase main
+Current branch dosaem/t29-app-account-link-switch-delete is up to date.
+
+$ cd mobile && flutter test
+00:36 +456: All tests passed!
+
+$ cd mobile && flutter analyze
+No issues found! (ran in 4.8s)
+
+$ cd mobile && dart format --output=none --set-exit-if-changed .
+Formatted 133 files (0 changed) in 0.18 seconds.
+
+$ cd mobile && flutter build apk --debug
+✓ Built build/app/outputs/flutter-apk/app-debug.apk
+(종료 코드 0, 코디네이터 추가 지시. 끝난 뒤 `mobile/build` 는 지웠다)
+
+$ uv run ruff check .
+All checks passed!
+
+$ export TEST_DATABASE_URL='mysql+pymysql://chosung:chosung@localhost:3306/chosung_daily_test_t29?charset=utf8mb4'
+$ export TEST_REDIS_URL='redis://localhost:6379/3'
+$ export TEST_MIGRATION_DATABASE_URL='mysql+pymysql://chosung:chosung@localhost:3306/chosung_daily_test_t29_migrations?charset=utf8mb4'
+$ uv run pytest -q
+........................................................................ [ 97%]
+...................................                                      [100%]
+1403 passed in 1423.63s (0:23:43)
+```
+
+앱 테스트 **449 → 456**. 늘어난 7개 중 6개가 이 라운드의 재현 테스트고(위 표의
+5개 + "첫 조회 중 계정이 바뀌면 그 응답은 보드가 되지 않는다"), 1개는 언어
+경계 폐기 테스트다. 백엔드는 이번 라운드에도 한 줄도 건드리지 않았고
+(`git diff --name-only main...HEAD` 에 `app/`·`migrations/`·`tests/` 없음)
+같은 전용 자원(DB `chosung_daily_test_t29`, Redis DB 3, 마이그레이션 전용
+`..._migrations`)으로 돌렸다 — 공용 테스트 DB 를 비우지 않았고 새 DB 를 만들지도,
+기본 DB 로 떨어지지도 않았다. 1403 passed / 실패·재실행 0. 23분이 걸린 것은 다른
+워커(t30·t31)의 pytest 와 같은 기계를 나눠 썼기 때문이다. 마이그레이션 변경이
+없으므로 `flask db heads` 는 이번에도 확인 대상이 아니다.
+
+작업 트리는 clean 이고 `main`(`8ddc8fd`)이 `HEAD` 의 조상이다. 이 라운드의
+커밋은 4개다 — 결함 수정(보드 폐기 + 계정 세대), 언어 경계 폐기, 조회 응답
+경계 보강, 가드 주석 한 줄.
+
+### 바뀐 파일 (이 라운드)
+
+| 파일 | 무엇 |
+|---|---|
+| `mobile/lib/guest/account_epoch.dart` | **새 파일.** 계정 세대와 `sendIfSameAccount` — 하나의 장치 |
+| `mobile/lib/guest/guest_token_provider.dart` | 토큰이 바뀌는 두 길에서 세대를 올린다(= 계정 경계의 정의) |
+| `mobile/lib/puzzle/today_puzzle_controller.dart` | `discard()`·`discardTodayPuzzle(ref)`, 상태 타입 `TodayState?`, 제출을 가드로 감싸기, 경계를 넘은 조회 응답 폐기 |
+| `mobile/lib/account/account_controller.dart` | `_adopt` 가 무효화 대신 보드를 폐기 |
+| `mobile/lib/settings/puzzle_language_controller.dart` | 같은 폐기를 언어 경계에, `PATCH /me` 를 가드로 감싸기 |
+| `mobile/test/...` (4개 파일) | 재현 테스트 6개, 하네스에 토큰 저장소 주입 자리 |
+| `README.md` | 홈 보드 폐기와 계정 세대 문단, `_serverDeleted` → `_deletedToken` 명칭 정정 |
