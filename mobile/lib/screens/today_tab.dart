@@ -85,6 +85,7 @@ class _TodayTabState extends ConsumerState<TodayTab> {
     context: context,
     puzzle: puzzle,
     onShowRanking: () => context.go(AppRoutes.ranking),
+    onLinkAccount: () => context.go(AppRoutes.records),
   );
 
   @override

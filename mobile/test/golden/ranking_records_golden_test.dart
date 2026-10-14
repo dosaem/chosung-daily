@@ -5,6 +5,7 @@ import 'package:chosung/api/api_providers.dart';
 import 'package:chosung/app.dart';
 import 'package:chosung/config/provider_retry.dart';
 import 'package:chosung/layout/adaptive_scaffold.dart';
+import 'package:chosung/local/local_flags.dart';
 import 'package:chosung/notifications/notification_settings.dart';
 import 'package:chosung/permissions/notification_permission.dart';
 import 'package:chosung/screens/ranking_tab.dart';
@@ -21,6 +22,7 @@ import 'package:lucide_icons/lucide_icons.dart';
 import '../fakes/fake_api_client.dart';
 import '../fakes/fake_notifications.dart';
 import '../fakes/fake_permissions.dart';
+import '../fakes/in_memory_local_flag_store.dart';
 import '../layout/adaptive_scaffold_test.dart' show setViewSize;
 
 /// 목업(`design/stitch/e3_leaderboard.html`·`e4_records.html`)과 태블릿 와이어
@@ -94,14 +96,24 @@ Widget _shell({
   // S4 알림 행(티켓 30)은 저장된 설정을 읽어 그린다. 권한이 꺼진 장면은
   // 안내 한 줄이 더 붙으므로 따로 한 장 찍는다.
   bool notificationsGranted = true,
+  // 계정 줄(티켓 29)은 연결된 계정이 있을 때만 그려진다.
+  LinkedAccount? linkedAccount,
 }) => ProviderScope(
   retry: noAutoRetry,
   overrides: [
     apiClientProvider.overrideWithValue(_api()),
     startupStatsProvider.overrideWithValue(
-      fakeMyStats(currentStreak: 12, maxStreak: 30, solvedCount: 41),
+      fakeMyStats(
+        currentStreak: 12,
+        maxStreak: 30,
+        solvedCount: 41,
+        linkedAccount: linkedAccount,
+      ),
     ),
     appVersionProvider.overrideWith((ref) async => '1.0.0'),
+    // 스토어 스크린샷은 iOS 기준이다(티켓 35) — 연결 버튼도 둘 다 나온다.
+    isIosProvider.overrideWithValue(true),
+    localFlagStoreProvider.overrideWithValue(InMemoryLocalFlagStore()),
     notificationSettingsStoreProvider.overrideWithValue(
       InMemoryNotificationSettingsStore(),
     ),
@@ -165,12 +177,28 @@ void main() {
       tab: const RecordsTab(),
       index: 2,
     ),
+    // 목업 `e4_records` 는 연결된 상태를 그린다 — 그 상태도 한 장 남긴다.
+    (
+      name: 'records_linked_390',
+      size: const Size(390, 844),
+      tab: const RecordsTab(),
+      index: 2,
+    ),
   ]) {
     testWidgets('골든: ${shot.name}', (tester) async {
       setViewSize(tester, shot.size);
       await tester.runAsync(() async {
         await tester.pumpWidget(
-          _shell(tab: shot.tab, selectedIndex: shot.index),
+          _shell(
+            tab: shot.tab,
+            selectedIndex: shot.index,
+            linkedAccount: shot.name == 'records_linked_390'
+                ? const LinkedAccount(
+                    provider: 'google',
+                    email: 'hsseo@gmail.com',
+                  )
+                : null,
+          ),
         );
         await tester.pump();
       });

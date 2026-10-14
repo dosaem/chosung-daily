@@ -3,6 +3,7 @@ import 'package:chosung/api/api_providers.dart';
 import 'package:chosung/app.dart';
 import 'package:chosung/config/provider_retry.dart';
 import 'package:chosung/guest/guest_token_store.dart';
+import 'package:chosung/local/local_flags.dart';
 import 'package:chosung/onboarding/onboarding_store.dart';
 import 'package:chosung/widgets/leaderboard_row.dart';
 import 'package:chosung/widgets/seven_day_grid.dart';
@@ -12,6 +13,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../fakes/fake_api_client.dart';
 import '../fakes/in_memory_guest_token_store.dart';
+import '../fakes/in_memory_local_flag_store.dart';
 import '../fakes/in_memory_onboarding_store.dart';
 import '../layout/adaptive_scaffold_test.dart' show setViewSize;
 
@@ -38,6 +40,7 @@ Future<void> _pumpApp(WidgetTester tester, {required FakeApiClient api}) async {
           ),
           appVersionProvider.overrideWith((_) async => '1.0.0'),
           isIosProvider.overrideWithValue(true),
+          localFlagStoreProvider.overrideWithValue(InMemoryLocalFlagStore()),
         ],
         child: const AppLocalizationScope(
           startLocale: Locale('ko'),

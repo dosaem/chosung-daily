@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:chosung/account/account_controller.dart';
 import 'package:chosung/api/api_models.dart';
 import 'package:chosung/api/api_providers.dart';
 import 'package:chosung/layout/adaptive_sheet.dart';
@@ -13,6 +16,9 @@ import 'package:chosung/routing/app_routes.dart';
 import 'package:chosung/settings/legal_links.dart';
 import 'package:chosung/settings/puzzle_language_controller.dart';
 import 'package:chosung/theme/app_colors.dart';
+import 'package:chosung/widgets/account_card.dart';
+import 'package:chosung/widgets/backup_code_sheet.dart';
+import 'package:chosung/widgets/delete_account_dialog.dart';
 import 'package:chosung/widgets/settings_row.dart';
 import 'package:chosung/widgets/seven_day_grid.dart';
 import 'package:chosung/widgets/skeleton_box.dart';
@@ -25,13 +31,13 @@ import 'package:lucide_icons/lucide_icons.dart';
 /// 뒤 티켓이 채울 자리. 담당 티켓 번호를 주석으로 달아 두고, 키는 그 티켓과
 /// 태블릿 열 배치 테스트가 같이 쓴다(SCREENS T4 — 자리의 열은 바뀌지 않는다).
 abstract final class RecordsSlot {
-  /// 티켓 29: AccountCard(구글·애플 연결 / 전환됨).
+  /// AccountCard(구글·애플 연결 / 전환됨) — 티켓 29.
   static const account = Key('records.slot.account');
 
   /// 티켓 32: 구독 카드(현지화 가격 · 갱신일 · 관리).
   static const subscription = Key('records.slot.subscription');
 
-  /// 티켓 29: 백업 코드로 다른 기기 기록 불러오기.
+  /// 백업 코드로 다른 기기 기록 불러오기 — 티켓 29.
   static const backupCode = Key('records.slot.backup_code');
 
   /// 일일 알림 시각(권한 거부면 "알림 꺼짐" 안내, 티켓 30).
@@ -53,7 +59,7 @@ abstract final class RecordsSlot {
   /// "하는 법"(온보딩 3장 다시 보기, 티켓 28).
   static const howTo = Key('records.slot.how_to');
 
-  /// 티켓 29: 계정 삭제 + 확인 다이얼로그.
+  /// 계정 삭제 + 확인 다이얼로그 — 티켓 29.
   static const deleteAccount = Key('records.slot.delete_account');
 }
 
@@ -243,36 +249,32 @@ class _RecentDays extends ConsumerWidget {
   }
 }
 
-/// 왼쪽 열의 자리들(T4) — 계정·구독·백업 코드. 전부 비활성이다.
-class _AccountSlots extends StatelessWidget {
+/// 왼쪽 열의 자리들(T4) — 계정·구독·백업 코드.
+class _AccountSlots extends ConsumerWidget {
   const _AccountSlots();
 
   @override
-  Widget build(BuildContext context) {
-    final pending = 'records.slot_pending'.tr();
-
+  Widget build(BuildContext context, WidgetRef ref) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // 티켓 29 가 AccountCard 로 바꾼다.
-        SettingsRow(
-          key: RecordsSlot.account,
-          label: 'records.account'.tr(),
-          value: pending,
-        ),
+        const AccountCard(key: RecordsSlot.account),
         const _Hairline(),
         // 티켓 32 가 구독 카드(현지화 가격)로 바꾼다.
         SettingsRow(
           key: RecordsSlot.subscription,
           label: 'records.subscription'.tr(),
-          value: pending,
+          value: 'records.slot_pending'.tr(),
         ),
         const _Hairline(),
-        // 티켓 29 가 백업 코드 입력 시트를 붙인다.
         SettingsRow(
           key: RecordsSlot.backupCode,
           label: 'records.backup_code'.tr(),
-          value: pending,
+          // 계정 일이 도는 동안에는 열지 않는다 — 토큰이 두 번 바뀌는 길을
+          // 아예 막는다(AccountNotifier 가 같은 규칙으로 한 번 더 막는다).
+          onTap: ref.watch(accountProvider).busy
+              ? null
+              : () => unawaited(showBackupCodeSheet(context: context)),
         ),
       ],
     );
@@ -668,17 +670,76 @@ class _LanguagePicker extends StatelessWidget {
   );
 }
 
-/// 오른쪽 열 맨 아래(T4). 티켓 29 가 확인 다이얼로그를 붙인다.
-class _DeleteAccountSlot extends StatelessWidget {
+/// 오른쪽 열 맨 아래(T4). SCREENS S4 "destructive 텍스트 버튼" + 확인
+/// 다이얼로그(US 22). 삭제가 끝나면 그 자리에 한 줄로 알린다.
+class _DeleteAccountSlot extends ConsumerStatefulWidget {
   const _DeleteAccountSlot();
 
   @override
-  Widget build(BuildContext context) => SettingsRow(
-    key: RecordsSlot.deleteAccount,
-    label: 'records.delete_account'.tr(),
-    value: 'records.slot_pending'.tr(),
-    destructive: true,
-  );
+  ConsumerState<_DeleteAccountSlot> createState() => _DeleteAccountSlotState();
+}
+
+class _DeleteAccountSlotState extends ConsumerState<_DeleteAccountSlot> {
+  bool _deleted = false;
+
+  Future<void> _confirmAndDelete() async {
+    final confirmed = await showDeleteAccountDialog(context: context);
+    if (confirmed != true || !mounted) return;
+
+    await ref.read(accountProvider.notifier).deleteAccount();
+    if (!mounted) return;
+    setState(
+      () => _deleted =
+          ref.read(accountProvider).errorFor(const {AccountAction.delete}) ==
+          null,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = AppColors.from(context);
+    final account = ref.watch(accountProvider);
+    final error = account.errorFor(const {AccountAction.delete});
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: SettingsRow.minHeight),
+          child: TextButton(
+            key: RecordsSlot.deleteAccount,
+            onPressed: account.busy
+                ? null
+                : () => unawaited(_confirmAndDelete()),
+            style: TextButton.styleFrom(foregroundColor: colors.destructive),
+            child: Text('records.delete_account'.tr()),
+          ),
+        ),
+        if (error case final error?)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              error.tr(),
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: colors.destructive),
+              textAlign: TextAlign.center,
+            ),
+          )
+        else if (_deleted)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              'account.deleted'.tr(),
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: colors.mutedForeground),
+              textAlign: TextAlign.center,
+            ),
+          ),
+      ],
+    );
+  }
 }
 
 /// 행 구분은 헤어라인 1px 뿐이다(OVERRIDES §4).

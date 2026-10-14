@@ -184,5 +184,30 @@
     "daily_body": "Guess the word from its consonants.",
     "reminder_title": "Not solved yet",
     "reminder_body": "Keep your streak alive."
+  },
+  "account": {
+    "description": "Same record on every device",
+    "link_google": "Continue with Google",
+    "link_apple": "Continue with Apple",
+    "linked": "{provider} · {email} linked",
+    "linked_no_email": "Linked with {provider}",
+    "switched": "Switched to this account's record",
+    "working": "Working…",
+    "backup_code_title": "Load record from another device",
+    "backup_code_description": "Paste the code you copied from “Back up my record” on the web.",
+    "backup_code_label": "Backup code",
+    "backup_code_submit": "Load",
+    "backup_code_cancel": "Cancel",
+    "delete_title": "Delete your account?",
+    "delete_body": "Your account and all records will be deleted and cannot be restored. If you are subscribed, cancel separately in the App Store or Google Play.",
+    "delete_cancel": "Cancel",
+    "delete_confirm": "Delete",
+    "deleted": "Account deleted — starting fresh",
+    "error_already_linked": "Another account is already linked",
+    "error_invalid_id_token": "We couldn't verify that sign-in. Please try again",
+    "error_backup_code": "That backup code isn't valid",
+    "error_sign_in": "Sign-in didn't work. Please try again",
+    "error_network": "Can't reach the network",
+    "error_failed": "That didn't work. Please try again"
   }
 }

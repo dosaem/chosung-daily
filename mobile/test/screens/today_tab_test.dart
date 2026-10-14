@@ -6,6 +6,7 @@ import 'package:chosung/api/api_models.dart';
 import 'package:chosung/api/api_providers.dart';
 import 'package:chosung/app.dart';
 import 'package:chosung/config/provider_retry.dart';
+import 'package:chosung/local/local_flags.dart';
 import 'package:chosung/screens/today_tab.dart';
 import 'package:chosung/startup/startup_controller.dart';
 import 'package:chosung/theme/app_colors.dart';
@@ -23,6 +24,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
 import '../fakes/fake_api_client.dart';
+import '../fakes/in_memory_local_flag_store.dart';
 import '../layout/adaptive_scaffold_test.dart' show setViewSize;
 
 /// 오늘 탭만 띄운다 — 서버 경계(`ApiClient`)와 시작할 때 읽은 내 기록만 가짜다.
@@ -46,6 +48,7 @@ Widget _app({
     analyticsServiceProvider.overrideWithValue(
       analytics ?? NoopAnalyticsService(),
     ),
+    localFlagStoreProvider.overrideWithValue(InMemoryLocalFlagStore()),
   ],
   child: AppLocalizationScope(
     startLocale: locale,

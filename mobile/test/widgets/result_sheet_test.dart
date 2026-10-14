@@ -6,8 +6,10 @@ import 'package:chosung/api/api_models.dart';
 import 'package:chosung/api/api_providers.dart';
 import 'package:chosung/app.dart';
 import 'package:chosung/config/provider_retry.dart';
+import 'package:chosung/local/local_flags.dart';
 import 'package:chosung/puzzle/share_text.dart';
 import 'package:chosung/share/share_sheet.dart';
+import 'package:chosung/startup/startup_controller.dart';
 import 'package:chosung/theme/app_colors.dart';
 import 'package:chosung/theme/app_theme.dart';
 import 'package:chosung/widgets/puzzle_board.dart';
@@ -20,6 +22,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../fakes/fake_api_client.dart';
+import '../fakes/in_memory_local_flag_store.dart';
 import '../layout/adaptive_scaffold_test.dart' show setViewSize;
 
 /// 2번째 시도에 맞춘 ko 퍼즐("지하철역").
@@ -56,6 +59,8 @@ class OpenedSheet {
     required this.analytics,
     required this.shared,
     required this.rankingTaps,
+    required this.linkAccountTaps,
+    required this.flags,
   });
 
   final FakeApiClient api;
@@ -64,6 +69,10 @@ class OpenedSheet {
   /// 네이티브 공유 시트로 나간 텍스트.
   final List<String> shared;
   final List<String> rankingTaps;
+  final List<String> linkAccountTaps;
+
+  /// 계정 연결 안내의 "한 번만" 플래그가 사는 곳.
+  final InMemoryLocalFlagStore flags;
 }
 
 /// S1 자리에 버튼 하나를 두고 거기서 결과 시트를 띄운다 — `showResultSheet` 를
@@ -72,6 +81,8 @@ Future<OpenedSheet> openResultSheet(
   WidgetTester tester, {
   TodayPuzzle? puzzle,
   FakeApiClient? client,
+  InMemoryLocalFlagStore? flags,
+  MyStats? stats,
   Size size = const Size(390, 844),
   Brightness brightness = Brightness.light,
   Locale locale = const Locale('ko'),
@@ -79,8 +90,10 @@ Future<OpenedSheet> openResultSheet(
 }) async {
   final api = client ?? FakeApiClient();
   final analytics = NoopAnalyticsService();
+  final flagStore = flags ?? InMemoryLocalFlagStore();
   final shared = <String>[];
   final rankingTaps = <String>[];
+  final linkAccountTaps = <String>[];
 
   setViewSize(tester, size);
   await tester.runAsync(() async {
@@ -91,6 +104,8 @@ Future<OpenedSheet> openResultSheet(
           apiClientProvider.overrideWithValue(api),
           analyticsServiceProvider.overrideWithValue(analytics),
           shareTextProvider.overrideWithValue((text) async => shared.add(text)),
+          localFlagStoreProvider.overrideWithValue(flagStore),
+          startupStatsProvider.overrideWithValue(stats ?? fakeMyStats()),
         ],
         child: AppLocalizationScope(
           startLocale: locale,
@@ -112,6 +127,8 @@ Future<OpenedSheet> openResultSheet(
                           context: context,
                           puzzle: puzzle ?? solvedPuzzle(),
                           onShowRanking: () => rankingTaps.add('ranking'),
+                          onLinkAccount: () =>
+                              linkAccountTaps.add('link-account'),
                         ),
                       ),
                       child: const Text('결과 보기'),
@@ -139,6 +156,8 @@ Future<OpenedSheet> openResultSheet(
     analytics: analytics,
     shared: shared,
     rankingTaps: rankingTaps,
+    linkAccountTaps: linkAccountTaps,
+    flags: flagStore,
   );
 }
 
@@ -429,16 +448,53 @@ $shareUrl''');
   });
 
   group('계정 연결 안내(US 20)', () {
-    testWidgets('자리가 있고 닫으면 사라진다', (tester) async {
-      await openResultSheet(tester);
+    testWidgets('첫 완료 뒤 한 번 뜨고 닫으면 사라진다', (tester) async {
+      final opened = await openResultSheet(tester);
 
       expect(find.text('기록을 지키려면 계정을 연결하세요 →'), findsOne);
+      // 띄운 그 자리에서 "봤다" 를 적는다 — 닫든 말든 다음부터는 안 뜬다.
+      expect(await opened.flags.isSet(LocalFlag.linkAccountNoticeSeen), isTrue);
 
       await tapAndSettle(tester, find.byTooltip('안내 닫기'));
 
       expect(find.text('기록을 지키려면 계정을 연결하세요 →'), findsNothing);
       // 닫아도 시트는 그대로 있다.
       expect(find.text('정답은 지하철역!'), findsOne);
+    });
+
+    testWidgets('이미 본 적 있으면 다시 뜨지 않는다', (tester) async {
+      final flags = InMemoryLocalFlagStore();
+      await flags.set(LocalFlag.linkAccountNoticeSeen);
+
+      await openResultSheet(tester, flags: flags);
+
+      expect(find.text('기록을 지키려면 계정을 연결하세요 →'), findsNothing);
+    });
+
+    testWidgets('계정이 이미 연결돼 있으면 뜨지 않는다', (tester) async {
+      final opened = await openResultSheet(
+        tester,
+        stats: fakeMyStats(
+          linkedAccount: const LinkedAccount(provider: 'google'),
+        ),
+      );
+
+      expect(find.text('기록을 지키려면 계정을 연결하세요 →'), findsNothing);
+      // 띄우지 않았으니 "봤다" 도 적지 않는다 — 계정을 지우고 새로 시작하면
+      // 그때 한 번 본다.
+      expect(
+        await opened.flags.isSet(LocalFlag.linkAccountNoticeSeen),
+        isFalse,
+      );
+    });
+
+    testWidgets('누르면 시트를 닫고 내 기록 탭으로 보낸다', (tester) async {
+      final opened = await openResultSheet(tester);
+
+      await tapAndSettle(tester, find.text('기록을 지키려면 계정을 연결하세요 →'));
+
+      expect(opened.linkAccountTaps, ['link-account']);
+      expect(find.byType(ResultSheet), findsNothing);
     });
   });
 
