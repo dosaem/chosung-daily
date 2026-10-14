@@ -218,3 +218,214 @@ $ impeccable detect web/static/legal.css                       → (출력 없�
   접속기록 보관은 **출시 전 사람 결정 항목**으로만 남겼다
 - `review/impl-review-16.md` 는 고치지 않았다. 프로덕션 접근·`git push`·실제 외부 서비스 호출·NAS
   접근 없음. 하위 워커·서브에이전트 띄우지 않았다
+
+## 수정 라운드 2
+
+- 대상: `review/impl-review-16.md` "## 라운드 2" 의 결함 **D-16-4 (MAJOR) 1건**. 같은 절의 이전 결함
+  D-16-1·2·3 은 리뷰가 FIXED 로 판정했고 REPEAT 은 없다. BLOCKER 0 / MINOR 0.
+- 커밋 2개: `test(16)` 재현 테스트(red) → `fix(16)` 고지 수정(green). `review/impl-review-16.md` 는
+  고치지 않았다.
+- 코디네이터 지시(`msg_71328848e48a`, "수정 원칙")를 그대로 따랐다: **D-16-4 하나만**, 실제 동작대로,
+  국외 이전 Apple 행 + 보유 기간 절에 반영, 다른 문장은 건드리지 않음.
+
+### D-16-4 — 애플 연결 철회를 "이전이 없는" 범위에 넣어 실제 철회·재시도 전송과 충돌 (MAJOR)
+
+**원인.** 고지 범위를 코드 경로가 아니라 "연결이 있으면 전송, 없으면 미전송" 이라는 직관으로 묶었다.
+실제 경로는 반대다 — 연결을 끝내는 행위가 전송을 **일으킨다**:
+
+- `app/services/account_deletion_service.py:56`~`:69` — `schedule_revocation` 으로 철회 의무를 적고
+  Account/Guest 를 **먼저 커밋해 지운 뒤** `complete_scheduled_revocation` 으로 애플을 호출한다.
+  즉 계정 행이 사라진 상태에서 refresh token 이 애플로 나간다.
+- 실패하면 그 행이 `AppleRevocationRetry` 에 남고
+  `app/services/apple_revocation_service.py:64`~`:101` 의 Beat 태스크가 `RETRY_MAX_AGE = 7일`
+  동안 날마다 다시 보낸다. 토큰은 연결 계정이 없어도 존재한다.
+
+그래서 en 의 "the Apple refresh token exists only for a linked account" 는 사실과 어긋났고,
+같은 방침의 보유 기간 절(ko `:57`, en `:59` — "철회 실패 시 재시도용으로 최대 7일 보관")과도
+한 문서 안에서 모순이었다. 리뷰어의 지적은 맞다 — 반박하지 않는다.
+
+**기존 테스트가 왜 놓쳤는가.** `test_store_rows_do_not_claim_unlinking_stops_every_transfer` 는
+"로그인/Sign-in" 이 "이전이 없"보다 **앞에 오는지** 순서만 봤다. 그래서 그 범위에
+"·연결 철회 / and revocation" 을 덧붙인 문장도 그대로 통과했다. 범위에 무엇이 **들어가서는 안 되는지**
+를 보지 않은 것이 빈틈이었다.
+
+**수정 내용.**
+
+- `web/templates/legal/privacy.ko.html:171`, `web/templates/legal/privacy.en.html:185` — Apple 행의
+  "거부 방법·효과" 를 세 경우로 갈랐다: ① **로그인** — 연결하지 않으면 이전 없음(철회를 이 범위에서
+  뺐다) ② **연결 철회** — 이전을 멈추는 수단이 아니라 그 자체가 이전이며, 연결한 계정을 삭제하면
+  보관한 refresh token 을 철회를 위해 애플로 보내고, 실패하면 계정 기록이 지워진 뒤에도 토큰만 남겨
+  최대 7일 날마다 다시 보낸 뒤 폐기하고, 한 번 연결한 뒤에는 이 전송을 거부할 수 없다 ③ **구독 검증**
+  — 종전과 같다(건드리지 않았다). ko/en 이 같은 내용이다.
+- `docs/legal-checklist.md` 개보법 §28의8②5 행 — "애플 행은 연결 철회를 또 갈라 적는다" 요구와
+  새 테스트 2개를 매핑에 넣었다(조문 → 요구 → 절 id → 확인 테스트 사슬 유지).
+- **보유 기간 절은 바꾸지 않았다.** 코디네이터가 반영을 지시한 "철회 재시도 기록은 최대 7일 보관 후
+  폐기" 는 이미 ko `:53`~`:57`("보유 기간: 계정 삭제 시 폐기하며, 철회 요청이 실패하면 재시도용으로
+  최대 7일 보관한 뒤 폐기")·ko `:229`("철회가 끝나면 즉시, 철회가 실패하면 최대 7일 후 폐기")와
+  en `:55`~`:59`·`:244` 에 같은 내용으로 적혀 있다. 코드(`RETRY_MAX_AGE`)와 대조해 일치를 확인했고,
+  "다른 문장은 건드리지 마라" 에 따라 같은 말을 다시 쓰지 않았다.
+- 앱·설정·DB·`scripts/` 변경 없음. 고친 것은 고지 문구와 체크리스트 매핑뿐이다.
+
+**증명하는 테스트.** `tests/test_legal_pages.py` 에 애플 행만 보는 2개 × ko/en = 4 케이스를 추가했다
+(기존 순서 테스트는 그대로 둔 채):
+
+- `test_apple_row_discloses_revocation_as_a_transfer` — 거부 방법 칸에 "연결 철회",
+  "연결한 계정을 삭제하면", "철회를 위해 Apple 로 전송", "7일"(en: `Revocation`,
+  `delete an account you linked`, `send the Apple refresh token`, `7 days`)이 있어야 한다.
+- `test_apple_row_does_not_fold_revocation_into_the_no_transfer_scope` — "이전이 없"/`there is no
+  transfer` **앞** 구간에 "철회"/`revocation` 이 나오면 실패한다. 이번 결함의 문장 모양을 직접 막는다.
+
+red (수정 전, `ae38d72`):
+
+```
+$ uv run pytest tests/test_legal_pages.py -q -k "apple_row or unlinking"
+FAILED tests/test_legal_pages.py::test_apple_row_discloses_revocation_as_a_transfer[ko]
+FAILED tests/test_legal_pages.py::test_apple_row_discloses_revocation_as_a_transfer[en]
+FAILED tests/test_legal_pages.py::test_apple_row_does_not_fold_revocation_into_the_no_transfer_scope[ko]
+FAILED tests/test_legal_pages.py::test_apple_row_does_not_fold_revocation_into_the_no_transfer_scope[en]
+4 failed, 4 passed, 103 deselected in 4.77s
+```
+
+실패 메시지가 결함 문장을 그대로 집어낸다(en 사례):
+
+```
+E       AssertionError: 애플 en: 연결 철회를 '이전이 없다' 범위에 넣었다 — 철회는 토큰을 애플로 보낸다
+E         'revocation' is contained here:
+E           gn-in and revocation</strong> &mdash; if you never link an apple account, or unlink it,
+```
+
+green (수정 후):
+
+```
+$ uv run pytest tests/test_legal_pages.py -q -k "apple_row or unlinking or separate_sign_in"
+12 passed, 99 deselected in 8.21s
+
+$ uv run pytest tests/test_legal_checklist.py tests/test_legal_pages.py -q
+244 passed in 232.06s (0:03:52)
+(exit=0)
+```
+
+리뷰가 D-16-4 의 실제 경로 근거로 든 애플 철회 테스트도 회귀 없음을 함께 확인했다(§R2.2 전체 스위트).
+
+### R2.1 틀렸다고 판단해 고치지 않은 지적
+
+없다. 라운드 2 의 유일한 결함 D-16-4 는 코드 경로로 재현되는 실제 불일치였고 그대로 고쳤다.
+리뷰의 "증거 부족"(impeccable URL 검사 미재실행)은 리뷰어 쪽 실행 범위의 한계를 적은 것이라
+결함으로 받지 않았고, 아래 §R2.3 에서 URL 검사를 다시 돌려 0건을 붙인다.
+
+### R2.2 전체 테스트 · ruff · heads · rebase
+
+로컬 `main` = `24c584d` 위로 rebase 한 뒤 전용 자원(DB `chosung_daily_test_t16`, Redis DB 4,
+마이그레이션 DB `chosung_daily_test_t16_migrations`)으로 실행했다. 공용 테스트 DB 는 건드리지 않았다.
+접속 URL 의 자격증명 값은 이 문서에 적지 않는다.
+
+```
+$ uv run pytest -q
+........................................................................ [ 97%]
+.................................                                        [100%]
+1257 passed in 783.15s (0:13:03)
+(exit=0)
+```
+
+라운드 1 의 1253건 → 1257건. 늘어난 4건이 이번에 추가한 D-16-4 재현 케이스다(실패·에러·skip 0).
+
+```
+$ uv run ruff check .
+All checks passed!
+(exit=0)
+```
+
+```
+$ FLASK_ENV=testing SENTRY_DSN='' uv run flask --app wsgi db heads
+d7a1f0ca0a29 (head)
+(1줄 — 이 티켓의 마이그레이션 변경 없음)
+```
+
+```
+$ git rebase main                      # 로컬 main = 24c584d. origin/main 은 쓰지 않았다
+Successfully rebased and updated refs/heads/dosaem/t16-legal-compliance-checklist.
+
+$ git diff main...HEAD --check
+(exit=0)
+
+$ git status --short
+(빈 출력 — clean)
+
+$ git log --oneline main..HEAD         # 이 문서 커밋 전
+e7a5d21 fix(16): 애플 연결 철회를 거부 수단이 아니라 이전으로 고쳐 고지 (green)
+db47dc7 test(16): 애플 연결 철회 고지가 실제 전송과 어긋나는 것을 재현하는 테스트 (red)
+66854fb review(16): 라운드 2 재검증 및 Apple 철회 고지 결함 보고
+4936b36 docs(16): 수정 라운드 1 증거 — 결함별 원인·수정·증명, 1253 passed·ruff·detect 0건
+88f60ce fix(16): 구현하지 않은 보호조치 고지를 실제 처리에 맞게 고침 (green)
+76fe9b7 test(16): 고지와 실제 처리 불일치 3건을 재현하는 테스트 (red)
+b18d423 review(16): 법적 고지와 실제 처리 불일치 3건 보고
+ae84095 docs(16): 구현 증거 — 체크박스별 테스트 표, 992 passed, detect 0건
+3da7d47 docs(16): 체크리스트 링크·사람 확인 항목·미정 9·21·22·23 결과 기록
+0e2108c feat(16): 방침·약관을 법 필수 기재사항으로 보완하고 사업자 정보를 조각으로 분리 (green)
+a9de1f7 test(16): 법 기준 체크리스트와 조문→절→테스트 묶음 (red)
+```
+
+### R2.3 `impeccable detect` — 0건 (URL 재검사 포함)
+
+라운드 1 과 같은 방법(개발 서버 + URL, 세션 폼은 `review/detect-snapshot-16.py` 스냅샷)으로 돌렸다.
+바이너리는 `~/.impeccable/bin/0.1.14/impeccable` — **엔진 버전은 `--version` = 4.0.0** 이다(디렉터리
+이름이 플러그인 버전이라 라운드 1 의 "0.1.14" 와 같은 바이너리다. PATH 에 `impeccable` 은 없어서
+절대 경로로 불렀다).
+
+```
+$ FLASK_ENV=testing SENTRY_DSN='' uv run flask --app wsgi run --port 5126   # (백그라운드)
+$ uv run python review/detect-snapshot-16.py
+wrote web/static/_t16_form_ko.html (2545 bytes)
+wrote web/static/_t16_form_en.html (3330 bytes)
+
+$ impeccable detect "http://127.0.0.1:5126/privacy?lang=ko"           → (출력 없음) exit=0
+$ impeccable detect "http://127.0.0.1:5126/privacy?lang=en"           → (출력 없음) exit=0
+$ impeccable detect "http://127.0.0.1:5126/terms?lang=ko"             → (출력 없음) exit=0
+$ impeccable detect "http://127.0.0.1:5126/terms?lang=en"             → (출력 없음) exit=0
+$ impeccable detect "http://127.0.0.1:5126/account/delete?lang=ko"    → (출력 없음) exit=0
+$ impeccable detect "http://127.0.0.1:5126/account/delete?lang=en"    → (출력 없음) exit=0
+$ impeccable detect "http://127.0.0.1:5126/static/_t16_form_ko.html"  → (출력 없음) exit=0
+$ impeccable detect "http://127.0.0.1:5126/static/_t16_form_en.html"  → (출력 없음) exit=0
+$ impeccable detect web/static/legal.css                              → (출력 없음) exit=0
+$ impeccable detect web/static/account.css                            → (출력 없음) exit=0
+$ impeccable detect --json ".../privacy?lang=ko" ".../privacy?lang=en"  → []
+```
+
+"출력이 비었다" 가 "탐지기가 안 돌았다" 가 아님을 라운드 1 과 같은 대조군으로 다시 확인했다:
+
+```
+$ impeccable detect .scratch/store-launch/design/archive/v2_softdark_home.html
+  [overused-font] Primary font: inter
+  … 7 anti-patterns found.
+```
+
+이번 수정이 ko 본문 줄표를 늘리지 않았는지도 확인했다(라운드 1 에서 `em-dash-overuse` advisory 를
+냈던 지점): 문장을 콜론·세미콜론으로 이었고 `curl .../privacy?lang=ko | grep -c "—"` = **8** 로
+라운드 1 과 같다. 스냅샷 HTML 2개는 확인 후 지웠다(`git status` clean).
+
+`LEGAL_EFFECTIVE_DATE` 는 그대로 **2026-10-14** — 수정일이 같은 날이라 올릴 날짜가 없다.
+
+### R2.4 미수정 MINOR (리뷰 결함 아님 — 관찰 기록)
+
+리뷰 라운드 2 의 MINOR 는 0건이라 고칠 MINOR 는 없었다. 다만 D-16-4 를 조사하다 **고지 범위와
+구현의 비슷한 틈 1건을 봤고, 고치지 않았다** — 숨기지 않고 적는다:
+
+- `web/templates/legal/privacy.ko.html:50` "보유 기간: **연결 해제** 또는 계정 삭제 시까지",
+  en `:52` "until you **unlink** or delete your account" 는 "연결 해제" 기능을 전제하지만,
+  이 레포에 연결 해제 경로는 없다(`app/api/*` 에 unlink 라우트 없음, `app/web.py` 는 `/`,
+  `/privacy`, `/terms`, `GET|POST /account/delete` 뿐). 연결을 끝내는 유일한 수단이 계정 삭제다.
+- 왜 안 고쳤나: ① 이 문장은 티켓 16 이 만든 것이 아니다 — `git show main:web/templates/legal/privacy.ko.html`
+  에 "연결 해제 또는 계정 삭제 시 삭제합니다" 로 이미 있었고 16 은 "보유 기간:" 꼴로 바꿔 적기만 했다
+  ② 리뷰어가 결함으로 올리지 않았다 ③ 코디네이터 지시가 "D-16-4 하나만 고친다 / 다른 문장은 건드리지
+  마라" 였다. 범위를 넘지 않으려 관찰로만 남긴다 — 고치려면 두 줄(ko·en)에서 "연결 해제 또는" 을
+  빼면 된다.
+
+### 하지 않은 것 (이 라운드)
+
+- 앱·설정·DB·마이그레이션·`scripts/`·`docker-compose*`·`Dockerfile` 변경 없음. 바꾼 파일은
+  `web/templates/legal/privacy.{ko,en}.html`, `docs/legal-checklist.md`, `tests/test_legal_pages.py`,
+  이 문서뿐이다
+- `review/impl-review-16.md` 는 고치지 않았다. 범위 밖 리팩토링·기능 추가 없음
+- 프로덕션 접근·배포·`git push`·실제 외부 서비스 호출 없음(애플·스토어 경계는 전부 테스트 대역).
+  계정·결제·인증 정보 입력 없음. 시크릿 값을 파일·로그·문서에 적지 않았다. NAS 접속 없음
+- 하위 워커·Claude 서브에이전트·`claude --bg`·claude-handoff 쓰지 않았다
