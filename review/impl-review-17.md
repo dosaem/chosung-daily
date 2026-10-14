@@ -346,3 +346,125 @@ stats {"id":2,"language":"en"}  1:1002:03:04:05:0
 - 활성 결함: BLOCKER 0 / MAJOR 1 / MINOR 0. D-17-1·2·3은 FIXED이며 D-17-4의 수정과 재검토가 남는다.
 
 판정: FAIL
+
+## 라운드 4
+
+### 범위와 기준
+
+- 로컬 `main` = `b8f63cc`, 구현 HEAD = `27b1aa7`. `git log main..HEAD`의 14개 커밋과 `git diff main...HEAD`의 19개 파일을 확인했다. `origin/main`은 사용하지 않았다.
+- 티켓 17의 6개 체크박스, 스펙 §A.2·A.16·A'·미정 13, CONTEXT, SCREENS, MASTER 및 우선하는 OVERRIDES를 대조했다. 구현 증거의 수정 라운드 3 주장과 이전 리뷰의 재현 명령을 직접 확인했다.
+- 애플리케이션·테스트·설정·`.scratch/`를 수정하지 않았다. 하위 에이전트·프로덕션·실제 외부 서비스 접근 없이 이 리뷰 파일만 변경한다.
+
+### 티켓 체크박스별 판정
+
+| 체크박스 | 판정 | 직접 확인한 근거 |
+|---|---|---|
+| 언어 칩 → PATCH /me → today 재조회, mask r/h/s 렌더 | 미충족 | 정상 전환과 타일 렌더는 실행 확인했다. 그러나 중복 PATCH의 서버 처리 순서가 뒤집히면 마지막 선택 ko와 서버 선호 en이 불일치한다(D-17-5). |
+| 서버 attempts 복원, history만 삭제, 토큰·백업 패널 유지, en 간격 재삽입·미정 13 기록 | 충족 | 실제 번들 assertion으로 `AB` 이력의 `A B` 복원, r/h/s 클래스, history만 삭제하고 토큰·다른 키 보존을 확인했다. 템플릿의 백업 패널과 스펙의 티켓 17 확정 행도 유지된다. |
+| puzzle_id 동봉, 409 인라인 안내·재조회, 언어·계정·백업 전환 시 상태 폐기 | 충족 | 정규화된 `AB`와 화면 ID를 제출하고, 409 뒤 서버 이력 복원·안내 유지하는 실행 assertion이 통과했다. 계정 콜백은 새 페이지 초기화 전에 토큰/이력을 처리하고 백업 전환은 폐기 후 페이지를 다시 연다. 폐기한 응답의 재반영은 D-17-1·3·4 수정으로 차단되지만, 이미 보낸 PATCH의 서버 부작용은 D-17-5로 별도 기록한다. |
+| 리더보드 entries.display/is_me/me, 통계 language 명시 | 충족 | 내 행의 `is-me`, 목록 밖 21위 `me`, 순위/통계의 `language=en` URL을 직접 실행해 확인했다. 본문 수신 중 전환 회귀 테스트도 통과했다. |
+| UI 문자열 ko/en 사전, 기기 언어와 퍼즐 언어 분리, 기존 문구 사전 이동 | 충족 | Flask 렌더·언어 판정·사전 테스트와 영어 오류 6경로의 번들 실행이 통과했다. API message 대신 code로 UI 사전 문구를 고른다. API 계약의 익명 display 및 퍼즐 내용은 그대로 표시한다. |
+| pytest 렌더 테스트 + 요구된 수동 체크리스트 | 충족 | 렌더·사전·실행 테스트와 README의 언어 전환/새 탭/자정/계정/백업 항목이 있다. 새 본문 지연 테스트는 실제 Response/ReadableStream을 사용한다. 다만 선호 저장까지 모델링한 중복 PATCH 경합은 검증하지 않는다(D-17-5). |
+
+### 직접 실행한 검증
+
+- 기존 로컬 `chosung_daily_test_t17`과 Redis DB 5를 `TEST_DATABASE_URL` / `TEST_REDIS_URL`로 지정했다. 접속 자격 증명은 기록하지 않는다. 새 DB를 만들거나 기본 테스트 DB로 대체하지 않았다. 마이그레이션 테스트에는 기존 파생 DB `chosung_daily_test_t17_migrations`가 사용된다.
+- 전체 `uv run pytest -q` 첫 실행은 진행 중 exit 143(SIGTERM)으로 종료됐다. 완료 요약이나 assertion 실패는 나오지 않았으며 종료 원인은 확인하지 못했다. 같은 머신의 다른 워크트리 pytest 실행은 관찰했지만 그것이 종료 원인이라고 단정하지 않는다. 전체 실행을 한 번 재시도했으나 두 번째도 exit 143으로 종료되어 전체 통과 여부는 증거 부족이다. 아래 130개 관련 테스트는 별도 실행으로 끝까지 통과했다.
+- `uv run pytest tests/test_web.py tests/test_web_js.py tests/test_ui_strings.py tests/test_ui_language.py tests/test_token_css.py -q`: `130 passed in 18.26s`, exit 0.
+- 별도 `uv run pytest tests/test_web_js.py tests/test_ui_strings.py -q`: `32 passed in 0.53s`, exit 0. Node 실행 테스트는 skip되지 않았다.
+- `uv run ruff check .`: `All checks passed!`, exit 0.
+- `uv run flask db heads`: `dae1b5af0cf7 (head)` 한 줄, exit 0. 티켓 17 자체 마이그레이션 변경은 없다.
+- `git diff --check main...HEAD`: 출력 없음, exit 0.
+- 실제 번들에 대한 별도 Node assertion: mask r/h/s, 서버 이력의 구분자 재삽입, history만 삭제, 토큰/기타 키 보존, is_me/me, 정규화·puzzle_id, 409 뒤 안내, 순위·통계 언어 URL 모두 통과.
+
+### 이전 결함 재판정
+
+| ID | 판정 | 위치 및 재현 → 기대/실제 |
+|---|---|---|
+| D-17-1 (이전 MAJOR) | FIXED | `web/static/app.js:469`, `:475`: ko 제출 보류 → en → ko 서버 이력 복원 → 옛 제출 응답. 회귀 테스트의 기대/실제 모두 attempts 1행·남은 기회 4이며 단방향 정답/오답과 전환 없는 대조군도 통과. |
+| D-17-2 (이전 MAJOR) | FIXED | `web/static/app.js:24`, `:34`, `:487`: en UI의 validation/완료/rate limit/인증/미등록 오류 및 today 없음 실행. 기대/실제 모두 영어 사전 문구이며 서버 한국어 message가 노출되지 않는다. |
+| D-17-3 (이전 MAJOR) | FIXED | `web/static/app.js:169`, `:190`: ko stats 응답 보류 → en 전환 → 옛 stats 응답. 기대/실제 모두 en 칩·ID 2 유지, `ab` 정규화는 `AB`, 다음 ko 클릭은 실제 요청을 보낸다. 게스트 요약은 계속 갱신한다. |
+| D-17-4 (이전 MAJOR) | FIXED | `web/static/app.js:87`, `:94`, `:155`, `:230`, `:522`, `:573`: 이전 리뷰의 독립 명령을 그대로 추출해 Node에서 다시 실행했다. today·순위·통계 본문 보류 → en 전환 → ko 본문 도착 후 모두 ID 2/en 및 빈 순위/통계 유지. 여섯 요청의 본문 지연, 반대 방향, 정상 대조군, 비 JSON 본문 테스트도 통과했다. |
+
+D-17-4 독립 명령의 이번 출력(exit 0):
+
+```text
+today {"id":2,"language":"en"}  empty
+leaderboard {"id":2,"language":"en"}  empty
+stats {"id":2,"language":"en"}  empty
+```
+
+### 신규 결함
+
+#### D-17-5 — MAJOR — 중복 언어 PATCH가 뒤늦게 저장되면 마지막 선택과 서버 선호가 갈린다
+
+- 위치: `web/static/app.js:227`–`:244`, 특히 요청을 동시에 허용하는 `:230`과 오래된 쓰기 응답을 버리는 `:237`. 서버 계약 근거는 `app/services/guest_service.py:21`–`:28`(요청 값을 저장하고 커밋), 다음 제출의 근거는 `app/services/guess_service.py:45`–`:50`(현재 선호의 퍼즐과 ID 비교)다.
+- 재현 입력/순서: ko 화면 → English를 두 번 클릭하여 PATCH A/B를 보낸다(아직 칩이 ko라 두 요청 모두 허용됨) → A는 서버 처리 전 지연시키고 B만 처리해 en 전환을 완료한다 → 한국어 클릭의 PATCH C와 ko 조회를 완료한다 → 남아 있던 A를 처리한다. 이는 **본문 도착만** 늦추는 D-17-4와 달리 서버에 적용되는 쓰기의 순서가 B→C→A인 경우다.
+- 기대: 마지막으로 완료한 한국어 선택이 화면과 서버 선호에 유지되며, 다음 한국어 답 제출은 그 퍼즐에 적용된다.
+- 실제: A가 서버 선호를 en으로 저장하지만 `stale` 때문에 응답을 통째로 무시한다. 화면은 ko/ID 1, 서버는 en으로 갈린다. 다음 제출은 409이고 재조회로 en/ID 2가 나타나 마지막 선택이 취소된다. 새 탭/새로고침도 en 선호를 읽는다. 시도/정답 기록의 손상은 확인되지 않았지만 퍼즐 선택이라는 핵심 기능과 저장된 선호가 잘못된다.
+- 원인: 조회 응답의 폐기와 쓰기 요청의 취소는 다르다. 현재 세대 검사는 DOM 반영만 막고, 이미 보낸 PATCH의 뒤늦은 커밋을 막거나 마지막 선택으로 수렴시키지 않는다.
+- 검증 범위: 실제 번들을 Node로 실행하고 fetch 경계에 서버 선호 변수 및 PATCH 적용 순서를 제공했다. 서버가 단순 대입·커밋하고 today/제출은 현재 선호를 사용한다는 점은 서버 코드를 직접 확인했다. 실제 네트워크/DB 경합을 실행한 결과라고 주장하지 않는다.
+- 기존 회귀 테스트의 한계: `serveSwitch(puzzle)`은 today를 고정된 puzzle로 반환하고 PATCH는 요청 언어를 반환할 뿐 지속적인 서버 선호를 모델링하지 않는다. `late_patch_body` 역시 지연된 쓰기가 서버에 무엇을 저장했는지 검증하지 않는다. 따라서 D-17-4 FIXED와 이 결함은 양립한다.
+
+재현 명령(파일 변경·외부 호출 없음):
+
+```sh
+node --input-type=module <<'JS'
+import {loadApp,okResponse,errorResponse} from './tests/js/harness.mjs';
+const strings={attempts_left:'{left}/{max}',category_general:'General',
+  length_caption:'{length}',hint:'{hint}',leaderboard_empty:'empty',
+  my_rank_unsolved:'none',stats_empty:'empty',puzzle_changed:'new puzzle'};
+const ko={puzzle_id:1,language:'ko',date:'2026-10-14',category:'general',
+  length:2,mask:[{t:'r',c:'ㅅ'},{t:'r',c:'ㄱ'}],attempts:[],
+  attempts_left:5,status:'in_progress',hint:null};
+const en={...ko,puzzle_id:2,language:'en',mask:[{t:'h',c:''},{t:'r',c:'B'}]};
+const app=loadApp({strings});app.run(`applyPuzzle(${JSON.stringify(ko)})`);
+let preference='ko', patches=0, releaseFirst;
+const commits=[];
+app.setFetch(async(url,options)=>{
+  if(options?.method==='PATCH'){
+    const language=JSON.parse(options.body).puzzle_language;
+    if(++patches===1) await new Promise(resolve=>{releaseFirst=resolve});
+    preference=language;commits.push(language);
+    return okResponse({puzzle_language:language});
+  }
+  if(url.endsWith('/guesses')){
+    const expectedId=preference==='ko'?1:2;
+    if(JSON.parse(options.body).puzzle_id!==expectedId)
+      return errorResponse(409,{code:'PUZZLE_CHANGED'});
+    return okResponse({is_correct:false,feedback:[true,false],attempts_left:4});
+  }
+  if(url.endsWith('/puzzles/today'))
+    return okResponse(structuredClone(preference==='ko'?ko:en));
+  if(url.includes('leaderboard'))return okResponse({entries:[],me:null});
+  return okResponse({total_solved:0,by_attempt:{}});
+});
+const first=app.run('handleLanguageChange("en")');
+await app.run('handleLanguageChange("en")');
+await app.run('handleLanguageChange("ko")');
+releaseFirst();await first;
+console.log('after last ko click',JSON.stringify({server:preference,commits}),
+  app.run('JSON.stringify({language:state.puzzleLanguage,id:state.puzzleId})'));
+await app.run('submitGuess(document.getElementById("guess-input"), "사과")');
+console.log('after next submit',
+  app.run('JSON.stringify({language:state.puzzleLanguage,id:state.puzzleId})'),
+  app.el('message').textContent);
+JS
+```
+
+실제 출력:
+
+```text
+after last ko click {"server":"en","commits":["en","ko","en"]} {"language":"ko","id":1}
+after next submit {"language":"en","id":2} new puzzle
+```
+
+### 보안·공유 파일·범위 및 참고
+
+- 변경 경로의 사용자/서버 문자열은 `textContent`, 사전 JSON은 Jinja `tojson`으로 출력한다. `innerHTML`은 컨테이너 비우기뿐이다. 인증·CSRF 가드 제거, 서버 입력 검증 제거, 실제 시크릿 신규 기록은 발견하지 않았다. 리뷰 문서에 키·토큰·비밀번호를 기록하지 않았다.
+- README 설계 판단은 `### 17.` 소제목들만 추가했고 수동 체크리스트는 티켓의 명시 요구다. 스펙 변경도 티켓 17의 미정 13 확정 행뿐이다. 타 티켓 본문·`.env.example`·릴리스 문서·스키마는 변경하지 않았다.
+- JS 테스트는 실제 번들을 읽어 실행하며, 본문 지연 테스트도 구현 복제나 항상 통과하는 mock은 아니다. 문자열 존재 테스트와 Node DOM 대역만으로 브라우저의 레이아웃·실제 HTTP 왕복까지 증명되지는 않는다.
+- 브라우저 레이아웃·`impeccable detect`는 이번에 재실행하지 않았다. 기존 페이지 토큰 전환·다크모드·아이콘·로딩/오프라인 상태 등 티켓 18 범위는 이번 결함 수에 포함하지 않았다. 취향·스타일 제안은 없다.
+- 활성 결함: BLOCKER 0 / MAJOR 1 / MINOR 0. D-17-1·2·3·4는 FIXED, D-17-5는 신규이며 중복 PATCH의 처리 순서에 대한 수정·검증이 남는다.
+
+판정: FAIL
