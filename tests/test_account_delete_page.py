@@ -13,7 +13,6 @@ import pytest
 from app.csrf import CSRF_FORM_FIELD
 from app.extensions import db
 from app.models import Guest
-from app.services.guest_service import issue_guest
 
 PATH = "/account/delete"
 EN_HEADERS = {"Accept-Language": "en-US,en;q=0.9"}
@@ -35,13 +34,13 @@ COLLECTED_NAMES = {
 
 
 @pytest.fixture
-def logged_in_client(app):
-    """세션 쿠키에 게스트가 심어진 브라우저. 토큰도 같이 돌려준다."""
-    client = app.test_client()
-    guest = issue_guest()
-    res = client.post("/api/v1/session/sync", headers={"Authorization": f"Bearer {guest.token}"})
-    assert res.status_code == 200
-    return client, guest
+def logged_in_client(client, web_login):
+    """세션 쿠키에 게스트가 심어진 브라우저와 그 게스트.
+
+    세션은 공용 `web_login` 픽스처(conftest)가 실제 흐름
+    (`POST /api/v1/session/sync`)으로 심는다 — 운영자 페이지 테스트와 같은 길이다.
+    """
+    return client, web_login()
 
 
 def _html(client, path=PATH, **kwargs):
