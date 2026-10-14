@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from app.extensions import db
 from app.models import (
+    AccessLog,
     Attempt,
     DailyPuzzle,
     Guest,
@@ -13,7 +14,7 @@ from app.models import (
     WordCategory,
 )
 from app.repositories import attempt_repository
-from app.services import guess_service
+from app.services import access_log_service, guess_service
 from app.services.guess_service import submit_guess
 from app.services.hint_service import unlock_hint
 from app.services.puzzle_schedule_service import replace_assignment
@@ -335,3 +336,47 @@ def test_submission_that_wins_the_lock_blocks_the_replacement(
         (original_word_id, replacement_word_id),
         (submit_outcome[0], replace_outcome[0]),
     )
+
+
+def test_concurrent_access_log_appends_keep_one_chain(app):
+    """36: 동시에 들어온 두 기록이 체인을 두 갈래로 갈라놓지 않는다.
+
+    `append` 는 직전 행을 `SELECT ... FOR UPDATE` 로 잠그고 읽어서 두 요청을 한 줄로
+    세운다(`app/repositories/access_log_repository.py`). 잠글 행이 있어야 하는
+    설계라 기준점 한 행을 먼저 넣고 두 스레드를 같이 출발시킨다.
+    """
+    def record(actor):
+        access_log_service.record_access(
+            action="me.history.read",
+            actor=actor,
+            remote_ip="127.0.0.1",
+            target=None,
+            status_code=200,
+        )
+
+    record("guest.1")  # 기준점 — 잠글 직전 행
+    barrier = threading.Barrier(2)
+    errors = []
+
+    def worker(actor):
+        with app.app_context():
+            barrier.wait()
+            try:
+                record(actor)
+            except Exception as exc:
+                errors.append(type(exc).__name__)
+            finally:
+                db.session.remove()
+
+    threads = [threading.Thread(target=worker, args=(f"guest.{n}",)) for n in (2, 3)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert errors == [], errors
+    rows = db.session.query(AccessLog).order_by(AccessLog.id).all()
+    assert len(rows) == 3
+    # 한 줄로 이어져 있다 — 두 갈래면 아래 verify 가 끊긴 지점을 찍는다.
+    assert [row.prev_hash for row in rows[1:]] == [row.hash for row in rows[:-1]]
+    assert access_log_service.verify_chain().broken_at is None
