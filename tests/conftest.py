@@ -6,7 +6,15 @@ from redis.exceptions import ConnectionError as RedisConnectionError
 from app import create_app
 from app.config import KST
 from app.extensions import _REDIS_EXTENSION_KEY, db, get_oauth, get_redis
-from app.models import DailyPuzzle, PuzzleLanguage, Word, WordCategory
+from app.models import (
+    Account,
+    DailyPuzzle,
+    Guest,
+    OAuthProvider,
+    PuzzleLanguage,
+    Word,
+    WordCategory,
+)
 from app.services.guest_service import issue_guest
 
 
@@ -137,3 +145,48 @@ def offline_provider_metadata(app, monkeypatch):
             monkeypatch.setattr(
                 provider_client, "load_server_metadata", lambda metadata=metadata: metadata
             )
+
+
+# 스펙 §C "백엔드 접점" 이 이름을 정한 운영자 픽스처. 운영자 페이지(/admin)의 판정
+# 경로가 세션 → Guest → Account.email 이라, 테스트도 그 경로를 그대로 태운다.
+ADMIN_EMAIL = "admin-fixture@example.com"
+
+
+@pytest.fixture
+def web_login(app, client):
+    """브라우저 세션으로 로그인한 상태를 만든다. 이메일을 주면 계정까지 연결한다.
+
+    세션 딕셔너리를 직접 건드리지 않고 `POST /api/v1/session/sync` 를 통과시킨다 —
+    운영자 판정이 실제 로그인 경로에서 심어지는 세션 키를 읽는지까지 같이 검증된다.
+    """
+
+    def _login(email: str | None = None) -> Guest:
+        guest = issue_guest()
+        if email is not None:
+            db.session.add(
+                Account(
+                    guest_id=guest.id,
+                    provider=OAuthProvider.GOOGLE,
+                    provider_user_id=f"google-{guest.id}",
+                    email=email,
+                )
+            )
+        db.session.commit()
+        client.post(
+            "/api/v1/session/sync", headers={"Authorization": f"Bearer {guest.token}"}
+        )
+        return guest
+
+    return _login
+
+
+@pytest.fixture
+def admin_session(app, client, web_login):
+    """운영자 이메일로 로그인한 테스트 클라이언트. `ADMIN_EMAILS` 도 같이 세팅한다.
+
+    `ADMIN_EMAILS` 는 기본값이 없어서(app/config.py) 테스트가 명시적으로 넣어야
+    한다 — 설정을 깜빡한 환경에서 아무나 운영자가 되는 일이 없다는 뜻이다.
+    """
+    app.config["ADMIN_EMAILS"] = (ADMIN_EMAIL,)
+    web_login(ADMIN_EMAIL)
+    return client

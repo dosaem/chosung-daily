@@ -1,0 +1,92 @@
+{% extends "admin/_layout.html" %}
+{% block title %}단어 목록{% endblock %}
+{% block heading %}단어 목록{% endblock %}
+
+{% block content %}
+<form class="admin-filters" method="get" action="{{ url_for('admin.words') }}">
+  <label class="admin-field">
+    <span class="admin-label">언어</span>
+    <select name="language">
+      <option value="">전체</option>
+      {% for language in ["ko", "en"] %}
+      <option value="{{ language }}" {% if filters.language and filters.language.value == language %}selected{% endif %}>{{ language }}</option>
+      {% endfor %}
+    </select>
+  </label>
+
+  <label class="admin-field">
+    <span class="admin-label">카테고리</span>
+    <select name="category">
+      <option value="">전체</option>
+      {% for category in ["general", "book_title"] %}
+      <option value="{{ category }}" {% if filters.category and filters.category.value == category %}selected{% endif %}>{{ category }}</option>
+      {% endfor %}
+    </select>
+  </label>
+
+  <label class="admin-field admin-field-grow">
+    <span class="admin-label">검색어 (정답·힌트)</span>
+    <input type="search" name="q" value="{{ filters.keyword }}" autocomplete="off" />
+  </label>
+
+  <button class="admin-button" type="submit">검색</button>
+</form>
+
+<p class="admin-meta">전체 {{ pagination.total }}개</p>
+
+{% if pagination.items %}
+<table class="admin-table">
+  <caption class="admin-table-caption">최근에 추가한 단어가 위에 온다</caption>
+  <thead>
+    <tr>
+      <th scope="col">언어</th>
+      <th scope="col">카테고리</th>
+      <th scope="col">정답</th>
+      <th scope="col">가림</th>
+      <th scope="col">힌트</th>
+      <th scope="col">관리</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for word in pagination.items %}
+    <tr>
+      <td>{{ word.language.value }}</td>
+      <td>{{ word.category.value }}</td>
+      <td class="admin-cell-answer">{{ word.answer }}</td>
+      {# 가림은 저장할 때 서버가 계산한 값이다(mask 열) — 운영자가 플레이어에게
+         보이는 문제를 그대로 확인할 수 있어야 한다. 빈 타일은 면만 그린다. #}
+      <td>
+        <span class="admin-mask">
+          {% for tile in word.mask %}
+            {% if tile.t == "s" %}<span class="admin-mask-gap"></span>
+            {% elif tile.t == "h" %}<span class="admin-mask-tile admin-mask-tile-hidden"></span>
+            {% else %}<span class="admin-mask-tile">{{ tile.c }}</span>{% endif %}
+          {% endfor %}
+        </span>
+      </td>
+      <td>{{ word.hint }}</td>
+      <td class="admin-cell-actions">
+        <a class="admin-link" href="{{ url_for('admin.edit_word', word_id=word.id) }}">수정</a>
+        <form method="post" action="{{ url_for('admin.delete_word', word_id=word.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+          <button class="admin-button admin-button-danger" type="submit">삭제</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<nav class="admin-pagination" aria-label="페이지">
+  {% if pagination.has_prev %}
+  <a class="admin-link" href="{{ url_for('admin.words', page=pagination.prev_num, **filter_query) }}">← 이전</a>
+  {% endif %}
+  <span class="admin-meta">{{ pagination.page }} / {{ pagination.pages or 1 }}</span>
+  {% if pagination.has_next %}
+  <a class="admin-link" href="{{ url_for('admin.words', page=pagination.next_num, **filter_query) }}">다음 →</a>
+  {% endif %}
+</nav>
+{% else %}
+<p class="admin-empty">조건에 맞는 단어가 없어요. 필터를 지우거나 CSV 를 올려 채워주세요.</p>
+{% endif %}
+{% endblock %}

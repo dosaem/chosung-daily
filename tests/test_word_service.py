@@ -1,6 +1,13 @@
 from app.models import PuzzleLanguage, Word, WordCategory
 from app.schemas.book import BookSearchResult
-from app.services.word_service import add_word_from_book, seed_words_from_csv
+from app.services.word_service import (
+    WORD_CSV_COLUMNS,
+    RowStatus,
+    add_word_from_book,
+    import_word_rows,
+    missing_csv_columns,
+    seed_words_from_csv,
+)
 
 
 def _write_csv(tmp_path, rows):
@@ -154,3 +161,86 @@ def test_add_word_from_book_can_register_an_english_title(app):
     assert created is True
     assert word.language == PuzzleLanguage.EN
     assert [tile["t"] for tile in word.mask] == ["r", "h", "r", "h"]
+
+# --- CSV 행 리스트 적재 (운영자 업로드와 CLI 시드가 같이 쓰는 경로) -------------
+
+
+def _row(language="ko", category="general", answer="사과", hint="과일"):
+    return {"language": language, "category": category, "answer": answer, "hint": hint}
+
+
+def test_import_word_rows_reports_one_outcome_per_row(app):
+    outcomes = import_word_rows([_row(answer="사과"), _row(answer="학교", hint="배우는 곳")])
+
+    assert [outcome.status for outcome in outcomes] == [RowStatus.ADDED, RowStatus.ADDED]
+    assert [outcome.line for outcome in outcomes] == [2, 3]  # 헤더가 1행
+    assert Word.query.count() == 2
+
+
+def test_import_word_rows_marks_an_already_registered_word_as_duplicate(app):
+    import_word_rows([_row()])
+
+    outcomes = import_word_rows([_row(hint="다른 힌트")])
+
+    assert [outcome.status for outcome in outcomes] == [RowStatus.DUPLICATE]
+    assert Word.query.count() == 1
+
+
+def test_import_word_rows_marks_a_row_repeated_inside_the_list_as_duplicate(app):
+    outcomes = import_word_rows([_row(), _row()])
+
+    assert [outcome.status for outcome in outcomes] == [RowStatus.ADDED, RowStatus.DUPLICATE]
+    assert Word.query.count() == 1
+
+
+def test_import_word_rows_keeps_good_rows_when_one_row_is_broken(app):
+    outcomes = import_word_rows(
+        [_row(answer="사과"), _row(language="fr", answer="pomme"), _row(answer="학교")]
+    )
+
+    assert [outcome.status for outcome in outcomes] == [
+        RowStatus.ADDED,
+        RowStatus.ERROR,
+        RowStatus.ADDED,
+    ]
+    assert "language" in outcomes[1].reason
+    assert Word.query.count() == 2
+
+
+def test_import_word_rows_reports_a_blank_answer_as_an_error(app):
+    outcomes = import_word_rows([_row(answer="  ")])
+
+    assert outcomes[0].status is RowStatus.ERROR
+    assert "정답" in outcomes[0].reason
+    assert Word.query.count() == 0
+
+
+def test_import_word_rows_reports_a_missing_hint_as_an_error(app):
+    outcomes = import_word_rows([{"language": "ko", "category": "general", "answer": "사과"}])
+
+    assert outcomes[0].status is RowStatus.ERROR
+    assert "힌트" in outcomes[0].reason
+
+
+def test_import_word_rows_defaults_a_missing_language_to_korean(app):
+    """language 열이 없던 시절의 CSV 가 그대로 돌아간다 (CLI `seed-words`)."""
+    outcomes = import_word_rows([{"category": "general", "answer": "사과", "hint": "과일"}])
+
+    assert outcomes[0].status is RowStatus.ADDED
+    assert Word.query.one().language == PuzzleLanguage.KO
+
+
+def test_import_word_rows_trims_surrounding_spaces(app):
+    import_word_rows([_row(answer=" 사과 ", hint=" 과일 ")])
+
+    word = Word.query.one()
+    assert word.answer == "사과"
+    assert word.hint == "과일"
+
+
+def test_missing_csv_columns_lists_what_the_header_lacks(app):
+    assert missing_csv_columns(["answer", "hint"]) == ["language", "category"]
+    assert missing_csv_columns(None) == list(WORD_CSV_COLUMNS)
+    assert missing_csv_columns(["language", "category", "answer", "hint"]) == []
+    # 열 순서와 앞뒤 공백은 따지지 않는다 — 사람이 만든 CSV 다.
+    assert missing_csv_columns([" answer", "hint ", "category", "language"]) == []

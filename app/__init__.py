@@ -4,6 +4,7 @@ import time
 from flask import Flask
 from werkzeug.middleware.proxy_fix import ProxyFix
 
+from app.admin import register_admin
 from app.api import register_blueprints
 from app.cli import register_commands
 from app.config import CONFIG_BY_NAME
@@ -42,6 +43,7 @@ def create_app(config_name: str | None = None) -> Flask:
 
     register_blueprints(app)
     register_web(app)
+    register_admin(app)
     register_error_handlers(app)
     register_commands(app)
 

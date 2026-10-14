@@ -1,0 +1,59 @@
+{% extends "admin/_layout.html" %}
+{% set editing = word is not none %}
+{% block title %}{{ "단어 수정" if editing else "단어 추가" }}{% endblock %}
+{% block heading %}{{ "단어 수정" if editing else "단어 추가" }}{% endblock %}
+
+{% block content %}
+{# 사유는 입력 위에 한 줄로 둔다 — 어느 입력이 문제인지는 사유 문구가 말해준다
+   (정답/힌트/language/category). 입력별 에러 표시를 만들 만큼 필드가 많지 않다. #}
+{% if error %}
+<p class="admin-error" role="alert">{{ error }}</p>
+{% endif %}
+
+<form
+  class="admin-form"
+  method="post"
+  action="{{ url_for('admin.update_word', word_id=word.id) if editing else url_for('admin.create_word') }}"
+>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+
+  <label class="admin-field">
+    <span class="admin-label">언어</span>
+    <select name="language" required>
+      {% for language in languages %}
+      <option value="{{ language.value }}" {% if form.language == language.value %}selected{% endif %}>{{ language.value }}</option>
+      {% endfor %}
+    </select>
+  </label>
+
+  <label class="admin-field">
+    <span class="admin-label">카테고리</span>
+    <select name="category" required>
+      {% for category in categories %}
+      <option value="{{ category.value }}" {% if form.category == category.value %}selected{% endif %}>{{ category.value }}</option>
+      {% endfor %}
+    </select>
+  </label>
+
+  <label class="admin-field">
+    <span class="admin-label">정답</span>
+    <input type="text" name="answer" value="{{ form.answer }}" maxlength="50" autocomplete="off" required />
+  </label>
+
+  <label class="admin-field">
+    <span class="admin-label">힌트</span>
+    <input type="text" name="hint" value="{{ form.hint }}" maxlength="200" autocomplete="off" required />
+  </label>
+
+  {# 가림은 운영자가 입력하지 않는다 — 저장할 때 서버가 언어에 맞게 계산한다
+     (app/utils/mask.py). 수정 화면에서만 지금 값을 보여준다. #}
+  {% if editing %}
+  <p class="admin-meta">현재 가림: {{ word.mask | map(attribute='c') | map('default', '·', true) | join(' ') }} (저장하면 다시 계산된다)</p>
+  {% endif %}
+
+  <div class="admin-form-actions">
+    <button class="admin-button admin-button-primary" type="submit">{{ "저장" if editing else "추가" }}</button>
+    <a class="admin-link" href="{{ url_for('admin.words') }}">목록으로</a>
+  </div>
+</form>
+{% endblock %}

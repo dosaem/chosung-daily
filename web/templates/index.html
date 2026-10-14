@@ -8,6 +8,16 @@
 </head>
 <body>
   <main class="card">
+    {# 서버가 보낸 안내(지금은 운영자 페이지 접근 안내 하나뿐 — app/admin.py).
+       로그인 안 된 브라우저가 /admin 으로 들어오면 여기로 돌려보낸다. #}
+    {% with messages = get_flashed_messages() %}
+      {% if messages %}
+        <div class="notice" role="status">
+          {% for message in messages %}<p>{{ message }}</p>{% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+
     <header class="header">
       <h1>오늘의 초성</h1>
       <p id="streak" class="streak">🔥 -</p>

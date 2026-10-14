@@ -96,6 +96,11 @@ web/                  # Jinja 템플릿 1장 + vanilla JS
 | GET | `/terms` | 이용약관 (Jinja, ko/en — `?lang=` 또는 Accept-Language) | - |
 | POST | `/api/v1/subscriptions/verify` | 스토어 영수증 검증 → 구독 upsert → `entitlement {active, until, status, source, next_check_at}` | Bearer |
 | POST | `/api/v1/puzzles/today/hint-unlock` | 힌트 미리 보기 (`{puzzle_id}`) → `{hint}`, 퍼즐당 1회 · 시도 미소비, 끝난 퍼즐 409 `ALREADY_FINISHED` / 이미 열림 409 `HINT_ALREADY_UNLOCKED` / 퍼즐 불일치 409 `PUZZLE_CHANGED` | Bearer |
+| GET | `/admin/` | 운영자 단어 목록 (언어·카테고리·검색어 필터, 페이지네이션) | S + 운영자 |
+| GET/POST | `/admin/words/new`, `/admin/words` | 단어 추가 폼 / 저장 | S + 운영자 (+ POST CSRF) |
+| GET/POST | `/admin/words/<id>/edit`, `/admin/words/<id>` | 단어 수정 폼 / 저장 (`mask` 재계산) | S + 운영자 (+ POST CSRF) |
+| POST | `/admin/words/<id>/delete` | 단어 삭제 (퍼즐에 배정된 단어는 거부) | S + 운영자 + CSRF |
+| GET/POST | `/admin/words/import` | CSV 업로드 폼 / 적재 + 행별 결과 표 | S + 운영자 (+ POST CSRF) |
 
 에러 응답은 전부 `{code, message}` + 적절한 HTTP status로 통일 (아래 "에러 응답" 참고).
 
@@ -231,6 +236,48 @@ uv run celery -A celery_app.celery call tasks.ensure_today_puzzle
 uv run celery -A celery_app.celery call tasks.notify_low_word_pool
 uv run celery -A celery_app.celery call tasks.notify_apple_secret_expiry
 ```
+
+## 운영: 단어 CSV 업로드 (`/admin`)
+
+운영자 두 명(`ADMIN_EMAILS`)이 구글 로그인 세션으로 `/admin` 에 들어가 단어를
+검색·추가·수정·삭제하고, CSV 를 올려 한 번에 채운다. 판정 방식은 아래 "설계 판단 15."
+참고. 서버에 SSH 로 들어가 `flask seed-words` 를 치는 대신 쓰는 경로이고, **두 입구가
+같은 적재 규칙**(`app/services/word_service.py` `import_word_rows`)을 쓴다.
+
+CSV 는 UTF-8(엑셀은 "CSV UTF-8" 로 저장 — BOM 은 허용한다), 첫 줄이 헤더다:
+
+```csv
+language,category,answer,hint
+ko,general,지하철역,지하철을 타고 내리는 곳
+ko,book_title,데미안,헤르만 헤세의 성장 소설
+en,general,mountain range,a line of connected peaks
+```
+
+| 열 | 값 | 비고 |
+|---|---|---|
+| `language` | `ko` / `en` | 비어 있으면 `ko` |
+| `category` | `general` / `book_title` | `book_title` 은 일요일 라운드에 쓰인다 |
+| `answer` | 정답 | 최대 50자. 가림(`mask`)은 서버가 계산한다 |
+| `hint` | 힌트 한 줄 | 최대 200자. 정답을 그대로 쓰지 않는다 |
+
+업로드하면 **행별 결과**(추가 / 중복 / 오류 + 사유 + CSV 줄 번호)가 바로 표로 나온다.
+이미 있는 (언어, 카테고리, 정답) 은 중복으로 건너뛰므로 같은 파일을 두 번 올려도
+안전하다. 깨진 줄은 그 줄만 건너뛰고 나머지는 들어간다 — 100행 중 1행 때문에 파일을
+다시 만들 필요가 없다.
+
+**LLM 으로 단어를 만들 때** 쓰는 프롬프트의 골자(잔량 알림이 오면 이걸 돌린다):
+
+> 한국어 일상 단어 40개를 CSV 로 만들어줘. 헤더는 `language,category,answer,hint`,
+> `language` 는 `ko`, `category` 는 `general`. 조건: 2~5글자 명사, 초성만 보고
+> 맞힐 수 있을 만큼 일상적인 말(인명·지명·고유명사·유행어 제외), 정답에 공백·기호
+> 없음, 힌트는 한 줄이고 **정답 글자를 포함하지 않으며** 뜻·용도·분류로만 설명,
+> 40개 서로 중복 없음, 따옴표 없이 쉼표로만 구분.
+
+영어는 `language` 를 `en` 으로, "모음을 가려도 자음 뼈대로 알아볼 수 있는 2~12자
+단어, 하이픈·공백은 두 단어까지" 로 바꿔 돌린다. 만든 CSV 는 **그대로 올리지 말고**
+업로드 결과의 오류 행을 먼저 본다 — LLM 이 카테고리 이름이나 열 순서를 틀리는 일이
+가장 흔하고, 그 줄만 고쳐서 다시 올리면 된다. 책 제목(`book_title`)은 LLM 이 실제로
+없는 책을 만들기 쉬워서 `flask search-books` 로 넣는다(실존 확인).
 
 ## 설계 판단
 
@@ -1170,6 +1217,63 @@ Dart 테스트가 `ios/` 설정 파일을 직접 읽어서 지킨다 — analyze
 제출용 카운터(분당 10회)를 같이 쓰면 광고를 본 사람이 제출 기회를 깎이는 셈이 되고,
 첫 호출 이후는 전부 409 라 반복 호출로 늘릴 수 있는 건 조회 한 번뿐이다.
 
+### 15. 운영자 인증 = 기존 OAuth + 이메일 허용 목록
+
+운영자 페이지에 **비밀번호도, 운영자 테이블도, 로그인 화면도 만들지 않았다.** 이미
+있는 구글 로그인으로 브라우저 세션을 만들고, 그 세션에 연결된 계정의 이메일이
+`ADMIN_EMAILS` 에 있으면 운영자다. 운영자가 두 명(`CONTEXT.md` "운영자")인 서비스에서
+권한 모델·초대·비밀번호 재설정을 만드는 건 지킬 코드만 늘린다.
+
+판정 경로는 **세션 `current_guest_id` → Guest → `Account.email ∈ ADMIN_EMAILS`** 다.
+세션에 이메일을 넣지 않은 게 중요하다: 세션은 서명된 쿠키(상태가 전부 클라이언트에
+있다)라서, 이메일을 거기 담으면 "운영자 판정에 쓰는 값"의 사본이 브라우저에 생긴다.
+허용 목록에서 이메일을 빼도 그 쿠키를 들고 있는 브라우저는 계속 통과하게 된다.
+게스트 ID 만 담고 이메일은 매 요청 DB 에서 읽으면, 설정이나 계정 연결을 바꾼 순간
+다음 요청부터 반영된다.
+
+로그인 안 된 브라우저(세션 없음 / 계정 미연결)는 403 이 아니라 `/` 로 보내 "웹에서
+구글 로그인 후 /admin" 을 안내한다. 운영자 페이지가 **직접 로그인을 시작하지 않는**
+이유는 현행 OAuth 진입(`GET /api/v1/auth/<provider>/login`)이 Bearer 토큰으로 심은
+세션을 전제하기 때문이다(`POST /api/v1/session/sync` — 그 전제가 생긴 이유는 위
+"계정 연결" 의 로그인 CSRF 메모). `/admin` 에서 로그인을 시작하려면 그 흐름을
+다시 설계해야 하는데, 운영자가 게임 페이지를 한 번 거치면 되는 일이라 안 했다.
+허용 목록에 없는 이메일은 403 `FORBIDDEN`(스펙 API 표의 `/admin/*` 행).
+
+`ADMIN_EMAILS` 는 **기본값이 없다.** 개발 기본값으로 운영자 주소를 넣어두면, 설정을
+안 한 환경에서 그 주소로 로그인한 누구나 운영자가 된다. 비면 전부 403 이고, 테스트는
+픽스처가 명시적으로 넣는다(`tests/conftest.py` `admin_session`). 비교는 양쪽을
+소문자로 맞춰서 한다 — 구글이 돌려주는 이메일의 대소문자를 `.env` 에서 맞춰 적게
+만들지 않는다.
+
+모든 `/admin` POST 는 "01. CSRF 토큰 방식" 의 데코레이터를 그대로 쓴다 — 쿠키 세션만으로
+인증하는 폼이고, 프로덕션에서 `SESSION_COOKIE_SAMESITE` 가 애플 로그인 때문에 `None`
+으로 풀려 있어서 쿠키 설정만으로는 다른 사이트가 만든 POST 를 막을 수 없다.
+
+### 15. 운영자 화면의 폭은 디자인 시스템 §10 을 벗어난다
+
+디자인 시스템(OVERRIDES §10)의 웹 규칙은 "중앙 정렬 카드 하나, 481px 이상에서 480px
+고정" 이다. 운영자 페이지는 이걸 **의도적으로 지키지 않고** 1040px 까지 쓴다: §10 은
+플레이어가 보는 게임·문서 페이지 규칙이고, 운영자 화면은 6열 표(언어·카테고리·정답·
+가림·힌트·관리)와 필터 한 줄이 있는 운영 도구라서 480px 에 넣으면 표가 잘려 쓸 수
+없다. 색(§2 — brand 는 면 채움 금지)·타이포 스케일(§3)·간격·모서리·44px 터치
+타깃(§4)·다크 모드 추종(§9)은 그대로 지키고, 공용 토큰 CSS(09)를 그대로 쓴다.
+`tests/test_admin_css.py` 가 "admin.css 에 색 리터럴 없음 / brand 면 채움 없음" 을
+막고, `impeccable detect` 는 7개 화면 0건이다(`review/impl-evidence-15.md`).
+
+### 15. 단어 삭제는 막고, CSV 적재 규칙은 한 곳에 둔다
+
+이미 퍼즐로 배정된 단어는 삭제를 거부한다(사유에 배정 날짜를 적어 보여준다). 지우면
+그 날짜의 퍼즐이 참조를 잃고, 이미 푼 사람의 시도 이력도 가리킬 단어가 없어진다 —
+배정표에서 그 날짜의 단어를 먼저 바꿔야 한다. DB 외래키에 맡기지 않고 서비스에서
+먼저 막는 이유는, 운영자에게 보여줄 게 IntegrityError 가 아니라 "며칠에 배정돼 있다"
+라는 문장이어야 해서다.
+
+CSV 적재는 **파일이 아니라 행 리스트를 받는 함수**(`import_word_rows`)가 규칙을 들고
+있고, 운영자 업로드와 CLI `flask seed-words` 가 둘 다 그걸 쓴다. 인코딩(UTF-8 BOM
+허용)과 헤더 검증은 파일을 읽는 호출부의 일이다. 이렇게 갈라두면 중복·검증 규칙
+테스트가 임시 파일 없이 돌고(`tests/test_word_service.py`), 입구가 둘인데 규칙이
+하나라는 게 코드에서 보인다. 파일 안에서 같은 단어가 두 번 나오는 것도 중복으로
+센다 — DB 에 넣기 전이라 조회로는 안 걸려서, 방금 넣은 키를 같은 집합에 더해가며 본다.
 
 ## 부하 테스트 요약
 

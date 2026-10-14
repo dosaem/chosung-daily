@@ -121,6 +121,17 @@ class Config:
     LEGAL_MAIL_ORDER_REG_NO = os.environ.get("LEGAL_MAIL_ORDER_REG_NO", "")
     LEGAL_BUSINESS_ADDRESS = os.environ.get("LEGAL_BUSINESS_ADDRESS", "")
 
+    # 운영자 페이지(/admin)에 들어올 수 있는 구글 계정 이메일. 쉼표로 여러 개.
+    # **기본값 없음** — 설정을 깜빡한 환경에서는 아무도 운영자가 아니다(전부 403).
+    # 판정은 세션의 게스트에 연결된 Account.email 로 한다(app/admin.py) — 세션에는
+    # 이메일이 없고 게스트 ID 만 있다. 비교 전에 소문자로 맞춘다: 구글이 돌려주는
+    # 이메일의 대소문자를 운영자가 .env 에서 맞춰 적게 만들지 않는다.
+    ADMIN_EMAILS = tuple(
+        email.strip().lower()
+        for email in os.environ.get("ADMIN_EMAILS", "").split(",")
+        if email.strip()
+    )
+
     # Cloudflare Tunnel이 TLS를 엣지에서 끝내고 내부로는 평문 HTTP로 넘긴다.
     # 이걸 모르면 url_for(..., _external=True)가 OAuth redirect_uri를 http://로
     # 만들어버려서 구글/애플 콘솔에 등록한 https:// URI와 안 맞아 로그인이 막힌다
