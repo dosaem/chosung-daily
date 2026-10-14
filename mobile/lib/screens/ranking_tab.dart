@@ -1,4 +1,4 @@
-import 'package:chosung/widgets/max_width_body.dart';
+import 'package:chosung/layout/reading_width.dart';
 import 'package:chosung/widgets/skeleton_box.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
@@ -9,7 +9,7 @@ class RankingTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SafeArea(
-    child: MaxWidthBody(
+    child: ReadingWidth(
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
