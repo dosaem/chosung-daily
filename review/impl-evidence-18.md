@@ -437,3 +437,101 @@ All checks passed!
 - `tests/fixtures/js/deleted_state_harness.mjs` 는 `ensureToken()` 의 반환 계약이 토큰 → boolean
   으로 바뀌어 발급된 토큰을 `state.token` 에서 읽도록 두 줄 고쳤다. D-14-1 테스트 3개가 보는
   내용은 그대로다.
+
+## 수정 라운드 2 — 최종 리뷰(`review/impl-review-18.md` 라운드 2) 결함 수정
+
+- 라운드 2 판정은 FAIL, 미해결 **BLOCKER 0 / MAJOR 1 / MINOR 0** 이었다. 그 MAJOR 한 건
+  (D-18-4)만 고쳤다. 라운드 1 의 D-18-1·2·3 은 모두 FIXED 로 재판정됐고 REPEAT 은 없다.
+- 기준: 로컬 `main`. 작업 도중 `main` 이 `055b56c` → **`1afeffa`**(티켓 36 머지)로 전진해서
+  이번 rebase 는 no-op 이 아니었다 — 커밋 후 `git rebase main` 을 돌려 6개 커밋을 충돌 없이
+  다시 얹었다. `origin/main` 은 쓰지 않았다.
+- 전용 테스트 자원 그대로: `chosung_daily_test_t18` / Redis DB 6 / `..._t18_migrations`. 공용
+  테스트 DB·Redis DB 1 은 건드리지 않았다.
+- 마이그레이션 없음(`git diff --name-only main...HEAD -- migrations` 비어 있음).
+  `flask db heads` = `b1c7d4e0a932 (head)` 1줄.
+- `review/impl-review-18.md` 는 고치지 않았다. 리팩토링·기능 추가는 없다.
+- 리뷰의 재현 방법 그대로 먼저 재현하고, 그 재현을 실패하는 테스트로 고정한 뒤 고쳤다.
+
+### D-18-4 (MAJOR) — 저장된 토큰으로 시작하면 세션 동기화가 생략돼 다른 계정이 삭제된다
+
+**재현.** 리뷰가 적은 방법 그대로 — 기존 node 대역(`tests/js/harness.mjs`)으로 실제 번들을
+읽고, `localStorage` 에 토큰만 심고 fetch 경계에서 요청 URL 을 모은 뒤 `init()` 을 돌렸다.
+`init`·`ensureToken`·`syncSession` 은 mock 하지 않았다. 리뷰가 적은 기대 1 / 실제 0 과 같다.
+
+```
+# 수정 전 (HEAD=22a76f0 의 web/static/app.js)
+$ uv run pytest -q tests/test_web_js.py
+FAILED tests/test_web_js.py::test_starting_from_a_stored_token_also_syncs_the_session
+FAILED tests/test_web_js.py::test_a_backup_restore_syncs_the_session_with_the_restored_guest
+FAILED tests/test_web_js.py::test_the_oauth_callback_syncs_the_session_with_the_new_token
+3 failed, 47 passed
+    assert sync["count"] == 1
+E   assert 0 == 1
+```
+
+대조군(첫 방문, 삭제 후 재발급)은 수정 전에도 통과했다 — 둘 다 발급 분기를 지나기 때문이다.
+즉 실패하는 건 "발급을 **건너뛴**" 경로뿐이고, 이게 결함의 모양과 정확히 일치한다.
+
+**원인.** 라운드 1 의 D-18-1 수정이 `syncSession()` 호출을 `init()` 에서 **새 게스트 발급
+성공 분기 안으로** 옮겼다(`web/static/app.js`). `ensureToken()` 은 `localStorage` 에 토큰이
+있으면 그 위에서 바로 반환하므로, 첫 방문이 아닌 초기화는 `/session/sync` 를 한 번도 보내지
+않는다. 서버는 세션 쿠키(`session["current_guest_id"]`)로 OAuth 연결 대상과 **계정 삭제
+대상**을 고른다(`app/api/oauth.py` `sync_session`, `app/web.py` `account_delete`). 그래서
+백업 코드로 게스트 B 를 복원하면 화면·API 는 B 인데 세션은 A 로 남고, 삭제 페이지가 A 로
+폼을 발급해 폼 대상 검사와 CSRF 를 **둘 다 통과시킨 뒤** A 를 지운다. 증상(삭제 대상이
+틀리다)이 아니라 원인(토큰이 바뀌는 경로가 동기화를 안 거친다)을 고쳤다.
+
+**수정.** `ensureToken()` 이 "토큰 확보" 와 "세션 게스트 맞추기" 를 **같이** 책임진다. 토큰이
+바뀌는 길은 전부 이 함수를 지나므로, 경로마다 동기화를 흩지 않고 한 지점에서 한다 — 조기
+반환을 없애고 발급 분기를 `else` 로 내린 뒤, 마지막에 한 번 동기화한다.
+
+- `state.syncedToken` 에 심어둔 토큰을 기억한다. 같은 토큰으로 두 번 보내지 않고
+  (`online`·재시도는 둘 다 `restart()` → `ensureToken()` 으로 돌아온다), 못 심은 것만 다시
+  보낸다. 동기화 조건이 `state.token !== null` 조기 반환 **아래**에 있는 이유가 이것이다.
+- `syncSession()` 이 fetch 거부를 받는다. 실패하면 `syncedToken` 을 되돌려 "아직 못 심었다"
+  로 남긴다(낙관적으로 먼저 적어서 중복 요청은 막는다).
+
+**중간에 드러난 두 번째 결함(같은 수정 안).** 첫 수정본은 `syncSession()` 의 거부를 아무도
+받지 않았다. 저장된 토큰이 있는 오프라인 재방문은 발급 요청 없이 **곧장** 동기화로 오는데,
+부르는 쪽은 응답을 기다리지 않으므로 거부가 받아줄 사람 없는 rejection 이 된다. 기존
+테스트가 바로 이걸 잡았다 — 내 추측이 아니라 실행 출력이다.
+
+```
+$ uv run pytest -q tests/test_web.py
+FAILED tests/test_web.py::test_deleted_signal_keeps_the_token_when_the_check_cannot_reach_the_server
+  TypeError: network error
+      at fetchStub (tests/fixtures/js/deleted_state_harness.mjs:112:44)
+      at syncSession (app.js:938:9)
+      at Object.ensureToken (app.js:216:3)
+```
+
+`try/catch` + 재시도까지 넣은 뒤 이 테스트도 통과한다. 이 경로도 아래 표의 (2b) 로 고정했다.
+
+**증명하는 테스트.** 토큰이 바뀌는 경로 **6개**를 한 표로 묶어
+`tests/js/web_states_and_sections.mjs` + `tests/test_web_js.py` 에 넣었다. 경로마다 두 가지를
+센다 — `/session/sync` 가 **정확히 1회** 나갔는지, 그 Authorization 이 화면이 실제로 쓰는
+토큰(`/me/stats` 의 Authorization)과 **같은지**. 둘이 같으면 삭제 폼의 대상(세션 게스트)과
+화면의 게스트가 어긋날 수 없다. 함수를 손으로 부르지 않고 `init()`·실제 버튼 핸들러를 돌린다.
+
+| # | 경로 | 테스트 | 수정 전 |
+|---|---|---|---|
+| 1 | 첫 발급(저장 토큰 없음) | `test_a_first_visit_syncs_the_session_with_the_issued_guest` | 통과(대조군) |
+| 2 | 저장 토큰으로 시작(복원 후 새로고침·쿠키만 없는 재방문) | `test_starting_from_a_stored_token_also_syncs_the_session` | **실패** |
+| 2b | 저장 토큰 + 오프라인 재방문 → `online` 재시도 | `test_a_sync_that_cannot_leave_is_retried_when_the_connection_returns` | **실패(하니스 crash)** |
+| 3 | 백업 코드 복원(실제 복원 버튼 → 새로고침 → 다음 로드) | `test_a_backup_restore_syncs_the_session_with_the_restored_guest` | **실패** |
+| 4 | OAuth 복귀(`?login_token=`) | `test_the_oauth_callback_syncs_the_session_with_the_new_token` | **실패** |
+| 5 | 계정 삭제 후 재발급(`?deleted=1`, 옛 토큰 401) | `test_a_fresh_guest_after_account_deletion_syncs_the_emptied_session` | 통과(대조군) |
+
+(3) 은 복원 버튼 핸들러를 실제로 눌러 `location.reload()` 호출 1회와 저장소가 B 로 바뀐 것을
+보고, 그 다음 로드를 (2) 와 같은 길로 한 번 더 실제로 돌려서 B 로 동기화되는지 본다. 대역의
+`location.reload()` 는 아무것도 하지 않기 때문이다.
+
+**역변이 확인(테스트가 정말 잡는지).** 수정 전 번들로 되돌려 돌리면 (2)(3)(4) 가 실패하고,
+`syncSession()` 의 `try/catch` 만 떼면 (2b) 가 하니스 crash 로 실패한다(위 두 출력).
+
+**삭제 대상이 화면의 게스트인지 — 서버 쪽 절반.** 이건 이미 서버 테스트가 덮고 있어서 새로
+더하지 않았다: `tests/test_account_delete_page.py` 의
+`test_a_form_rendered_for_another_guest_is_refused_after_a_session_switch` 와
+`test_the_switched_guest_can_delete_itself_from_a_freshly_rendered_form` 가 실제
+`POST /api/v1/session/sync` 로 세션을 심어 "전환된 게스트가 자기를 지운다" 를 본다. 빠진
+고리는 **프론트가 그 요청을 보내는가** 하나였고, 위 6개 테스트가 그걸 고정한다.

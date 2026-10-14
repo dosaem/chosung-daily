@@ -47,6 +47,11 @@ function errorText(body, fallbackKey) {
 
 const state = {
   token: null,
+  // 서버 세션 쿠키에 심어둔 게스트 토큰. `token` 과 다르면(아직 못 심었거나
+  // 오프라인에서 실패했거나 토큰이 바뀌었으면) 다시 심어야 한다 — 세션 게스트가
+  // OAuth 연결과 계정 삭제의 대상이라, 화면과 어긋나면 남의 계정이 지워진다
+  // (review/impl-review-18.md D-18-4).
+  syncedToken: null,
   today: null,
   // 화면이 들고 있는 플레이 상태의 "세대". 언어 전환·409 재조회·백업 코드
   // 전환처럼 상태를 통째로 폐기할 때마다 1 올린다(discardLocalPlayState).
@@ -162,7 +167,12 @@ function clearStoredHistory() {
   }
 }
 
-/** `state.token` 을 채운다. 없으면 게스트를 발급받는다.
+/** `state.token` 을 채우고, 서버 세션 게스트를 그 토큰에 맞춘다. 토큰이 없으면
+ *  게스트를 발급받는다.
+ *
+ * 브라우저가 쓰는 게스트가 바뀌는 길은 전부 여기로 모인다 — 첫 발급, 저장된 토큰으로
+ * 시작, 백업 코드 복원 후의 새로고침, OAuth 복귀의 `?login_token`, 삭제 후의 재발급.
+ * 그래서 세션 동기화도 경로마다 흩지 않고 이 한 곳에서 한다(D-18-4).
  *
  * 던지지 않고 **성공 여부를 돌려준다**. 예전에는 발급 실패가 예외로 `init()` 을
  * 통째로 끊었는데, 그러면 그 뒤에 있던 `bindEvents()`·`renderOffline()` 이 아예
@@ -173,37 +183,47 @@ function clearStoredHistory() {
  * @returns {Promise<boolean>} 토큰이 준비됐으면 true.
  */
 async function ensureToken() {
-  if (state.token !== null) return true;
+  if (state.token === null) {
+    const existing = safeStorageGet(TOKEN_KEY);
+    if (existing) {
+      state.token = existing;
+    } else {
+      // 새 게스트의 퍼즐 언어 기본값은 기기 언어다(CONTEXT.md "퍼즐 언어"). 서버가
+      // 이미 고른 UI 언어를 그대로 쓴다 — 지원 언어가 ko/en 으로 같다.
+      const { ok, offline, body } = await fetchJson(`${API_BASE}/guests`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ puzzle_language: document.documentElement.lang }),
+      });
+      if (offline) {
+        renderOffline(true);
+        showPuzzleState(t("network_error"));
+        return false;
+      }
+      // 요청이 나갔다는 건 연결이 돌아왔다는 뜻이다 — 응답이 오류여도 배너는 내린다.
+      renderOffline(false);
+      if (!ok) {
+        showPuzzleState(t("guest_issue_failed"));
+        return false;
+      }
 
-  const existing = safeStorageGet(TOKEN_KEY);
-  if (existing) {
-    state.token = existing;
-    return true;
+      state.token = body.token;
+      safeStorageSet(TOKEN_KEY, body.token);
+    }
   }
 
-  // 새 게스트의 퍼즐 언어 기본값은 기기 언어다(CONTEXT.md "퍼즐 언어"). 서버가
-  // 이미 고른 UI 언어를 그대로 쓴다 — 지원 언어가 ko/en 으로 같다.
-  const { ok, offline, body } = await fetchJson(`${API_BASE}/guests`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ puzzle_language: document.documentElement.lang }),
-  });
-  if (offline) {
-    renderOffline(true);
-    showPuzzleState(t("network_error"));
-    return false;
-  }
-  // 요청이 나갔다는 건 연결이 돌아왔다는 뜻이다 — 응답이 오류여도 배너는 내린다.
-  renderOffline(false);
-  if (!ok) {
-    showPuzzleState(t("guest_issue_failed"));
-    return false;
-  }
-
-  state.token = body.token;
-  safeStorageSet(TOKEN_KEY, body.token);
+  // **어느 경로로 토큰을 얻었든** 세션 쿠키를 같은 게스트로 맞춘다. 발급 분기
+  // 안에만 두면 저장된 토큰으로 시작하는 초기화 — 백업 코드 복원 후의 새로고침,
+  // 쿠키만 없는 재방문, OAuth 콜백 — 이 전부 동기화를 건너뛴다. 그러면 API 는 새
+  // 토큰으로 가는데 세션은 옛 게스트로 남고, 세션으로 대상을 고르는 계정 삭제가
+  // 화면에 없는 게스트를 지운다(review/impl-review-18.md D-18-4).
+  //
+  // 조기 반환 위가 아니라 **여기**인 이유: 오프라인에서 실패한 동기화는 다시 보내야
+  // 한다. `online` 이벤트와 재시도 버튼은 둘 다 `restart()` → 이 함수로 돌아오는데,
+  // 그때 `state.token` 은 이미 차 있다. 심어둔 토큰을 따로 기억해 두면 같은 토큰으로
+  // 두 번 보내지 않으면서 실패한 것만 다시 보낸다.
   // 응답을 기다릴 필요 없음 — 로그인 버튼 누르기 전까지만 심어지면 된다.
-  syncSession();
+  if (state.syncedToken !== state.token) syncSession();
   return true;
 }
 
@@ -925,10 +945,22 @@ async function syncSession() {
   // 토큰을 쿼리파라미터로 안 보내는 이유는 app/api/oauth.py의 sync_session
   // 독스트링 참고 — 쿼리파라미터는 아무 값이나 넣은 링크를 피해자가 클릭하게
   // 만들 수 있어서(로그인 CSRF), 세션 쿠키로 바꿨다.
-  await fetch(`${API_BASE}/session/sync`, {
-    method: "POST",
-    headers: authHeaders(),
-  });
+  //
+  // 던지게 두면 안 된다 — 부르는 쪽(`ensureToken`)은 응답을 기다리지 않으므로 거부가
+  // 받아줄 사람 없는 rejection 이 된다. 오프라인 재방문이 바로 그 경우다(저장된
+  // 토큰이 있으니 발급 요청 없이 곧장 여기로 온다).
+  // 낙관적으로 먼저 적는다 — 같은 토큰으로 요청이 두 번 날아가지 않게. 실패하면 되돌린다.
+  state.syncedToken = state.token;
+  try {
+    const res = await fetch(`${API_BASE}/session/sync`, {
+      method: "POST",
+      headers: authHeaders(),
+    });
+    if (!res.ok) state.syncedToken = null;
+  } catch {
+    // 연결이 돌아오면 `restart()` 가 `ensureToken()` 을 다시 거치면서 재시도한다.
+    state.syncedToken = null;
+  }
 }
 
 /** 인라인 카드의 재시도 버튼. 오류든 "퍼즐 없음" 이든 하는 일은 같다 —

@@ -572,3 +572,92 @@ def test_the_retry_after_a_failed_submit_resyncs_with_the_server(web_states):
         True,
     )
     assert after["inputDisabled"] is False
+
+
+# --- D-18-4: 토큰이 바뀌는 모든 경로에서 세션 게스트가 화면과 같다 -----------
+#
+# 세션 게스트는 OAuth 연결과 계정 삭제의 **대상**이다(app/api/oauth.py `sync_session`,
+# app/web.py `account_delete`). 화면이 쓰는 토큰과 세션 게스트가 어긋나면 삭제 폼이
+# 화면에 없는 계정을 지운다 — 그래서 경로마다 `/session/sync` 가 1회 나갔는지와 그
+# Authorization 이 화면의 토큰(`/me/stats` 와 같은 값)인지를 함께 본다.
+
+
+def test_a_first_visit_syncs_the_session_with_the_issued_guest(web_states):
+    """경로 1 — 첫 발급. 대조군이다(이 경로는 D-18-1 수정에서도 동기화했다)."""
+    sync = web_states["sync_on_first_visit"]
+
+    assert sync["guestIssues"] == 1
+    assert sync["count"] == 1
+    assert sync["authorization"] == "Bearer issued-token"
+    assert sync["matchesUi"] is True
+    assert sync["beforePuzzleLoad"] is True
+
+
+def test_starting_from_a_stored_token_also_syncs_the_session(web_states):
+    """경로 2 — 저장된 토큰으로 시작(복원 후 새로고침·쿠키만 없는 재방문).
+
+    이 경로가 동기화를 건너뛰면 API 는 저장된 게스트로 가는데 세션은 옛 게스트로
+    남는다. 삭제 페이지는 세션의 옛 게스트로 폼을 발급하므로 CSRF 와 폼 대상 검사를
+    둘 다 통과시킨 뒤 **화면에 없는 계정**을 지운다.
+    """
+    sync = web_states["sync_on_stored_token"]
+
+    assert sync["guestIssues"] == 0, "저장된 토큰이 있으면 발급하지 않는다"
+    assert sync["count"] == 1
+    assert sync["authorization"] == "Bearer restored-guest-token"
+    assert sync["matchesUi"] is True
+    assert sync["beforePuzzleLoad"] is True
+
+
+def test_a_backup_restore_syncs_the_session_with_the_restored_guest(web_states):
+    """경로 3 — 백업 코드 복원. 저장소를 B 로 바꾸고 새로고침한 뒤의 로드가 B 로 맞춘다."""
+    after = web_states["sync_after_backup_restore"]
+
+    # 복원 전에는 A 로 맞춰져 있었다.
+    assert after["beforeRestore"]["authorization"] == "Bearer guest-a-token"
+    assert after["reloads"] == 1
+    assert after["storedAfterRestore"] == "guest-b-token"
+    # 새로고침 뒤의 로드는 B 로 동기화한다 — A 가 세션에 남지 않는다.
+    assert after["count"] == 1
+    assert after["authorization"] == "Bearer guest-b-token"
+    assert after["matchesUi"] is True
+
+
+def test_the_oauth_callback_syncs_the_session_with_the_new_token(web_states):
+    """경로 4 — 로그인 복귀. 콜백이 준 계정 토큰으로 맞춘다(옛 게스트 세션이 남지 않는다)."""
+    sync = web_states["sync_after_oauth_callback"]
+
+    assert sync["count"] == 1
+    assert sync["authorization"] == "Bearer linked-account-token"
+    assert sync["matchesUi"] is True
+
+
+def test_a_fresh_guest_after_account_deletion_syncs_the_emptied_session(web_states):
+    """경로 5 — 삭제 후 `/?deleted=1`. 비워진 세션을 새로 발급한 게스트로 다시 채운다."""
+    sync = web_states["sync_after_account_deletion"]
+
+    assert sync["storedToken"] == "issued-token", "지워진 토큰을 버리고 새로 발급받는다"
+    assert sync["count"] == 1
+    assert sync["authorization"] == "Bearer issued-token"
+    assert sync["matchesUi"] is True
+
+
+def test_a_sync_that_cannot_leave_is_retried_when_the_connection_returns(web_states):
+    """경로 2b — 저장된 토큰으로 오프라인 재방문. 동기화 요청이 못 나가는 경우다.
+
+    저장된 토큰이 있으면 발급 요청 없이 곧장 동기화로 온다. 부르는 쪽은 응답을
+    기다리지 않으니 거부를 그대로 두면 받아줄 사람 없는 rejection 이 되고(node 는
+    거기서 죽는다), 세션은 옛 게스트로 남는다. 연결이 돌아오면 다시 보내야 한다.
+    """
+    after = web_states["sync_on_stored_token_offline"]
+
+    assert after["offline"]["threw"] is None, "동기화 실패가 init() 을 깨지 않는다"
+    assert after["offline"]["syncedToken"] is None, "못 심었으면 심었다고 기억하지 않는다"
+    assert after["offline"]["bannerHidden"] is False
+
+    # `online` 이벤트가 같은 토큰으로 동기화를 다시 보낸다 — 발급은 하지 않는다.
+    assert after["guestIssues"] == 0
+    assert after["count"] == 1
+    assert after["authorization"] == "Bearer offline-revisit-token"
+    assert after["matchesUi"] is True
+    assert after["syncedToken"] == "offline-revisit-token"

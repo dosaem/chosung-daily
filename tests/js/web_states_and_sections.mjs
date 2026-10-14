@@ -321,4 +321,170 @@ function app_seconds(iso) {
   };
 }
 
+// --- D-18-4: 토큰이 바뀌는 **모든** 경로에서 세션 게스트를 같은 값으로 맞춘다 ---
+//
+// 세션 쿠키가 "이 브라우저 = 이 게스트" 다 — OAuth 로그인과 계정 삭제 페이지는 토큰이
+// 아니라 그 쿠키로 대상을 고른다(app/api/oauth.py `sync_session`, app/web.py
+// `account_delete`). D-18-1 수정이 `syncSession()` 을 새 게스트 발급 분기 **안으로**
+// 옮겨서, 저장된 토큰으로 시작하는 초기화는 동기화를 한 번도 안 했다. 백업 코드로 다른
+// 게스트 B 를 복원한 뒤에도 세션은 A 로 남아서, 삭제 페이지가 화면에 없는 A 를 지웠다
+// (review/impl-review-18.md D-18-4).
+//
+// 경로마다 따로 맞추면 또 샌다. 토큰이 바뀌는 경로를 한 표로 묶어, 전부
+// `ensureToken()` 이라는 한 지점을 거치는지 본다. 경로별로 두 가지를 센다 —
+// `/session/sync` 가 **정확히 1회** 나갔는지, 그 Authorization 이 화면이 실제로 쓰는
+// 토큰(`/me/stats` 의 Authorization)과 **같은지**. 둘이 같으면 삭제 폼의 대상(세션
+// 게스트)과 화면의 게스트가 어긋날 수 없다.
+{
+  const recordingApp = ({ stored = null, search = "", fetchFor: fetchImpl } = {}) => {
+    const app = loadApp({ strings, lang });
+    if (stored) app.context.localStorage.setItem("chosung_token", stored);
+    app.context.location.search = search;
+
+    const calls = [];
+    const server = fetchImpl ?? serverFor(() => okResponse(PUZZLE));
+    app.setFetch(async (url, options) => {
+      calls.push({ url, authorization: options?.headers?.Authorization ?? null });
+      return server(url, options);
+    });
+    return { app, calls };
+  };
+
+  const authFor = (calls, suffix) =>
+    calls.find((call) => call.url.includes(suffix))?.authorization ?? null;
+
+  /** 한 경로의 판정 재료. "몇 번, 누구로, 화면과 같은 게스트인가". */
+  const syncReport = (calls) => {
+    const sync = calls.filter((call) => call.url.endsWith("/session/sync"));
+    const uiAuthorization = authFor(calls, "/me/stats");
+    return {
+      count: sync.length,
+      authorization: sync[0]?.authorization ?? null,
+      // 화면이 API 를 부르는 토큰과 세션에 심는 토큰이 같아야 한다.
+      matchesUi: sync.length > 0 && sync[0].authorization === uiAuthorization,
+      uiAuthorization,
+      // 로그인 버튼을 누를 수 있게 되기 전에 심어져야 한다 — 퍼즐 조회보다 먼저 나간다.
+      beforePuzzleLoad:
+        sync.length > 0 &&
+        calls.indexOf(sync[0]) < calls.findIndex((call) => call.url.includes("/puzzles/today")),
+    };
+  };
+
+  // (1) 첫 발급 — 저장된 토큰이 없다. 발급 뒤에 동기화한다(대조군).
+  {
+    const { app, calls } = recordingApp();
+    await app.run("init()");
+    results.sync_on_first_visit = {
+      ...syncReport(calls),
+      guestIssues: calls.filter((call) => call.url.endsWith("/guests")).length,
+    };
+  }
+
+  // (2) 저장 토큰으로 시작 — 복원 후의 새로고침, 세션 쿠키만 없는 재방문.
+  {
+    const { app, calls } = recordingApp({ stored: "restored-guest-token" });
+    await app.run("init()");
+    results.sync_on_stored_token = {
+      ...syncReport(calls),
+      guestIssues: calls.filter((call) => call.url.endsWith("/guests")).length,
+    };
+  }
+
+  // (2b) 저장 토큰 + 오프라인 재방문 — 동기화 요청이 아예 못 나간다. 거부를 받아주지
+  //      않으면(부르는 쪽은 응답을 안 기다린다) 받아줄 사람 없는 rejection 이 되고,
+  //      다시 보내지도 않아 세션은 옛 게스트로 남는다. 연결이 돌아오면 재시도해야 한다.
+  {
+    const app = loadApp({ strings, lang });
+    app.context.localStorage.setItem("chosung_token", "offline-revisit-token");
+    app.context.navigator.onLine = false;
+    app.setFetch(UNREACHABLE);
+
+    let threw = null;
+    try {
+      await app.run("init()");
+    } catch (error) {
+      threw = String(error);
+    }
+    const offline = {
+      threw,
+      syncedToken: app.run("state.syncedToken"),
+      bannerHidden: app.el("offline-banner").classList.contains("hidden"),
+    };
+
+    const calls = [];
+    const server = serverFor(() => okResponse(PUZZLE));
+    app.setFetch(async (url, options) => {
+      calls.push({ url, authorization: options?.headers?.Authorization ?? null });
+      return server(url, options);
+    });
+    await app.emitWindow("online");
+    results.sync_on_stored_token_offline = {
+      offline,
+      ...syncReport(calls),
+      guestIssues: calls.filter((call) => call.url.endsWith("/guests")).length,
+      syncedToken: app.run("state.syncedToken"),
+    };
+  }
+
+  // (3) 백업 코드 복원 — 저장소를 B 로 바꾸고 새로고침한다. 새로고침 **뒤의** 로드가
+  //     B 로 동기화해야 한다. 대역의 `location.reload()` 는 아무것도 안 하므로, 그
+  //     로드를 (2) 와 같은 길로 한 번 더 실제로 돌려서 본다.
+  {
+    const { app, calls } = recordingApp({ stored: "guest-a-token" });
+    await app.run("init()");
+    const beforeRestore = syncReport(calls);
+
+    let reloads = 0;
+    app.context.location.reload = () => {
+      reloads += 1;
+    };
+    app.el("token-input").value = "guest-b-token";
+    await app.el("restore-submit-button").listeners.click[0]();
+
+    const reloaded = recordingApp({ stored: app.context.localStorage.getItem("chosung_token") });
+    await reloaded.app.run("init()");
+    results.sync_after_backup_restore = {
+      beforeRestore,
+      reloads,
+      storedAfterRestore: app.context.localStorage.getItem("chosung_token"),
+      ...syncReport(reloaded.calls),
+    };
+  }
+
+  // (4) OAuth 로그인 복귀 — 옛 게스트 토큰 위로 계정 토큰이 쿼리로 들어온다.
+  {
+    const { app, calls } = recordingApp({
+      stored: "old-guest-token",
+      search: "?login_token=linked-account-token",
+    });
+    await app.run("init()");
+    results.sync_after_oauth_callback = syncReport(calls);
+  }
+
+  // (5) 계정 삭제 후 — 서버가 `/?deleted=1` 로 돌려보낸다. 지워진 토큰을 버리고 새
+  //     게스트를 발급받는데, 비워진 세션도 그 새 게스트로 다시 채워야 한다.
+  {
+    const server = serverFor(() => okResponse(PUZZLE));
+    const deletedServer = async (url, options) => {
+      // 지워진 옛 토큰으로 부른 이력 조회만 401 이다.
+      if (url.includes("/me/history")) {
+        return options?.headers?.Authorization === "Bearer deleted-guest-token"
+          ? errorResponse(401, { code: "UNAUTHORIZED", message: "유효하지 않은 토큰입니다." })
+          : okResponse({ days: [] });
+      }
+      return server(url, options);
+    };
+    const { app, calls } = recordingApp({
+      stored: "deleted-guest-token",
+      search: "?deleted=1",
+      fetchFor: deletedServer,
+    });
+    await app.run("init()");
+    results.sync_after_account_deletion = {
+      ...syncReport(calls),
+      storedToken: app.context.localStorage.getItem("chosung_token"),
+    };
+  }
+}
+
 console.log(JSON.stringify(results));
