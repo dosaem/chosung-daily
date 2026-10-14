@@ -535,3 +535,58 @@ Expected: <2>                                   # 첫 오답 뒤 history 재조�
 `in_progress` 로 센다)를 적었다. 리뷰가 "서버 계약과 다르다" 고 지적한 문장이
 그 문단이다. 그 밖의 공유 파일(`.env.example`·`docs/`·`.scratch/`·마이그레이션)은
 바꾸지 않았다. `review/impl-review-27.md` 는 건드리지 않았다.
+
+### 재검증 (리베이스 후, 실제 실행 출력)
+
+로컬 `main`(`1afeffa` — 티켓 26·36 병합 포함) 위로 리베이스했다. `origin/main` 은
+쓰지 않았고 push 도 하지 않았다. 충돌 6곳은 전부 **양쪽이 같은 자리에 더한 것**이라
+둘 다 살렸다(`mobile/lib/api/api_client.dart`·`api_models.dart`·
+`test/api/api_models_test.dart`·`test/fakes/fake_api_client.dart`(2회)·
+`assets/translations/{ko,en}.json`). `mobile/lib/screens/today_tab.dart` 의 import
+충돌만 판단이 필요했다 — 본문이 main 의 `AppRoutes` 와 티켓 27 의 `myStatsProvider`
+를 둘 다 쓰고 `startupStatsProvider` 는 더 쓰지 않으므로(StreakBadge 가 플레이 후
+재조회되는 `myStatsProvider` 로 옮겨갔다) 그 import 를 뺐다. 리베이스 전/후 트리를
+대조해 티켓 27 소유 파일의 변경·삭제가 없음을 확인했다
+(`git diff a724939 1a225b5 --diff-filter=D --name-only` 출력 없음, 27 소유 디렉터리
+diff 없음).
+
+```
+$ git rebase main
+Successfully rebased and updated refs/heads/dosaem/t27-app-leaderboard-records-settings.
+
+$ git merge-base main HEAD
+1afeffa622db7061e872b5fa103be62f7087e776     # = 로컬 main
+
+$ git status --short
+# 출력 없음 (clean)
+
+$ cd mobile && flutter test --no-pub
+00:20 +332: All tests passed!          # 269 → 332 (main 의 티켓 26 테스트 합류 + 이번 라운드 +1)
+
+$ cd mobile && flutter analyze
+No issues found! (ran in 3.2s)
+
+$ cd mobile && dart format --output=none --set-exit-if-changed lib test
+Formatted 104 files (0 changed) in 0.14 seconds.    # exit 0
+
+$ cd mobile && flutter build apk --debug
+Running Gradle task 'assembleDebug'...                             35.3s
+✓ Built build/app/outputs/flutter-apk/app-debug.apk                # exit 0
+# 빌드 뒤 mobile/build 삭제 — 작업 트리 clean
+
+$ TEST_DATABASE_URL=… (chosung_daily_test_t27) \
+  TEST_REDIS_URL=… (redis DB 15) \
+  TEST_MIGRATION_DATABASE_URL=… (chosung_daily_test_t27_migrations) \
+  uv run pytest -q
+1353 passed in 855.27s (0:14:15)                   # exit 0
+
+$ uv run ruff check .
+All checks passed!
+```
+
+테스트 전용 자원(`chosung_daily_test_t27`·Redis DB 15·
+`chosung_daily_test_t27_migrations`)만 썼고 공용 테스트 DB 는 건드리지 않았다.
+접속 문자열의 인증 값은 이 문서에 옮기지 않는다. 간헐 실패가 없어 재실행하지
+않았다. 마이그레이션은 이번에도 0건이라
+(`git diff --name-only main...HEAD -- migrations` 출력 없음) `flask db heads` 는
+해당 없음.
