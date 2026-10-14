@@ -1,5 +1,9 @@
 import 'package:chosung/notifications/completed_puzzle_dates.dart';
+import 'package:chosung/notifications/notification_plan.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import '../fakes/fake_notifications.dart';
 
 void main() {
   group('퍼즐 날짜 열쇠', () {
@@ -31,6 +35,36 @@ void main() {
         {'2026-10-15'},
       );
       expect(pruneCompletedDates(const {}, todayKst: '2026-10-15'), isEmpty);
+    });
+  });
+
+  group('시작 read 와 완료 적기의 순서', () {
+    /// 시작 read 는 저장소를 타고, 완료 신호는 오늘 API 를 타고 온다 — 두
+    /// 결과의 도착 순서는 보장되지 않는다. 늦게 온 시작 read 가 방금 적은
+    /// 완료 날짜를 덮어쓰면 **이미 푼 날의 리마인더가 다시 걸린다**(D-30-3).
+    test('시작 read 가 늦게 돌아와도 그 사이 적은 완료 날짜가 남는다', () async {
+      final store = GatedCompletedPuzzleDateStore();
+      final container = ProviderContainer(
+        overrides: [completedPuzzleDateStoreProvider.overrideWithValue(store)],
+      );
+      addTearDown(container.dispose);
+      container.listen(completedPuzzleDatesProvider, (_, _) {});
+
+      final todayKey = NotificationPlan.todayKstDate();
+      final today = DateTime.parse(todayKey);
+      // 시작 read 가 아직 매달려 있는 동안 퍼즐이 끝난다.
+      final marked = container
+          .read(completedPuzzleDatesProvider.notifier)
+          .markCompleted(today);
+      await pumpEventQueue();
+
+      // 이제서야 시작 read 가 "아무것도 안 풀었다" 를 들고 돌아온다.
+      store.readGate.complete(<String>{});
+      await marked;
+      await pumpEventQueue();
+
+      expect(container.read(completedPuzzleDatesProvider).value, {todayKey});
+      expect(store.dates, {todayKey});
     });
   });
 }

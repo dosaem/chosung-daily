@@ -88,7 +88,12 @@ class CompletedPuzzleDatesNotifier extends AsyncNotifier<Set<String>> {
   /// 퍼즐 하나가 끝났다. 같은 날짜를 다시 적어도 집합이라 그대로다 —
   /// 두 언어 중 하나만 풀어도 그 날은 완료다(7일 그리드·streak 과 같은 기준).
   Future<void> markCompleted(DateTime puzzleDate) async {
-    final current = state.value ?? const <String>{};
+    // 시작 read 가 끝나기를 기다린다. 기다리지 않고 `state.value ?? {}` 로
+    // 시작하면 **늦게 돌아온 시작 read 가 방금 적은 날짜를 덮어쓴다** — 완료
+    // 신호(오늘 API)와 저장소 read 는 서로 도착 순서를 보장하지 않는다.
+    // 그러면 이미 푼 날의 리마인더가 이번 실행에서 다시 걸리고, 오래된 날짜
+    // 정리 write 까지 겹치면 저장소도 옛 집합으로 되돌아간다.
+    final current = await future;
     final key = puzzleDateKey(puzzleDate);
     if (current.contains(key)) return;
 
