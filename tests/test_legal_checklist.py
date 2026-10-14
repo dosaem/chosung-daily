@@ -290,23 +290,31 @@ def test_repo_has_no_business_registration_number():
 # --- 수정 라운드 1 · D-16-2: 백업 보호 조치가 실제 백업 방식과 같다 ---------
 
 
-def test_the_backup_script_only_compresses_the_dump():
-    """재현 고정: 백업은 gzip 압축만 한다 — 암호화 단계가 없다.
+def test_the_backup_script_encrypts_the_dump_with_a_public_key():
+    """티켓 36: 백업은 `mysqldump | gzip | openssl cms -encrypt` 로 암호화된 덤프만
+    남긴다. 방침 `#destruction` 의 "암호화된 덤프" 문장이 이 스크립트에 근거한다.
 
-    방침이 "암호화된 덤프" 를 보장하면 이 스크립트 때문에 거짓이 된다(D-16-2).
-    암호화를 **구현하라는** 테스트가 아니라, 고지가 따라가야 하는 현행 방식을 못 박는다.
+    D-16-2 때는 같은 자리에서 "암호화 단계가 없다" 를 못 박고 있었다 — 구현한 뒤에
+    고지를 바꿨으니 테스트도 뒤집는다(평문으로 돌아가면 여기서 깨진다).
     """
     script = (REPO_ROOT / "scripts" / "backup.sh").read_text(encoding="utf-8")
 
-    assert "| gzip -c" in script
-    assert not re.search(r"\b(openssl|gpg|age)\b|--encrypt", script)
+    assert "gzip -c |" in script
+    assert "openssl cms -encrypt" in script
+    assert "BACKUP_ENCRYPTION_CERT_FILE" in script
+    assert ".sql.gz.enc" in script
+    # 공개키 설정이 없으면 평문으로 떨어지지 않고 백업 자체를 거부한다.
+    assert "refusing to write an unencrypted dump" in script
 
 
 BACKUP_WORDING = {
-    "ko": {"required": ["압축된 덤프", "암호화하지는 않"], "forbidden": ["암호화된 덤프"]},
+    "ko": {
+        "required": ["암호화한 덤프", "암호화된 덤프", "복호화에 필요한 키는 서버에 두지"],
+        "forbidden": ["암호화하지는 않"],
+    },
     "en": {
-        "required": ["compressed dump", "are not encrypted"],
-        "forbidden": ["encrypted dump"],
+        "required": ["encrypted dump", "not kept\n    on the server"],
+        "forbidden": ["are not encrypted"],
     },
 }
 
@@ -325,38 +333,55 @@ def test_destruction_section_describes_the_real_backup_protection(client, langua
 # --- 수정 라운드 1 · D-16-3: 서버 로그 보유 기간이 구현에 근거한다 ---------
 
 
-def test_the_production_entrypoint_has_no_access_log():
-    """재현 고정: 운영 실행 경로에 요청 접근 로그 설정이 없다(D-16-3).
+def test_the_production_entrypoint_configures_an_access_log():
+    """티켓 36: 운영 실행 경로가 접근 로그를 파일로 남긴다.
 
-    Gunicorn 기본값이 "접근 로그 없음" 이고 Dockerfile·compose 가 그 기본값을
-    덮어쓰지 않는다. 그래서 방침이 "접속기록을 1년 이상 보관한다" 고 적으면 근거가 없다.
+    Gunicorn **기본값은 "접근 로그 없음"** 이라(D-16-3 의 뿌리) 명시적으로 켜야 한다 —
+    `gunicorn.conf.py` 가 `${LOG_DIR}/access.log` 를 지정하고 Dockerfile CMD 가 그
+    설정 파일을 `-c` 로 넘긴다. 방침 `#collection`·`#security` 의 보관 기간 문장이
+    여기에 근거한다.
     """
+    # Gunicorn 기본값이 바뀌었다면 근거 문장도 다시 봐야 한다.
     assert GunicornConfig().accesslog is None
 
-    for name in ("Dockerfile", "docker-compose.prod.yml"):
-        text = (REPO_ROOT / name).read_text(encoding="utf-8")
-        assert "accesslog" not in text, name
-        assert "access-logfile" not in text, name
+    dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
+    assert "-c" in dockerfile
+    assert "gunicorn.conf.py" in dockerfile
+
+    gunicorn_config = (REPO_ROOT / "gunicorn.conf.py").read_text(encoding="utf-8")
+    assert "accesslog" in gunicorn_config
+    assert "LOG_DIR" in gunicorn_config
+
+    compose = (REPO_ROOT / "docker-compose.prod.yml").read_text(encoding="utf-8")
+    assert "${LOG_DIR:-./logs}:/logs" in compose
 
 
 LOG_RETENTION_WORDING = {
     "ko": {
-        "required": ["따로 모아 보관하지 않", "출시 전"],
-        "forbidden": ["1년 이상 보관", "법령이 정한 기간이 지나면 삭제"],
+        "required": ["1년(365일)", "월 1회 이상 점검", "제8조"],
+        "forbidden": ["따로 모아 보관하지 않", "출시 전에 적용"],
     },
     "en": {
-        "required": ["not collected into separate storage", "before launch"],
-        "forbidden": ["at least a year", "once the period required by law has passed"],
+        "required": ["one year (365 days)", "at least once a month", "art. 8(1)"],
+        "forbidden": ["not collected into separate storage", "will be in place"],
     },
 }
 
 
 @pytest.mark.parametrize("language", ["ko", "en"])
-def test_privacy_does_not_promise_unimplemented_log_retention(client, language):
+def test_privacy_states_the_implemented_log_retention(client, language):
+    """구현한 보관 기간·점검 주기를 그대로 적는다(고시 제8조). D-16-3 때는 같은 자리에서
+    "보관하지 않음 + 출시 전 적용 예정" 을 못 박고 있었다 — 구현하고 뒤집었다."""
     page = _page(client, "privacy", language).lower()
     wording = LOG_RETENTION_WORDING[language]
 
     for phrase in wording["required"]:
         assert phrase.lower() in page, f"{language} 방침에 없는 문구: {phrase}"
     for phrase in wording["forbidden"]:
-        assert phrase.lower() not in page, f"{language} 방침의 근거 없는 보유 약속: {phrase}"
+        assert phrase.lower() not in page, f"{language} 방침에 남은 미구현 문구: {phrase}"
+
+
+def test_the_retention_period_in_the_notice_matches_the_setting(app):
+    """방침이 적은 "1년(365일)" 과 실제 삭제 기준이 같아야 한다 — 설정값만 올리고
+    고지를 안 고치면 그 순간 방침이 거짓이 된다."""
+    assert app.config["ACCESS_LOG_RETENTION_DAYS"] == 365

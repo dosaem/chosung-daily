@@ -515,3 +515,56 @@ def test_apple_row_does_not_fold_revocation_into_the_no_transfer_scope(client, l
     assert revocation not in scope, (
         f"애플 {lang}: 연결 철회를 '이전이 없다' 범위에 넣었다 — 철회는 토큰을 애플로 보낸다"
     )
+
+
+# --- D-16-5 (티켓 36): 없는 기능을 거부 수단으로 안내하지 않는다 ------------
+#
+# 레포에 "계정 연결 해제" 는 없다 — `app/api/me.py`·`app/web.py` 에 있는 건
+# 계정 **삭제**(`DELETE /me`, `POST /account/delete`)뿐이고 `app/services/
+# account_service.py` 에도 연결만 끊는 경로가 없다. 그런데 방침은 이메일 보유
+# 종료와 국외 이전 거부를 "연결 해제" 로 안내하고 있었다(리뷰 D-16-5).
+
+
+# 없는 기능을 "하면 된다" 로 안내하는 문구. "그런 기능이 없다" 는 설명은 괜찮다 —
+# 오히려 정보주체가 설정 화면을 뒤지지 않게 해 준다.
+UNLINK_PROMISES = {
+    "ko": ["연결 해제 또는", "연결을 해제하면"],
+    "en": ["or unlink it", "you unlink or"],
+}
+
+# 그 자리에 들어가야 하는 사실: 끊는 기능이 없고, 삭제가 유일한 수단이다.
+DELETION_IS_THE_ONLY_WAY = {
+    "ko": ["연결만 끊는 기능은", "계정 삭제 시까지"],
+    "en": ["no way to unlink", "until you delete your account"],
+}
+
+
+@pytest.mark.parametrize("lang", ["ko", "en"])
+def test_privacy_does_not_offer_an_unlink_feature_that_does_not_exist(client, lang):
+    page = _body(client, f"/privacy?lang={lang}")
+
+    for phrase in UNLINK_PROMISES[lang]:
+        assert phrase not in page, f"{lang} 방침이 없는 기능('{phrase}')을 안내한다"
+
+
+@pytest.mark.parametrize("lang", ["ko", "en"])
+def test_privacy_says_deletion_is_the_only_way_to_end_email_retention(client, lang):
+    """있는 수단(계정 삭제)만 적는다. 보유 기간 문장이 근거 없는 수단을 가리키면
+    정보주체가 쓸 수 없는 방법을 믿게 된다."""
+    page = _body(client, f"/privacy?lang={lang}").lower()
+
+    for phrase in DELETION_IS_THE_ONLY_WAY[lang]:
+        assert phrase.lower() in page, f"{lang} 방침에 없는 문구: {phrase}"
+
+
+@pytest.mark.parametrize("lang", ["ko", "en"])
+def test_the_google_row_does_not_sell_unlinking_as_an_opt_out(client, lang):
+    """국외 이전 거부 칸도 같다 — 거부 수단으로 안내할 수 있는 건 계정 삭제뿐이다."""
+    refusal = _refusal_text(client, lang, "Google (")
+
+    if lang == "ko":
+        assert "연결을 해제" not in refusal
+        assert "계정을 삭제" in refusal
+    else:
+        assert "or unlink it" not in refusal
+        assert "delete your account" in refusal
