@@ -53,6 +53,11 @@ class Config:
     PLAY_PACKAGE_NAME = os.environ.get("PLAY_PACKAGE_NAME", "")
     PLAY_SERVICE_ACCOUNT_FILE = os.environ.get("PLAY_SERVICE_ACCOUNT_FILE", "")
 
+    # Google Books API 키. **선택 설정**(스펙 미정 3) — 공개 volume 검색은 키
+    # 없이도 되고, 키는 쿼터를 호출 IP 가 아니라 GCP 프로젝트에 붙이는 역할이다.
+    # 비어 있으면 app/clients/google_books.py 가 키 없이 호출한다.
+    GOOGLE_BOOKS_API_KEY = os.environ.get("GOOGLE_BOOKS_API_KEY", "")
+
     # 운영자 알림(단어 잔량·배정 실패·백업 실패 등)을 받을 Slack Incoming Webhook.
     # 비어 있으면 app/clients/slack.py 가 전송을 건너뛴다 — 개발·테스트 기본값.
     SLACK_WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL", "")

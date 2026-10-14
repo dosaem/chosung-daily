@@ -112,6 +112,16 @@ body {
   font-weight: 700;
 }
 
+/* 본문 글줄은 70ch 에서 끊는다. 표는 1040px 폭을 다 쓰지만(위 주석), 줄글이
+ * 그 폭을 그대로 쓰면 한 줄이 140자가 돼서 눈이 다음 줄 머리를 못 찾는다. */
+.admin-meta,
+.admin-empty,
+.admin-error,
+.admin-flash,
+.admin-table-caption {
+  max-width: 70ch;
+}
+
 .admin-meta {
   margin: 0 0 var(--space-4);
   color: var(--color-muted-foreground);
@@ -350,4 +360,118 @@ body {
 
 .admin-pagination .admin-meta {
   margin: 0;
+}
+
+/* --- 언어 탭 ------------------------------------------------------------ */
+/* 선택된 탭은 brand 밑줄로만 표시한다 (OVERRIDES §2: brand 는 면 채움 금지). */
+
+.admin-tabs {
+  display: flex;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.admin-tab {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--touch-target-min);
+  padding: 0 var(--space-2);
+  border-bottom: 2px solid transparent;
+  color: var(--color-muted-foreground);
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  text-decoration: none;
+  text-transform: uppercase;
+}
+
+.admin-tab-current {
+  border-bottom-color: var(--color-brand);
+  color: var(--color-foreground);
+}
+
+.admin-tab:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 3px;
+  border-radius: var(--radius-tile);
+}
+
+/* --- 잔량 카드 ---------------------------------------------------------- */
+/* 잔량 부족은 색만으로 구분하지 않는다 (OVERRIDES §2) — destructive 테두리 +
+ * "N일치 미만" 문구가 같이 붙는다. */
+
+.admin-stock {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  margin: 0 0 var(--space-8);
+  padding: 0;
+  list-style: none;
+}
+
+.admin-stock-card {
+  flex: 1 1 200px;
+  padding: var(--space-4);
+  border: var(--border-hairline) solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-card);
+}
+
+.admin-stock-low {
+  border-color: var(--color-destructive);
+}
+
+.admin-stock-language {
+  margin: 0;
+  color: var(--color-muted-foreground);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.admin-stock-days {
+  margin: var(--space-1) 0 0;
+  font-size: var(--font-size-xl);
+  font-weight: 700;
+}
+
+.admin-stock-note {
+  margin: var(--space-1) 0 0;
+  color: var(--color-muted-foreground);
+  font-size: var(--font-size-xs);
+}
+
+.admin-stock-low .admin-stock-note {
+  color: var(--color-destructive);
+}
+
+/* --- 배정표 ------------------------------------------------------------- */
+
+.admin-cell-date {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-muted {
+  color: var(--color-muted-foreground);
+}
+
+/* --- 체크박스 한 줄 ----------------------------------------------------- */
+
+.admin-check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--touch-target-min);
+  font-size: var(--font-size-sm);
+}
+
+.admin-check input {
+  width: var(--space-6);
+  height: var(--space-6);
+  accent-color: var(--color-primary-button);
+}
+
+.admin-check input:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 3px;
 }

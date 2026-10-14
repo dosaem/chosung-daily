@@ -326,18 +326,23 @@ def add_word_from_book(
     중복 체크와 같은 규칙인데, 이걸 빼먹었다가 `flask search-books ... --add`를
     같은 책으로 두 번 돌려서 "데미안"이 Word 두 개로 중복 등록되는 걸 실제로
     겪고 나서 추가했다.
+
+    검증은 폼·CSV 와 같은 `parse_word_input` 을 쓴다 — 검색 결과의 제목은 길이
+    제한(50자)을 쉽게 넘고(부제가 붙은 책), 그대로 넣으면 MySQL 에러가 운영자에게
+    500 으로 보인다. 사유를 보여줄 수 있는 ValidationError 로 바꿔 올린다.
     """
-    existing = word_repository.find_duplicate(language, book.title, WordCategory.BOOK_TITLE)
+    hint = ", ".join(part for part in [book.author, book.publisher] if part)
+    parsed = parse_word_input(
+        language.value, WordCategory.BOOK_TITLE.value, book.title, hint or "책 제목"
+    )
+
+    existing = word_repository.find_duplicate(
+        parsed.language, parsed.answer, WordCategory.BOOK_TITLE
+    )
     if existing is not None:
         return existing, False
 
-    hint = ", ".join(part for part in [book.author, book.publisher] if part)
-    word = Word(
-        language=language,
-        answer=book.title,
-        category=WordCategory.BOOK_TITLE,
-        hint=hint or "책 제목",
-    )
+    word = _new_word(parsed)
     db.session.add(word)
     db.session.commit()
     return word, True

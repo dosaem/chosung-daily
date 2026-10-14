@@ -1,0 +1,75 @@
+{% extends "admin/_layout.html" %}
+{% block title %}단어 교체{% endblock %}
+{% block heading %}{{ puzzle_date.isoformat() }} ({{ language.value }}) 단어 {{ "교체" if current_word else "배정" }}{% endblock %}
+
+{% block content %}
+<p class="admin-meta">
+  지금 단어:
+  {% if current_word %}<strong>{{ current_word.answer }}</strong> ({{ current_word.category.value }})
+  {% else %}없음. 아래에서 고른 단어가 이 날짜에 배정된다{% endif %}
+</p>
+
+{# 단어 찾기는 목록 검색을 그대로 쓴다 — 배정표 30행에 전체 단어 select 를 그리는
+   대신(단어 풀이 수천 개라 HTML 이 메가바이트가 된다), 운영자가 찾는 단어를
+   검색해서 고르게 한다. #}
+<form class="admin-filters" method="get" action="{{ url_for('admin.replace_form', puzzle_date=puzzle_date.isoformat()) }}">
+  <input type="hidden" name="language" value="{{ language.value }}" />
+  <label class="admin-field admin-field-grow">
+    <span class="admin-label">{{ language.value }} 단어 검색 (정답·힌트)</span>
+    <input type="search" name="q" value="{{ keyword }}" autocomplete="off" />
+  </label>
+  <button class="admin-button" type="submit">검색</button>
+</form>
+
+{% if pagination.items %}
+<table class="admin-table">
+  <caption class="admin-table-caption">
+    최근에 추가한 단어가 위에 온다. "이미 배정됨" 은 앞으로 30일 안에 쓰이는 단어다.
+  </caption>
+  <thead>
+    <tr>
+      <th scope="col">정답</th>
+      <th scope="col">카테고리</th>
+      <th scope="col">힌트</th>
+      <th scope="col">관리</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for word in pagination.items %}
+    <tr>
+      <td class="admin-cell-answer">{{ word.answer }}</td>
+      <td>{{ word.category.value }}</td>
+      <td>{{ word.hint }}</td>
+      <td class="admin-cell-actions">
+        {% if word.id in assigned_word_ids %}
+        <span class="admin-tag">이미 배정됨</span>
+        {% endif %}
+        <form method="post" action="{{ url_for('admin.replace_word', puzzle_date=puzzle_date.isoformat()) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+          <input type="hidden" name="language" value="{{ language.value }}" />
+          <input type="hidden" name="word_id" value="{{ word.id }}" />
+          <button class="admin-button" type="submit">이 단어로</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<nav class="admin-pagination" aria-label="페이지">
+  {% if pagination.has_prev %}
+  <a class="admin-link" href="{{ url_for('admin.replace_form', puzzle_date=puzzle_date.isoformat(), language=language.value, q=keyword or None, page=pagination.prev_num) }}">← 이전</a>
+  {% endif %}
+  <span class="admin-meta">{{ pagination.page }} / {{ pagination.pages or 1 }}</span>
+  {% if pagination.has_next %}
+  <a class="admin-link" href="{{ url_for('admin.replace_form', puzzle_date=puzzle_date.isoformat(), language=language.value, q=keyword or None, page=pagination.next_num) }}">다음 →</a>
+  {% endif %}
+</nav>
+{% else %}
+<p class="admin-empty">조건에 맞는 {{ language.value }} 단어가 없어요. 검색어를 지우거나 CSV 를 올려 채워주세요.</p>
+{% endif %}
+
+<p class="admin-meta">
+  <a class="admin-link" href="{{ url_for('admin.schedule', language=language.value) }}">← 배정표로</a>
+</p>
+{% endblock %}

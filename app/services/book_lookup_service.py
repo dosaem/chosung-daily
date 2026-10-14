@@ -2,6 +2,7 @@ import os
 
 import requests
 
+from app.clients.google_books import search_volumes
 from app.schemas.book import BookSearchResult
 
 KAKAO_BOOK_SEARCH_URL = "https://dapi.kakao.com/v3/search/book"
@@ -70,6 +71,40 @@ def search_aladin_books(query: str, size: int = 5) -> list[BookSearchResult]:
     ]
 
 
+def search_google_books(query: str, size: int = 5) -> list[BookSearchResult]:
+    """Google Books 로 영어 책 제목을 찾는다. 카카오 검색과 같은 시그니처다
+    (스펙 §A.14) — 운영자 화면이 소스마다 다른 호출 방식을 알 필요가 없다.
+
+    제목이 없는 volume 은 버린다 — 정답이 될 글자가 없으면 단어로 쓸 수 없다.
+    """
+    books = []
+    for item in search_volumes(query, size):
+        info = item.get("volumeInfo", {})
+        title = (info.get("title") or "").strip()
+        if not title:
+            continue
+        books.append(
+            BookSearchResult(
+                title=title,
+                author=", ".join(info.get("authors", [])) or None,
+                publisher=info.get("publisher") or None,
+                isbn=_pick_isbn(info.get("industryIdentifiers", [])),
+                source="google_books",
+            )
+        )
+    return books
+
+
+def _pick_isbn(identifiers: list[dict]) -> str | None:
+    """ISBN_13 우선, 없으면 ISBN_10. 둘 다 없으면 None(구글은 자체 식별자만 주는
+    volume 도 있다)."""
+    by_type = {entry.get("type"): entry.get("identifier") for entry in identifiers}
+    return by_type.get("ISBN_13") or by_type.get("ISBN_10")
+
+
 def search_books(query: str, size: int = 5) -> list[BookSearchResult]:
-    """설정된 소스(카카오/알라딘)를 모두 조회해서 합친다. 키가 없는 소스는 조용히 건너뛴다."""
+    """설정된 ko 소스(카카오/알라딘)를 모두 조회해서 합친다. 키가 없는 소스는 조용히
+    건너뛴다. Google Books 는 영어 전용이라 여기 섞지 않는다 — `flask search-books`
+    는 ko 단어 풀을 채우는 명령이고, 운영자 화면의 영어 검색은
+    `search_google_books` 를 따로 부른다."""
     return search_kakao_books(query, size) + search_aladin_books(query, size)

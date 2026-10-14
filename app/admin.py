@@ -14,8 +14,10 @@ OAuth 진입(`GET /api/v1/auth/<provider>/login`)이 Bearer 토큰으로 심은 
 
 import csv
 import io
+from datetime import date, datetime, timedelta
 from functools import wraps
 
+import requests
 from flask import (
     Blueprint,
     current_app,
@@ -28,14 +30,26 @@ from flask import (
     url_for,
 )
 
+from app.config import KST
 from app.csrf import csrf_protected, issue_csrf_token
-from app.errors import ForbiddenError, ValidationError
+from app.errors import ForbiddenError, NotFoundError, ValidationError
 from app.extensions import db
 from app.models import PuzzleLanguage, Word, WordCategory
 from app.repositories import account_repository
-from app.services import word_service
+from app.schemas.book import BookSearchResult
+from app.services import app_config_service, puzzle_schedule_service, word_service
+from app.services.book_lookup_service import search_google_books
+from app.services.puzzle_schedule_service import SCHEDULE_DAYS
+from app.services.word_pool_service import (
+    LOW_WORD_POOL_THRESHOLD_DAYS,
+    remaining_days_by_language,
+)
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
+
+# 배정표의 날짜 옆에 붙이는 요일. 일요일은 책 제목 라운드라(배정 규칙 05) 운영자가
+# 요일을 보고 그 날짜의 단어를 고른다.
+WEEKDAY_NAMES = ("월", "화", "수", "목", "금", "토", "일")
 
 LOGIN_GUIDE = (
     "운영자 페이지는 웹에서 구글 로그인을 먼저 해야 들어갈 수 있어요. "
@@ -206,6 +220,221 @@ def import_csv():
         )
 
     return _render_import(results=word_service.import_word_rows(rows))
+
+
+# --- 배정표·잔량 ---------------------------------------------------------
+
+
+@bp.get("/schedule")
+@admin_required
+def schedule():
+    """언어별 다음 30일 배정표 + 언어별 잔량 카드.
+
+    조회는 쓰기를 하지 않는다 — 빈 날짜를 여기서 배정해버리면 운영자가 화면을
+    열어보는 것만으로 단어 풀이 줄어든다. 배정은 자정 Beat 와 아래 교체 폼만 한다.
+    """
+    language = _read_language(request.args)
+    return render_template(
+        "admin/schedule.html",
+        language=language,
+        languages=list(PuzzleLanguage),
+        days=puzzle_schedule_service.upcoming_schedule(language),
+        stock=remaining_days_by_language(),
+        low_threshold=LOW_WORD_POOL_THRESHOLD_DAYS,
+        weekday_names=WEEKDAY_NAMES,
+    )
+
+
+@bp.get("/schedule/<puzzle_date>/replace")
+@admin_required
+def replace_form(puzzle_date):
+    """교체할 단어를 고르는 화면. 단어 찾기는 목록 검색(`search_words`)을 그대로 쓴다.
+
+    배정표 30행에 전체 단어 select 를 그리지 않는 이유: 단어 풀은 수천 개 규모라
+    (`word_pool_service`) 한 화면에 30벌을 그리면 HTML 이 메가바이트가 되고,
+    운영자는 어차피 "기념일에 맞는 그 단어" 를 검색해서 찾는다(US 54).
+    """
+    target_date, language = _read_schedule_target(puzzle_date)
+    keyword = (request.args.get("q") or "").strip()
+    pagination = word_service.search_words(
+        language=language,
+        keyword=keyword,
+        page=request.args.get("page", default=1, type=int),
+    )
+    # 배정표를 한 번 읽어 두 가지를 같이 뽑는다: 지금 그 날짜의 단어와, 이번 창에
+    # 이미 배정된 단어 id 들("이미 배정됨" 표시 — 같은 단어가 30일 안에 두 번
+    # 나오는 걸 운영자가 모르고 고르지 않게).
+    schedule_days = puzzle_schedule_service.upcoming_schedule(language)
+    return render_template(
+        "admin/schedule_replace.html",
+        puzzle_date=target_date,
+        language=language,
+        keyword=keyword,
+        pagination=pagination,
+        current_word=next(
+            (day.word for day in schedule_days if day.puzzle_date == target_date), None
+        ),
+        assigned_word_ids={
+            day.word.id for day in schedule_days if day.word is not None
+        },
+        csrf_token=issue_csrf_token(),
+    )
+
+
+@bp.post("/schedule/<puzzle_date>/replace")
+@admin_required
+@csrf_protected
+def replace_word(puzzle_date):
+    target_date, language = _read_schedule_target(puzzle_date)
+    try:
+        puzzle = puzzle_schedule_service.replace_assignment(
+            target_date, language, request.form.get("word_id", type=int) or 0
+        )
+    except ValidationError as err:
+        flash(err.message)
+        return redirect(
+            url_for(
+                "admin.replace_form",
+                puzzle_date=target_date.isoformat(),
+                language=language.value,
+            )
+        )
+
+    flash(
+        f"{target_date.isoformat()} ({language.value}) 퍼즐을 "
+        f"'{puzzle.word.answer}' 로 바꿨어요."
+    )
+    return redirect(url_for("admin.schedule", language=language.value))
+
+
+# --- 점검 모드·최소 앱 버전 ---------------------------------------------
+
+
+@bp.get("/settings")
+@admin_required
+def settings_form():
+    current = app_config_service.get_operator_settings()
+    return _render_settings(
+        {
+            "maintenance_enabled": current.maintenance_enabled,
+            "maintenance_message": current.maintenance_message,
+            "min_app_version_ios": current.min_app_version_ios,
+            "min_app_version_android": current.min_app_version_android,
+        }
+    )
+
+
+@bp.post("/settings")
+@admin_required
+@csrf_protected
+def save_settings():
+    form = {
+        # 체크박스는 꺼져 있으면 폼에 아예 안 실린다 — 키가 없으면 꺼짐이다.
+        "maintenance_enabled": request.form.get("maintenance_enabled") == "on",
+        "maintenance_message": request.form.get("maintenance_message") or "",
+        "min_app_version_ios": request.form.get("min_app_version_ios") or "",
+        "min_app_version_android": request.form.get("min_app_version_android") or "",
+    }
+    try:
+        app_config_service.save_operator_settings(**form)
+    except ValidationError as err:
+        # 고치던 값을 그대로 다시 그린다 — 폼이 비면 운영자가 처음부터 다시 적는다.
+        return _render_settings(form, error=err.message)
+
+    flash("설정을 저장했어요. `/config` 캐시를 지웠으니 앱은 다음 호출부터 봅니다.")
+    return redirect(url_for("admin.settings_form"))
+
+
+# --- 영어 책 제목 검색 (Google Books) -----------------------------------
+
+
+@bp.get("/books")
+@admin_required
+def books():
+    """제목으로 영어 책을 찾아 보여준다. 검색어가 없으면 구글을 부르지 않는다.
+
+    호출 실패를 500 으로 올리지 않는 이유: 구글이 느리거나 쿼터가 찬 건 운영자가
+    고칠 수 있는 일이 아니고, 그때도 화면과 다른 메뉴는 살아 있어야 한다.
+    """
+    keyword = (request.args.get("q") or "").strip()
+    results = []
+    error = None
+    if keyword:
+        try:
+            results = search_google_books(keyword)
+        except requests.RequestException as exc:
+            error = (
+                f"구글 책 검색에 실패했어요 ({type(exc).__name__}). "
+                "잠시 뒤 다시 시도해주세요."
+            )
+
+    return render_template(
+        "admin/books.html",
+        keyword=keyword,
+        results=results,
+        error=error,
+        csrf_token=issue_csrf_token(),
+    )
+
+
+@bp.post("/books")
+@admin_required
+@csrf_protected
+def add_book_word():
+    """고른 검색 결과를 en `book_title` 단어로 등록한다. 가림은 모델 이벤트가 계산한다."""
+    keyword = (request.form.get("q") or "").strip()
+    book = BookSearchResult(
+        title=request.form.get("title") or "",
+        author=(request.form.get("author") or "").strip() or None,
+        publisher=(request.form.get("publisher") or "").strip() or None,
+        isbn=(request.form.get("isbn") or "").strip() or None,
+        source="google_books",
+    )
+    try:
+        word, created = word_service.add_word_from_book(book, PuzzleLanguage.EN)
+    except ValidationError as err:
+        flash(err.message)
+        return redirect(url_for("admin.books", q=keyword or None))
+
+    if created:
+        flash(f"'{word.answer}' 를 영어 책 제목 단어로 추가했어요.")
+    else:
+        flash(f"'{word.answer}' 는 이미 등록돼 있어요.")
+    return redirect(url_for("admin.books", q=keyword or None))
+
+
+def _read_language(source) -> PuzzleLanguage:
+    """언어 탭·폼에서 언어를 읽는다. 모르는 값은 ko 로 둔다 — 손으로 URL 을 고친
+    요청 때문에 배정표가 에러 페이지가 되면 안 된다(목록 필터와 같은 규칙)."""
+    return _parse_enum(PuzzleLanguage, source.get("language")) or PuzzleLanguage.KO
+
+
+def _read_schedule_target(raw_date: str) -> tuple[date, PuzzleLanguage]:
+    """URL 의 날짜를 배정표 창(오늘~오늘+29일) 안의 날짜로만 받아들인다.
+
+    창 밖(지난 날짜·30일 뒤)은 404 다 — 배정표에서 갈 수 없는 주소이고, 지난
+    퍼즐은 기록이라 바꿀 수도 없다(`replace_assignment` 가 다시 막는다).
+    """
+    source = request.form if request.method == "POST" else request.args
+    try:
+        target_date = date.fromisoformat(raw_date)
+    except ValueError:
+        raise NotFoundError() from None
+
+    today = datetime.now(KST).date()
+    if not today <= target_date <= today + timedelta(days=SCHEDULE_DAYS - 1):
+        raise NotFoundError()
+
+    return target_date, _read_language(source)
+
+
+def _render_settings(form: dict, error: str | None = None):
+    return render_template(
+        "admin/settings.html",
+        form=form,
+        error=error,
+        csrf_token=issue_csrf_token(),
+    )
 
 
 def _csv_header() -> str:

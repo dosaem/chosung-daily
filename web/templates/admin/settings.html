@@ -1,0 +1,65 @@
+{% extends "admin/_layout.html" %}
+{% block title %}앱 설정{% endblock %}
+{% block heading %}점검 모드 · 최소 앱 버전{% endblock %}
+
+{% block content %}
+{% if error %}
+<p class="admin-error" role="alert">{{ error }}</p>
+{% endif %}
+
+<p class="admin-meta">
+  저장하면 <code>GET /api/v1/config</code> 캐시를 바로 지운다. 앱은 60초 TTL 을
+  기다리지 않고 다음 호출부터 이 값을 본다.
+</p>
+
+<form class="admin-form" method="post" action="{{ url_for('admin.save_settings') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+
+  <label class="admin-check">
+    <input
+      type="checkbox"
+      name="maintenance_enabled"
+      value="on"
+      {% if form.maintenance_enabled %}checked{% endif %}
+    />
+    <span>점검 모드 켜기 (앱이 점검 화면으로 막힌다)</span>
+  </label>
+
+  <label class="admin-field admin-field-grow">
+    <span class="admin-label">점검 메시지 (점검 모드를 켤 때 필수. 앱이 이 문구를 보여준다)</span>
+    <input
+      type="text"
+      name="maintenance_message"
+      value="{{ form.maintenance_message }}"
+      maxlength="500"
+      autocomplete="off"
+    />
+  </label>
+
+  <label class="admin-field">
+    <span class="admin-label">최소 앱 버전 — iOS (예: 1.4.0)</span>
+    <input
+      type="text"
+      name="min_app_version_ios"
+      value="{{ form.min_app_version_ios }}"
+      inputmode="decimal"
+      autocomplete="off"
+    />
+  </label>
+
+  <label class="admin-field">
+    <span class="admin-label">최소 앱 버전 — Android (예: 1.4.0)</span>
+    <input
+      type="text"
+      name="min_app_version_android"
+      value="{{ form.min_app_version_android }}"
+      inputmode="decimal"
+      autocomplete="off"
+    />
+  </label>
+
+  <div class="admin-form-actions">
+    <button class="admin-button admin-button-primary" type="submit">저장</button>
+  </div>
+</form>
+{% endblock %}

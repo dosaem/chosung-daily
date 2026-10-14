@@ -300,6 +300,12 @@ chosung.dosaem.com 은 "하루 한 문제 초성 맞추기"가 돌아가는 Flas
 26. **알려진 한계(티켓 17, 사용자 결정 2026-10-14)** D-17-6(웹): 영어 전환 PATCH 응답 대기 중 한국어를 다시 고르고 동시에 이전 화면에서 제출해 409 재조회가 겹치면 마지막 언어 선택이 취소되어 서버·화면이 en 으로 남음. 칩을 한 번 더 누르면 복구. 세 조작이 겹쳐야 발생해 알려진 한계로 수용. 앱(Flutter)의 같은 흐름은 티켓 25 에서 같은 경합을 처음부터 피하도록 설계. 근거: `review/impl-review-17.md` 라운드 5 "D-17-6"
 
 - (티켓 13 반영) 미정 18 확정: 만료 ±24h 구간의 재조회에 **5분 상한**을 둔다. 무상한이면 포그라운드 앱이 `/me/stats` 를 부르는 만큼 스토어 API 를 때린다 — 갱신 반영이 최대 5분 늦는 대신(그 구간은 24h 유예가 권한을 유지해 주므로 광고가 켜지지 않는다) 호출 수를 묶었다. `next_check_at` 은 그대로 `last_verified_at + 1h` 이고, 5분은 서버 안쪽 상한이라 응답에 싣지 않는다. 미정 19 반영: 서버 재조회 조건은 `now >= last_verified_at + 간격`(경계 포함)이고 순수 함수 `is_recheck_due` 의 경계 테스트가 "정확히 그 시각" 과 "1초 전" 을 둘 다 못 박았다(`tests/test_entitlement.py`). 미정 15 반영: `docs/adr/0003-*.md` 의 재조회 문구를 §A.8 기준(1h TTL + ±24h 5분 상한)으로 갱신했다. `.scratch/store-launch/adr/` 사본은 계획 당시 원본이라 그대로 뒀다.
+- (티켓 23 반영) 미정 3 확정: 영어 책 제목 소스는 **Google Books** 로 간다
+(`clients/google_books.py` + `book_lookup_service.search_google_books`, 제목만
+`intitle:` 검색 · `langRestrict=en`). `GOOGLE_BOOKS_API_KEY` 는 **선택 설정**이다 —
+공개 volume 검색은 키 없이도 되고 키는 쿼터를 호출 IP 대신 GCP 프로젝트에 붙인다.
+품질이 나쁘면 Open Library 로 바꾸는 선택지는 그대로 열려 있다(래퍼가 함수 하나라
+교체 지점이 한 곳이다).
 
 ## Further Notes
 

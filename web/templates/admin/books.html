@@ -1,0 +1,60 @@
+{% extends "admin/_layout.html" %}
+{% block title %}책 제목 검색{% endblock %}
+{% block heading %}영어 책 제목 검색 (Google Books){% endblock %}
+
+{% block content %}
+{% if error %}
+<p class="admin-error" role="alert">{{ error }}</p>
+{% endif %}
+
+<p class="admin-meta">
+  고른 책은 <code>en</code> · <code>book_title</code> 단어로 들어간다(일요일 라운드).
+  가림은 저장할 때 서버가 계산한다. 한국어 책은 <code>flask search-books</code> 를 쓴다.
+</p>
+
+<form class="admin-filters" method="get" action="{{ url_for('admin.books') }}">
+  <label class="admin-field admin-field-grow">
+    <span class="admin-label">책 제목 검색 (영어, 제목만)</span>
+    <input type="search" name="q" value="{{ keyword }}" autocomplete="off" />
+  </label>
+  <button class="admin-button" type="submit">검색</button>
+</form>
+
+{% if results %}
+<table class="admin-table">
+  <caption class="admin-table-caption">제목이 50자를 넘는 책은 단어로 넣을 수 없다(정답 길이 제한).</caption>
+  <thead>
+    <tr>
+      <th scope="col">제목</th>
+      <th scope="col">저자</th>
+      <th scope="col">출판사</th>
+      <th scope="col">관리</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for book in results %}
+    <tr>
+      <td class="admin-cell-answer">{{ book.title }}</td>
+      <td>{{ book.author or "" }}</td>
+      <td>{{ book.publisher or "" }}</td>
+      <td class="admin-cell-actions">
+        {# 검색 결과를 다시 조회하지 않으려고 고른 책의 값을 그대로 폼에 싣는다 —
+           구글 쿼터를 두 번 쓰지 않고, 운영자가 본 그 값이 저장된다. #}
+        <form method="post" action="{{ url_for('admin.add_book_word') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+          <input type="hidden" name="q" value="{{ keyword }}" />
+          <input type="hidden" name="title" value="{{ book.title }}" />
+          <input type="hidden" name="author" value="{{ book.author or '' }}" />
+          <input type="hidden" name="publisher" value="{{ book.publisher or '' }}" />
+          <input type="hidden" name="isbn" value="{{ book.isbn or '' }}" />
+          <button class="admin-button" type="submit">단어로 추가</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% elif keyword and not error %}
+<p class="admin-empty">'{{ keyword }}' 로 찾은 결과가 없어요. 제목의 다른 부분으로 검색해주세요.</p>
+{% endif %}
+{% endblock %}

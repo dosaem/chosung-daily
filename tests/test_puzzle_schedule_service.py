@@ -3,9 +3,16 @@ from datetime import datetime, timedelta
 import pytest
 
 from app.config import KST
+from app.errors import ValidationError
 from app.extensions import db
-from app.models import DailyPuzzle, PuzzleLanguage, Word, WordCategory
-from app.services.puzzle_schedule_service import schedule_puzzles
+from app.models import Attempt, DailyPuzzle, PuzzleLanguage, Word, WordCategory
+from app.services.guest_service import issue_guest
+from app.services.puzzle_schedule_service import (
+    replace_assignment,
+    schedule_puzzles,
+    upcoming_schedule,
+)
+from app.services.puzzle_service import get_today_puzzle_or_404
 
 
 def _make_words(n, language=PuzzleLanguage.KO):
@@ -127,3 +134,110 @@ def test_schedule_raises_when_the_language_has_no_words(app):
         schedule_puzzles(PuzzleLanguage.EN, days=1, avoid_days=14)
 
     assert DailyPuzzle.query.count() == 0
+
+
+# --- 배정표 읽기·교체 (티켓 23) ------------------------------------------
+# 운영자 배정표는 schedule_puzzles 와 같은 창(오늘 KST 부터 days 일)을 읽는다.
+
+
+def _attempt(puzzle, guess="오답"):
+    guest = issue_guest()
+    db.session.add(
+        Attempt(
+            guest_id=guest.id,
+            puzzle_id=puzzle.id,
+            guess=guess,
+            is_correct=False,
+            attempt_no=1,
+        )
+    )
+    db.session.commit()
+
+
+def test_upcoming_schedule_lists_every_day_of_the_window(app):
+    _make_words(3)
+    schedule_puzzles(PuzzleLanguage.KO, days=2, avoid_days=1)
+
+    days = upcoming_schedule(PuzzleLanguage.KO, days=5)
+
+    today = datetime.now(KST).date()
+    assert [day.puzzle_date for day in days] == [today + timedelta(days=i) for i in range(5)]
+    # 배정이 없는 날짜도 빈 칸으로 들어온다 — 운영자가 "자정에 배정" 을 봐야 한다.
+    assert [day.word is not None for day in days] == [True, True, False, False, False]
+
+
+def test_upcoming_schedule_shows_only_the_requested_language(app):
+    _make_words(2, PuzzleLanguage.KO)
+    _make_words(2, PuzzleLanguage.EN)
+    schedule_puzzles(PuzzleLanguage.KO, days=1, avoid_days=1)
+    schedule_puzzles(PuzzleLanguage.EN, days=1, avoid_days=1)
+
+    [en_today] = upcoming_schedule(PuzzleLanguage.EN, days=1)
+
+    assert en_today.word.language is PuzzleLanguage.EN
+
+
+def test_upcoming_schedule_counts_attempts_so_the_page_can_lock_a_day(app, today_puzzle):
+    _attempt(today_puzzle)
+
+    [today, tomorrow] = upcoming_schedule(PuzzleLanguage.KO, days=2)
+
+    assert today.attempt_count == 1
+    assert today.is_locked is True
+    assert tomorrow.is_locked is False
+
+
+def test_replace_assignment_swaps_the_word_and_drops_the_cache(app, today_puzzle):
+    # 읽기 경로가 캐시를 채운 뒤에 바꿔야 "TTL 26시간 동안 옛 값" 회귀를 잡는다.
+    get_today_puzzle_or_404(PuzzleLanguage.KO)
+    [replacement] = _make_words(1)
+
+    replace_assignment(today_puzzle.puzzle_date, PuzzleLanguage.KO, replacement.id)
+
+    assert get_today_puzzle_or_404(PuzzleLanguage.KO).word.answer == replacement.answer
+
+
+def test_replace_assignment_fills_a_day_that_has_no_puzzle_yet(app):
+    [word] = _make_words(1)
+    target = datetime.now(KST).date() + timedelta(days=3)
+
+    replace_assignment(target, PuzzleLanguage.KO, word.id)
+
+    puzzle = DailyPuzzle.query.filter_by(
+        puzzle_date=target, language=PuzzleLanguage.KO
+    ).one()
+    assert puzzle.word_id == word.id
+
+
+def test_replace_assignment_is_blocked_once_the_day_has_attempts(app, today_puzzle):
+    _attempt(today_puzzle)
+    [replacement] = _make_words(1)
+
+    with pytest.raises(ValidationError, match="시도"):
+        replace_assignment(today_puzzle.puzzle_date, PuzzleLanguage.KO, replacement.id)
+
+    assert today_puzzle.word_id != replacement.id
+
+
+def test_replace_assignment_rejects_a_past_date(app):
+    [word] = _make_words(1)
+    yesterday = datetime.now(KST).date() - timedelta(days=1)
+
+    with pytest.raises(ValidationError, match="지난"):
+        replace_assignment(yesterday, PuzzleLanguage.KO, word.id)
+
+    assert DailyPuzzle.query.count() == 0
+
+
+def test_replace_assignment_rejects_a_word_of_another_language(app, today_puzzle):
+    [english] = _make_words(1, PuzzleLanguage.EN)
+
+    with pytest.raises(ValidationError, match="언어"):
+        replace_assignment(today_puzzle.puzzle_date, PuzzleLanguage.KO, english.id)
+
+    assert today_puzzle.word.language is PuzzleLanguage.KO
+
+
+def test_replace_assignment_rejects_an_unknown_word(app, today_puzzle):
+    with pytest.raises(ValidationError, match="단어"):
+        replace_assignment(today_puzzle.puzzle_date, PuzzleLanguage.KO, 9999)
