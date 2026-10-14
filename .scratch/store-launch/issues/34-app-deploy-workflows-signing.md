@@ -1,4 +1,4 @@
-# 32: 앱 배포 — BASELINE 워크플로·fastlane·서명 복사·치환(`mobile/` 기준), develop→App Distribution/TestFlight, main→Play internal/TestFlight
+# 34: 앱 배포 — BASELINE 워크플로·fastlane·서명 복사·치환(`mobile/` 기준), develop→App Distribution/TestFlight, main→Play internal/TestFlight
 
 **What to build:** `develop` 푸시로 Android APK 가 Firebase App Distribution 에, iOS 가 TestFlight 에 올라가고, `main` 푸시로 AAB 가 Play internal 트랙에, iOS 가 TestFlight 에 올라간다. BuildUrPalace 와 같은 구조를 복사해 식별자만 바꾼다. 사람 산출물(D0 Firebase 파일, D2 keystore·match)이 없어도 디버그 빌드와 CI 는 돈다.
 
@@ -20,3 +20,7 @@
 
 - P1-01/P2-1/P3-1: 모든 경로를 `mobile/` 기준으로 명시
 - P1-16/P2-15/P3-12: release 빌드 조건을 D0·D2 전제로 분리, debug 빌드만 워커 조건
+
+## 리뷰 노트 (plan-add r1)
+
+- 번호 구 32 → 신 34. 위 노트의 번호는 당시 번호. 내용·Blocked by 변경 없음(`app_privacy_details.json` 과 16 체크리스트의 대조는 35 가 한다)

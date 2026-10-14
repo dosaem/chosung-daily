@@ -2,7 +2,7 @@
 
 **Status:** ready-for-agent
 **Feature slug:** `store-launch`
-**작성:** 2026-10-13, Phase 1 Planner (인터뷰 `/grill-me` → `/to-spec`). **r5** — 리뷰 라운드 1~3 + 확인 라운드 반영, Sol r5 재확인 통과(MAJOR 0). 응답: `review/spec-review-r1-response.md`, `review/spec-review-r2-response.md`, `review/spec-review-r3-response.md`, `review/spec-review-r4-response.md`
+**작성:** 2026-10-13, Phase 1 Planner (인터뷰 `/grill-me` → `/to-spec`). **r5** — 리뷰 라운드 1~3 + 확인 라운드 반영, Sol r5 재확인 통과(MAJOR 0). **plan-add r1(2026-10-14)**: 구현 중 사용자 요구 2건(법적 문서 법 기준 보완, 태블릿 레이아웃) 반영 — §A.15·§B.19·§B.21·US 15a·45a·미정 9·21~24, 티켓 16·24 추가(`review/plan-add-r1-response.md`). 응답: `review/spec-review-r1-response.md`, `review/spec-review-r2-response.md`, `review/spec-review-r3-response.md`, `review/spec-review-r4-response.md`
 **관련 문서 (이 폴더):** `CONTEXT.md`(용어집) · `adr/0001~0003` · `design/SCREENS.md`(화면 명세) · `design/stitch/`(목업) · `design-system/hidden-vowels/OVERRIDES.md`(토큰, SCREENS 와 충돌 시 우선) · `design/TOOLS.md`
 **DESIGN_DIR:** `.scratch/store-launch/design/` + `.scratch/store-launch/design-system/hidden-vowels/`
 **BASELINE:** `~/Code/BuildUrPalace` (복사 목록 `~/.claude/baselines/buildurpalace.md`), 읽기만
@@ -47,6 +47,7 @@ chosung.dosaem.com 은 "하루 한 문제 초성 맞추기"가 돌아가는 Flas
 13. As a 게스트, I want 리더보드에서 모든 사람이 "게스트 #xxxx"(내 행만 강조)로 보이길 원한다, so that 누구의 이메일도 노출되지 않는다.
 14. As a 게스트, I want 연속 기록이 퍼즐 언어와 무관하게 "그 날 하나라도 맞추면" 이어지길 원한다, so that 언어를 바꿔도 streak 이 끊기지 않는다.
 15. As a 게스트, I want 다크모드가 기기 설정을 따르길 원한다, so that 밤에 눈이 아프지 않다.
+15a. As a 태블릿(iPad·Android) 사용자, I want 폰 화면을 가운데 띄운 게 아니라 왼쪽 rail 과 넓은 표·2열로 보길 원한다, so that 가로로 든 iPad 에서도 한 화면이 자연스럽다.
 16. As a 게스트, I want UI 문구가 기기 언어(ko/en)로 나오길 원한다, so that 영어권에서도 앱을 이해한다.
 16a. As a 게스트, I want 최근 7일의 성공/실패/진행 중/미플레이를 내 기록에서 보고 싶다, so that 한 주 흐름을 한눈에 본다.
 16b. As a 게스트, I want 리더보드에 21위 밖이어도 내 순위가 보이길 원한다, so that 내 위치를 안다.
@@ -95,6 +96,7 @@ chosung.dosaem.com 은 "하루 한 문제 초성 맞추기"가 돌아가는 Flas
 43. As an iOS Safari 방문자, I want Smart App Banner 를 보고 싶다, so that 한 번에 앱으로 간다.
 44. As a 웹 방문자, I want 모든 화면 폭에서 중앙 정렬 카드(최대 480px)로 보길 원한다, so that 데스크톱·태블릿에서도 깨지지 않는다.
 45. As a 웹 방문자, I want `/privacy`, `/terms`, `/account/delete` 를 같은 도메인에서 쓰고 싶다, so that 앱·스토어·구독 화면·Data safety 양식의 링크가 한 곳을 가리킨다.
+45a. As a 게스트, I want 개인정보처리방침·이용약관이 한국 법(개인정보 보호법·전자상거래법)과 스토어 구독 정책이 요구하는 항목을 빠짐없이 담길 원한다, so that 내 권리와 환불·해지 조건을 문서에서 확인할 수 있다.
 
 ### 온보딩·설정·운영 상태 (앱)
 46. As a 첫 실행 게스트, I want 3장 온보딩(하루 한 문제 / 5번의 기회 / 매일 이어가기)과 언어 선택 칩을 보고 싶다, so that 규칙을 알고 시작한다.
@@ -171,7 +173,7 @@ chosung.dosaem.com 은 "하루 한 문제 초성 맞추기"가 돌아가는 Flas
 12. **운영자 알림 = Slack Webhook.** 잔량 14일 미만(언어별), 언어별 배정 실패, 백업 실패, 구독 재조회 실패 누적, 애플 secret 만료 7일 전, Apple revoke 재시도 7일 초과 폐기.
 13. **애플 client_secret 갱신은 요청 경로에서.** `/auth/apple/login` **과 `/auth/apple/callback`** 진입 시 접근자가 "<7일 남음이면 재서명 후 Authlib 클라이언트 `client_secret` 교체"(gunicorn 워커가 늘어도 각 프로세스가 스스로 갱신). `/health` 가 `apple_secret_expires_at` 노출, Beat 주 1회 7일 전 Slack 알림만.
 14. **영어 책 제목 검색** = Google Books API, 카카오와 같은 서비스 함수 시그니처. 가림은 §A.2.
-15. **법적 문서·계정 삭제 페이지** `/privacy`, `/terms`, `/account/delete`(ko/en). 개인정보처리방침 포함: 수집 항목(게스트 토큰, 계정 이메일, 애플 refresh token, 시도 기록, 구독 식별자, 광고 ID), 보유 기간, 제3자 제공·위탁(Google, Apple, AdMob, Firebase Analytics, Sentry), 국외 이전, 만 14세 미만, 삭제 방법, 연락처.
+15. **법적 문서·계정 삭제 페이지** `/privacy`, `/terms`, `/account/delete`(ko/en). 개인정보처리방침 포함: 수집 항목(게스트 토큰, 계정 이메일, 애플 refresh token, 시도 기록, 구독 식별자, 광고 ID), 보유 기간, 제3자 제공·위탁(Google, Apple, AdMob, Firebase Analytics, Sentry), 국외 이전, 만 14세 미만, 삭제 방법, 연락처. **(plan-add r1)** 위 목록은 최소 집합이다. 법 기준 필수 기재사항 — 개인정보 보호법 제30조(처리방침 필수 항목)·제28조의8(국외 이전 고지)·제31조(보호책임자), 전자상거래법 제10조·제13조(사업자 신원·거래조건·청약철회), Apple 3.1.2(a)·Google Play 구독 고지 — 는 티켓 16 의 `docs/legal-checklist.md` 가 조문→문서 절 표로 지키고 테스트가 ko/en 양쪽 존재를 확인한다. 사업자 정보는 설정값(`LEGAL_*`)으로만 들어가고 코드 기본값이 없다. 자택 주소·전화번호·보호책임자 성명의 공개 범위는 미정 21(사용자 확인).
 16. **웹 프론트.** Jinja 1장 + vanilla JS. 토큰 CSS 변수, 다크모드, 퍼즐 언어 칩(`PATCH /me` 후 재조회), UI 문자열 ko/en, 서버 `attempts` 로 보드 복원(로컬 history 제거), `puzzle_id` 동봉·409 시 새로고침, 스켈레톤/오프라인/퍼즐 없음, 앱 CTA + Smart App Banner, 공유 `?utm_source=share`, `/account/delete` 링크, 백업 코드 유지.
 17. **백엔드 원칙.** 레이어 그대로, 서비스 함수 하나 = 커밋 하나, 외부 provider 마다 `clients/<provider>.py`(JWKS, Apple 토큰/revoke, App Store, Play, Slack, Google Books) — **외부 호출 래퍼(함수 하나)** 와 **도메인 판정 함수(구독 상태 매핑·권한 판정표, 알림 예약 계획 등 순수 함수)** 를 분리해 후자를 테스트·설명 대상으로 삼는다. 스토어 검증은 공식 라이브러리.
 
@@ -204,9 +206,9 @@ chosung.dosaem.com 은 "하루 한 문제 초성 맞추기"가 돌아가는 Flas
 ### B. Flutter 앱
 
 18. **스택.** Flutter + Riverpod, `go_router`, `dio`, `flutter_secure_storage`, `google_sign_in` 7.x(`authenticate()`), `sign_in_with_apple`(iOS), `google_mobile_ads`(배너/전면/보상형 + UMP), `app_tracking_transparency`, `in_app_purchase`(StoreKit2 활성화; **Android 는 release 빌드 merged manifest 에서 Play Billing Library 8+ 확인** — 7 은 2026-08-31 로 제출 마감), `flutter_local_notifications` + `timezone`, `firebase_core/analytics`, `sentry_flutter`, `easy_localization`, `flutter_native_splash`, `flutter_launcher_icons`. Hive/freezed 없음. `very_good_analysis`.
-19. **식별자·이름.** `com.dosaem.chosung`, Team `J8QUD7B666`, Play 조직 계정 첫 업로드. "오늘의 초성" / "Hidden Vowels". iPad 지원(중앙 정렬 최대 600px).
+19. **식별자·이름.** `com.dosaem.chosung`, Team `J8QUD7B666`, Play 조직 계정 첫 업로드. "오늘의 초성" / "Hidden Vowels". **태블릿(폭 ≥600dp — iPad·Android 태블릿, plan-add r1)**: 하단 탭 바 대신 NavigationRail, 콘텐츠는 읽기 폭(기본 600dp)으로 제한하되 폭 ≥840 에선 화면별 2열·넓은 표로 재배치(SCREENS "태블릿 레이아웃" T0~T4). 기기 종류가 아니라 **현재 폭**으로 판정해 회전·iPad Split View 폭 변화에 상태를 유지한 채 대응. 배너 슬롯은 콘텐츠 열 하단(rail 제외 폭). "폰 레이아웃 + rail + 폭에 따른 재배치" 수준 — 태블릿 전용 화면 없음. 뼈대는 티켓 24, 화면별 재배치는 각 화면 티켓(25~32), iPad 스크린샷(35)은 이 레이아웃으로 찍는다. (이전 문구 "iPad 중앙 정렬 최대 600px" 는 폐기 — 22 가 만든 래퍼는 24 가 대체.)
 20. **접점.** `ApiClient` 인터페이스(§A' 1:1) + Dio 구현. 광고·결제·알림·분석 서비스 클래스 각 1개(테스트 no-op). **알림 예약 계획·구독 UI 판정은 순수 함수**로 분리.
-21. **화면** = `design/SCREENS.md` S1~S7 + 목업. 버튼·타일은 **OVERRIDES 토큰 이름**으로 참조(`primary-button`, `tile-empty`), 충돌 시 OVERRIDES 우선. 탭 3개, 배너 슬롯 상시 예약(구독자 제거), 전면 결과 시트 후 1회/퍼즐, 보상형 = 힌트 미리 보기. 온보딩 3장 + iOS ATT 안내 + 알림 사전 안내. 점검/강제 업데이트는 `/config`. S4: 계정(iOS 구글·애플 / Android 구글), **백업 코드 입력**(US 18a), 구독(현지화 가격), **광고 개인정보 설정**(UMP `privacyOptionsRequirementStatus == required` 일 때만 표시), 알림(시각·리마인더·권한 상태), 삭제 다이얼로그(구독 별도 해지 문구). S5 혜택 문구 "광고 없이 힌트 미리 보기".
+21. **화면** = `design/SCREENS.md` S1~S7 + 목업. 버튼·타일은 **OVERRIDES 토큰 이름**으로 참조(`primary-button`, `tile-empty`), 충돌 시 OVERRIDES 우선. 탭 3개(폭 ≥600dp 는 rail — §B.19), 배너 슬롯 상시 예약(구독자 제거), 전면 결과 시트 후 1회/퍼즐, 보상형 = 힌트 미리 보기. 온보딩 3장 + iOS ATT 안내 + 알림 사전 안내. 점검/강제 업데이트는 `/config`. S4: 계정(iOS 구글·애플 / Android 구글), **백업 코드 입력**(US 18a), 구독(현지화 가격), **광고 개인정보 설정**(UMP `privacyOptionsRequirementStatus == required` 일 때만 표시), 알림(시각·리마인더·권한 상태), 삭제 다이얼로그(구독 별도 해지 문구). S5 혜택 문구 "광고 없이 힌트 미리 보기".
    - **광고 게이트**: 앱 시작마다 UMP `requestConsentInfoUpdate` → 필요 시 폼 → `canRequestAds` 가 true 일 때만 광고 SDK 초기화·로드. iOS 는 ATT 프롬프트(S6 안내 후) → UMP 순. 동의 오류 시 이번 세션 광고 없음, 다음 시작에 재시도. ATT 와 UMP 는 별개 상태.
 22. **디자인 토큰** = OVERRIDES → `ThemeData`. Pretendard, Lucide. StreakBadge 숫자 `foreground`.
 23. **광고 ID** `--dart-define`, 디버그 테스트 ID. 상품 ID `adfree_monthly`.
@@ -226,7 +228,7 @@ chosung.dosaem.com 은 "하루 한 문제 초성 맞추기"가 돌아가는 Flas
 ### D. 사람이 해야 하는 일 (순서)
 
 **D0. 티켓 시작 전** — 단어 CSV(ko/en 각 ≥120, 심사 전 en 30일 배정 확인) · Firebase 프로젝트 + 앱 등록(`google-services.json`, `GoogleService-Info.plist`) · GCP iOS 클라이언트 ID, Android 클라이언트(SHA-1 3종), 웹 클라이언트 ID 를 `serverClientId` 로 · Google Books 키(선택)
-**D1. 백엔드 티켓 중** — Slack Webhook · Sentry 2개 · UptimeRobot · Apple App ID + Sign in with Apple(iOS 번들 ID 를 Services ID 그룹에 추가) · App Store Server API 키 · Sandbox 테스터 · Play 앱 생성·서비스 계정·라이선스 테스터 · 한국 판매자 정보 요건
+**D1. 백엔드 티켓 중** — Slack Webhook · Sentry 2개 · UptimeRobot · Apple App ID + Sign in with Apple(iOS 번들 ID 를 Services ID 그룹에 추가) · App Store Server API 키 · Sandbox 테스터 · Play 앱 생성·서비스 계정·라이선스 테스터 · 한국 판매자 정보 요건 · **통신판매업 신고 대상 여부 확인(미정 22)·개인정보 보호책임자 지정·주소/전화 공개 결정(미정 21)**
 **D2. 앱 티켓 중** — AdMob 앱 2 + 유닛 6 + UMP 메시지(privacy options 포함) · ASC 앱(이름 중복 확인) · 구독 상품 `adfree_monthly` 양 스토어(한국 ₩1,500 Tier) · **Billing Grace Period: Apple 켬(16일), Play base plan 기본 유예 유지** · EULA 결정 · 개인정보 라벨 · keystore·match·러너·GitHub secrets
 **D3. 배포·심사 전** — NAS 의 기존 compose 프로젝트명·볼륨명 확인(`docker volume ls`) · NAS develop 폴더·`.env.develop`·DNS·터널 · prod `.env` 새 키 · Play Data safety(삭제 URL) · 앱 콘텐츠 설문 · **제출일 기준 target SDK / Billing 8+ 재확인** · 첫 프로덕션 출시 버튼
 모든 가입·콘솔은 운영자 계정 두 개 중 하나(`dosaem90@gmail.com` / `hsseo@dosaem.com`).
@@ -239,7 +241,7 @@ chosung.dosaem.com 은 "하루 한 문제 초성 맞추기"가 돌아가는 Flas
 - **필수 케이스**: 같은 날 ko→en streak 유지·solved_count +2 / en 가림·공백·대소문자 / `puzzle_id` 불일치 409 + 시도 미소비(자정 경과·다른 기기 언어 변경) / `attempts` 이력으로 보드 복원 / 힌트 unlocked 재진입 시 `hint` 채워짐 / 리더보드 `me` 21위 밖 / 힌트 미리 보기·제출 동시(FOR UPDATE) / 구독 판정표: active 유예 24h, grace 3일째 권한 있음, hold 없음, revoked 확인 즉시 없음, **만료 20일 전 구독의 provider 상태만 revoked 로 바꾼 뒤 `last_verified_at` 1시간 경과 후 `/me/stats` 에서 권한 제거**, 만료 2일 뒤 복구(verify 재전송) 즉시 반영, 재조회 1시간 상한, Sandbox 4040010 폴백, `store_key` 멱등 중복 전달, linkedPurchaseToken 교체 / 복원 시 재지정 / 삭제: 401 + ZREM + 애플 revoke 호출(refresh token; iOS 연결 계정은 번들 ID, 웹 연결 계정은 Services ID 로)·실패 시 재시도 행 / 웹 삭제 CSRF 없으면 403 / rate limit 언어 무관 / 언어별 배정 en 고갈 시 ko 배정 / `/health` / 운영자 아닌 이메일 403 / 애플 secret 재서명(login·callback).
 - **회귀**: 기존 테스트 ko 기본값 통과(리더보드 필드 변경 테스트 수정 허용) + 마이그레이션 전후 ko 데이터 보존.
 - **Celery**: 서비스 함수 직접 호출 + 배선: 언어별 배정, 구독 재조회, 잔량·secret 알림, revoke 재시도.
-- **Flutter**: analyze 0 + 위젯 테스트(가짜 `ApiClient`): 홈 상태 4종, 제출→409→새로고침, 결과 시트, 구독자 배너 제거, 점검/업데이트 분기, 온보딩 언어, 백업 코드 전환. **순수 함수 단위 테스트**: 알림 예약 계획(오늘 제외·내일 유지, 미주 KST 경계, 두 언어 중 하나, 7일 롤링, 대기 ≤8), 구매 상태→UI 판정, **구독 재확인 타이머(가짜 시계: 포그라운드에 둔 채 `next_check_at` 경과 시 `/me/stats` 가 자동 호출되고 권한 해제가 광고 상태에 반영됨)**, UMP 상태(required/불필요/거부/오류)→광고 게이트. 실기기 체크리스트: 알림 탭 cold/warm, 정답 후 같은 날 리마인더 없음·다음 날 있음(iOS·Android), Sandbox 구매·복원·pending, UMP 재선택.
+- **Flutter**: analyze 0 + 위젯 테스트(가짜 `ApiClient`): 홈 상태 4종, 제출→409→새로고침, 결과 시트, 구독자 배너 제거, 점검/업데이트 분기, 온보딩 언어, 백업 코드 전환, **태블릿 폭 분기(390/744/1024)와 폭 변경 시 상태 유지**. **순수 함수 단위 테스트**: 알림 예약 계획(오늘 제외·내일 유지, 미주 KST 경계, 두 언어 중 하나, 7일 롤링, 대기 ≤8), 구매 상태→UI 판정, **구독 재확인 타이머(가짜 시계: 포그라운드에 둔 채 `next_check_at` 경과 시 `/me/stats` 가 자동 호출되고 권한 해제가 광고 상태에 반영됨)**, UMP 상태(required/불필요/거부/오류)→광고 게이트. 실기기 체크리스트: 알림 탭 cold/warm, 정답 후 같은 날 리마인더 없음·다음 날 있음(iOS·Android), Sandbox 구매·복원·pending, UMP 재선택.
 - **웹**: pytest 렌더 + `impeccable detect` 0건 + 수동 체크리스트(삭제 후 새 게스트 발급 포함).
 - **인프라(코드 티켓)**: 로컬에서 현행→새 compose 전환 시 볼륨·기록 유지 확인, prod/develop 두 프로젝트 동시 기동·분리 확인, `deploy.sh` 양쪽 인자로 동작, 백업 덤프 생성, `restore.sh` 복원. NAS 실행·리허설은 `docs/RELEASE.md` 사람 체크리스트.
 - **디자인 게이트**: 웹 detect 0건, Flutter `audit.native` 체크리스트.
@@ -258,7 +260,8 @@ chosung.dosaem.com 은 "하루 한 문제 초성 맞추기"가 돌아가는 Flas
 ## 디자인 부족 항목
 
 - S1(라이트/다크)~S6 는 목업 + SCREENS + OVERRIDES 토큰 있음. 목업 없음: S7 점검/업데이트, 온보딩 2·3장·ATT 안내, 알림 사전 안내, 삭제 다이얼로그, 광고 개인정보 설정 항목, 백업 코드 입력 시트, 웹 전체(`/account/delete` 포함) — 명세+토큰으로 구현, detect/critique 검증.
-- 앱 아이콘·스플래시·스크린샷은 콘셉트 한 줄만(스토어 자산 티켓에서 제작).
+- 앱 아이콘·스플래시·스크린샷은 OVERRIDES §8 의 확정 콘셉트(라이트 배경 타일 3칸, 라이트 모드 스크린샷)와 참고 좌표만 있고 SVG 는 없음 — 티켓 35 에서 제작.
+- 태블릿(T0~T4)은 SCREENS 의 ASCII 와이어만 있고 목업 없음 — 명세+토큰으로 구현, `audit.native` 태블릿 폭 포함.
 - 목업의 brand 색 버튼·대시 테두리 빈 타일·brand 글자 숫자는 OVERRIDES 가 우선(검정 주 버튼, 면 채움 빈 타일, foreground 숫자).
 
 ## 미정 항목
@@ -271,7 +274,7 @@ chosung.dosaem.com 은 "하루 한 문제 초성 맞추기"가 돌아가는 Flas
 6. 리마인더 20:00·기본 09:00 의 효과(특히 미주) — Analytics 2주 후 결정
 7. UMP 메시지 문구·EEA 외 표시 — AdMob 콘솔(사람)
 8. develop 포트 8090 — NAS 실측(사람)
-9. Apple 표준 EULA vs 커스텀 — D2
+9. Apple 표준 EULA vs 커스텀 — D2. **(plan-add r1)** 티켓 16 에서 결정·근거 기록(권장: 표준 EULA 유지, 약관 §EULA 절에 링크 — 09 현행)
 10. `chosung` 호환 필드 제거 시점 — 클라이언트 전부 `mask` 전환 후
 11. Apple revoke 재시도 7일 폐기 정책이 적절한지 — 운영 데이터 보고
 12. (r3 MINOR, 티켓에서 확정) `GET /puzzles/today` 의 `attempts[].feedback` 정답 행은 전부 `true` 로 채워 보내는 쪽 권장(웹이 "항상 채워짐" 전제) — API 티켓에서 확정
@@ -282,6 +285,11 @@ chosung.dosaem.com 은 "하루 한 문제 초성 맞추기"가 돌아가는 Flas
 18. (r4 MINOR, Fable) 만료 ±24h 구간의 재조회가 무상한이라 호출마다 스토어 API 를 때릴 수 있음 — 필요하면 5분 상한 추가, 구독 티켓에서 결정
 19. (r5 MINOR, Sol) 1h TTL 경계 표현 정렬 — 서버 재조회 조건을 `now >= next_check_at` 으로 명시하고, Flutter 가짜 시계 테스트에 정확히 `next_check_at` 시각을 포함해 경계에서 조회를 건너뛰는 해석을 막는다 — 구독 티켓에서 반영
 20. (티켓 작성 중 발견) §B.24 "분석 이벤트 4개" 의 명칭·파라미터가 스펙에 없음 — 티켓 24 에서 `puzzle_complete(language, success, attempts)`, `share`, `paywall_view`, `subscribe_start` 로 확정하고 여기 결과 기록
+21. (plan-add r1, 사용자 확인) 법적 문서의 사업장 주소(자택)·전화번호·보호책임자 성명 공개 범위 — 티켓 16 워커가 법적 근거를 붙여 `orca orchestration ask`, 답 전에는 미표시. 결과는 `docs/RELEASE.md` "### 16."
+22. (plan-add r1, 사람 D1) 통신판매업 신고 대상 여부(구독 판매 전) — 면제 기준 확인 후 신고하면 `LEGAL_MAIL_ORDER_REG_NO`. 티켓 16 은 신고번호가 비면 그 행을 렌더하지 않는다
+23. (plan-add r1) 해외 사용자 최소 고지(EU/영국·캘리포니아 권리 안내) 포함 여부 — 티켓 16 에서 결정·근거 기록(권장: 짧은 "해외 사용자" 절 1개를 ko/en 모두에)
+24. (plan-add r1) 태블릿 expanded(≥840) 2열의 세부 폭(T1 600+320, T4 480+480)·Split View 최소 폭 처리 — 티켓 24·화면 티켓에서 확정하고 README Flutter 절에 기록
+25. **해소(2026-10-14, 사용자 확정)** 앱 아이콘·스크린샷 톤 — 계획 리뷰 r1 의 사용자 확인 항목(다크 배경 `#0F172A` + 흰 "ㅊ" vs Editorial Light). 결정: 라이트 배경 `#FAFAF9` 에 글자 없는 타일 3칸(양끝 brand `#EA580C`, 가운데 `tile-wrong` `#D6D3D1`), 스플래시 동일, 스크린샷 라이트 모드. 근거: 스토어는 앱당 아이콘 하나라 "ㅊ" 은 영어 사용자에게 뜻이 없음. OVERRIDES §8·티켓 35 반영. 30px 가독성은 35 에서 확인(필요 시 가운데 칸 `#A8A29E`)
 14. (r3 MINOR) Google 상태 매핑 빈칸 — **티켓 12 에서 fixture 로 확정**(`tests/fixtures/store/play_*.json`, `tests/test_subscription_status.py`): `PAUSED → hold`, `PENDING`·`PENDING_PURCHASE_CANCELED` → 행 없음(권한 없음), `ACTIVE`·`CANCELED` → active, `IN_GRACE_PERIOD` → grace 이고 `grace_expires_at` = `expires_at` = `lineItems[].expiryTime`(Google 은 유예 종료 시각을 따로 주지 않고 유예 중에는 `expiryTime` 이 유예 종료까지 연장돼 온다), `EXPIRED` → expired, 알 수 없는 state 는 `ValueError`. **`revoked` 라벨은 v2 응답만으로는 붙이지 않는다** — `SubscriptionPurchaseV2` 에 철회 전용 필드가 없고 그 신호는 Voided Purchases API / RTDN `SUBSCRIPTION_REVOKED` 에만 있다(미정 1 과 함께 도입). 그때까지 Google 환불·철회는 "만료일 전 EXPIRED" 로 관측돼 `expired` 로 기록되며, 판정표에서 expired·revoked 가 같은 칸이라 권한 결과는 동일하다(24h 유예 없이 즉시 권한 없음 — `test_a_refunded_google_subscription_loses_the_entitlement_immediately`). 순수 함수 `google_subscription_status(purchase, *, revoked=False)` 에 플래그 자리를 뒀다.
 12. **확정(티켓 04)**: `GET /puzzles/today` 의 `attempts[].feedback` 는 정답 행도 포함해 **항상 `length` 길이로 채워 보낸다**(정답 행은 전부 `true`). 피드백은 저장하지 않고 `Attempt.guess` 와 정답을 다시 비교해 만든다 — 비교 규칙이 제출·조회 두 곳에 두 벌로 생기지 않게. 제출 응답(`POST guesses`)은 현행대로 정답일 때 `feedback: null` 이다. 근거는 README "04. 시도 이력을 서버가 돌려주는 이유".
 
@@ -291,7 +299,7 @@ chosung.dosaem.com 은 "하루 한 문제 초성 맞추기"가 돌아가는 Flas
 
 - 운영자 계정은 정확히 두 개: `dosaem90@gmail.com`, `hsseo@dosaem.com`.
 - 면접 설명 범위: 백엔드 전부 + Flutter 는 상태 흐름·SDK 선택·테스트 경계(README Flutter 절). (r3 MINOR 메모: 제출하는 코드 전체는 작성자가 설명할 수 있어야 하고, 설계 판단 문서만 핵심 중심으로 쓴다는 뜻.)
-- 티켓: `.scratch/store-launch/issues/01~34`(의존성 순, 2026-10-13; 계획 리뷰 r1 반영으로 구 24→24·25, 구 29→30·31 분할). 미정 항목 중 12(04)·13(17)·14(12)·18(13)·19(13·31)·20(24) 은 해당 티켓에서 확정. Flutter 루트는 `mobile/`. 앱 아이콘·스플래시·스크린샷은 OVERRIDES §8 그대로(다크 배경 아이콘, 다크모드 스크린샷) — 콘셉트 변경을 원하면 OVERRIDES §8 을 먼저 고친다.
+- 티켓: `.scratch/store-launch/issues/01~36`(의존성 순, 2026-10-13; 계획 리뷰 r1 반영으로 구 24→24·25, 구 29→30·31 분할; **plan-add r1(2026-10-14)** 로 16(법적 문서 보완)·24(태블릿 뼈대) 삽입 — 구 16→23, 구 23~34→25~36, 대응표는 `review/plan-add-r1-response.md`. 머지·진행 중 티켓(01~13·15·17·19~22) 본문의 번호는 구 번호 그대로다). 미정 항목 중 9·21·22·23(16)·12(04)·13(17)·14(12)·18(13)·19(13·33)·20(26)·24(24)·25(35, 30px 확인) 은 해당 티켓에서 확정. Flutter 루트는 `mobile/`. 앱 아이콘·스플래시·스크린샷은 OVERRIDES §8 그대로 — **2026-10-14 사용자 확정: 라이트 배경 `#FAFAF9` 에 글자 없는 타일 3칸(양끝 brand, 가운데 `tile-wrong`), 스크린샷은 라이트 모드 기준**(이전 "다크 배경 + ㅊ, 다크모드 스크린샷" 폐기, 미정 25). 콘셉트를 또 바꾸려면 OVERRIDES §8 을 먼저 고친다.
 - 디자인 파이프라인·스펙 리뷰 규칙은 `~/.claude/CLAUDE.md`·NAS README 에 기록. 리뷰 응답: `review/spec-review-r1-response.md`, `review/spec-review-r2-response.md`.
 - BASELINE 읽기만. ENV.md 의 PostgreSQL/Flyway 기술은 무시(MySQL/Alembic).
 - 티켓 하나 = 워커 하나가 한 세션. §A.1, §A.8, §A.11 은 본문의 분할 지침대로 쪼갠다. 의존성은 `issues/NN-*.md` "Blocked by".

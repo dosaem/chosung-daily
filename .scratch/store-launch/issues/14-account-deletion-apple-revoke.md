@@ -15,6 +15,7 @@
 - [ ] 애플 revoke: `clients/apple.py` 에 revoke 래퍼 추가, 저장된 `refresh_token` 과 `provider_client_id` 에 맞는 client_id·client_secret(iOS 연결 = 번들 ID, 웹 연결 = Services ID; 11 의 공개 접근자 사용)으로 호출. 테스트: 두 경우 각각 올바른 client_id 로 호출됨
 - [ ] revoke 실패 시 삭제는 진행하고 `AppleRevocationRetry(refresh_token_enc, client_id, created_at)` 행 생성(마이그레이션, 머지 직전 `flask db heads` 1개), Beat 매일 재시도, 7일 초과 폐기 + `notify_operator`
 - [ ] 웹 프론트: 삭제 성공 리다이렉트 후 localStorage 토큰을 버리고 새 게스트를 발급한다(JS 최소 변경 + 수동 체크리스트 항목)
+- [ ] `/account/delete` 확인 페이지에 삭제되는 데이터 목록(개인정보처리방침 "수집하는 정보" 절과 같은 이름)과 방침의 파기·권리 행사 절 링크를 넣는다. 문구의 법 기준 점검·보완은 16 이 하므로 문구는 템플릿(ko/en 각 1개)에 두고 테스트는 핵심 단어("되돌릴 수 없", 스토어 해지)만 고정한다
 - [ ] `impeccable detect` 0건(`/account/delete`), README "설계 판단" 에 "삭제 한 커밋·애플 revoke 재시도" 추가, Play Data safety 삭제 URL 로 `/account/delete` 명시
 - [ ] 분할선(세션이 모자라면): "revoke 재시도 테이블·Beat·7일 폐기" 를 뒤로 떼어 별도 티켓으로 — 그 경우 코디네이터에게 알리고 삭제 자체는 revoke 1회 시도까지로 닫는다
 
@@ -23,3 +24,7 @@
 - P1-05/P2-5/P3-7: `/account/delete` 가 09 의 토큰 CSS 를 쓰므로 Blocked by 에 09 추가(18 은 14 를 통해 09 에 전이 의존)
 - P2-2/P3-2: Blocked by 에 11 추가(애플 secret 공개 접근자 소비)
 - P3-9: CSRF 헬퍼를 01 로 옮겨 범위를 줄였고 분할선을 적어 둠 — 티켓 자체는 분할하지 않음(삭제 서비스·웹 페이지·revoke 가 한 흐름이라 수직 슬라이스 유지가 검증에 유리)
+
+## 리뷰 노트 (plan-add r1)
+
+- 16(법적 문서 보완)이 이 페이지 문구를 뒤에서 점검하므로 삭제 데이터 목록·방침 링크 조건 추가. Blocked by 변경 없음

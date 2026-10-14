@@ -1,8 +1,8 @@
-# 29: 광고 — UMP/ATT 게이트·배너 슬롯·전면(결과 후 1회)·보상형 힌트 미리 보기·구독자 광고 없는 힌트·광고 개인정보 설정
+# 31: 광고 — UMP/ATT 게이트·배너 슬롯·전면(결과 후 1회)·보상형 힌트 미리 보기·구독자 광고 없는 힌트·광고 개인정보 설정
 
-**What to build:** 앱 시작마다 UMP 동의 상태를 확인해 필요하면 폼을 띄우고, `canRequestAds` 일 때만 광고 SDK 를 초기화한다. 배너는 탭 바 아래 예약 슬롯에 뜨고, 전면 광고는 결과 시트 확인 후 퍼즐당 1회, 첫 제출 전엔 절대 안 뜬다. 보상형 광고를 끝까지 보면 힌트가 미리 열리고, 구독 권한이 있으면 광고 없이 바로 열린다(US 32). EEA 사용자는 설정에서 광고 개인정보 선택을 바꿀 수 있다. 구독 권한 상태 Provider(entitlement, 초기값 null, 테스트는 Fake 주입)는 이 티켓이 만들고 30·31 은 그것을 갱신만 한다(갱신·타이머는 31).
+**What to build:** 앱 시작마다 UMP 동의 상태를 확인해 필요하면 폼을 띄우고, `canRequestAds` 일 때만 광고 SDK 를 초기화한다. 배너는 탭 바 아래 예약 슬롯에 뜨고, 전면 광고는 결과 시트 확인 후 퍼즐당 1회, 첫 제출 전엔 절대 안 뜬다. 보상형 광고를 끝까지 보면 힌트가 미리 열리고, 구독 권한이 있으면 광고 없이 바로 열린다(US 32). EEA 사용자는 설정에서 광고 개인정보 선택을 바꿀 수 있다. 구독 권한 상태 Provider(entitlement, 초기값 null, 테스트는 Fake 주입)는 이 티켓이 만들고 32·33 은 그것을 갱신만 한다(갱신·타이머는 33).
 
-**Blocked by:** 06, 24, 25, 26
+**Blocked by:** 06, 26, 27, 28
 
 **Status:** ready-for-agent
 
@@ -12,10 +12,10 @@
 
 - [ ] ApiClient 에 `POST /puzzles/today/hint-unlock` 추가(Dio + Fake)
 - [ ] 광고 게이트 순수 함수: (UMP 상태 required/notRequired/obtained/error, ATT 상태, 구독 권한) → {배너·전면 로드 가능, 힌트 미리 보기에 광고 필요 여부, 개인정보 설정 항목 표시}. 단위 테스트: UMP 4종 + 구독자(모든 광고 없음·힌트 광고 불필요) + 오류 시 이번 세션 광고 없음·다음 시작 재시도
-- [ ] `google_mobile_ads` UMP `requestConsentInfoUpdate` → 폼 → `canRequestAds` 후 `MobileAds.initialize`. iOS 는 26 의 ATT 결과 이후. 광고 ID `--dart-define`, 디버그는 테스트 ID
-- [ ] 배너: 22 의 슬롯에 로드(높이 고정, 로드 실패해도 레이아웃 불변), 구독 권한 있으면 슬롯 자체 제거. 전면: 결과 시트 닫힘 후 퍼즐당 1회(로컬 플래그 puzzle_id 기준), 첫 제출 전 금지, 구독자 없음(테스트)
+- [ ] `google_mobile_ads` UMP `requestConsentInfoUpdate` → 폼 → `canRequestAds` 후 `MobileAds.initialize`. iOS 는 28 의 ATT 결과 이후. 광고 ID `--dart-define`, 디버그는 테스트 ID
+- [ ] 배너: 22·24 의 슬롯에 로드(높이 고정, 로드 실패해도 레이아웃 불변), 구독 권한 있으면 슬롯 자체 제거. 태블릿(SCREENS T0): 슬롯의 `bannerWidth`(콘텐츠 열 폭, rail 제외)로 어댑티브 배너를 요청하고, 폭이 바뀌면(회전·Split View) 새 폭으로 다시 로드하되 슬롯 예약 높이 규칙은 24 를 따른다(위젯 테스트: 폭 변경 후 슬롯 높이 불변·광고 재요청 1회). 전면: 결과 시트 닫힘 후 퍼즐당 1회(로컬 플래그 puzzle_id 기준), 첫 제출 전 금지, 구독자 없음(테스트)
 - [ ] 보상형: HintCard 버튼 — 비구독자는 "광고 보고 힌트 미리 보기" → 광고 완료 콜백 → `hint-unlock`; **구독자는 레이블 "힌트 미리 보기" 로 광고 없이 바로 `hint-unlock`**. 409 처리, 광고 로드 실패 시 버튼 비활성 + 안내(위젯 테스트 두 경로)
-- [ ] 25 의 S4 "광고 개인정보 설정" 자리: `privacyOptionsRequirementStatus == required` 일 때만 표시 → `showPrivacyOptionsForm`
+- [ ] 27 의 S4 "광고 개인정보 설정" 자리: `privacyOptionsRequirementStatus == required` 일 때만 표시 → `showPrivacyOptionsForm`
 - [ ] 광고 서비스 클래스는 인터페이스 + no-op 테스트 구현. 위젯 테스트: 게이트 상태별 배너 슬롯, 전면 타이밍, 보상형 → 힌트, 구독자 힌트 무광고. `audit.native` 통과, 목업 `e1_home`/`e7_home_dark`(HintCard·배너 슬롯) 대비
 
 ## 리뷰 노트 (plan-review r1)
@@ -24,3 +24,8 @@
 - P1-15/P3-16: 참조 목업 명시
 - 구 29 의 '권한 반영·next_check_at 타이머' 는 31 로 분리
 - (r2) P1-27/P2-22/P3-20: 구독 권한 상태 Provider 소유자를 이 티켓으로 명시(30·31 은 갱신만)
+
+## 리뷰 노트 (plan-add r1)
+
+- 번호 구 29 → 신 31. 위 노트의 번호는 당시 번호(구 24·25·26·30·31 은 각각 신 26·27·28·32·33)
+- 태블릿 배너 폭·재로드 조건 추가(24 의 슬롯 사용 — 24 는 26/27 을 통해 전이 의존)

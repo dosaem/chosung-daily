@@ -1,8 +1,8 @@
-# 27: 앱 계정 — 네이티브 구글/애플 연결·전환·백업 코드·삭제 다이얼로그
+# 29: 앱 계정 — 네이티브 구글/애플 연결·전환·백업 코드·삭제 다이얼로그
 
 **What to build:** 플레이어가 내 기록 탭에서 구글(iOS·Android)·애플(iOS) 버튼으로 계정을 연결하거나 이미 연결된 기록으로 전환하고, Android 에서는 웹 백업 코드(= 게스트 토큰)로 애플 계정 기록을 불러오며, 첫 완료 후 "연결하세요" 안내를 한 번 본다. 설정에서 계정 삭제를 확인 다이얼로그 후 실행하면 새 게스트로 돌아간다.
 
-**Blocked by:** 10, 14, 24, 25
+**Blocked by:** 10, 14, 26, 27
 
 **Status:** ready-for-agent
 
@@ -12,11 +12,12 @@
 
 - [ ] ApiClient 에 `POST /auth/token-exchange`, `DELETE /me` 추가(Dio + Fake)
 - [ ] `google_sign_in` 7.x `authenticate()` — iOS 클라이언트 ID 는 `Info.plist`(`GIDClientID`)·URL scheme, Android `serverClientId`(= 웹 클라이언트 ID)는 `--dart-define` → `POST /auth/token-exchange`. `sign_in_with_apple`(iOS 만) → id_token + authorization_code 동봉. 성공 시 토큰 교체 → 홈·기록 재조회·로컬 상태 폐기
-- [ ] 25 의 AccountCard 자리를 채움: 미연결(버튼, Android 는 구글만) / 연결됨(provider 아이콘 + 마스킹 이메일 + "전환됨" 안내). `ACCOUNT_ALREADY_LINKED`·`INVALID_ID_TOKEN` 사용자 문구
-- [ ] 백업 코드 입력 시트: 입력값을 Bearer 로 `GET /me/stats` 호출 → 200 이면 secure storage 토큰 교체 + 로컬 상태 폐기 + 재조회, 401 이면 "올바르지 않은 백업 코드". 전환 완료는 22 의 게스트 토큰 Provider 값 교체로 표현한다(별도 이벤트 없음). 알림 재계산 연결은 28 이 그 Provider 를 구독해 붙인다. **새 서버 엔드포인트를 만들지 않는다**(백업 코드 = 게스트 토큰, 웹 복원과 같은 규칙)
-- [ ] 24 의 S2 연결 안내 자리에 첫 완료 후 1회 안내(로컬 플래그)
-- [ ] 25 의 삭제 자리에 destructive 버튼 + 다이얼로그(되돌릴 수 없음·구독 별도 해지 문구) → `DELETE /me` → 로컬 전부 삭제 → 새 게스트 발급 → 온보딩 완료 상태 유지
-- [ ] 위젯 테스트: 플랫폼별 버튼 노출, 전환 후 재조회, 백업 코드 200/401, 삭제 후 새 게스트. `audit.native` 통과, 목업 `e4_records`(AccountCard) 대비; 삭제 다이얼로그·백업 코드 시트는 목업 없음 — SCREENS S4 문구 + 토큰
+- [ ] 27 의 AccountCard 자리를 채움: 미연결(버튼, Android 는 구글만) / 연결됨(provider 아이콘 + 마스킹 이메일 + "전환됨" 안내). `ACCOUNT_ALREADY_LINKED`·`INVALID_ID_TOKEN` 사용자 문구
+- [ ] 백업 코드 입력 시트: 입력값을 Bearer 로 `GET /me/stats` 호출 → 200 이면 secure storage 토큰 교체 + 로컬 상태 폐기 + 재조회, 401 이면 "올바르지 않은 백업 코드". 전환 완료는 22 의 게스트 토큰 Provider 값 교체로 표현한다(별도 이벤트 없음). 알림 재계산 연결은 30 이 그 Provider 를 구독해 붙인다. **새 서버 엔드포인트를 만들지 않는다**(백업 코드 = 게스트 토큰, 웹 복원과 같은 규칙)
+- [ ] 26 의 S2 연결 안내 자리에 첫 완료 후 1회 안내(로컬 플래그)
+- [ ] 27 의 삭제 자리에 destructive 버튼 + 다이얼로그(되돌릴 수 없음·구독 별도 해지 문구) → `DELETE /me` → 로컬 전부 삭제 → 새 게스트 발급 → 온보딩 완료 상태 유지
+- [ ] 태블릿: 백업 코드 입력 시트·삭제 다이얼로그는 24 의 `showAdaptiveSheet` 로 띄운다(폭 744 위젯 테스트 1건). AccountCard 는 27 이 정한 S4 열 안에 그대로
+- [ ] 위젯 테스트: 플랫폼별 버튼 노출, 전환 후 재조회, 백업 코드 200/401, 삭제 후 새 게스트. `audit.native`(태블릿 폭 포함) 통과, 목업 `e4_records`(AccountCard) 대비; 삭제 다이얼로그·백업 코드 시트는 목업 없음 — SCREENS S4 문구 + 토큰
 
 ## 리뷰 노트 (plan-review r1)
 
@@ -26,3 +27,8 @@
 - P2-15: 클라이언트 ID 주입 방식(Info.plist / dart-define) 명시
 - (r2) P1-26/P3-21: 완료 조건에서 28 산출물(알림 재계산 트리거) 요구를 빼고 22 의 게스트 토큰 Provider 교체만 남김 — 호출은 28 이 그 Provider 를 구독해 붙인다
 - (r3) P1-29: 200/401 분기를 먼저 쓰고 Provider 설명을 뒤 문장으로 분리(의미 변경 없음)
+
+## 리뷰 노트 (plan-add r1)
+
+- 번호 구 27 → 신 29. 위 노트의 번호는 당시 번호(구 22·24·25·28 은 각각 신 22·26·27·30)
+- 태블릿 조건 추가(AdaptiveSheet)
