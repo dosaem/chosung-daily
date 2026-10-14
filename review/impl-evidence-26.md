@@ -239,3 +239,158 @@ $ TEST_DATABASE_URL=…/chosung_daily_test_t26 TEST_REDIS_URL=redis://127.0.0.1:
   무관한 54개 파일이 바뀐다.
 - **골든은 이 기계(macOS, Flutter 3.38.6)에서 만든 파일이다.** 렌더러가 바뀌면
   차이가 날 수 있고, 그때는 `--update-goldens` 로 다시 찍고 사람이 본다.
+
+---
+
+## 수정 라운드 1
+
+Codex 최종 리뷰 라운드 1(`review/impl-review-26.md`) 판정 FAIL — BLOCKER 0 /
+MAJOR 1 / MINOR 0. MAJOR 1건을 고쳤고, 리뷰어 지적이 틀렸다고 판단한 건 없다.
+미수정 MINOR 도 없다(리뷰에 MINOR 가 없었다).
+
+| 결함 | 등급 | 상태 | 한 줄 |
+|---|---|---|---|
+| D-26-1 | MAJOR | **FIXED** | 통계 요청을 결과 퍼즐의 언어에 못 박고, 응답의 (날짜, 언어)를 시트의 퍼즐 스냅숏과 대조해 어긋나면 분포를 보류한다 |
+
+### D-26-1 — 다른 퍼즐의 통계에 이전 퍼즐의 내 위치를 표시한다
+
+**재현 (고치기 전).** 리뷰의 "로컬 Fake 로 재현" 경로를 그대로 테스트로 옮겼다 —
+`solvedPuzzle()`(2026-10-13 · ko · 2회에 성공)에 `fakeTodayStats(date:
+DateTime(2026, 10, 14), …)` / `fakeTodayStats(language: PuzzleLanguage.en, …)` 를
+물린다. 고친 코드에서 **대조 분기 한 줄만 다시 빼고** 돌린 결과:
+
+```
+$ flutter test test/widgets/result_sheet_test.dart --plain-name "D-26-1"
+00:03 +1 -3: Some tests failed.
+
+  Expected: no matching candidates
+    Actual: _TypeWidgetFinder:<Found 1 widget with type "StatBar": [
+  The test description was: 날짜가 다른 통계는 분포 대신 새 퍼즐 안내다(D-26-1)
+
+  Expected: no matching candidates
+    Actual: _TypeWidgetFinder:<Found 1 widget with type "StatBar": [
+  The test description was: 언어가 다른 통계도 분포를 보류한다(D-26-1)
+
+  Expected: no matching candidates
+    Actual: _TextWidgetFinder:<Found 1 widget with text "아직 아무도 못 풀었어요": [
+  The test description was: 날짜가 달라도 아무도 못 풀었다고 하지 않는다(D-26-1)
+```
+
+세 번째가 리뷰 "실제" 의 뒷문장이다 — 내가 **맞춘** 퍼즐 아래에 "아직 아무도 못
+풀었어요" 가 뜬다. `totalSolved == 0` 분기가 날짜 대조보다 먼저이기 때문이다.
+
+**원인.** 두 겹이다.
+
+1. **요청에 언어가 없었다.** `fetchTodayStats()` 가 `?language=` 를 안 보내서
+   서버(`app/api/puzzles.py:17` `_requested_language`)가 **요청 시점의 게스트 선호
+   언어**로 집계를 골랐다. 다른 기기에서 언어를 바꾸면 내가 푼 ko 퍼즐 결과에 en
+   분포가 온다. 스펙 §A' API 표는 처음부터 `GET /puzzles/today/stats?language=`
+   였는데(`spec.md:196`) 앱이 그 파라미터를 안 썼다.
+2. **응답을 대조하지 않았다.** 시트는 열 때의 `TodayPuzzle` 스냅숏을 끝까지 들고
+   있는데, 서버의 "오늘" 은 요청 시점의 KST 날짜다. `TodayStats` 가 `date` ·
+   `language` 를 파싱해 두고도 화면이 그걸 안 봤다. 그래서 자정을 넘긴 뒤의
+   '다시 시도' 가 다음 날 분포를 가져와 **안 푼 퍼즐의 비율에 어제 내 시도 수를
+   '내 결과' 로** 붙였다.
+
+25 의 "세대" 결함과는 종류가 다르다. 25 는 가변 notifier 에 늦은 응답이 역행해
+쓰이는 **순서** 문제라 세대 번호가 답이었다. 여기는 `FutureProvider` 라
+Riverpod 이 늦은 응답을 이미 버려 주고, 남는 건 **정체성** 문제다 — 제때 온
+최신 응답이 애초에 다른 퍼즐의 집계다. 그래서 세대 번호가 아니라 응답에 실려
+오는 식별자 대조가 맞는 수단이다. 리뷰도 "Riverpod 의 최신 요청 처리만으로는 막지
+못한다" 고 같은 것을 짚었다.
+
+**수정.**
+
+| 파일 | 내용 |
+|---|---|
+| `mobile/lib/api/api_client.dart:37` | `fetchTodayStats({required PuzzleLanguage language})` — 언어를 필수 인자로. 왜 필수인지 doc 주석에 적었다 |
+| `mobile/lib/api/dio_api_client.dart:89` | `queryParameters: {'language': language.wire}` |
+| `mobile/lib/puzzle/today_stats_provider.dart` | `FutureProvider.family<TodayStats, PuzzleLanguage>` — 언어가 키다. `isAutoDispose` 유지 |
+| `mobile/lib/api/api_models.dart:399` | `TodayStats.isFor(TodayPuzzle)` — 날짜(연·월·일)와 언어를 대조하는 술어 |
+| `mobile/lib/widgets/result_sheet.dart:263` | `todayStatsProvider(puzzle.language)` 로 조회·재시도. `!stats.isFor(puzzle)` 분기를 **`totalSolved == 0` 보다 먼저** 둬 분포를 보류하고 `result.stats_stale` 한 줄을 보여준다. 반복되는 한 줄 두 개를 `_StatsNote` 로 묶었다 |
+| `mobile/assets/translations/{ko,en}.json` | `result.stats_stale` — "새 퍼즐이 시작돼 이 결과의 통계는 더 보여줄 수 없어요" / "A new puzzle has started, so these stats are no longer shown" |
+
+**`puzzle_id` 가 아니라 (날짜, 언어)로 대조한 이유.** 이 엔드포인트의 응답에는
+`puzzle_id` 가 없고(`app/schemas/stats.py:25` — `date` · `language` ·
+`total_solved` · `by_attempt`), 요청도 `?language=` 만 받는다. 그리고 오늘의
+퍼즐은 **(날짜, 언어) 당 하나**이고 그게 유니크 키다(`spec.md:134`). 즉 (날짜,
+언어) 대조가 곧 `puzzle_id` 대조다. 서버에 `puzzle_id` 파라미터를 새로 내는 건
+API 표 변경이고 결함 수정 범위를 넘으므로 하지 않았다.
+
+**재시도 버튼을 안 붙인 이유.** 날짜가 넘어가서 어긋난 것이면 다시 물어도 같은
+새 날짜 집계가 온다 — 누를 때마다 같은 자리로 돌아오는 버튼은 안내가 아니다.
+리뷰의 "분포 표시를 보류하고 새 퍼즐 안내/재조회 등으로 처리" 중 안내를 택했다.
+퍼즐이 바뀐 뒤의 **새 퍼즐 받아오기**는 S1 의 몫이고(25 의 복귀 재조회), 이 시트는
+이미 끝난 결과를 보여주는 자리다.
+
+**증명하는 테스트 (전부 새로 추가).**
+
+```
+$ flutter test test/widgets/result_sheet_test.dart test/api/api_models_test.dart \
+    test/api/dio_api_client_test.dart --plain-name "D-26-1"
++0: api_models_test.dart: TodayStats.isFor 날짜가 하루라도 다르면 아니다(D-26-1)
++1: api_models_test.dart: TodayStats.isFor 언어가 다르면 아니다(D-26-1)
++2: result_sheet_test.dart: 분포 막대 조회는 결과 퍼즐의 언어로 못 박는다(D-26-1)
++3: result_sheet_test.dart: 분포 막대 날짜가 다른 통계는 분포 대신 새 퍼즐 안내다(D-26-1)
++4: result_sheet_test.dart: 분포 막대 언어가 다른 통계도 분포를 보류한다(D-26-1)
++5: result_sheet_test.dart: 분포 막대 날짜가 달라도 아무도 못 풀었다고 하지 않는다(D-26-1)
++6: All tests passed!
+```
+
+- `조회는 결과 퍼즐의 언어로 못 박는다` — en 퍼즐 결과 시트가 `fetchTodayStats` 에
+  `PuzzleLanguage.en` 을 넘겼는지 `FakeApiClient.fetchTodayStatsLanguages` 로 본다.
+  "호출 수" 만 보는 기존 테스트로는 못 잡던 것이다.
+- `날짜가 다른 통계는 …` / `언어가 다른 통계도 …` — `StatBar` 가 없고 '내 결과'
+  라벨이 없고 안내 한 줄이 있는지. 헤더·공유는 그대로인지도 같이 본다.
+- `날짜가 달라도 아무도 못 풀었다고 하지 않는다` — 분기 **순서**를 고정한다.
+  대조를 `totalSolved == 0` 뒤에 두면 이 테스트만 깨진다.
+- `TodayStats.isFor` 단위 4개 — 같은 (날짜, 언어) 참 / 하루 뒤·하루 앞 거짓 /
+  언어만 다름 거짓 / 시각이 붙어 와도 날짜로만 비교.
+- `dio_api_client_test.dart` 의 기존 "GET /puzzles/today/stats 는 Bearer 를 달고
+  분포를 돌려준다" 를 고쳤다. 전엔 `queryParameters, isEmpty` 를 **단정**하고
+  "언어는 보내지 않는다" 는 주석까지 달려 있었다 — 결함을 테스트가 못 박고 있던
+  셈이다. 지금은 `{'language': 'en'}` 을 단정한다.
+
+**백엔드는 안 건드렸다.** `?language=` 는 서버가 이미 받고 테스트도 있다
+(`tests/test_puzzle_language_api.py:130` — ko 게스트가 `?language=en` 로 물으면
+`language == "en"`, `total_solved == 0`). 이 라운드의 변경은 전부 `mobile/` 이고
+마이그레이션이 없으므로 `flask db heads` 는 해당 없다.
+
+**`audit.native` 영향.** 새로 생긴 UI 는 기존 `result.stats_empty` 와 **같은
+스타일의 muted 한 줄**(`_StatsNote`) 하나다. 토큰만 쓰고(`AppColors`), 폭 분기·
+스크롤·시맨틱 구조가 그대로라 §4 5축 점수(18/20)는 변하지 않는다. 골든 3장도
+`--update-goldens` 없이 통과한다(정상 경로 렌더는 안 바뀌었다).
+
+### 라운드 1 재검증 출력
+
+```
+$ uv run ruff check .
+All checks passed!
+
+$ cd mobile && flutter analyze
+No issues found! (ran in 3.2s)
+
+$ cd mobile && flutter test --reporter compact
+00:25 +264: All tests passed!        # 라운드 전 256 → +8 (위젯 4 + `isFor` 단위 4)
+
+$ cd mobile && dart format --output=none --set-exit-if-changed lib test
+Formatted 85 files (0 changed) in 0.16 seconds.      # exit 0
+
+$ TEST_DATABASE_URL=…/chosung_daily_test_t26 TEST_REDIS_URL=redis://127.0.0.1:6379/14 \
+    TEST_MIGRATION_DATABASE_URL=…/chosung_daily_test_t26_migrations uv run pytest -q
+1257 passed in 808.74s (0:13:28)                     # exit 0
+
+$ cd mobile && JAVA_HOME=/opt/homebrew/opt/openjdk@17 flutter build apk --debug
+Running Gradle task 'assembleDebug'...                             49.6s
+✓ Built build/app/outputs/flutter-apk/app-debug.apk    # 확인 후 mobile/build 삭제
+```
+
+백엔드는 한 줄도 안 고쳤지만 전용 자원(DB `chosung_daily_test_t26`, Redis DB 14,
+마이그레이션 DB `chosung_daily_test_t26_migrations`)으로 전체를 다시 돌렸다.
+1110(리뷰 라운드 1 시점) → **1257** 은 로컬 `main` 이 `24c584d` 에서 `45d790c`
+(티켓 16 머지까지)로 나아간 몫이다. 새 DB 를 만들거나 공용 테스트 DB 를 비우지
+않았고, 간헐 실패 재실행도 없었다(한 번에 exit 0). 접속 비밀번호는 적지 않는다.
+
+`git rebase main`(로컬 `45d790c`) 완료, 충돌 없음. `git diff --check` 통과,
+작업 트리 clean. 마이그레이션 0개이므로 `flask db heads` 는 해당 없다.
+
