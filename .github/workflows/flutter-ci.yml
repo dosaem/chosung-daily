@@ -40,7 +40,9 @@ jobs:
         run: flutter pub get
 
       - name: Format check
-        run: dart format --set-exit-if-changed lib test
+        # 스크린샷 장면·드라이버(티켓 35)도 포맷 대상이다 — analyze 는 이미 전부
+        # 본다. 여기서 빠지면 `flutter drive` 로만 도는 코드가 서식 밖에 남는다.
+        run: dart format --set-exit-if-changed lib test integration_test test_driver
 
       - name: Analyze
         run: flutter analyze
