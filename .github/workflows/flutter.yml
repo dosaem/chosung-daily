@@ -197,13 +197,15 @@ jobs:
           RELEASE_NOTES: ${{ github.event.head_commit.message || 'Manual build' }}
         run: |
           KEY_FILE="$RUNNER_TEMP/firebase-key-$GITHUB_RUN_ID.json"
+          # self-hosted 러너는 잡이 끝나도 호스트가 남는다 — 업로드가 실패하면
+          # 뒤의 `rm` 까지 못 가므로 trap 으로 지운다(취소도 같다).
+          trap 'rm -f "$KEY_FILE"' EXIT INT TERM
           echo "$FIREBASE_SERVICE_ACCOUNT" > "$KEY_FILE"
           export GOOGLE_APPLICATION_CREDENTIALS="$KEY_FILE"
           npx --yes firebase-tools appdistribution:distribute \
             build/app/outputs/flutter-apk/app-release.apk \
             --app "$FIREBASE_APP_ID" --groups "testers" \
             --release-notes "$RELEASE_NOTES ($GITHUB_SHA)"
-          rm -f "$KEY_FILE"
 
       - name: Upload to Play Store internal track (prod)
         if: needs.setup.outputs.is_prod == 'true'
@@ -226,6 +228,15 @@ jobs:
             mobile/build/app/outputs/bundle/release/app-release.aab
           if-no-files-found: ignore
           retention-days: 3
+
+      # self-hosted 러너는 잡이 끝나도 호스트(사용자 맥)가 남는다 — 다음 잡이나
+      # 다른 프로세스가 업로드 키를 읽을 수 있으므로 성공·실패 모두에서 지운다.
+      # .gitignore 는 커밋만 막고 러너에 남은 파일은 치우지 않는다.
+      - name: Cleanup signing material
+        if: always()
+        run: |
+          rm -f android/app/upload-keystore.jks android/key.properties
+          rm -f "$RUNNER_TEMP/firebase-key-$GITHUB_RUN_ID.json"
 
   ios:
     needs: setup
@@ -305,6 +316,9 @@ jobs:
           security create-keychain -p "$KEYCHAIN_PASS" "$KEYCHAIN_NAME"
           security set-keychain-settings -lut 7200 "$KEYCHAIN_NAME"
           security unlock-keychain -p "$KEYCHAIN_PASS" "$KEYCHAIN_NAME"
+          # 이름을 match 뒤에 넘기면 match 가 실패했을 때 `always()` 정리 스텝이
+          # 이미 만든 keychain 을 못 찾는다 — 만든 직후에 넘긴다.
+          echo "KEYCHAIN_NAME=$KEYCHAIN_NAME" >> $GITHUB_ENV
           # 검색 경로에 추가 (xcodebuild 가 찾도록)
           security list-keychains -d user -s "$KEYCHAIN_NAME" $(security list-keychains -d user | xargs)
 
@@ -317,8 +331,6 @@ jobs:
           # xcodebuild 가 읽는 경로로 profile 복사
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           cp ~/Library/Developer/Xcode/UserData/Provisioning\ Profiles/*.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/ 2>/dev/null || true
-
-          echo "KEYCHAIN_NAME=$KEYCHAIN_NAME" >> $GITHUB_ENV
 
       - name: Build IPA
         run: |
@@ -334,11 +346,14 @@ jobs:
           KEY_ID=$(jq -r .key_id fastlane/api_key.json)
           ISSUER=$(jq -r .issuer_id fastlane/api_key.json)
           mkdir -p ~/.appstoreconnect/private_keys
-          jq -r .key fastlane/api_key.json > ~/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8
-          chmod 600 ~/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8
+          P8_FILE="$HOME/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8"
+          # altool 이 실패하면 뒤의 `rm` 까지 못 간다 — 러너에 개인키를 두고
+          # 나가지 않도록 trap 으로 지운다.
+          trap 'rm -f "$P8_FILE"' EXIT INT TERM
+          jq -r .key fastlane/api_key.json > "$P8_FILE"
+          chmod 600 "$P8_FILE"
           xcrun altool --upload-app -f "$IPA_PATH" --type ios \
             --apiKey "$KEY_ID" --apiIssuer "$ISSUER"
-          rm -f ~/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -348,9 +363,12 @@ jobs:
           if-no-files-found: ignore
           retention-days: 3
 
-      - name: Cleanup keychain
+      # keychain 과 ASC API 키(JSON·꺼낸 P8)를 성공·실패 모두에서 지운다 —
+      # self-hosted 러너는 잡 뒤에도 호스트가 남는다.
+      - name: Cleanup signing material
         if: always()
         run: |
           if [ -n "$KEYCHAIN_NAME" ]; then
             security delete-keychain "$KEYCHAIN_NAME" || true
           fi
+          rm -f ios/fastlane/api_key.json

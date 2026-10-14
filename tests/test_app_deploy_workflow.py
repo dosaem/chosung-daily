@@ -13,6 +13,7 @@ import json
 import os
 import plistlib
 import re
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -584,3 +585,274 @@ def test_diagnostics_are_declared_as_not_linked(privacy):
         entry = by_category[category]
         assert entry["purposes"] == ["APP_FUNCTIONALITY"], category
         assert entry["data_protections"] == ["DATA_NOT_LINKED_TO_YOU"], category
+
+
+# --- iOS 아카이브 서명 (D-34-1) --------------------------------------------
+
+
+PBXPROJ = MOBILE / "ios" / "Runner.xcodeproj" / "project.pbxproj"
+MATCH_PROFILE = f"match AppStore {BUNDLE_ID}"
+
+
+def _build_settings(config_id):
+    """pbxproj 의 XCBuildConfiguration 한 블록의 `키 = 값` 들."""
+    text = PBXPROJ.read_text(encoding="utf-8")
+    block = re.search(
+        rf"\t\t{config_id} /\* \w+ \*/ = \{{.*?\n\t\t\}};", text, re.DOTALL
+    )
+    assert block, f"{config_id} 블록이 없다"
+    settings = {}
+    for line in block.group(0).splitlines():
+        # `"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "..."` 처럼 키가 인용될 수 있다.
+        pair = re.match(r'\s*(?:"([^"]+)"|([A-Za-z_0-9]+))\s*=\s*(.+);\s*$', line)
+        if pair:
+            settings[pair.group(1) or pair.group(2)] = pair.group(3).strip('"')
+    return settings
+
+
+# 프로젝트 레벨 Release, Runner 타깃 Release. `flutter build ipa` 는 이 둘로 아카이브한다.
+RELEASE_CONFIG_IDS = ["97C147041CF9000F007C117D", "97C147071CF9000F007C117D"]
+
+
+@pytest.mark.parametrize("config_id", RELEASE_CONFIG_IDS)
+def test_release_archive_signs_with_a_distribution_identity(config_id):
+    """개발용 identity 로는 App Store 아카이브가 안 된다 — D2 는 배포 인증서만 만든다."""
+    settings = _build_settings(config_id)
+    identities = {
+        value
+        for key, value in settings.items()
+        if key.startswith("CODE_SIGN_IDENTITY")
+    }
+
+    assert identities, f"{config_id}: Release 에 CODE_SIGN_IDENTITY 가 없다"
+    assert identities == {"Apple Distribution"}, identities
+
+
+def test_release_archive_uses_the_match_app_store_profile():
+    """match 가 만드는 프로파일 이름 그대로여야 manual 서명이 그걸 집는다."""
+    settings = _build_settings("97C147071CF9000F007C117D")
+
+    assert settings.get("CODE_SIGN_STYLE") == "Manual", (
+        "Automatic 이면 Xcode 가 개발 프로파일을 알아서 집는다"
+    )
+    assert settings.get("PROVISIONING_PROFILE_SPECIFIER") == MATCH_PROFILE
+    assert settings.get("DEVELOPMENT_TEAM") == APPLE_TEAM_ID
+
+
+def test_archive_and_export_name_the_same_profile():
+    """export plist 는 이미 만든 아카이브에만 적용된다 — 아카이브 쪽이 갈라지면 죽는다."""
+    export = plistlib.loads(EXPORT_OPTIONS.read_bytes())
+    settings = _build_settings("97C147071CF9000F007C117D")
+
+    assert export["provisioningProfiles"][BUNDLE_ID] == settings[
+        "PROVISIONING_PROFILE_SPECIFIER"
+    ]
+
+
+# --- 수동 fastlane lane 의 dart-define (D-34-2) -----------------------------
+
+
+# 사람이 맥에서 손으로 올릴 때도 Actions 와 같은 값으로 빌드해야 한다.
+FASTLANE_BUILD_FUNCTIONS = [
+    (ANDROID_FASTFILE, "build_appbundle"),
+    (IOS_FASTFILE, "build_flutter_ios"),
+]
+
+# 원본 Fastfile 의 빌드 함수만 평가해 `sh` 가 받는 명령을 포착한다(외부 호출 없음).
+CAPTURE_RB = r"""
+CAPTURED = []
+def sh(cmd); CAPTURED << cmd; end
+def default_platform(_); end
+module UI
+  def self.user_error!(message)
+    warn "USER_ERROR: #{message}"
+    exit 2
+  end
+end
+# 산출물 유무는 이 하네스의 관심사가 아니다(명령만 포착하고 빌드는 돌리지 않는다).
+def File.exist?(_); true; end
+source = File.read(ARGV[0]).sub(/^platform :\w+ do.*\z/m, "")
+eval(source)
+send(ARGV[1], clean: false)
+puts CAPTURED
+"""
+
+ruby_only = pytest.mark.skipif(
+    shutil.which("ruby") is None, reason="fastlane lane 평가에 ruby 가 필요하다"
+)
+
+
+def _capture_lane_build(fastfile, function, env):
+    with tempfile.NamedTemporaryFile("w", suffix=".rb", delete=False) as handle:
+        handle.write(CAPTURE_RB)
+        script = handle.name
+    try:
+        return subprocess.run(
+            ["ruby", script, str(fastfile), function],
+            check=False,
+            capture_output=True,
+            text=True,
+            env={**os.environ, **env},
+        )
+    finally:
+        os.unlink(script)
+
+
+def _manual_lane_env():
+    return {name: f"value-for-{name}" for name in REQUIRED_DART_DEFINES}
+
+
+@ruby_only
+@pytest.mark.parametrize(
+    ("fastfile", "function"), FASTLANE_BUILD_FUNCTIONS, ids=lambda v: str(v)[-20:]
+)
+@pytest.mark.parametrize("name", REQUIRED_DART_DEFINES)
+def test_manual_lane_build_passes_the_dart_defines(fastfile, function, name):
+    """빠지면 앱이 에뮬레이터 기본 주소(app_env.dart)로 서버를 찾는다."""
+    result = _capture_lane_build(fastfile, function, _manual_lane_env())
+
+    assert result.returncode == 0, result.stderr
+    assert f"--dart-define={name}=value-for-{name}" in result.stdout, result.stdout
+
+
+@ruby_only
+@pytest.mark.parametrize(
+    ("fastfile", "function"), FASTLANE_BUILD_FUNCTIONS, ids=lambda v: str(v)[-20:]
+)
+@pytest.mark.parametrize("missing", REQUIRED_DART_DEFINES)
+def test_manual_lane_stops_when_a_dart_define_is_missing(fastfile, function, missing):
+    """값 없이 업로드하면 스토어에 잘못 설정된 바이너리가 올라간다 — 빌드 전에 멈춘다."""
+    env = _manual_lane_env()
+    env[missing] = ""
+    result = _capture_lane_build(fastfile, function, env)
+
+    assert result.returncode == 2, (result.returncode, result.stdout, result.stderr)
+    assert missing in result.stderr
+    assert "flutter build" not in result.stdout
+
+
+@pytest.mark.parametrize(
+    "fastfile", [ANDROID_FASTFILE, IOS_FASTFILE], ids=lambda v: str(v)[-20:]
+)
+def test_manual_lane_dart_define_names_are_documented(fastfile):
+    """Actions 와 수동 lane 이 같은 이름을 쓰는지 RELEASE.md 에서 대조할 수 있어야 한다."""
+    doc = RELEASE_DOC.read_text(encoding="utf-8")
+
+    for name in REQUIRED_DART_DEFINES:
+        assert name in fastfile.read_text(encoding="utf-8"), name
+        assert f"`{name}`" in doc, name
+
+
+# --- 실패 후 인증 자료 정리 (D-34-3) ---------------------------------------
+
+
+def _step_with(workflow, job, needle):
+    return next(step for step in _steps(workflow, job) if needle in step.get("run", ""))
+
+
+def _cleanup_steps(workflow, job):
+    return [step for step in _steps(workflow, job) if step.get("if") == "always()"]
+
+
+def _run_block(script, env, cwd):
+    """워크플로의 `run` 블록을 스텁과 함께 실제로 돌린다(Actions 는 `bash -e`)."""
+    with tempfile.NamedTemporaryFile("w", suffix=".sh", delete=False) as handle:
+        handle.write(script)
+        path = handle.name
+    try:
+        return subprocess.run(
+            ["bash", path],
+            check=False,
+            capture_output=True,
+            text=True,
+            cwd=str(cwd),
+            env=env,
+        )
+    finally:
+        os.unlink(path)
+
+
+def test_android_signing_material_is_deleted_after_the_job(distribute):
+    """self-hosted 러너는 잡이 끝나도 호스트가 남는다 — keystore 를 두고 나가면 안 된다."""
+    cleanups = "\n".join(step["run"] for step in _cleanup_steps(distribute, "android"))
+
+    assert "upload-keystore.jks" in cleanups
+    assert "key.properties" in cleanups
+
+
+def test_firebase_key_is_removed_when_the_upload_fails(distribute, tmp_path):
+    step = _step_with(distribute, "android", "appdistribution:distribute")
+    runner_temp = tmp_path / "runner_temp"
+    runner_temp.mkdir()
+    env = {
+        **os.environ,
+        "HOME": str(tmp_path),
+        "RUNNER_TEMP": str(runner_temp),
+        "GITHUB_RUN_ID": "pytest",
+        "GITHUB_SHA": "0" * 40,
+        "FIREBASE_APP_ID": "1:0:android:0",
+        "FIREBASE_SERVICE_ACCOUNT": '{"type":"service_account"}',
+        "RELEASE_NOTES": "pytest",
+    }
+    result = _run_block(
+        "npx() { echo 'stubbed upload failure' >&2; return 1; }\nset -e\n" + step["run"],
+        env,
+        tmp_path,
+    )
+
+    assert result.returncode != 0, "스텁이 실패를 못 만들었다"
+    assert list(runner_temp.iterdir()) == [], "업로드 실패 후 서비스 계정 키가 남는다"
+
+
+def test_keychain_name_reaches_the_cleanup_step_even_if_match_fails(
+    distribute, tmp_path
+):
+    """이름이 match 뒤에 export 되면 `always()` 정리가 keychain 을 못 찾는다."""
+    step = _step_with(distribute, "ios", "fastlane match")
+    github_env = tmp_path / "github_env"
+    github_env.write_text("")
+    stubs = (
+        'security() { if [ "$1" = "list-keychains" ]; then echo \'"login.keychain"\'; fi; }\n'
+        "openssl() { echo stub-password; }\n"
+        "fastlane() { echo 'stubbed match failure' >&2; return 1; }\n"
+    )
+    env = {
+        **os.environ,
+        "HOME": str(tmp_path),
+        "GITHUB_RUN_ID": "pytest",
+        "GITHUB_ENV": str(github_env),
+    }
+    result = _run_block(stubs + "set -e\n" + step["run"], env, tmp_path)
+
+    assert result.returncode != 0, "스텁이 실패를 못 만들었다"
+    assert "KEYCHAIN_NAME=ci-pytest.keychain" in github_env.read_text(encoding="utf-8")
+
+
+def test_extracted_p8_is_removed_when_the_testflight_upload_fails(
+    distribute, tmp_path
+):
+    step = _step_with(distribute, "ios", "altool --upload-app")
+    (tmp_path / "build" / "ios" / "ipa").mkdir(parents=True)
+    (tmp_path / "build" / "ios" / "ipa" / "chosung.ipa").write_text("")
+    workdir = tmp_path / "ios" / "fastlane"
+    workdir.mkdir(parents=True)
+    (workdir / "api_key.json").write_text('{"key_id":"PYTEST","issuer_id":"i","key":"k"}')
+    stubs = (
+        'jq() { case "$2" in .key_id) echo PYTEST ;; .issuer_id) echo ISSUER ;;'
+        ' .key) echo STUB-KEY ;; esac; }\n'
+        "xcrun() { echo 'stubbed altool failure' >&2; return 1; }\n"
+    )
+    env = {**os.environ, "HOME": str(tmp_path / "home")}
+    (tmp_path / "home").mkdir()
+    result = _run_block(stubs + "set -e\n" + step["run"], env, tmp_path / "ios")
+
+    assert result.returncode != 0, "스텁이 실패를 못 만들었다"
+    leftover = list((tmp_path / "home").rglob("*.p8"))
+    assert leftover == [], f"업로드 실패 후 ASC 개인키가 남는다: {leftover}"
+
+
+def test_asc_api_key_file_is_deleted_after_the_job(distribute):
+    cleanups = "\n".join(step["run"] for step in _cleanup_steps(distribute, "ios"))
+
+    assert "api_key.json" in cleanups
+    assert "delete-keychain" in cleanups

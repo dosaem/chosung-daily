@@ -511,6 +511,22 @@ AAB 검증)을 복사해 식별자만 바꿨다.
 | `ADMOB_INTERSTITIAL_AD_UNIT_ID` | 플랫폼별 variable | 티켓 31 |
 | `ADMOB_REWARDED_AD_UNIT_ID` | 플랫폼별 variable | 티켓 31 |
 
+손으로 fastlane lane 을 돌릴 때는 Actions 가 넘기던 값을 **환경변수로 직접** 줘야
+한다 — 이름은 위 표의 dart-define 과 같다. 하나라도 비어 있으면 lane 이 빌드 전에
+멈춘다(빈 주소·빈 광고 ID 로 빌드된 바이너리가 스토어로 가는 걸 막는다). 광고 유닛은
+**올리려는 플랫폼의 값**을 그 이름으로 넣는다(위 variables 표의 `..._ANDROID` /
+`..._IOS` 중 하나). `SENTRY_DSN` 만 비워 둘 수 있다.
+
+```sh
+cd mobile/android   # iOS 는 mobile/ios
+API_BASE_URL=https://chosung.dosaem.com/api/v1 \
+GOOGLE_SERVER_CLIENT_ID=... \
+ADMOB_BANNER_AD_UNIT_ID=... \
+ADMOB_INTERSTITIAL_AD_UNIT_ID=... \
+ADMOB_REWARDED_AD_UNIT_ID=... \
+  fastlane beta
+```
+
 #### D2. 앱 배포 — 사람이 해야 하는 일
 
 코드로 할 수 없는 부분이다. 이 티켓의 워커가 확인한 것은 **D0·D2 산출물이 없는

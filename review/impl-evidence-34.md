@@ -356,3 +356,227 @@ BASELINE(BuildUrPalace)의 5개 항목은 광고·분석·진단뿐이었다 —
   아니다). 설계 판단은 `docs/RELEASE.md` "### 34." 와 이 문서에 남겼다.
 - `mobile/README.md` 에 "배포" 절 3줄과 `mobile/lib/config/app_env.dart` 주석의
   "티켓 32 의 워크플로" → 실제 파일 경로 수정만 했다(워크플로가 생겼으므로).
+
+## 수정 라운드 1
+
+Codex 최종 리뷰(`review/impl-review-34.md` 라운드 1, BLOCKER 0 / MAJOR 3 / MINOR 0)의
+MAJOR 3건을 고쳤다. 세 건 모두 **리뷰의 재현 방법 그대로 먼저 재현**하고, 그 재현을
+실패하는 테스트로 고정한 뒤 고쳤다. 고치기 전 새 테스트 31개가 실패하고 기존 71개가
+통과(`31 failed, 71 passed`), 고친 뒤 **102 passed** 다. 리뷰어 지적 3건 모두 맞았다 —
+틀렸다고 판단해 안 고친 건은 없다.
+
+### D-34-1 — iOS 아카이브가 match App Store 서명 구성을 사용하지 않는다
+
+**재현(수정 전)** — 리뷰의 명령 그대로:
+
+```
+$ xcodebuild -project mobile/ios/Runner.xcodeproj -target Runner \
+    -configuration Release -showBuildSettings | grep -E 'CODE_SIGN|PROVISIONING|DEVELOPMENT_TEAM'
+    CODE_SIGN_IDENTITY = iPhone Developer
+    DEVELOPMENT_TEAM = J8QUD7B666
+```
+
+`CODE_SIGN_STYLE`·`PROVISIONING_PROFILE_SPECIFIER` 가 아예 없다(= Automatic).
+
+**원인.** 워크플로·`ExportOptions.plist`·fastlane 은 복사·치환했지만
+`mobile/ios/Runner.xcodeproj/project.pbxproj` 는 복사 목록에 없어 `flutter create`
+기본값(`"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer"`, 서명 스타일
+Automatic)이 그대로 남았다. `ExportOptions.plist` 의 manual 서명은 **이미 만들어진
+archive 의 export 단계**에만 적용되므로 archive 자체는 개발용 인증서를 요구한다.
+BASELINE 원본(`~/Code/BuildUrPalace/ios/Runner.xcodeproj/project.pbxproj`)에는
+프로젝트·타깃 Release 양쪽에 `Apple Distribution` / `CODE_SIGN_STYLE = Manual` /
+`PROVISIONING_PROFILE_SPECIFIER = "match AppStore <bundle>"` 가 있다(462·491–503·
+647·702–714행). 즉 치환 누락이 아니라 **복사 누락**이다.
+
+**수정.** `project.pbxproj` 의 Release 설정 2개만 BASELINE 과 같게 맞췄다.
+
+- 프로젝트 레벨 Release(`97C147041CF9000F007C117D`):
+  `"CODE_SIGN_IDENTITY[sdk=iphoneos*]"` → `Apple Distribution`
+- Runner 타깃 Release(`97C147071CF9000F007C117D`): `CODE_SIGN_IDENTITY` /
+  `"CODE_SIGN_IDENTITY[sdk=iphoneos*]"` = `Apple Distribution`,
+  `CODE_SIGN_STYLE = Manual`,
+  `PROVISIONING_PROFILE_SPECIFIER = "match AppStore com.dosaem.chosung"`
+
+**Debug·Profile 설정은 건드리지 않았다.** BASELINE 은 Profile 에도 배포 identity 를
+넣어 뒀지만, 그러면 로컬 실기기 `flutter run --profile` 이 배포 인증서를 요구한다.
+배포 경로(`flutter build ipa`)가 쓰는 설정은 Release 뿐이고 결함도 archive 에 있으므로
+Release 만 고쳤다.
+
+**증명(수정 후)**:
+
+```
+$ xcodebuild -project mobile/ios/Runner.xcodeproj -target Runner \
+    -configuration Release -showBuildSettings | grep -E 'CODE_SIGN|PROVISIONING|DEVELOPMENT_TEAM'
+    CODE_SIGN_IDENTITY = Apple Distribution
+    CODE_SIGN_STYLE = Manual
+    DEVELOPMENT_TEAM = J8QUD7B666
+    PROVISIONING_PROFILE_SPECIFIER = match AppStore com.dosaem.chosung
+
+$ xcodebuild ... -configuration Debug -showBuildSettings | grep CODE_SIGN_IDENTITY
+    CODE_SIGN_IDENTITY = iPhone Developer      # 로컬 개발은 그대로
+```
+
+고정한 테스트(`tests/test_app_deploy_workflow.py`, pbxproj 를 직접 파싱해 Xcode 없이도
+돈다):
+
+- `test_release_archive_signs_with_a_distribution_identity[97C147041…]`,
+  `[97C147071…]` — Release 의 모든 `CODE_SIGN_IDENTITY*` 가 `Apple Distribution`
+- `test_release_archive_uses_the_match_app_store_profile` — `CODE_SIGN_STYLE = Manual`,
+  프로파일 이름, 팀 ID
+- `test_archive_and_export_name_the_same_profile` — archive 쪽 프로파일 이름과
+  `ExportOptions.plist` 의 이름이 같다(갈라지면 export 에서 죽는다)
+
+**남은 사람 검증.** 실제 인증서가 필요한 archive 는 D2(인증서·match 준비) 뒤 사람
+단계다. 이 수정은 "설정이 배포 서명을 가리키는지"까지 증명한다.
+
+### D-34-2 — 수동 fastlane 배포가 서버·광고·로그인 설정 없이 앱을 다시 빌드한다
+
+**재현(수정 전)** — 원본 Fastfile 의 빌드 함수만 평가해 `sh` 가 받는 명령을 포착하는
+Ruby 하네스(외부 호출·실제 빌드 없음, `sh`/`UI`/platform 블록 전부 스텁):
+
+```
+$ ruby capture.rb mobile/android/fastlane/Fastfile build_appbundle
+CMD: flutter build appbundle --release || echo 'flutter exited nonzero (…)'
+dart-define count: 0
+$ ruby capture.rb mobile/ios/fastlane/Fastfile build_flutter_ios
+CMD: flutter build ios --release --no-codesign
+dart-define count: 0
+```
+
+**원인.** `DART_DEFINES` 를 워크플로 잡의 `env:` 에만 정의했다. 수동 lane 은 그 값을
+읽을 데가 없고 `build_appbundle`/`build_flutter_ios` 가 매번 새로 빌드하므로, 앞서
+올바른 인자로 만든 바이너리도 덮어쓴다. 그래서 `mobile/lib/config/app_env.dart:8` 의
+에뮬레이터 기본 주소(`http://10.0.2.2:8089/api/v1`)가 들어간 바이너리가 스토어로 간다.
+광고 유닛·`GOOGLE_SERVER_CLIENT_ID` 도 빈 값이 된다.
+
+**수정.** 두 Fastfile 에 같은 `dart_defines` 함수를 두고 **환경변수에서 읽어** 빌드
+명령에 붙인다. 필수 5개(`API_BASE_URL`, `GOOGLE_SERVER_CLIENT_ID`,
+`ADMOB_{BANNER,INTERSTITIAL,REWARDED}_AD_UNIT_ID`) 중 하나라도 비어 있으면
+`UI.user_error!` 로 **빌드 전에** 멈춘다(`clean` 으로 기존 산출물을 지우기 전에
+검사한다 — 멈춘 뒤 되돌릴 게 없도록 빌드 함수 진입 직후에 호출한다).
+`SENTRY_DSN` 만 비워 둘 수 있다(워크플로도 빈 값을 넘긴다). 값은
+`Shellwords.escape` 로 감싼다. 사람이 넘길 이름·예시 명령은 `docs/RELEASE.md`
+"### 34." 의 dart-define 표 아래에 넣었다.
+
+**증명(수정 후)** — 같은 하네스, 값을 환경변수로 주고:
+
+```
+$ API_BASE_URL=https://example/api/v1 GOOGLE_SERVER_CLIENT_ID=gsc \
+  ADMOB_BANNER_AD_UNIT_ID=b ADMOB_INTERSTITIAL_AD_UNIT_ID=i ADMOB_REWARDED_AD_UNIT_ID=r \
+  ruby capture.rb mobile/android/fastlane/Fastfile build_appbundle
+CMD: flutter build appbundle --release --dart-define=API_BASE_URL=https://example/api/v1
+     --dart-define=GOOGLE_SERVER_CLIENT_ID=gsc --dart-define=ADMOB_BANNER_AD_UNIT_ID=b
+     --dart-define=ADMOB_INTERSTITIAL_AD_UNIT_ID=i --dart-define=ADMOB_REWARDED_AD_UNIT_ID=r
+     || echo 'flutter exited nonzero (…)'
+dart-define count: 5
+$ … ruby capture.rb mobile/ios/fastlane/Fastfile build_flutter_ios
+CMD: flutter build ios --release --no-codesign --dart-define=API_BASE_URL=… (5개)
+dart-define count: 5
+```
+
+고정한 테스트 — 같은 하네스를 pytest 안에서 돌린다(`ruby` 가 없으면 skip, 정적
+검사는 항상 돈다):
+
+- `test_manual_lane_build_passes_the_dart_defines[이름-Fastfile-함수]` 10개 —
+  두 플랫폼 × 필수 5개가 실제 빌드 명령에 값까지 붙어 나온다
+- `test_manual_lane_stops_when_a_dart_define_is_missing[…]` 10개 — 하나를 비우면
+  exit 2(`UI.user_error!`)로 멈추고 **`flutter build` 가 아예 포착되지 않는다**
+- `test_manual_lane_dart_define_names_are_documented[…]` 2개 — 이름이 Fastfile 과
+  `docs/RELEASE.md` 양쪽에 있다
+
+### D-34-3 — self-hosted 러너의 인증 파일과 keychain 이 실패 후 남는다
+
+**재현(수정 전)** — 리뷰 방법 그대로. ① Firebase 업로드 `run` 블록을 임시
+`RUNNER_TEMP` + 비인증 더미 문자열로 돌리고 `npx` 를 exit 1 함수로 대체:
+
+```
+$ bash drive.sh        # npx() { return 1; }
+npx stub: simulated upload failure
+exit=1
+--- runner_temp 잔존 ---
+firebase-key-repro1.json          # 서비스 계정 JSON 이 남는다
+```
+
+② match 스텝을 `security`/`openssl` 무해 스텁 + `fastlane` exit 1 로 돌리고 임시
+`GITHUB_ENV` 를 주면:
+
+```
+$ bash drive_match.sh
+security stub: create-keychain … fastlane stub: simulated match failure
+exit=1
+--- GITHUB_ENV ---
+                                   # 비어 있다 — KEYCHAIN_NAME 이 안 넘어간다
+```
+
+**원인.** 정리를 **성공 경로의 마지막 줄**에 뒀다. Actions 는 `bash -e` 로 돌리므로
+업로드가 실패하면 뒤의 `rm` 까지 가지 않는다(Firebase 서비스 계정 JSON, 홈 디렉터리의
+ASC P8). Android keystore·`key.properties` 와 `ios/fastlane/api_key.json` 은 성공 시에도
+지우는 코드가 없었다. keychain 은 `always()` 정리 스텝이 있었지만 이름을
+`$GITHUB_ENV` 에 넘기는 줄이 `fastlane match` **뒤**라, match 가 실패하면 이미 만든
+keychain 을 못 찾는다. self-hosted 러너는 잡이 끝나도 호스트(사용자 맥)가 폐기되지
+않으므로 후속 잡·프로세스가 이 자료에 접근할 수 있다. `.gitignore` 는 커밋만 막는다.
+
+**수정.** 제어 흐름 자체를 바꿨다 — 성공 경로에 의존하지 않는다.
+
+1. Firebase 업로드: `trap 'rm -f "$KEY_FILE"' EXIT INT TERM` 으로 바꾸고 끝의 `rm`
+   제거(취소도 덮는다).
+2. TestFlight 업로드: 꺼낸 P8 경로를 `P8_FILE` 로 잡고 같은 trap, 끝의 `rm` 제거.
+3. match 스텝: `echo "KEYCHAIN_NAME=…" >> $GITHUB_ENV` 를 keychain 을 **만든 직후**
+   (`fastlane match` 앞)로 옮겼다.
+4. android 잡 끝에 `Cleanup signing material` (`if: always()`) 추가 —
+   `android/app/upload-keystore.jks`, `android/key.properties`,
+   `$RUNNER_TEMP/firebase-key-$GITHUB_RUN_ID.json` 제거.
+5. ios 잡의 `Cleanup keychain` 을 `Cleanup signing material` 로 확장 —
+   keychain 삭제 + `ios/fastlane/api_key.json` 제거(둘 다 `if: always()`).
+
+**증명(수정 후)** — 같은 재현 스크립트:
+
+```
+$ bash drive.sh
+npx stub: simulated upload failure
+exit=1
+--- runner_temp 잔존 ---
+(비어 있으면 정상)                  # 남은 파일 0개
+
+$ bash drive_match.sh
+… fastlane stub: simulated match failure
+exit=1
+--- GITHUB_ENV ---
+KEYCHAIN_NAME=ci-repro2.keychain   # always() 정리가 찾을 수 있다
+```
+
+고정한 테스트 — 워크플로의 `run` 블록을 스텁과 함께 **실제로 `bash -e` 로 돌린다**
+(`$HOME`·`RUNNER_TEMP`·`GITHUB_ENV` 를 `tmp_path` 로 돌려 실제 홈·실제 keychain 은
+건드리지 않고, 실제 키·외부 호출도 없다):
+
+- `test_firebase_key_is_removed_when_the_upload_fails` — `npx` 실패 후
+  `RUNNER_TEMP` 가 비어 있다
+- `test_keychain_name_reaches_the_cleanup_step_even_if_match_fails` — `fastlane`
+  실패 후에도 `GITHUB_ENV` 에 `KEYCHAIN_NAME=ci-<run id>.keychain` 이 있다
+- `test_extracted_p8_is_removed_when_the_testflight_upload_fails` — `xcrun` 실패 후
+  임시 홈 아래 `*.p8` 이 0개다
+- `test_android_signing_material_is_deleted_after_the_job`,
+  `test_asc_api_key_file_is_deleted_after_the_job` — `always()` 스텝이 keystore·
+  `key.properties`·`api_key.json`·keychain 을 지운다
+
+### 전체 검증
+
+고치기 전 → 고친 뒤 (같은 테스트 파일):
+
+```
+$ uv run pytest tests/test_app_deploy_workflow.py -q     # 구현 원본 + 새 테스트
+31 failed, 71 passed in 1.65s
+$ uv run pytest tests/test_app_deploy_workflow.py -q     # 수정 후
+102 passed in 1.76s
+```
+
+`ruff format` 은 이 레포의 게이트가 아니다(기존 `tests/` 46개 중 17개가 미준수) —
+`ruff check` 만 맞췄다.
+
+#### 미수정 MINOR
+
+리뷰 라운드 1 은 MINOR 0건이다. 수정 중에 새로 적어 둘 만한 것:
+
+- BASELINE 은 Profile 설정에도 배포 identity 를 넣어 뒀지만 따라가지 않았다
+  (로컬 `flutter run --profile` 이 배포 인증서를 요구하게 된다). 배포 경로는
+  Release 만 쓴다 — D-34-1 절 참조.
