@@ -515,4 +515,29 @@ void main() {
     // 남의 보드는 화면에서도 사라진다(새 계정 보드를 읽는 중).
     expect(container.read(todayPuzzleProvider).value, isNull);
   });
+
+  test('첫 조회 중 계정이 바뀌면 그 응답은 보드가 되지 않는다', () async {
+    // `build` 가 돌려준 future 는 프레임워크가 세대 검사 없이 바로 상태에
+    // 쓴다 — 그 사이 계정이 바뀌었으면 옛 계정 보드가 새 토큰 위에 앉는다.
+    final api = FakeApiClient();
+    final gate = Completer<void>();
+    api.fetchTodayPuzzleGate = gate;
+    final container = _container(
+      api,
+      tokenStore: InMemoryGuestTokenStore('guest-a'),
+    );
+    final pending = container.read(todayPuzzleProvider.future);
+
+    await container.read(guestTokenProvider.notifier).replaceWith('guest-b');
+    api.fetchTodayPuzzleGate = null;
+    gate.complete();
+    expect(await pending, isNull);
+
+    expect(container.read(todayPuzzleProvider).value, isNull);
+    expect(
+      await container.read(todayPuzzleProvider.notifier).submit('지하촌역'),
+      isFalse,
+    );
+    expect(api.submittedGuesses, isEmpty);
+  });
 }

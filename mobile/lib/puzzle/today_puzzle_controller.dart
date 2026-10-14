@@ -57,15 +57,23 @@ class TodayPuzzleNotifier extends AsyncNotifier<TodayState?> {
     return _load();
   }
 
-  Future<TodayState> _load() async {
-    // 보드를 읽는 자리에서 계정을 적어 둔다 — 응답이 아니라 **요청**이 어느
-    // 계정에서 떠났는지가 제출 때 비교할 값이다.
-    _accountEpoch = _account.state;
+  /// 보드를 읽는다. 떠날 때의 계정을 적어 두고([_accountEpoch]) 돌아올 때
+  /// 다시 본다 — 그 사이 계정이 바뀌었으면 이 보드는 **남의 것**이라 null 을
+  /// 돌려준다(화면은 스켈레톤).
+  ///
+  /// 세대 번호로는 이 경우를 다 막을 수 없다: `build` 가 돌려준 future 는
+  /// 프레임워크가 세대 검사를 거치지 않고 바로 상태에 쓴다([refresh] 의 설명과
+  /// 같은 이유). 그래서 "쓰지 말라" 를 돌려주는 값 쪽에서 판정한다.
+  Future<TodayState?> _load() async {
+    final epoch = _account.state;
+    _accountEpoch = epoch;
     try {
-      return TodayPuzzleReady(puzzle: await _api.fetchTodayPuzzle());
+      final puzzle = await _api.fetchTodayPuzzle();
+      if (epoch != _account.state) return null;
+      return TodayPuzzleReady(puzzle: puzzle);
     } on NoPuzzleTodayApiException {
       // 오류가 아니라 "아직" 이다 — 카운트다운 카드로 보여준다(OVERRIDES §7).
-      return const TodayNoPuzzle();
+      return epoch == _account.state ? const TodayNoPuzzle() : null;
     }
   }
 
