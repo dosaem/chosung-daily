@@ -1,0 +1,356 @@
+name: Mobile Build & Distribute
+
+# develop 푸시 → Android APK 를 Firebase App Distribution, iOS 를 TestFlight
+# main 푸시 → Android AAB 를 Play internal 트랙, iOS 를 TestFlight
+#            (App Store·Play 프로덕션 승격은 사람 — docs/RELEASE.md "34.")
+#
+# 분석·테스트는 flutter-ci.yml(ubuntu-latest)이 하고 여기서는 서명·업로드만 한다.
+# 러너가 사용자 맥 한 대(self-hosted)라서, PR 마다 그 맥을 묶지 않으려고 나눴다.
+# BASELINE: ~/Code/Habitopia (앱이 하위 디렉터리인 레포) + BuildUrPalace 의 AAB 검증.
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/flutter.yml'
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Platform to build'
+        required: true
+        default: 'both'
+        type: choice
+        options:
+          - both
+          - android
+          - ios
+
+env:
+  # flutter-ci.yml 과 같은 버전이어야 한다(tests/test_app_deploy_workflow.py 가 지킨다).
+  FLUTTER_VERSION: '3.38.6'
+
+jobs:
+  setup:
+    runs-on: self-hosted
+    outputs:
+      env_name: ${{ steps.env.outputs.env_name }}
+      is_prod: ${{ steps.env.outputs.is_prod }}
+      run_android: ${{ steps.env.outputs.run_android }}
+      run_ios: ${{ steps.env.outputs.run_ios }}
+      api_base_url: ${{ steps.env.outputs.api_base_url }}
+    steps:
+      - id: env
+        env:
+          # 서버 주소는 비밀이 아니라 레포 variable 로 둔다(Settings → Variables).
+          # develop 쪽 도메인은 NAS DNS·터널 작업(스펙 D3) 뒤에 정해지므로 여기
+          # 하드코딩하지 않는다 — 비어 있으면 아래에서 빌드를 멈춘다.
+          API_BASE_URL_PROD: ${{ vars.API_BASE_URL_PROD }}
+          API_BASE_URL_DEV: ${{ vars.API_BASE_URL_DEV }}
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "env_name=prod" >> $GITHUB_OUTPUT
+            echo "is_prod=true" >> $GITHUB_OUTPUT
+            API_BASE_URL="$API_BASE_URL_PROD"
+            VARIABLE_NAME=API_BASE_URL_PROD
+          else
+            echo "env_name=dev" >> $GITHUB_OUTPUT
+            echo "is_prod=false" >> $GITHUB_OUTPUT
+            API_BASE_URL="$API_BASE_URL_DEV"
+            VARIABLE_NAME=API_BASE_URL_DEV
+          fi
+
+          # 빈 값을 그대로 넘기면 앱이 빈 주소로 빌드돼 테스터 손에서만 깨진다.
+          if [ -z "$API_BASE_URL" ]; then
+            echo "::error::레포 variable $VARIABLE_NAME 가 비어 있다 (docs/RELEASE.md '34.')"
+            exit 1
+          fi
+          echo "api_base_url=$API_BASE_URL" >> $GITHUB_OUTPUT
+
+          PLATFORM="${{ github.event.inputs.platform || 'both' }}"
+          if [ "$PLATFORM" = "android" ] || [ "$PLATFORM" = "both" ]; then
+            echo "run_android=true" >> $GITHUB_OUTPUT
+          else
+            echo "run_android=false" >> $GITHUB_OUTPUT
+          fi
+          if [ "$PLATFORM" = "ios" ] || [ "$PLATFORM" = "both" ]; then
+            echo "run_ios=true" >> $GITHUB_OUTPUT
+          else
+            echo "run_ios=false" >> $GITHUB_OUTPUT
+          fi
+
+  android:
+    needs: setup
+    if: needs.setup.outputs.run_android == 'true'
+    runs-on: self-hosted
+    defaults:
+      run:
+        working-directory: mobile
+    env:
+      # 광고 유닛 ID·OAuth 클라이언트 ID 는 앱 바이너리에 그대로 들어가는 공개
+      # 식별자라 secret 이 아니라 variable 로 둔다. 광고 유닛은 AdMob 앱(=플랫폼)
+      # 마다 다르므로 잡별로 자기 플랫폼 값만 넘긴다. 앱이 읽는 이름은 한 벌
+      # (`ADMOB_*_AD_UNIT_ID`)이라 플랫폼 분기가 Dart 코드에 생기지 않는다.
+      # 값에 공백이 없는 식별자·URL 뿐이라 빌드 스텝에서 그대로 단어 분리한다.
+      DART_DEFINES: >-
+        --dart-define=API_BASE_URL=${{ needs.setup.outputs.api_base_url }}
+        --dart-define=SENTRY_DSN=${{ secrets.FLUTTER_SENTRY_DSN }}
+        --dart-define=GOOGLE_SERVER_CLIENT_ID=${{ vars.GOOGLE_SERVER_CLIENT_ID }}
+        --dart-define=ADMOB_BANNER_AD_UNIT_ID=${{ vars.ADMOB_BANNER_AD_UNIT_ID_ANDROID }}
+        --dart-define=ADMOB_INTERSTITIAL_AD_UNIT_ID=${{ vars.ADMOB_INTERSTITIAL_AD_UNIT_ID_ANDROID }}
+        --dart-define=ADMOB_REWARDED_AD_UNIT_ID=${{ vars.ADMOB_REWARDED_AD_UNIT_ID_ANDROID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      # Firebase 설정 파일은 커밋하지 않는다(스펙 D0). 없으면 Gradle 플러그인과
+      # 런타임 초기화를 건너뛴 앱이 나온다 — 빌드는 돌고 Analytics 만 없다.
+      - name: Write google-services.json (있을 때만)
+        env:
+          GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
+        run: |
+          if [ -z "$GOOGLE_SERVICES_JSON_BASE64" ]; then
+            echo "::warning::GOOGLE_SERVICES_JSON_BASE64 secret 이 없어 Firebase 없이 빌드한다"
+            exit 0
+          fi
+          echo "$GOOGLE_SERVICES_JSON_BASE64" | base64 -d > android/app/google-services.json
+
+      - name: Decode keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          # 서명은 건너뛸 수 없다 — 없으면 디버그 키로 서명된 APK 가 스토어로
+          # 올라가므로, 조용히 통과시키지 않고 여기서 멈춘다.
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::error::KEYSTORE_BASE64 secret 이 없다 (docs/RELEASE.md '34.' D2)"
+            exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > android/app/upload-keystore.jks
+
+      - name: Create key.properties
+        env:
+          STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          cat > android/key.properties <<EOF
+          storeFile=upload-keystore.jks
+          storePassword=$STORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEY_PASSWORD
+          EOF
+
+      - name: Build APK (dev)
+        if: needs.setup.outputs.is_prod == 'false'
+        run: flutter build apk --release $DART_DEFINES
+
+      - name: Build AAB (prod)
+        if: needs.setup.outputs.is_prod == 'true'
+        # flutter tool 은 debugSymbolLevel=FULL 일 때 스트립 오탐으로 exit 1 을
+        # 반환하지만 AAB 는 정상 생성된다(배포 lib 은 스트립, 심볼은
+        # BUNDLE-METADATA 에 들어간다). 오탐을 무조건 삼키지 않도록 AAB 가 진짜
+        # 생겼는지와 배포 lib 이 스트립됐는지를 직접 확인한다.
+        run: |
+          flutter build appbundle --release $DART_DEFINES \
+            || echo "flutter exited nonzero (known strip false-positive with debugSymbolLevel=FULL)"
+          test -f build/app/outputs/bundle/release/app-release.aab
+          python3 - <<'EOF'
+          import os
+          import subprocess
+          import sys
+          import tempfile
+          import zipfile
+
+          z = zipfile.ZipFile('build/app/outputs/bundle/release/app-release.aab')
+          data = z.read('base/lib/arm64-v8a/libapp.so')
+          with tempfile.NamedTemporaryFile(delete=False, suffix='.so') as f:
+              f.write(data)
+              path = f.name
+          out = subprocess.run(['file', path], capture_output=True, text=True).stdout
+          os.unlink(path)
+          if 'not stripped' in out:
+              sys.exit('libapp.so is NOT stripped — real strip failure, aborting')
+          print('AAB sanity OK: delivered libs are stripped')
+          EOF
+
+      - name: Upload to Firebase App Distribution (dev)
+        if: needs.setup.outputs.is_prod == 'false'
+        env:
+          FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          # 커밋 메시지를 `${{ }}` 로 명령줄에 바로 끼우면 메시지 안의 따옴표·
+          # `$(...)` 가 러너(사용자 맥)에서 실행된다 — 환경변수로 받는다.
+          RELEASE_NOTES: ${{ github.event.head_commit.message || 'Manual build' }}
+        run: |
+          KEY_FILE="$RUNNER_TEMP/firebase-key-$GITHUB_RUN_ID.json"
+          echo "$FIREBASE_SERVICE_ACCOUNT" > "$KEY_FILE"
+          export GOOGLE_APPLICATION_CREDENTIALS="$KEY_FILE"
+          npx --yes firebase-tools appdistribution:distribute \
+            build/app/outputs/flutter-apk/app-release.apk \
+            --app "$FIREBASE_APP_ID" --groups "testers" \
+            --release-notes "$RELEASE_NOTES ($GITHUB_SHA)"
+          rm -f "$KEY_FILE"
+
+      - name: Upload to Play Store internal track (prod)
+        if: needs.setup.outputs.is_prod == 'true'
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.GOOGLE_PLAY_KEY_JSON }}
+          packageName: com.dosaem.chosung
+          # `uses:` 스텝의 경로는 defaults.run.working-directory 를 따르지 않는다.
+          releaseFiles: mobile/build/app/outputs/bundle/release/app-release.aab
+          track: internal
+          status: completed
+          changesNotSentForReview: false
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: chosung-android-${{ needs.setup.outputs.env_name }}-${{ github.run_number }}
+          path: |
+            mobile/build/app/outputs/flutter-apk/app-release.apk
+            mobile/build/app/outputs/bundle/release/app-release.aab
+          if-no-files-found: ignore
+          retention-days: 3
+
+  ios:
+    needs: setup
+    if: needs.setup.outputs.run_ios == 'true'
+    runs-on: self-hosted
+    defaults:
+      run:
+        working-directory: mobile
+    env:
+      DART_DEFINES: >-
+        --dart-define=API_BASE_URL=${{ needs.setup.outputs.api_base_url }}
+        --dart-define=SENTRY_DSN=${{ secrets.FLUTTER_SENTRY_DSN }}
+        --dart-define=GOOGLE_SERVER_CLIENT_ID=${{ vars.GOOGLE_SERVER_CLIENT_ID }}
+        --dart-define=ADMOB_BANNER_AD_UNIT_ID=${{ vars.ADMOB_BANNER_AD_UNIT_ID_IOS }}
+        --dart-define=ADMOB_INTERSTITIAL_AD_UNIT_ID=${{ vars.ADMOB_INTERSTITIAL_AD_UNIT_ID_IOS }}
+        --dart-define=ADMOB_REWARDED_AD_UNIT_ID=${{ vars.ADMOB_REWARDED_AD_UNIT_ID_IOS }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      # Runner 타깃에 GoogleService-Info.plist 를 넣는 것은 사람이 한 번 하는
+      # 일이다(docs/RELEASE.md "22."). 넣은 뒤에는 파일이 없으면 Xcode 빌드가
+      # "Build input file cannot be found" 로 죽으므로 여기서 secret 으로 쓴다.
+      - name: Write GoogleService-Info.plist (있을 때만)
+        env:
+          GOOGLE_SERVICE_INFO_PLIST_BASE64: ${{ secrets.GOOGLE_SERVICE_INFO_PLIST_BASE64 }}
+        run: |
+          if [ -z "$GOOGLE_SERVICE_INFO_PLIST_BASE64" ]; then
+            echo "::warning::GOOGLE_SERVICE_INFO_PLIST_BASE64 secret 이 없어 Firebase 없이 빌드한다"
+            exit 0
+          fi
+          echo "$GOOGLE_SERVICE_INFO_PLIST_BASE64" | base64 -d > ios/Runner/GoogleService-Info.plist
+
+      - name: Pod install
+        working-directory: mobile/ios
+        run: pod install
+
+      - name: Create App Store Connect API key file
+        env:
+          API_KEY_JSON: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+        run: |
+          if [ -z "$API_KEY_JSON" ]; then
+            echo "::error::APP_STORE_CONNECT_API_KEY secret 이 없다 (docs/RELEASE.md '34.' D2)"
+            exit 1
+          fi
+          echo "$API_KEY_JSON" > ios/fastlane/api_key.json
+
+      - name: Verify fastlane
+        run: |
+          if ! command -v fastlane &> /dev/null; then
+            brew install fastlane
+          fi
+          fastlane --version
+
+      - name: Setup signing via fastlane match
+        working-directory: mobile/ios
+        env:
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
+        run: |
+          # 격리된 임시 keychain 을 쓴다(사용자 맥의 다른 인증서와 충돌 회피).
+          KEYCHAIN_NAME="ci-$GITHUB_RUN_ID.keychain"
+          KEYCHAIN_PASS=$(openssl rand -base64 16)
+          security create-keychain -p "$KEYCHAIN_PASS" "$KEYCHAIN_NAME"
+          security set-keychain-settings -lut 7200 "$KEYCHAIN_NAME"
+          security unlock-keychain -p "$KEYCHAIN_PASS" "$KEYCHAIN_NAME"
+          # 검색 경로에 추가 (xcodebuild 가 찾도록)
+          security list-keychains -d user -s "$KEYCHAIN_NAME" $(security list-keychains -d user | xargs)
+
+          # --readonly: CI 가 인증서·프로파일을 새로 만들지 않는다(사람이 D2 에서 만든다).
+          fastlane match appstore --readonly \
+            --keychain_name "$KEYCHAIN_NAME" \
+            --keychain_password "$KEYCHAIN_PASS" \
+            --api_key_path fastlane/api_key.json
+
+          # xcodebuild 가 읽는 경로로 profile 복사
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          cp ~/Library/Developer/Xcode/UserData/Provisioning\ Profiles/*.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/ 2>/dev/null || true
+
+          echo "KEYCHAIN_NAME=$KEYCHAIN_NAME" >> $GITHUB_ENV
+
+      - name: Build IPA
+        run: |
+          flutter build ipa --release $DART_DEFINES \
+            --export-options-plist=ios/ExportOptions.plist
+
+      - name: Upload to TestFlight
+        working-directory: mobile/ios
+        run: |
+          IPA_PATH=$(find ../build/ios/ipa -name "*.ipa" | head -1)
+          # api_key.json 에서 P8 을 꺼내 altool 을 직접 부른다
+          # (fastlane pilot 의 업로드 폴링 버그 회피 — BASELINE 실측).
+          KEY_ID=$(jq -r .key_id fastlane/api_key.json)
+          ISSUER=$(jq -r .issuer_id fastlane/api_key.json)
+          mkdir -p ~/.appstoreconnect/private_keys
+          jq -r .key fastlane/api_key.json > ~/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8
+          chmod 600 ~/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8
+          xcrun altool --upload-app -f "$IPA_PATH" --type ios \
+            --apiKey "$KEY_ID" --apiIssuer "$ISSUER"
+          rm -f ~/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: chosung-ios-${{ needs.setup.outputs.env_name }}-${{ github.run_number }}
+          path: mobile/build/ios/ipa/*.ipa
+          if-no-files-found: ignore
+          retention-days: 3
+
+      - name: Cleanup keychain
+        if: always()
+        run: |
+          if [ -n "$KEYCHAIN_NAME" ]; then
+            security delete-keychain "$KEYCHAIN_NAME" || true
+          fi
