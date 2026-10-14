@@ -133,7 +133,7 @@ S1 오늘 탭을 서버 이력으로 그리는 보드 + 제출 + 글자별 피�
 |---|---|---|---|
 | P2 | `_ShowResultButton` | 완료 상태의 "결과 보기" 가 **눌리지 않는다**(`onPressed: null`) — 결과 시트는 티켓 26 이다. 버튼 자리·문구·상태만 확정했다 | 티켓 26 |
 | P2 | `HintCard` | "광고 보고 힌트 미리 보기" 버튼도 같은 이유로 비활성(보상형 광고·`hint-unlock` 호출은 31) | 티켓 31 |
-| P3 | `PuzzleBoard` | OVERRIDES §7 의 타일 뒤집기 모션(350ms, 행 stagger 60ms)을 넣지 않았다. `prefers-reduced-motion` 분기도 그때 같이 | 티켓 26 이후 폴리시 |
+| ~~P3~~ | `PuzzleBoard` | ~~OVERRIDES §7 의 타일 뒤집기 모션(350ms, 행 stagger 60ms)을 넣지 않았다~~ → **수정 라운드 1 에서 넣었다**(D-25-4, 아래 §8) | 해소 |
 | P3 | 제출 실패 문구 | 429 `RATE_LIMITED` 를 따로 구분하지 않고 "제출하지 못했어요" 로 묶는다 — 서버 메시지를 그대로 쓰면 en 사용자에게 한국어가 나간다 | — (의도) |
 | P2 | — | 시뮬레이터·실기기 스크린샷은 없다. 골든은 테스트 렌더러다 | 티켓 35·36 |
 
@@ -214,3 +214,170 @@ $ TEST_DATABASE_URL=...chosung_daily_test_t25 TEST_REDIS_URL=redis://127.0.0.1:6
   보여주는 경로가 26 머지 전까지는 없다.
 - **`PATCH /me` 는 앱 코드에서 아직 아무도 부르지 않는다.** 티켓이 지정한 항목이라
   ApiClient·Fake·Dio 테스트까지만 넣었고, 쓰는 쪽은 설정 화면(29·30)이다.
+
+---
+
+## 8. 수정 라운드 1 (리뷰 `review/impl-review-25.md` 라운드 1)
+
+Codex 최종 리뷰 r1 의 판정은 FAIL — MAJOR 3건(D-25-1·2·3), MINOR 1건(D-25-4).
+**네 건 모두 고쳤고**, 각 결함은 리뷰에 적힌 재현 순서를 그대로 테스트로 세워
+먼저 빨갛게 만든 뒤 고쳤다(red → green). 리뷰어 지적이 틀렸다고 판단한 건
+없다. 아래 "덧붙이는 판단" 두 줄만 고치지 않은 이유를 적었다.
+
+구현 커밋: `fix(25): 리뷰 r1 — 응답 경합·오류 복구·타일 뒤집기 모션`.
+앱 테스트 **187 → 201**(이 라운드가 더한 건 14개: 컨트롤러 9, 화면 5).
+
+### D-25-1 — 늦은 조회/제출 응답이 최신 보드와 제출 잠금을 덮어쓴다 (MAJOR)
+
+**원인.** 조회·제출·409 재조회 세 경로가 모두 "응답이 오면 무조건 쓴다" 였다.
+요청 세대도, 서로의 순서 보장도 없어서 (a) 제출이 시작할 때 캡처한 `puzzle` 에
+`applyGuess` 를 적용해 그 사이 읽어온 새 보드를 과거로 되돌리고, (b) 제출 전에
+떠난 `GET` 이 늦게 도착하면 방금 쌓은 행을 지우고, (c) 제출 대기 중 `_load()` 가
+`submitting: false` 인 상태를 만들어 중복 제출을 다시 열었다.
+
+**수정** (`lib/puzzle/today_puzzle_controller.dart`).
+
+1. **세대 번호**(`_generation`): 조회·제출은 떠날 때 번호를 올리고, 응답이
+   돌아오면 자기 번호가 아직 최신일 때만 상태에 쓴다(`_canCommit`). 먼저 떠난
+   느린 응답은 버린다. provider 가 그 사이 버려졌으면(`retry()` → `invalidateSelf`)
+   `ref.mounted` 에서 같이 걸러진다.
+2. **제출은 보드를 독점한다**: 제출 응답을 기다리는 동안의 `refresh()` 는 보드를
+   건드리지 않고 `_refreshQueued` 로 미뤘다가 제출이 끝난 뒤 한 번 돌린다. 그래서
+   (a) 는 "제출 결과 → 그다음 서버 보드" 순서가 되고(최종 상태는 리뷰가 기대한
+   새 퍼즐 B), (c) 의 잠금은 풀리지 않는다. 제출 중 읽은 이력엔 방금 보낸 답이
+   아직 없다는 게 핵심이다 — 그걸 쓰면 사용자가 본 행이 사라진다.
+3. **첫 조회 중의 복귀는 그 조회를 기다린다**: `build()` 가 돌려준 future 는
+   프레임워크가 직접 상태에 쓰므로 세대 검사로 버릴 수 없다. 그래서 두 번째
+   조회를 아예 띄우지 않는다(`state.isLoading && !state.hasValue` → 즉시 반환).
+
+**증명.** `test/puzzle/today_puzzle_controller_test.dart` group `응답 경합` 4개.
+`FakeApiClient` 에 `submitGuessGate` 를 더하고, 응답 값을 **호출 시점에** 붙잡게
+고쳐(`final response = puzzle;`) "늦게 도착한 옛 응답" 을 테스트가 만들 수 있게
+했다 — 고치기 전에는 붙잡아 둔 조회가 그 사이 바뀐 값을 돌려줘서 경합 자체를
+재현할 수 없었다.
+
+| 테스트 | 고치기 전 |
+|---|---|
+| 제출을 기다리는 동안엔 재조회가 보드를 건드리지 않는다 — 잠금도 유지된다 | `Expected: <41> Actual: <42>` (제출 중 보드가 바뀌고 잠금이 풀렸다) |
+| 제출 전에 떠난 조회가 늦게 도착해도 쌓인 행을 지우지 않는다 | `Expected: an object with length of <1> Actual: []` |
+| 느린 재조회 뒤에 떠난 재조회가 이긴다 | 늦게 온 옛 응답(`attemptsLeft 4`)이 최신(`3`)을 덮었다 |
+| 첫 조회가 끝나기 전의 복귀는 그 조회를 기다린다 — 두 번 읽지 않는다 | (새 보호 장치) |
+
+### D-25-2 — 보드가 있는 상태의 네트워크 실패에 재시도 경로가 없다 (MAJOR)
+
+**원인.** 두 갈래였다.
+
+- 제출이 `NetworkApiException` 으로 실패하면 `TodayNotice.offline` 이 **영구히**
+  남는다. 보드 화면엔 오류 카드가 없어 재시도를 띄울 자리가 없었고, 그래서
+  연결이 돌아와도 앱을 내렸다 올리는 것 말고는 입력을 열 방법이 없었다.
+- 재조회 실패를 `AsyncError` 로만 남겼다. Riverpod 3.3.2 의 `copyWithPrevious`
+  가 이전 값을 함께 들고 있어서 화면의 `switch` 는 앞의 `Ready` 분기를 고르고,
+  오류는 아무도 안 보는 곳에 남는다 — 실패한 적이 없는 화면처럼 보였다. 409 뒤
+  재조회가 실패하면 그 "이전 값" 이 `submitting: true` 라 입력이 영구히 잠겼다.
+
+**수정.**
+
+1. `_commitLoad` 가 조회 실패를 **상태로** 바꾼다: 보드가 있으면 보드를 지우지
+   않고 `TodayNotice.offline`(네트워크) / 새 `TodayNotice.refreshFailed`(그 밖)
+   를 올린다(`submitting` 은 자연히 풀린다). 보드가 없을 때만 `AsyncError` 로
+   둬서 오류 카드가 받는다. 409 재조회 실패도 같은 경로를 탄다.
+2. `TodayNotice.showsRetry`(= `offline`·`refreshFailed`) 를 더하고, 화면에
+   인라인 재시도를 붙였다: 오프라인은 상단 `OfflineBanner(onRetry:)` 안에,
+   `refreshFailed` 는 보드 위 안내 줄 끝에. 재시도는 `refresh()` 라서
+   스켈레톤으로 돌아가지 않는다(멀쩡한 보드를 깜빡이게 하지 않는다).
+   오프라인일 때 안내 줄을 생략하게 바꿨다 — 배너가 이미 같은 문장을 말한다.
+
+**증명.**
+
+| 테스트 | 고치기 전 |
+|---|---|
+| (화면) 제출이 오프라인으로 실패해도 배너의 재시도로 입력이 다시 열린다 | 재시도 버튼이 없어 `findsOne` 실패 |
+| (화면) 재조회가 서버 오류로 실패하면 보드 위에 안내 + 재시도가 남는다 | 안내·재시도 둘 다 없음(화면이 정상처럼 보인다) |
+| (컨트롤러) 서버 오류면 보드를 남기고 "다시 불러오지 못했어요" 안내를 올린다 | `hasError` `Expected: false Actual: <true>` |
+| (컨트롤러) 네트워크 오류면 오프라인 안내로 바꿔 입력을 잠근다 | `notice` 가 `null` |
+| (컨트롤러) 409 뒤 재조회가 실패해도 제출 잠금이 풀린다 | `submitting` `Expected: false Actual: <true>` |
+| (컨트롤러) 제출이 오프라인으로 실패한 뒤 재시도로 입력이 다시 열린다 | (복구 경로 고정) |
+
+### D-25-3 — 이전 안내 메시지가 있으면 재조회 오프라인 오류를 무시한다 (MAJOR)
+
+**원인.** `today_tab.dart` 의 `ready.notice?.blocksInput ?? _isOffline(state.error)`
+는 **notice 가 있으면 오른쪽을 아예 평가하지 않는다**(`??` 는 null 일 때만 본다).
+그래서 `puzzleChanged`·`submitFailed` 가 떠 있는 동안의 네트워크 오류는 배너도
+입력 잠금도 만들지 못했다. 판정이 두 곳(notice / `state.error`)에 흩어져 있던 게
+뿌리다.
+
+**수정.** 판정을 notice 하나로 모았다 — D-25-2 의 `_commitLoad` 가 재조회 실패를
+항상 notice 로 바꿔 놓으므로 보드 분기는 notice 만 보면 된다. 남은
+`state.error` 는 `??` 가 아니라 `||` 로 **같이** 본다(두 번째 방어선). 덧붙여
+오류 분기를 "퍼즐 없음" 앞으로 옮겼다 — 카운트다운 카드에서 재시도가 실패하면
+같은 `copyWithPrevious` 때문에 실패가 안 보였다.
+
+**증명.** `(컨트롤러) 앞선 안내가 있어도 재조회 오프라인이 안내를 덮어쓴다`
+— 고치기 전 `Expected: offline Actual: puzzleChanged`. 화면 쪽은
+`앞선 안내가 있어도 재조회가 오프라인이면 배너가 뜨고 입력이 잠긴다`(409 →
+"새 퍼즐이 있어요" → 복귀 `GET` 네트워크 실패 → 배너 + `TextField.enabled false`
++ 제출 버튼 `onPressed null`)로 고정했다.
+
+### D-25-4 — 명시된 타일 피드백 전환 모션이 없다 (MINOR)
+
+**원인.** `PuzzleBoard` 가 전부 `StatelessWidget` 이라 애니메이션을 걸 자리가
+없었다. 구현 증거 §4 가 이걸 후속 폴리시로 넘겼지만 티켓이 참조하는 OVERRIDES
+§7 에는 그런 유예가 없다 — 리뷰 판단이 맞다.
+
+**수정.** 시도 행이 **처음 그려질 때** 뒤집히며 들어온다(`_FlipIn`):
+`rotateX` 90° → 0°, 350ms `easeOut`, 행마다 60ms 늦게 시작. stagger 는 기다리는
+구간을 커브 앞(`Interval`)에 끼워 만들었다 — `Timer` 를 따로 두면 위젯이 먼저
+사라졌을 때 취소할 자리를 하나 더 챙겨야 한다. 상태가 아니라 "행이 새로 붙었다"
+(element 가 새로 생겼다)에 매달려 있어서 보드가 다시 그려져도 이미 있던 행은
+다시 뒤집지 않는다. `MediaQuery.disableAnimationsOf`(iOS "동작 줄이기" ·
+Android 애니메이션 제거)면 즉시 표시한다. 다 열린 행은 변환 자체를 걷어내
+끝난 뒤까지 3D 레이어를 남기지 않는다 — **골든 3장은 그래서 1픽셀도 안 바뀌었다**
+(`flutter test test/golden` 통과, `--update-goldens` 없이).
+
+**증명.** `test/screens/today_tab_test.dart` group `타일 피드백 모션` 2개:
+`제출한 행은 뒤집히며 들어오고 끝나면 변환이 걷힌다`(고치기 전
+`Found 0 widgets with type "Transform"`), `모션 감소 설정이면 뒤집지 않고 바로
+보여준다`(변환 없음 + `hasRunningAnimations` false).
+
+### 덧붙이는 판단 (고치지 않은 것)
+
+- **연결 변경 구독은 넣지 않았다.** D-25-2 가 "연결 변경 구독도 없어" 를 함께
+  적었지만, 티켓·US 8·OVERRIDES §7 이 요구하는 건 "네트워크 오류엔 인라인
+  재시도" 이고 그걸 넣었다. `connectivity_plus` 를 새로 들이는 건 의존성 추가라
+  결함 수정 범위를 넘고(스펙에 없는 SDK), 실제로 연결 복구를 알아도 할 일은
+  같은 `refresh()` 다. 자동 복구가 필요하다고 판단되면 별도 티켓이 맞다.
+- **미수정 MINOR 없음.** 라운드 1 의 MINOR 는 D-25-4 하나였고 고쳤다.
+- 리뷰가 결함으로 세지 않은 비활성 버튼 2개(결과 시트 26, 보상형 힌트 31)와
+  실기기 스크린샷(35·36)은 그대로다 — §4 표의 판단을 유지한다.
+
+### 재검증 (로컬 `main` 위로 rebase 후 전체 재실행)
+
+로컬 `main` 은 그 사이 티켓 23 까지 머지돼 `82e59ea` 다. 그 위로 rebase 했고
+(충돌 없음, 작업 트리 clean), 네 명령을 다시 돌렸다. `origin/main` 은 쓰지 않았다.
+
+```
+$ cd mobile && flutter analyze
+No issues found! (ran in 3.2s)
+
+$ cd mobile && dart format --output=none --set-exit-if-changed .
+Formatted 69 files (0 changed) in 0.21 seconds.      # exit 0
+
+$ cd mobile && flutter test
+00:25 +201: All tests passed!                        # 골든 3장 포함, 187 → 201
+
+$ uv run ruff check .
+All checks passed!                                   # exit 0
+
+$ TEST_DATABASE_URL=...chosung_daily_test_t25 TEST_REDIS_URL=redis://127.0.0.1:6379/13 \
+  TEST_MIGRATION_DATABASE_URL=...chosung_daily_test_t25_migrations uv run pytest -q
+996 passed in 785.37s (0:13:05)                      # exit 0
+```
+
+백엔드 코드는 한 줄도 안 건드렸지만 rebase 로 base 가 바뀌어(티켓 23 머지로
+800 → 996개) 한 번 더 돌렸다. 전용 자원만 썼다 — DB `chosung_daily_test_t25`,
+마이그레이션 DB `chosung_daily_test_t25_migrations`, Redis DB 13. 공용
+`chosung_daily_test`·Redis DB 1 은 건드리지 않았고 새 DB 를 만들지도, 기본 DB
+폴백을 쓰지도 않았다. 접속 문자열의 인증 부분은 기록하지 않는다.
+
+마이그레이션 파일을 만들지 않았으므로 `flask db heads` 는 이 라운드에서도 해당
+없음(백엔드 소스 0개 변경).
