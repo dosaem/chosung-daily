@@ -287,3 +287,260 @@ $ git status --short
 
 로컬 `main`(= `8ddc8fd`) 위에 그대로 올라가 있어 `git rebase main` 은 no-op 이다
 (`git merge-base --is-ancestor main HEAD` 성공).
+
+## 수정 라운드 1
+
+Codex 최종 리뷰(`review/impl-review-30.md` 라운드 1, 판정 FAIL)의 MAJOR 3건을
+고쳤다. 결함마다 **리뷰의 재현 방법을 그대로 실패하는 테스트로 고정한 뒤**
+고쳤고(아래 "재현(빨강)" 출력), 증상이 아니라 원인을 손봤다. BLOCKER·MINOR·
+REPEAT 는 0건이었다. 리뷰 파일은 수정하지 않았다.
+
+### D-30-1 — 시간대 변경 후 기존 리마인더가 이전 시간대로 남음
+
+**원인.** diff 가 `pendingIds`(`Set<int>`)만 받아서 **ID 유무**로만 판단했다.
+리마인더 ID 는 발화하는 **로컬 날짜**(`20261015`)라, 기기 시간대가 바뀌면 같은
+ID 라도 울릴 순간이 달라진다(서울 20:00 예약은 뉴욕에서 07:00 이다). 그런데
+플러그인의 `pendingNotificationRequests()` 는 ID·문구·payload 만 돌려주고 발화
+시각은 알려주지 않아, "걸려 있는 게 언제 울리는가" 를 알 길이 없었다.
+
+**수정 내용.** 그 길을 payload 로 만들었다 — 대기 목록이 스스로 시각을
+말하게 한다.
+
+- `notification_scheduler.dart`: 예약할 때 발화 순간을 `payload`
+  (UTC ISO-8601)로 적고, `pendingNotifications()` 가 그 payload 를 되읽어
+  `PendingNotification(id, when)` 로 돌려준다(`pendingIds()` 를 대체).
+  설치된 `flutter_local_notifications 22.3.2` 는 Android
+  (`FlutterLocalNotificationsPlugin.java:1627`)·iOS
+  (`FlutterLocalNotificationsPlugin.m:294-296`) 양쪽에서 대기 목록에 payload 를
+  실어 돌려준다 — 저장소를 하나 더 두지 않아도 되는 이유다.
+- `notification_sync.dart`: diff 가 ID 가 아니라 **(ID, 발화 순간)** 으로
+  맞춘다. 순간이 다르거나 **모르는**(payload 없음·손상) 예약은 다시 건다.
+  `zonedSchedule` 은 같은 ID 를 덮어쓰므로 중복이 생기지 않는다. 일일 알림은
+  그대로 매번 다시 건다 — 반복 트리거라 적어둔 순간은 첫 발화일 뿐이다.
+- `notification_plan.dart`: 대기 목록 한 줄을 나타내는 `PendingNotification`.
+
+**증명하는 테스트.**
+
+재현(빨강) — 리뷰의 재현 그대로 서울에서 7일치를 걸고 `America/New_York` 로
+바꿔 foreground resume 한 뒤, **계획에 있는 알림이 실제로 OS 에 걸렸는지** 본다:
+
+```
+$ flutter test test/notifications/notification_controller_test.dart \
+    --plain-name '시간대가 바뀌면'
+00:04 +0 -1: 게스트 토큰·복귀 시간대가 바뀌면 걸려 있던 리마인더도 새 로컬 20:00 으로 다시 건다 [E]
+  Expected: contains all of [
+              ScheduledNotification(20261014, reminder, 2026-10-14 20:00:00.000-0400),
+              ScheduledNotification(1, daily, 2026-10-15 09:00:00.000-0400),
+              ScheduledNotification(20261015, reminder, 2026-10-15 20:00:00.000-0400),
+              … 20261016 … 20261020
+            ]
+    Actual: [
+              ScheduledNotification(20261014, reminder, 2026-10-14 20:00:00.000-0400),
+              ScheduledNotification(1, daily, 2026-10-15 09:00:00.000-0400)
+            ]
+     Which: has too few elements (2 < 8)
+```
+
+리뷰가 적은 "실제 예약 호출 ID 는 `[20261014, 1]` 뿐" 과 같은 출력이다.
+고친 뒤:
+
+```
+$ flutter test test/notifications/notification_controller_test.dart
++18: All tests passed!
+
+$ flutter test test/notifications/notification_diff_test.dart
++8: All tests passed!
+```
+
+새 테스트 3건:
+
+- `notification_controller_test.dart`: 시간대가 바뀌면 걸려 있던 리마인더도
+  새 로컬 20:00 으로 다시 건다 (계획 8개 전부가 실제 `schedule` 호출에 있다)
+- `notification_diff_test.dart`: 시간대가 바뀌어 발화 순간이 달라진 리마인더는
+  다시 건다 / 걸려 있는 순간을 모르는 리마인더는 다시 건다
+
+기존 테스트 '이미 걸려 있는 리마인더는 다시 걸지 않는다' 는 **걸려 있는 예약이
+발화 순간까지 들고 있는** 상태로 고쳤다(실제 플러그인이 payload 에서 되읽는
+것과 같은 상태) — 순간이 같으면 여전히 다시 걸지 않는다는 쪽을 지킨다.
+
+### D-30-2 — iOS notification center delegate 미등록으로 실제 알림 탭이 전달되지 않음
+
+**원인.** `ios/Runner/AppDelegate.swift` 가
+`UNUserNotificationCenter.current().delegate` 를 걸지 않았다. 플러그인은 이
+연결을 앱에 맡기므로(고정 버전 README **iOS setup / General setup**), OS 의
+`didReceiveNotificationResponse` 가 플러그인까지 오지 않아 Dart 의
+`onDidReceiveNotificationResponse` 와 종료 상태 launch 판별이 영원히 비어
+있었다.
+
+**수정 내용.** `didFinishLaunchingWithOptions` 에서 플러그인 등록 뒤
+`UNUserNotificationCenter.current().delegate = self` 를 걸고
+`import UserNotifications` 를 추가했다.
+
+README 예제는 `self as? UNUserNotificationCenterDelegate` 인데, 조건부 캐스트는
+채택을 선언하지 않은 클래스에서 **조용히 nil** 이 된다. 그래서 채택이 실제로
+있는지 확인했다: 설치된 엔진 헤더 `FlutterPlugin.h:501` 의
+`@protocol FlutterAppLifeCycleProvider <UNUserNotificationCenterDelegate>` 를
+`FlutterAppDelegate` 가 채택하므로 **상속 채택**이 성립한다(그래서 하위
+클래스에 다시 선언하면 `redundant conformance` 컴파일 에러다 — 아래 출력).
+캐스트 없이 `= self` 로 거는 게 맞고, 전달 메서드는 엔진이 구현해 등록된
+플러그인에게 넘긴다. 전달 사슬을 끝까지 확인했다:
+
+1. 엔진 바이너리의 `FlutterAppDelegate` baseMethods 에
+   `userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:`
+   가 있다(`otool -oV` 로 확인) → `FlutterPluginAppLifeCycleDelegate` 로 넘긴다.
+2. 플러그인은 `registerWithRegistrar` 에서
+   `[registrar addApplicationDelegate:instance]`
+   (`FlutterLocalNotificationsPlugin.m:155`)로 그 목록에 들어간다.
+3. 플러그인이 같은 delegate 메서드를 구현해(`:1112`) Dart 채널로
+   `didReceiveNotificationResponse` 를 보내고, 종료 상태였다면
+   `_launchingAppFromNotification = true`(`:1133`)를 세워
+   `getNotificationAppLaunchDetails` 가 그걸 돌려준다.
+
+**증명하는 테스트.** Dart 위젯 테스트는 `NotificationTaps.add()` 를 직접
+주입하므로 이 누락을 못 본다. 그래서 `android_scheduled_notifications_test.dart`
+와 같은 방식으로 네이티브 파일을 직접 읽어 지킨다
+(`test/config/ios_scheduled_notifications_test.dart`, 주석 줄은 선언으로 세지
+않는다).
+
+재현(빨강):
+
+```
+$ flutter test test/config/ios_scheduled_notifications_test.dart
+00:03 +0 -1: 알림 센터 delegate 를 앱에 연결한다 [E]
+  Expected: contains 'import UserNotifications'
+  UNUserNotificationCenter 를 쓰려면 이 모듈이 필요하다
+00:03 +0 -2: delegate 연결은 앱이 뜨는 시점에 한다 [E]
+  Expected: a value greater than <148>
+    Actual: <-1>
+```
+
+고친 뒤:
+
+```
+$ flutter test test/config/ios_scheduled_notifications_test.dart
++2: All tests passed!
+```
+
+Swift 쪽은 Dart 테스트가 컴파일을 보지 않으므로, 설치된 엔진 프레임워크에
+직접 타입체크해 확인했다(iOS 빌드 전체는 pod 설치가 필요해 돌리지 않았다):
+
+```
+$ xcrun swiftc -typecheck -sdk $(xcrun --sdk iphonesimulator --show-sdk-path) \
+    -target arm64-apple-ios13.0-simulator -F …/Flutter.xcframework/ios-arm64_x86_64-simulator \
+    AppDelegate.swift Stub.swift      # Stub = GeneratedPluginRegistrant 자리
+TYPECHECK OK
+```
+
+중간에 채택을 직접 선언해 봤을 때의 출력(그래서 선언하지 않는다):
+
+```
+AppDelegate.swift:12:46: error: redundant conformance of 'AppDelegate' to protocol
+  'UNUserNotificationCenterDelegate'
+  note: 'AppDelegate' inherits conformance to protocol
+  'UNUserNotificationCenterDelegate' from superclass here
+```
+
+실기기 탭(cold/warm)은 여전히 사람 체크리스트 항목이다 — RELEASE `### 30.` 에
+그대로 있다. 이 수정은 **그 체크리스트가 통과할 수 있게 하는 배선**이다.
+
+### D-30-3 — 시작 시 늦게 완료된 저장소 읽기가 새 완료 날짜를 덮어씀
+
+**원인.** `markCompleted` 가 `state.value ?? {}` 로 시작해서 **진행 중인 첫
+build 를 기다리지 않았다.** 완료 신호(오늘 API)와 저장소 read 는 서로 도착
+순서를 보장하지 않으므로, 늦게 돌아온 시작 read 가 방금 적은 날짜를 덮어쓴다.
+그러면 이미 푼 날의 리마인더가 이번 실행에서 다시 걸리고, 오래된 날짜 정리
+write 까지 겹치면 저장소도 옛 집합으로 되돌아간다.
+
+**수정 내용.** `completed_puzzle_dates.dart` 의 `markCompleted` 가
+`final current = await future;` 로 **첫 build 가 끝난 뒤**에 더한다. 그러면 두
+결과가 순서대로 쌓인다: 시작 read → 완료 날짜 추가 → write → 상태.
+
+**증명하는 테스트.** 리뷰와 같은 방식으로 저장소 경계만 지연시킨다
+(`GatedCompletedPuzzleDateStore`: 읽기가 `Completer` 를 열어줄 때까지 매달려
+있다). 실제 notifier/provider 를 쓴다.
+
+재현(빨강):
+
+```
+$ flutter test test/notifications/completed_puzzle_dates_test.dart
+00:02 +3 -1: 시작 read 와 완료 적기의 순서 시작 read 가 늦게 돌아와도 그 사이 적은 완료 날짜가 남는다 [E]
+  Expected: Set:['2026-10-15']
+    Actual: Set:[]
+     Which: does not contain '2026-10-15'
+```
+
+리뷰의 `before late read: {2026-10-15}` → `after late read: {}` 와 같은
+순서다. 고친 뒤:
+
+```
+$ flutter test test/notifications/completed_puzzle_dates_test.dart
++4: All tests passed!
+```
+
+**남겨둔 판단(미수정, 범위 밖).** `markCompleted` 두 번이 **서로 다른 날짜로**
+동시에 돌면 늦게 끝난 쪽이 앞의 날짜를 지울 수 있다. 호출자가 하나뿐이고
+(`todayPuzzleProvider` 구독 → `_recordCompleted`) 같은 날짜는 앞에서 걸러지며,
+날짜가 달라지는 건 KST 자정을 넘길 때뿐인데 그 날짜는 곧 정리 대상이라
+리마인더와 안 맞는다. 리뷰도 이 경합은 올리지 않았다 — 잠금을 하나 더 두는
+대신 여기 적어둔다.
+
+### 전체 검증
+
+```
+$ cd mobile && flutter analyze
+No issues found!
+
+$ cd mobile && flutter test
++464: All tests passed!        # 리뷰 시점 458 + 새 테스트 6
+
+$ uv run ruff check .
+All checks passed!
+
+$ uv run flask db heads
+b1c7d4e0a932 (head)            # 이 라운드도 마이그레이션 변경 없음
+```
+
+백엔드 전체 테스트는 지정 전용 자원(`chosung_daily_test_t30`, Redis DB 4)으로
+다시 돌렸다:
+
+```
+$ TEST_DATABASE_URL=mysql+pymysql://…/chosung_daily_test_t30 \
+  TEST_REDIS_URL=redis://localhost:6379/4 \
+  TEST_MIGRATION_DATABASE_URL=mysql+pymysql://…/chosung_daily_test_t30_migrations \
+  uv run pytest -q
+........................................................................ [ 97%]
+...................................                                      [100%]
+1403 passed in 1490.07s (0:24:50)
+```
+
+리뷰 때와 같은 1403건이 통과했다(종료 코드 0, 첫 실행에서 통과 — 기본 DB 로
+대체하거나 다시 돌리지 않았다). 24분 50초로 리뷰 때(19~22분)보다 느린 건 다른
+워크트리 3개(t29·t31·t38)가 같은 MySQL 에 동시에 자기 suite 를 돌리고 있었기
+때문이다. 백엔드 코드는 이 라운드에서 한 줄도 바뀌지 않았다.
+
+문서는 README `### 30.` 의 diff 설명을 고친 동작에 맞췄다 — "ID 만으로
+알아본다" 가 더 이상 코드와 맞지 않는다. 네이티브 탭 배선과 완료 날짜 순서도
+왜 필요한지 한 줄씩 적었다. RELEASE `### 30.` 의 사람 체크리스트는 이미
+시간대 변경·cold/warm 탭 항목을 들고 있어 그대로 둔다 — 이 수정이 그
+항목들이 통과할 수 있게 하는 배선이다.
+
+이 라운드의 변경은 `mobile/` 과 README 뿐이다(백엔드·웹·마이그레이션 0건):
+
+```
+$ git diff --name-only 1af0766..HEAD   # 리뷰 커밋 이후
+README.md
+mobile/ios/Runner/AppDelegate.swift
+mobile/lib/notifications/completed_puzzle_dates.dart
+mobile/lib/notifications/notification_controller.dart
+mobile/lib/notifications/notification_plan.dart
+mobile/lib/notifications/notification_scheduler.dart
+mobile/lib/notifications/notification_sync.dart
+mobile/test/config/ios_scheduled_notifications_test.dart
+mobile/test/fakes/fake_notifications.dart
+mobile/test/notifications/completed_puzzle_dates_test.dart
+mobile/test/notifications/notification_controller_test.dart
+mobile/test/notifications/notification_diff_test.dart
+```
+
+로컬 `main`(= `8ddc8fd`)이 이 브랜치의 조상 그대로라 `git rebase main` 은
+no-op 이다(`git merge-base --is-ancestor main HEAD` 성공).
