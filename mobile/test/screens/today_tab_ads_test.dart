@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:app_tracking_transparency/app_tracking_transparency.dart';
 import 'package:chosung/ads/ad_gate.dart';
 import 'package:chosung/ads/ad_providers.dart';
@@ -255,6 +257,43 @@ void main() {
 
       expect(find.text('힌트를 열지 못했어요'), findsOne);
       expect(find.byType(HintCard), findsOne);
+    });
+
+    // 리뷰 r2 D-31-4: 광고까지 다 본 뒤 힌트 응답을 기다리는 사이에도 답 입력은
+    // 살아 있다. 그 제출이 실패해도 서버가 이미 열어 준 힌트는 화면에 남아야
+    // 한다 — 버리면 비구독자는 같은 힌트에 광고를 다시 봐야 한다(US 5a).
+    testWidgets('힌트를 기다리는 동안 제출이 실패해도 힌트가 열린다', (tester) async {
+      final api = FakeApiClient()..hintUnlockResponse = '서울에 가장 많다';
+      final ads = FakeAdService();
+
+      await pumpToday(tester, api: api, ads: ads);
+
+      final gate = Completer<void>();
+      api.unlockHintGate = gate;
+      await tapAndSettle(tester, previewButton());
+      expect(ads.rewardedShowCalls, 1);
+      expect(api.unlockedHintPuzzleIds, [1]);
+
+      // 힌트 응답을 기다리는 사이의 제출. 이 요청만 끊긴다.
+      api.submitGuessError = const NetworkApiException(
+        code: 'NETWORK_ERROR',
+        message: '연결 실패',
+      );
+      await tester.enterText(find.byType(TextField), '지하촌역');
+      await tester.pump();
+      await tapAndSettle(tester, find.widgetWithText(FilledButton, '제출'));
+
+      await tester.runAsync(() async {
+        gate.complete();
+        await Future<void>.delayed(Duration.zero);
+      });
+      await tester.pumpAndSettle();
+
+      expect(find.text('서울에 가장 많다'), findsOne);
+      expect(find.text('힌트를 열지 못했어요'), findsNothing);
+      expect(previewButton(), findsNothing, reason: '열린 힌트에 광고를 다시 요구하지 않는다');
+      expect(ads.rewardedShowCalls, 1);
+      expect(api.unlockedHintPuzzleIds, [1]);
     });
   });
 

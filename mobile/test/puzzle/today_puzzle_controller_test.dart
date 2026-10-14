@@ -344,6 +344,140 @@ void main() {
       );
     });
 
+    // 리뷰 r2 D-31-4: 반대 순서 — 힌트 응답을 기다리는 사이의 제출이다. 힌트는
+    // 시도·순위를 건드리지 않으므로(US 5) 그 사이 답 입력은 살아 있고, 서버는
+    // 이미 힌트를 열었다. 세대 번호로 늦은 힌트 응답을 버리면 화면이 그 힌트를
+    // 잃고 비구독자는 같은 힌트에 광고를 다시 봐야 한다(US 5a).
+    test('힌트를 기다리는 동안 제출이 실패해도 열린 힌트는 보드에 남는다', () async {
+      final api = FakeApiClient(puzzle: fakeTodayPuzzle(puzzleId: 41));
+      final container = _container(api);
+      await container.read(todayPuzzleProvider.future);
+
+      final gate = Completer<void>();
+      api.unlockHintGate = gate;
+      final opening = container.read(todayPuzzleProvider.notifier).unlockHint();
+      await pumpEventQueue();
+      expect(api.unlockedHintPuzzleIds, [41], reason: '힌트는 이미 서버로 떠났다');
+
+      // 힌트 응답을 기다리는 사이의 제출. 이 요청만 끊긴다.
+      api.submitGuessError = const NetworkApiException(
+        code: networkErrorCode,
+        message: 'offline',
+      );
+      final recorded = await container
+          .read(todayPuzzleProvider.notifier)
+          .submit('지하촌역');
+      expect(recorded, isFalse);
+
+      gate.complete();
+      expect(await opening, isTrue);
+
+      final state = _ready(container.read(todayPuzzleProvider).requireValue);
+      expect(state.puzzle.hint, '서울에 가장 많다', reason: '서버가 연 힌트를 잃으면 안 된다');
+      expect(state.puzzle.hintUnlocked, isTrue);
+      expect(state.notice, TodayNotice.offline, reason: '제출 실패 안내는 그대로 남는다');
+      expect(state.submitting, isFalse);
+      expect(
+        api.unlockedHintPuzzleIds,
+        [41],
+        reason: '광고를 다시 보고 다시 열 필요가 없다',
+      );
+    });
+
+    test('힌트를 기다리는 동안 제출이 성공하면 쌓인 행과 힌트가 모두 남는다', () async {
+      final api = FakeApiClient(puzzle: fakeTodayPuzzle(puzzleId: 41));
+      final container = _container(api);
+      await container.read(todayPuzzleProvider.future);
+
+      final gate = Completer<void>();
+      api.unlockHintGate = gate;
+      final opening = container.read(todayPuzzleProvider.notifier).unlockHint();
+      await pumpEventQueue();
+
+      expect(
+        await container.read(todayPuzzleProvider.notifier).submit('지하촌역'),
+        isTrue,
+      );
+
+      gate.complete();
+      expect(await opening, isTrue);
+
+      final state = _ready(container.read(todayPuzzleProvider).requireValue);
+      expect(state.puzzle.attempts.length, 1);
+      expect(state.puzzle.attemptsLeft, 4);
+      expect(state.puzzle.hint, '서울에 가장 많다');
+      expect(state.submitting, isFalse);
+    });
+
+    test('제출 응답보다 힌트가 먼저 와도 제출이 그 힌트를 덮어 지우지 않는다', () async {
+      final api = FakeApiClient(puzzle: fakeTodayPuzzle(puzzleId: 41));
+      final container = _container(api);
+      await container.read(todayPuzzleProvider.future);
+
+      final hintGate = Completer<void>();
+      api.unlockHintGate = hintGate;
+      final opening = container.read(todayPuzzleProvider.notifier).unlockHint();
+      await pumpEventQueue();
+
+      final submitGate = Completer<void>();
+      api.submitGuessGate = submitGate;
+      final submitting = container
+          .read(todayPuzzleProvider.notifier)
+          .submit('지하촌역');
+      await pumpEventQueue();
+
+      // 제출이 아직 떠 있는 동안 힌트가 먼저 돌아온다.
+      hintGate.complete();
+      expect(await opening, isTrue);
+      final waiting = _ready(container.read(todayPuzzleProvider).requireValue);
+      expect(waiting.puzzle.hint, '서울에 가장 많다');
+      expect(waiting.submitting, isTrue, reason: '제출 잠금을 힌트가 풀면 안 된다');
+
+      submitGate.complete();
+      expect(await submitting, isTrue);
+
+      final state = _ready(container.read(todayPuzzleProvider).requireValue);
+      expect(state.puzzle.attempts.length, 1);
+      expect(state.puzzle.hint, '서울에 가장 많다', reason: '제출이 힌트 없던 스냅샷을 쓰면 지워진다');
+      expect(state.submitting, isFalse);
+    });
+
+    test('힌트가 이미 열려 있었다는 409 는 제출이 끼어들어도 보드를 다시 읽는다', () async {
+      final api = FakeApiClient(puzzle: fakeTodayPuzzle(puzzleId: 41))
+        ..unlockHintError = const HintAlreadyUnlockedApiException(
+          code: 'HINT_ALREADY_UNLOCKED',
+          message: '이미 열림',
+        );
+      final container = _container(api);
+      await container.read(todayPuzzleProvider.future);
+
+      final gate = Completer<void>();
+      api.unlockHintGate = gate;
+      final opening = container.read(todayPuzzleProvider.notifier).unlockHint();
+      await pumpEventQueue();
+
+      // 서버 보드에는 힌트가 열려 있다.
+      api
+        ..puzzle = fakeTodayPuzzle(
+          puzzleId: 41,
+          hint: '서울에 가장 많다',
+          hintUnlocked: true,
+        )
+        ..submitGuessError = const NetworkApiException(
+          code: networkErrorCode,
+          message: 'offline',
+        );
+      await container.read(todayPuzzleProvider.notifier).submit('지하촌역');
+
+      gate.complete();
+      expect(await opening, isTrue);
+      await pumpEventQueue();
+
+      final state = _ready(container.read(todayPuzzleProvider).requireValue);
+      expect(state.puzzle.hint, '서울에 가장 많다', reason: '재조회 결과가 버려지면 안 된다');
+      expect(api.fetchTodayPuzzleCalls, 2);
+    });
+
     test('제출 전에 떠난 조회가 늦게 도착해도 쌓인 행을 지우지 않는다', () async {
       final api = FakeApiClient(puzzle: fakeTodayPuzzle(puzzleId: 7));
       final container = _container(api);

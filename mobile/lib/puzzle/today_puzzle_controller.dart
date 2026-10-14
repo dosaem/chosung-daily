@@ -167,7 +167,15 @@ class TodayPuzzleNotifier extends AsyncNotifier<TodayState?> {
         return false;
       }
       if (!_canCommit(generation)) return false;
-      final played = applyGuess(puzzle: puzzle, guess: guess, result: result);
+      // 떠날 때의 스냅샷이 아니라 **지금의** 보드에 이 한 행을 쌓는다 — 그 사이
+      // 힌트가 열렸으면(겹치지 않는 다른 칸이다) 그것까지 되돌리지 않는다.
+      final board = _boardFor(puzzle.puzzleId);
+      if (board == null) return false;
+      final played = applyGuess(
+        puzzle: board.puzzle,
+        guess: guess,
+        result: result,
+      );
       state = AsyncData(TodayPuzzleReady(puzzle: played));
       _invalidateGuessReaders(played);
       return true;
@@ -222,30 +230,36 @@ class TodayPuzzleNotifier extends AsyncNotifier<TodayState?> {
     final puzzle = current.puzzle;
     if (puzzle.status.isFinished || puzzle.hint != null) return false;
 
-    final generation = ++_generation;
+    // 떠 있는 재조회보다 이 요청이 새 것이다. 다만 돌아왔을 때 상태에 쓸지는
+    // 세대가 아니라 **같은 퍼즐인가** 로 판정한다 — 아래 참고.
+    _generation++;
     try {
       final hint = await _api.unlockHint(puzzleId: puzzle.puzzleId);
-      if (!_canCommit(generation)) return false;
+      // 힌트는 보드의 다른 부분(시도 행·남은 기회·상태)과 겹치지 않는 한 칸이고
+      // 서버는 이미 열었다. 그래서 떠날 때의 스냅샷이 아니라 지금의 보드에 그
+      // 칸만 올린다. 세대 번호로 버리면(그 사이 답을 제출했을 때) 화면이 열린
+      // 힌트를 잃고, 비구독자는 이미 산 같은 힌트에 광고를 다시 봐야 한다
+      // (US 5a). 제출 잠금·안내는 보드 쪽 사정이라 그대로 들고 간다.
+      final board = _boardFor(puzzle.puzzleId);
+      if (board == null) return false;
       state = AsyncData(
         TodayPuzzleReady(
-          puzzle: puzzle.copyWith(hint: hint, hintUnlocked: true),
+          puzzle: board.puzzle.copyWith(hint: hint, hintUnlocked: true),
+          notice: board.notice,
+          submitting: board.submitting,
         ),
       );
       return true;
     } on HintAlreadyUnlockedApiException {
-      _commitLoad(await _load(), generation);
+      await _reloadAfterHint();
       return true;
     } on AlreadyFinishedApiException {
       // 그 사이 퍼즐이 끝났다(다른 기기의 제출). 보드를 새로 읽으면 결과가
       // 보이니 따로 안내하지 않는다.
-      _commitLoad(await _load(), generation);
+      await _reloadAfterHint();
       return false;
     } on PuzzleChangedApiException {
-      _commitLoad(
-        await _load(),
-        generation,
-        notice: TodayNotice.puzzleChanged,
-      );
+      await _reloadAfterHint(notice: TodayNotice.puzzleChanged);
       return false;
     } on ApiException {
       // 보드는 멀쩡하다 — 안내는 힌트 카드가 자기 자리에 띄운다.
@@ -279,14 +293,46 @@ class TodayPuzzleNotifier extends AsyncNotifier<TodayState?> {
     unawaited(ref.read(myStatsProvider.notifier).refresh());
   }
 
+  /// 힌트 응답을 받은 **뒤에** 떠나는 보드 재조회(409·끝난 퍼즐·바뀐 퍼즐).
+  /// 떠날 때의 세대가 아니라 새 세대로 쓴다 — 그 사이 제출이 끝나 세대가 바뀌었다는
+  /// 이유로 버리면 서버가 이미 열어 둔 힌트를 화면이 못 받는다.
+  ///
+  /// 제출이 아직 떠 있으면 직접 읽지 않고 제출 뒤 재조회에 넘긴다 — 지금 읽는
+  /// 서버 이력엔 방금 보낸 답이 없어서다([submit] 의 [_refreshQueued] 와 같은 이유).
+  Future<void> _reloadAfterHint({TodayNotice? notice}) async {
+    if (!ref.mounted) return;
+    if (_submitting) {
+      _refreshQueued = true;
+      return;
+    }
+    final generation = ++_generation;
+    _commitLoad(await _load(), generation, notice: notice);
+  }
+
   /// 이 응답을 아직 상태에 써도 되는가. 그 사이 provider 가 버려졌거나(재시도)
   /// 더 새 요청이 떠났으면 버린다.
   bool _canCommit(int generation) => ref.mounted && generation == _generation;
 
+  /// 응답을 올릴 **지금의** 보드. 같은 퍼즐일 때만 돌려준다 — 그 사이 퍼즐이
+  /// 바뀌었거나(자정·언어) 보드가 없어졌으면 이 응답은 쓸 자리가 없다.
+  TodayPuzzleReady? _boardFor(int puzzleId) {
+    if (!ref.mounted) return null;
+    final current = state.value;
+    if (current is! TodayPuzzleReady) return null;
+    return current.puzzle.puzzleId == puzzleId ? current : null;
+  }
+
   /// 보드는 그대로 두고 그 위에 안내 한 줄만 올린다(제출 실패 경로).
+  /// 여기서도 보드는 지금 것이다 — 제출 응답을 기다리는 사이 열린 힌트를
+  /// 스냅샷으로 덮어 지우지 않는다.
   void _commitNotice(int generation, TodayPuzzle puzzle, TodayNotice notice) {
     if (!_canCommit(generation)) return;
-    state = AsyncData(TodayPuzzleReady(puzzle: puzzle, notice: notice));
+    state = AsyncData(
+      TodayPuzzleReady(
+        puzzle: _boardFor(puzzle.puzzleId)?.puzzle ?? puzzle,
+        notice: notice,
+      ),
+    );
   }
 
   /// 조회 결과를 상태에 올린다.
