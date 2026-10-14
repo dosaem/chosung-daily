@@ -284,7 +284,7 @@ chosung.dosaem.com 은 "하루 한 문제 초성 맞추기"가 돌아가는 Flas
 17. (r4 MINOR, Fable) iOS 번들 ID 용 Apple client_secret 설정값(예: `APPLE_APP_BUNDLE_ID`)과 그 secret 도 §A.13 자동 갱신 대상에 포함 — 백엔드 로그인 티켓에서 반영
 18. (r4 MINOR, Fable) 만료 ±24h 구간의 재조회가 무상한이라 호출마다 스토어 API 를 때릴 수 있음 — 필요하면 5분 상한 추가, 구독 티켓에서 결정
 19. (r5 MINOR, Sol) 1h TTL 경계 표현 정렬 — 서버 재조회 조건을 `now >= next_check_at` 으로 명시하고, Flutter 가짜 시계 테스트에 정확히 `next_check_at` 시각을 포함해 경계에서 조회를 건너뛰는 해석을 막는다 — 구독 티켓에서 반영
-20. (티켓 작성 중 발견) §B.24 "분석 이벤트 4개" 의 명칭·파라미터가 스펙에 없음 — 티켓 24 에서 `puzzle_complete(language, success, attempts)`, `share`, `paywall_view`, `subscribe_start` 로 확정하고 여기 결과 기록
+20. (티켓 작성 중 발견) §B.24 "분석 이벤트 4개" 의 명칭·파라미터가 스펙에 없음 — 티켓 26(구 24)에서 `puzzle_complete(language, success, attempts)`, `share`, `paywall_view`, `subscribe_start` 로 확정하고 여기 결과 기록
 21. (plan-add r1, 사용자 확인) 법적 문서의 사업장 주소(자택)·전화번호·보호책임자 성명 공개 범위 — 티켓 16 워커가 법적 근거를 붙여 `orca orchestration ask`, 답 전에는 미표시. 결과는 `docs/RELEASE.md` "### 16."
 22. (plan-add r1, 사람 D1) 통신판매업 신고 대상 여부(구독 판매 전) — 면제 기준 확인 후 신고하면 `LEGAL_MAIL_ORDER_REG_NO`. 티켓 16 은 신고번호가 비면 그 행을 렌더하지 않는다
 23. (plan-add r1) 해외 사용자 최소 고지(EU/영국·캘리포니아 권리 안내) 포함 여부 — 티켓 16 에서 결정·근거 기록(권장: 짧은 "해외 사용자" 절 1개를 ko/en 모두에)

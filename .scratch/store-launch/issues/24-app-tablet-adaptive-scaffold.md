@@ -11,8 +11,8 @@
 공통 규칙(병렬 티켓 충돌 방지): README "설계 판단"·API 표, `.env.example`, `docs/RELEASE.md`, 스펙 "미정 항목" 은 자기 번호 소제목(`### NN.`)/자기 행만 섹션 끝에 덧붙인다(파일·절이 없으면 만든다). 코디네이터는 번호순으로 머지한다. 마이그레이션을 만드는 티켓은 머지 직전 `flask db heads` 가 1개여야 하고, 아니면 선행 머지 리비전 위로 `down_revision` 을 재설정한다.
 
 - [ ] `AppBreakpoint` 헬퍼: `MediaQuery.sizeOf(context).width` 기준 compact(<600) / medium(600~839) / expanded(≥840) 3단. **기기 종류·OS 가 아니라 현재 폭**으로만 판정(Split View·회전 대응). 단위 테스트: 경계 599/600/839/840
-- [ ] `AdaptiveScaffold`: compact = 22 의 `NavigationBar`(하단 탭 3개) 유지, medium 이상 = 왼쪽 `NavigationRail`(아이콘+라벨, 선택 상태는 OVERRIDES 토큰 — brand 는 아이콘·밑줄만, 하단 탭과 같은 3항목·같은 go_router 경로). 22 의 "iPad 중앙 정렬 최대 600px 래퍼" 는 제거하고 `ReadingWidth`(기본 최대 600dp, 화면별 `maxWidth` 인자) 로 대체 — 22 의 완료 조건(3탭·배너 슬롯·S7 분기)과 테스트는 그대로 통과
-- [ ] 배너 슬롯 위치: compact = 탭 바 위(현행), medium 이상 = **콘텐츠 영역 하단(rail 제외 폭)**, safe area 위, 높이는 그 폭의 어댑티브 배너 높이로 예약(OVERRIDES §5 레이아웃 점프 금지). 슬롯이 현재 폭을 `bannerWidth` 로 노출해 31 이 그 폭으로 로드한다(광고 로드 자체는 31)
+- [ ] `AdaptiveScaffold`: compact = 22 의 `NavigationBar`(하단 탭 3개) 유지, medium 이상 = 왼쪽 `NavigationRail`(아이콘+라벨, 선택 상태는 OVERRIDES 토큰 — brand 는 아이콘·밑줄만, 하단 탭과 같은 3항목·같은 go_router 경로). 22 의 "iPad 중앙 정렬 최대 600px 래퍼"(`MaxWidthBody`, 6개 사용처: today_tab·ranking_tab·records_tab·splash_screen·update_required_screen·maintenance_screen)는 전부 `ReadingWidth`(기본 최대 600dp, 화면별 `maxWidth` 인자) 로 교체한다(이름만 바꿀지 새 위젯으로 둘지는 워커 재량). **22 의 테스트 중 "본문은 600px 를 넘지 않는다 (iPad)"(`app_startup_branch_test.dart`, `MaxWidthBody` 타입·834 폭 단언) 는 이 티켓이 태블릿 뼈대 기준으로 다시 쓴다** — 834 폭 = medium → rail 존재, 콘텐츠 열 ≤600. 그 외 22 테스트(3탭·배너 슬롯 높이·S7 분기·시작 분기)는 무변경 통과
+- [ ] 배너 슬롯 위치: compact = 탭 바 아래(현행 유지 — 22 의 `home_shell` 배치 그대로), medium 이상 = **콘텐츠 영역 하단(rail 제외 폭)**, safe area 위, 높이는 그 폭의 어댑티브 배너 높이로 예약(OVERRIDES §5 레이아웃 점프 금지). 슬롯이 현재 폭을 `bannerWidth` 로 노출해 31 이 그 폭으로 로드한다(광고 로드 자체는 31)
 - [ ] `showAdaptiveSheet`: compact = 바텀시트, medium 이상 = 가운데 다이얼로그(최대 폭 560dp, 상하 여백 — SCREENS T2) — 26(S2)·29(백업 코드·삭제)·32(Paywall) 가 사용
 - [ ] 회전·Split View: 폭이 compact↔medium 을 넘나들 때 현재 탭·입력 중 텍스트·스크롤 위치가 유지된다(위젯 테스트: `tester.binding.setSurfaceSize` 390→744→390 후 상태 동일). iPad Split View 최소 폭(약 320dp)은 compact 로 떨어진다
 - [ ] 위젯 테스트: 폭 390 = NavigationBar·rail 없음 / 744·1024 = rail·NavigationBar 없음, 세 탭 전환이 양쪽에서 같은 경로. `flutter analyze` 0건, `audit.native` 체크리스트에 "태블릿 폭(744·1024·1366) 포함" 항목을 추가해 통과 기록
@@ -22,3 +22,5 @@
 
 - 사용자 요구 "태블릿에 그래도 맞게끔은 하자"(2026-10-14) 로 추가. 선택지 (a) "뼈대 1장 + 화면 티켓별 태블릿 조건" 채택 — 근거는 `review/plan-add-r1-response.md`
 - 22 는 리뷰 수정 중이라 티켓 수정 금지 — 22 가 만든 3탭 뼈대·600px 래퍼의 교체는 이 티켓이 22 머지 후 한다
+- (plan-add 리뷰 1) PA-1(BLOCKING): 22 의 iPad 600px 테스트는 래퍼 제거와 양립 불가 — 그 테스트만 이 티켓이 다시 쓰고 나머지 22 테스트는 무변경 통과로 명시, `MaxWidthBody` 6개 사용처 교체 명시
+- (plan-add 리뷰 1) PA-3: 배너 슬롯 compact 위치를 "탭 바 위" → "탭 바 아래(현행 유지)" 로 정정

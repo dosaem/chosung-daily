@@ -17,7 +17,7 @@
 - [ ] S5 Paywall: 제목·혜택 3줄("광고 없이 힌트 미리 보기" 포함)·가격 카드·`primary-button` 구독 시작·구매 복원·약관/개인정보 링크·자동 갱신 안내. 진입 시 `paywall_view`, 구독 시작 탭 시 `subscribe_start`(no-op Analytics 검증)
 - [ ] 자동 갱신 안내·링크 문구는 16 의 `docs/legal-checklist.md` "자동 갱신 구독 고지" 행이 정한 필수 요소(상품명·기간·가격·자동 갱신·해지 방법·약관/방침 링크)를 전부 담고, ko/en 표현을 16 의 약관 구독 절과 같게 쓴다(위젯 테스트: 요소 6개 존재). 태블릿: Paywall 은 24 의 `showAdaptiveSheet`(폭 744 에서 가운데 다이얼로그) — 위젯 테스트 1건
 - [ ] 27 의 S4 구독 카드 자리를 채움: 미구독 → Paywall / 구독 중 "광고 제거 · 갱신일" / 유예 중 "결제 확인 중 · 유예 …까지" + "관리"(스토어로)
-- [ ] 위젯 테스트: 구독자 배너 제거, pending 버튼 비활성, 복원 성공, 분석 이벤트 2개. `audit.native` 통과, 목업 `e5_paywall`·`e4_records`(구독 카드) 대비 기록. README Flutter 절에 구독 상태 흐름 한 단락
+- [ ] 위젯 테스트: 구독자 배너 제거, pending 버튼 비활성, 복원 성공, 분석 이벤트 2개. `audit.native`(태블릿 폭 포함, `review/impl-evidence-32.md` audit 표) 통과, 목업 `e5_paywall`·`e4_records`(구독 카드) 대비 기록. README Flutter 절에 구독 상태 흐름 한 단락
 
 ## 리뷰 노트 (plan-review r1)
 
@@ -29,3 +29,4 @@
 
 - 번호 구 30 → 신 32. 위 노트의 번호는 당시 번호(구 25·29·31 은 각각 신 27·31·33)
 - Blocked by 에 16 추가(Paywall 고지 문구가 16 의 체크리스트·약관 문구를 따름), 태블릿 조건 추가
+- (plan-add 리뷰 1) PA-9: `audit.native` 에 "(태블릿 폭 포함)" 추가, 기록 위치는 22 와 같은 impl-evidence audit 표
