@@ -39,6 +39,12 @@ function errorText(body, fallbackKey) {
 const state = {
   token: null,
   today: null,
+  // 화면이 들고 있는 플레이 상태의 "세대". 언어 전환·409 재조회·백업 코드
+  // 전환처럼 상태를 통째로 폐기할 때마다 1 올린다(discardLocalPlayState).
+  // 요청을 보낼 때 세대를 적어두고, 응답이 왔을 때 달라졌으면 그 응답은 이미
+  // 없는 화면의 것이라 버린다 — 퍼즐 ID 비교만으로는 ko→en→ko 왕복처럼 **같은
+  // ID 로 돌아오는** 경우를 가려내지 못한다(review/impl-review-17.md D-17-1).
+  generation: 0,
   // 화면에 그린 퍼즐의 ID. 제출에 같이 보내서, 자정이 지났거나 다른 기기에서
   // 언어를 바꾼 뒤의 제출이 엉뚱한 퍼즐에 들어가지 않게 한다(409 PUZZLE_CHANGED).
   puzzleId: null,
@@ -134,6 +140,7 @@ async function loadToday() {
 }
 
 async function loadStats() {
+  const requestedGeneration = state.generation;
   const streakEl = document.getElementById("streak");
   const res = await fetch(`${API_BASE}/me/stats`, { headers: authHeaders() });
   if (!res.ok) {
@@ -143,14 +150,19 @@ async function loadStats() {
     return;
   }
   const stats = await res.json();
+  // 연속 기록·연결 계정은 퍼즐이 아니라 게스트의 것이라 전환과 무관하게 최신이다.
   streakEl.textContent = t("streak_summary", {
     current: stats.current_streak,
     max: stats.max_streak,
     solved: stats.solved_count,
   });
   renderLinkedAccount(stats.linked_account);
-  // 퍼즐이 없는 날(자정 전환 직후)에도 칩은 내 선호 언어를 가리켜야 한다.
-  renderLanguageChips(stats.puzzle_language);
+  // 선호 언어는 다르다 — 전환 전에 시작한 조회면 이 값은 이미 지난 선택이다.
+  // 그걸 그대로 칩에 반영하면 지금 보고 있는 퍼즐과 선택이 어긋나고, 다음 칩
+  // 클릭이 "이미 그 언어"로 보여 무시된다(review/impl-review-17.md D-17-3).
+  // 퍼즐이 없는 날(자정 전환 직후)에도 칩은 내 선호 언어를 가리켜야 하므로,
+  // 퍼즐 유무가 아니라 세대로 판단한다.
+  if (state.generation === requestedGeneration) renderLanguageChips(stats.puzzle_language);
 }
 
 // 로그인 버튼은 provider 연결 전까지만 보여준다 — 연결된 뒤엔 어떤 계정으로
@@ -344,6 +356,9 @@ function showMessage(text) {
 function discardLocalPlayState() {
   clearStoredHistory();
 
+  // 여기서부터는 다른 세대다 — 지금 날아가 있는 요청들의 응답은 전부 남의 것이다.
+  state.generation += 1;
+
   state.today = null;
   state.puzzleId = null;
   state.mask = [];
@@ -417,8 +432,12 @@ async function submitGuess(input, raw) {
   // 눌리고, 계정·백업 전환이나 409 재조회도 같은 틈을 만든다. 그렇게 폐기한
   // 퍼즐의 응답을 지금 화면에 반영하면 보드·남은 기회·힌트·완료 표시가 전 퍼즐의
   // 답으로 오염된다(서버 기록은 멀쩡한데 화면만 틀린다). 그래서 요청을 보낸
-  // 퍼즐 ID 를 들고 있다가, 돌아왔을 때 화면이 그 퍼즐이 아니면 통째로 버린다.
+  // 퍼즐 ID 와 상태 세대를 들고 있다가, 돌아왔을 때 둘 중 하나라도 다르면 통째로
+  // 버린다. 세대까지 보는 이유: ko→en→ko 로 돌아오면 ID 는 다시 같아지는데,
+  // 그 사이 보드는 서버 이력으로 복원됐다 — ID 만 보면 복원된 그 시도를 한 번 더
+  // 그려서 같은 행이 두 번 보인다(review/impl-review-17.md D-17-1 REPEAT).
   const requestedPuzzleId = state.puzzleId;
+  const requestedGeneration = state.generation;
   const res = await fetch(`${API_BASE}/puzzles/today/guesses`, {
     method: "POST",
     headers: jsonHeaders(),
@@ -426,7 +445,7 @@ async function submitGuess(input, raw) {
   });
   const data = await res.json();
 
-  if (state.puzzleId !== requestedPuzzleId) return;
+  if (state.generation !== requestedGeneration || state.puzzleId !== requestedPuzzleId) return;
 
   if (data.code === "PUZZLE_CHANGED") {
     // 자정이 지났거나 다른 기기에서 언어를 바꿨다. 시도는 소비되지 않았으니
@@ -476,10 +495,13 @@ function formatSeconds(totalSeconds) {
 async function loadLeaderboard() {
   const message = document.getElementById("leaderboard-message");
   // 통계·리더보드는 "내가 안 고른 언어"도 볼 수 있는 엔드포인트라 언어를 명시한다.
+  const requestedGeneration = state.generation;
   const res = await fetch(
     `${API_BASE}/puzzles/today/leaderboard?language=${state.puzzleLanguage}`,
     { headers: authHeaders() }
   );
+  // 요청에 박아 보낸 언어가 지금 화면의 언어가 아니면, 이 순위표는 남의 퍼즐 것이다.
+  if (state.generation !== requestedGeneration) return;
   if (!res.ok) {
     message.textContent = t("leaderboard_load_failed");
     return;
@@ -523,9 +545,11 @@ function renderLeaderboard(data) {
 }
 
 async function loadTodayStats() {
+  const requestedGeneration = state.generation;
   const res = await fetch(`${API_BASE}/puzzles/today/stats?language=${state.puzzleLanguage}`, {
     headers: authHeaders(),
   });
+  if (state.generation !== requestedGeneration) return;
   if (!res.ok) return;
 
   renderTodayStats(await res.json());

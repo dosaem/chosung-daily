@@ -111,3 +111,62 @@ def test_no_error_message_leaks_korean_into_the_english_ui(english_errors):
     }
 
     assert leaked == {}
+
+
+# --- D-17-1 REPEAT · D-17-3: 폐기 이전 세대의 응답 -----------------------------
+
+
+@pytest.fixture(scope="module")
+def stale_generation() -> dict:
+    return run_scenario("stale_state_generation.mjs", "ko")
+
+
+def test_a_submit_response_from_before_a_round_trip_is_discarded(stale_generation):
+    """ko→en→ko 로 돌아오면 퍼즐 ID 는 같아진다 — 그래도 전환 전 제출 응답은 버린다.
+
+    돌아온 보드는 서버 `attempts` 로 이미 그 시도를 복원해뒀다. 늦게 온 응답을
+    다시 반영하면 같은 행이 두 번 보이고 공유 그리드도 중복된다.
+    """
+    after = stale_generation["round_trip_submit"]
+
+    assert after["puzzleId"] == 1
+    assert after["attempts"] == [{"guess": "사자", "feedback": [True, False]}]
+    assert after["boardRows"] == 1
+    assert after["attemptsLeft"] == 4
+
+
+def test_a_stats_response_from_before_a_switch_does_not_revert_the_language(stale_generation):
+    """늦게 온 `/me/stats` 의 `puzzle_language` 가 지금 고른 언어를 되돌리면 안 된다."""
+    after = stale_generation["stale_stats"]
+
+    assert after["puzzleId"] == 2
+    assert after["puzzleLanguage"] == "en"
+    assert after["chips"] == {"ko": "false", "en": "true"}
+    # 선택이 되돌아가면 normalizeGuess 가 en 대문자 처리를 잃는다.
+    assert after["normalizedLatin"] == "AB"
+    # 되돌아간 선택은 다음 한국어 클릭을 "이미 그 언어"로 보고 무시해 전환을 막는다.
+    assert after["koClickRequests"] > 0
+
+
+def test_a_stale_stats_response_still_updates_the_guest_scoped_summary(stale_generation):
+    """연속 기록은 퍼즐이 아니라 게스트의 것이다 — 전환했다고 비워두지 않는다."""
+    expected = UI_STRINGS["ko"]["streak_summary"].format(current=3, max=7, solved=12)
+
+    assert stale_generation["stale_stats"]["streak"] == expected
+
+
+def test_a_stats_response_without_a_switch_still_selects_the_chip(stale_generation):
+    """대조군 — 전환이 없으면 stats 의 선호 언어가 평소처럼 칩에 반영된다."""
+    after = stale_generation["fresh_stats"]
+
+    assert after["puzzleLanguage"] == "ko"
+    assert after["chips"] == {"ko": "true", "en": "false"}
+
+
+def test_leaderboard_and_today_stats_from_before_a_switch_are_discarded(stale_generation):
+    """전환 전에 보낸 순위·오늘 통계 조회는 다른 언어 퍼즐의 것이다."""
+    after = stale_generation["stale_leaderboard"]
+
+    assert after["entryRows"] == 0
+    assert after["myRank"] == UI_STRINGS["ko"]["my_rank_unsolved"]
+    assert after["statsText"] == UI_STRINGS["ko"]["stats_empty"]
