@@ -146,3 +146,59 @@
 미해결 결함 합계: **BLOCKER 0 / MAJOR 1 / MINOR 0**. 기존 4건 FIXED, 신규 D-27-5 수정 및 첫 오답→내 기록 복귀 검증이 남는다.
 
 판정: FAIL
+
+## 라운드 3
+
+- 검토 HEAD: `529acfe`, 로컬 `main`: `2087b48`, merge-base: `1afeffa`. `git log main..HEAD`의 13개 커밋과 `git diff main...HEAD`의 38개 파일을 확인했다. `origin/main`은 사용하지 않았다.
+- 기준: 티켓 27의 6개 체크박스, 스펙 §B.21·US 12~14·16a·16b·47·48, CONTEXT, SCREENS S3·S4·T3·T4, Hidden Vowels MASTER/OVERRIDES(OVERRIDES 우선), 이전 리뷰 두 라운드와 구현 증거의 수정 라운드 2.
+- 앱·테스트·설정·`.scratch/`는 수정하지 않았다. 운영 환경이나 실제 외부 서비스 API에 접속하지 않았다. 검증용 API/저장소/플랫폼 경계는 Fake를 사용했다.
+
+### 체크박스별 확인
+
+| 티켓 체크박스 | 판정 | 직접 확인한 근거 |
+|---|---|---|
+| ApiClient leaderboard/history(Dio + Fake) | 충족 | 인터페이스·모델·Dio GET과 서버 `app/api/puzzles.py`·`app/api/me.py` 계약을 대조했다. limit=20/days=7, Bearer, 토큰 부재 시 미전송, 최상위 history 배열 파싱 테스트가 통과했다. |
+| S3 표시 전용 언어 칩, entries·내 행 강조, 목록 밖 me 고정, 빈 상태 | 충족 | `ranking_tab.dart`의 표시 전용 칩과 `LeaderboardRow.isMe`, 목록과 분리된 pinned me 행, 지정 빈 문구를 확인했다. 20명 목록 밖 23위·목록 안 내 행·빈 상태·정답 제출 후 순위 갱신 테스트가 통과했다. |
+| S4 streak·7일 그리드·설정·담당 번호 자리 | 충족 | 서버 day_result의 none/in_progress/fail/success와 앱 모델·합성 규칙을 대조했다. 첫 오답 뒤 진행 중, 정답 뒤 성공·현재/최고/누적 갱신이 실제 앱 테스트에서 확인됐다. PATCH 후 홈 재조회, 법적 문서 URL, LicensePage·버전, 담당 번호 주석과 비활성 자리 8개도 확인했다. |
+| 위젯 테스트: me·빈 상태·7일 그리드·언어 변경 후 재조회 | 충족 | 각 사례를 포함한 전체 Flutter 332개 테스트가 통과했다. D-27-5 회귀는 실제 라우터·제출 버튼·provider를 사용하고 마지막 DayCell의 결과까지 확인하므로 호출 횟수만 확인하던 이전 공백을 메운다. |
+| 태블릿 T3·T4, 390/744/1024 분기, 자리의 열 고정 | 충족 | 4열 표·840 최대 폭, 600 읽기 폭·2열 최대 480, 지정 자리의 좌우 배치를 코드와 테스트로 확인했다. 폭 왕복 스크롤 복원 회귀도 통과했다. |
+| audit.native(태블릿 포함), e3/e4·T3/T4 대비 기록 | 충족 | 증거의 감사·목업 차이 기록을 확인하고 e3/e4 PNG와 구현 골든을 직접 열어 대조했다. 토큰·행 Semantics·색 외 결과 구분·44dp 설정 행·스켈레톤을 확인했다. 골든 4장과 추가 320/844/1366 폭 재현을 실행했다. 실제 기기 감사까지 검증했다는 의미는 아니다. |
+
+### 이전 결함 판정
+
+| ID | 기존 심각도 | 판정 | 위치 및 입력 → 기대/실제 |
+|---|---|---|---|
+| D-27-1 | MAJOR | FIXED | `mobile/lib/puzzle/today_puzzle_controller.dart:152`. 순위 선조회 → 정답 제출 → 순위 복귀: 기대한 조회 1→2회·내 순위 1위·내 행 표시가 실제로 확인됐다. |
+| D-27-2 | MAJOR | FIXED | `mobile/lib/puzzle/today_puzzle_controller.dart:149`·`:155`, `mobile/lib/records/my_stats_controller.dart:30`. 기록 선조회 → 정답 → 복귀: 기대한 1일·1문제·오늘 성공 칸이 표시됐다. 정답 후 기록을 처음 여는 별도 입력도 통과했다. |
+| D-27-3 | MINOR | FIXED | `mobile/lib/screens/records_tab.dart:60`·`:93`·`:127`. 실제 스크롤 후 390→1024→390 왕복: 기대한 기존 offset 복원이 확인됐다. 단순 자리 존재 검사뿐 아니라 0보다 큰 offset의 동일성을 검사한다. |
+| D-27-4 | MINOR | FIXED | `mobile/lib/screens/ranking_tab.dart:375`. 미완료 로딩 응답을 844×390에 표시: 스켈레톤이 존재하며 기대한 레이아웃 예외 없음이 확인됐다. Expanded 안의 ListView가 가용 높이를 제한한다. |
+| D-27-5 | MAJOR | FIXED | `mobile/lib/puzzle/today_puzzle_controller.dart:148`, `mobile/test/screens/play_result_refresh_test.dart:204`. 내 기록에서 오늘 미플레이 선조회 → 오늘 탭 → `지하촌역` 첫 오답(남은 기회 4) → 내 기록 복귀: 기대한 `DayResult.inProgress` 및 history 조회 1→2회가 실제로 확인됐다. 두 번째 오답은 조회 2회를 유지하며 순위·stats는 각각 1회인 별도 검사도 통과했다. |
+
+기존 5건 모두 FIXED, REPEAT 0건. 신규 결함은 발견하지 못했다.
+
+### 직접 실행한 검증
+
+- `cd mobile && flutter test --no-pub`: **332 passed**, exit 0. 골든 4장·기존 5건 회귀·설정 쓰기 직렬화/늦은 응답 검사 포함.
+- `cd mobile && flutter analyze`: **No issues found**, exit 0.
+- `cd mobile && dart format --output=none --set-exit-if-changed lib test`: **104 files, 0 changed**, exit 0.
+- `uv run ruff check .`: **All checks passed**, exit 0.
+- `TEST_DATABASE_URL`·`TEST_REDIS_URL`·`TEST_MIGRATION_DATABASE_URL`을 지정한 `uv run pytest -q`: **1353 passed in 933.54s (0:15:33)**, exit 0. 기존 `chosung_daily_test_t27`·Redis DB 15·`chosung_daily_test_t27_migrations`를 재사용했다. 새 DB 생성이나 기본 DB 대체는 하지 않았고, 간헐 실패가 없어 재실행하지 않았다. 최초 백그라운드 실행 시도는 프로세스가 유지되지 않아 출력 없이 종료되어, 이후 관리되는 세션에서 전체 검사를 다시 시작해 위 결과를 얻었다. 인증 값은 기록하지 않는다.
+- `cd mobile && flutter test --no-pub /tmp/t27-r2-width-probe_test.dart /tmp/t27-r2-race-probe_test.dart --reporter expanded`: **9 passed**, exit 0. 이전 리뷰의 임시 재현 코드를 직접 읽고 현 HEAD에서 다시 실행했다. 실제 AdaptiveScaffold 안의 S3/S4 각각 320×568·844×390·1366×1024에서 예외 없음과 me/7일 칸 유지(6개), 제출 중 중복 refresh 합치기·이전 세대 제출 응답 폐기·stats 응답 역전 및 재빌드 경합(3개)을 확인했다. 이 임시 파일은 커밋 대상이 아니다.
+- `git diff --check main...HEAD`: exit 0. `git diff --name-only main...HEAD -- migrations`: 출력 없음. 마이그레이션 변경이 없으므로 조건부 `flask db heads` 검사는 해당 없음.
+- 이번 라운드에서 APK/iOS 빌드·실기기 스크린 리더·외부 브라우저 실행은 검증하지 않았다. 이전 증거의 해당 주장을 이번 실행 결과로 대신하지 않았다.
+
+### 보안·범위·공유 파일
+
+- 두 GET은 기존 Bearer 인증 경로를 쓰며 토큰 부재 시 요청하지 않는다. 새 쿠키 기반 변경/CSRF 경로는 없다. 화면은 서버의 익명 display/is_me를 사용한다.
+- 설정 입력은 PuzzleLanguage enum이며 쓰기 중 재입력을 막고 재빌드 후 늦은 응답을 버린다. 계정·구독·삭제는 비활성 자리라 데이터 변경을 추가하지 않는다. 법적 문서 링크는 기존 API base와 고정 문서 경로를 사용한다.
+- README 공유 변경은 자기 번호 `### 27.` 추가뿐이며 다른 번호 절을 수정하지 않았다. `.env.example`·`docs/RELEASE.md`·`.scratch/`·마이그레이션 변경은 없다. S1 stats 구독 변경과 제출 후 무효화는 기존 D-27-1·2·5 수정에 필요한 범위다.
+- 변경 파일에서 새 운영 키·토큰·비밀번호 노출이나 데이터 파괴 경로를 발견하지 못했다. 증거 문서의 기존 테스트 연결 예시는 `.env.example`과 같은 로컬 개발 접속 형식이며 이 리뷰에 인증 값을 복사하지 않았다.
+
+### 참고
+
+- 익명명, 상위 순위의 foreground 굵은 글자, brand-subtle 내 행, T4 좌우 자리 배치를 목업·상위 명세와 대조했다. 목업의 이메일·참가자 수를 그대로 사용하지 않은 이유는 스펙 우선순위와 티켓 범위로 설명된다.
+- 실기기 렌더링·음성 낭독은 자동 위젯/골든 검사의 보장 범위를 벗어난다. 취향·스타일 제안은 결함으로 올리지 않았다.
+
+미해결 결함 합계: **BLOCKER 0 / MAJOR 0 / MINOR 0**. 기존 D-27-1~5 모두 FIXED, REPEAT 및 신규 결함 없음.
+
+판정: PASS
