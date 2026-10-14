@@ -161,6 +161,42 @@ void main() {
     });
   });
 
+  group('저장소 고장', () {
+    /// 기기 로컬 저장소가 통째로 안 되는 상태. 알림이 **조용히 멈추는** 쪽보다
+    /// 기본값으로라도 가는 쪽이 낫다 — 사용자는 알림이 왜 안 오는지 알 길이 없다.
+    test('설정·완료 날짜를 못 읽어도 기본값으로 예약한다', () async {
+      permission.currentResult = NotificationPermission.granted;
+      final broken = ProviderContainer(
+        retry: noAutoRetry,
+        overrides: [
+          apiClientProvider.overrideWithValue(api),
+          guestTokenStoreProvider.overrideWithValue(
+            InMemoryGuestTokenStore('guest-1'),
+          ),
+          notificationSchedulerProvider.overrideWithValue(scheduler),
+          notificationSettingsStoreProvider.overrideWithValue(
+            BrokenNotificationSettingsStore(),
+          ),
+          completedPuzzleDateStoreProvider.overrideWithValue(
+            BrokenCompletedPuzzleDateStore(),
+          ),
+          deviceTimeZoneProvider.overrideWithValue(timeZone),
+          notificationPermissionRequesterProvider.overrideWithValue(permission),
+          notificationBootstrapProvider.overrideWithValue(
+            NotificationBootstrap(available: true, taps: taps),
+          ),
+        ],
+      )..listen(notificationSyncProvider, (_, _) {});
+      addTearDown(broken.dispose);
+
+      await pumpEventQueue();
+
+      // 09:00 일일 + 리마인더 7개.
+      expect(broken.read(notificationSyncProvider), hasLength(8));
+      expect(scheduler.pending, hasLength(8));
+    });
+  });
+
   group('설정 변경', () {
     test('시각을 바꾸면 일일 알림을 그 시각으로 다시 건다', () async {
       permission.currentResult = NotificationPermission.granted;

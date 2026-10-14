@@ -50,6 +50,28 @@ class InMemoryNotificationSettingsStore implements NotificationSettingsStore {
   }
 }
 
+/// 기기 저장소가 통째로 고장난 상태(읽기 실패). 알림이 **조용히 멈추지 않는지**
+/// 보는 데 쓴다.
+class BrokenNotificationSettingsStore implements NotificationSettingsStore {
+  @override
+  Future<NotificationSettings> read() async =>
+      throw StateError('preferences unavailable');
+
+  @override
+  Future<void> write(NotificationSettings settings) async =>
+      throw StateError('preferences unavailable');
+}
+
+class BrokenCompletedPuzzleDateStore implements CompletedPuzzleDateStore {
+  @override
+  Future<Set<String>> read() async =>
+      throw StateError('preferences unavailable');
+
+  @override
+  Future<void> write(Set<String> dates) async =>
+      throw StateError('preferences unavailable');
+}
+
 class InMemoryCompletedPuzzleDateStore implements CompletedPuzzleDateStore {
   InMemoryCompletedPuzzleDateStore({Set<String>? dates})
     : dates = dates ?? <String>{};

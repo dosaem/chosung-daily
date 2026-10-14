@@ -1,4 +1,5 @@
 import 'package:chosung/notifications/notification_plan.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -59,7 +60,20 @@ final completedPuzzleDateStoreProvider = Provider<CompletedPuzzleDateStore>(
 class CompletedPuzzleDatesNotifier extends AsyncNotifier<Set<String>> {
   @override
   Future<Set<String>> build() async {
-    final stored = await ref.read(completedPuzzleDateStoreProvider).read();
+    final Set<String> stored;
+    try {
+      stored = await ref.read(completedPuzzleDateStoreProvider).read();
+      // 못 읽으면 "아무것도 안 푼 것" 으로 본다. 그 날 리마인더가 한 번 더 오는
+      // 건 감수할 수 있지만, 여기서 멈추면 알림이 통째로 안 간다.
+      // `shared_preferences` 는 플러그인이 없으면 StateError 로 터진다.
+      // ignore: avoid_catching_errors
+    } on Error catch (error) {
+      debugPrint('완료한 퍼즐 날짜를 읽지 못했습니다: $error');
+      return const {};
+    } on Exception catch (error) {
+      debugPrint('완료한 퍼즐 날짜를 읽지 못했습니다: $error');
+      return const {};
+    }
     final pruned = pruneCompletedDates(
       stored,
       todayKst: NotificationPlan.todayKstDate(),
@@ -82,7 +96,16 @@ class CompletedPuzzleDatesNotifier extends AsyncNotifier<Set<String>> {
       ...current,
       key,
     }, todayKst: NotificationPlan.todayKstDate());
-    await ref.read(completedPuzzleDateStoreProvider).write(next);
+    try {
+      await ref.read(completedPuzzleDateStoreProvider).write(next);
+      // 저장은 못 했어도 이번 실행에서는 끈 채로 둔다 — 방금 푼 퍼즐의
+      // 리마인더가 오늘 저녁에 오는 게 가장 나쁜 경우다.
+      // ignore: avoid_catching_errors
+    } on Error catch (error) {
+      debugPrint('완료한 퍼즐 날짜를 저장하지 못했습니다: $error');
+    } on Exception catch (error) {
+      debugPrint('완료한 퍼즐 날짜를 저장하지 못했습니다: $error');
+    }
     if (ref.mounted) state = AsyncData(next);
   }
 }
