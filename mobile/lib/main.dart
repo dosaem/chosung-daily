@@ -1,3 +1,5 @@
+import 'package:chosung/ads/ad_providers.dart';
+import 'package:chosung/ads/google_ad_service.dart';
 import 'package:chosung/analytics/analytics_service.dart';
 import 'package:chosung/app.dart';
 import 'package:chosung/config/app_env.dart';
@@ -6,6 +8,7 @@ import 'package:chosung/config/provider_retry.dart';
 import 'package:chosung/config/sentry_bootstrap.dart';
 import 'package:chosung/l10n/localization_bootstrap.dart';
 import 'package:chosung/notifications/notification_bootstrap.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -40,6 +43,13 @@ Future<void> bootstrapChosungApp({
         overrides: [
           firebaseBootstrapProvider.overrideWithValue(firebase),
           notificationBootstrapProvider.overrideWithValue(notifications),
+          // 광고 SDK 는 **여기서만** 끼운다 — provider 기본값이 no-op 이라
+          // 이 줄이 빠지면 광고가 통째로 사라진다(bootstrap_test 가 지킨다).
+          adServiceProvider.overrideWithValue(
+            GoogleAdService(
+              isIos: defaultTargetPlatform == TargetPlatform.iOS,
+            ),
+          ),
         ],
         child: const AppLocalizationScope(child: ChosungApp()),
       ),

@@ -66,7 +66,10 @@
   "hint": {
     "locked": "힌트는 3번째 오답 후 열려요",
     "watch_ad": "광고 보고 힌트 미리 보기",
-    "label": "힌트"
+    "label": "힌트",
+    "preview": "힌트 미리 보기",
+    "ad_unavailable": "지금은 광고를 불러올 수 없어요",
+    "unlock_failed": "힌트를 열지 못했어요"
   },
   "result": {
     "success_title": "정답은 {answer}!",

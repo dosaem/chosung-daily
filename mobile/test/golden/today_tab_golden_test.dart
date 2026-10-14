@@ -1,21 +1,29 @@
 import 'dart:io';
 
+import 'package:app_tracking_transparency/app_tracking_transparency.dart';
+import 'package:chosung/ads/ad_gate.dart';
+import 'package:chosung/ads/ad_providers.dart';
 import 'package:chosung/api/api_models.dart';
 import 'package:chosung/api/api_providers.dart';
 import 'package:chosung/app.dart';
 import 'package:chosung/config/provider_retry.dart';
 import 'package:chosung/layout/adaptive_scaffold.dart';
+import 'package:chosung/permissions/tracking_permission.dart';
 import 'package:chosung/screens/today_tab.dart';
 import 'package:chosung/startup/startup_controller.dart';
 import 'package:chosung/theme/app_theme.dart';
+import 'package:chosung/widgets/ad_banner_slot.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
+import '../fakes/fake_ad_service.dart';
 import '../fakes/fake_api_client.dart';
+import '../fakes/fake_permissions.dart';
 import '../layout/adaptive_scaffold_test.dart' show setViewSize;
 
 /// 목업(`design/stitch/e1_home.html`·`e7_home_dark.html`)과 눈으로 대조할
@@ -59,6 +67,20 @@ Widget _shell({required Brightness brightness}) => ProviderScope(
   overrides: [
     apiClientProvider.overrideWithValue(_api()),
     startupStatsProvider.overrideWithValue(fakeMyStats(currentStreak: 7)),
+    // 목업과 같은 장면 = "광고를 띄울 수 있는 비구독자" 다. 덮지 않으면
+    // 게이트가 닫혀 HintCard 가 "광고를 불러올 수 없어요" 로 찍힌다.
+    isIosProvider.overrideWithValue(false),
+    trackingAuthorizationProvider.overrideWithValue(
+      FakeTrackingAuthorization(saved: TrackingStatus.notSupported),
+    ),
+    adServiceProvider.overrideWithValue(
+      FakeAdService(
+        consent: const UmpStatus(
+          consent: ConsentStatus.obtained,
+          privacyOptionsRequired: false,
+        ),
+      ),
+    ),
   ],
   child: AppLocalizationScope(
     startLocale: const Locale('ko'),
@@ -77,6 +99,9 @@ Widget _shell({required Brightness brightness}) => ProviderScope(
             AdaptiveDestination(icon: LucideIcons.trophy, label: '순위'),
             AdaptiveDestination(icon: LucideIcons.calendar, label: '내 기록'),
           ],
+          // 목업(e1_home)처럼 탭 바 아래 배너 슬롯까지 찍는다 — 로드 전의
+          // 빈 슬롯이 실제 앱의 첫 프레임이다(OVERRIDES §5).
+          banner: const AdBannerSlot(),
           body: const TodayTab(),
         ),
       ),

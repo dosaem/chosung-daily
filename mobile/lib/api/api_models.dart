@@ -295,7 +295,7 @@ class TodayPuzzle {
   final PuzzleStatus status;
   final bool hintUnlocked;
 
-  /// 3번째 오답 뒤 또는 힌트 미리 보기(티켓 31)를 쓴 뒤에만 채워진다.
+  /// 3번째 오답 뒤 또는 힌트 미리 보기를 쓴 뒤에만 채워진다.
   final String? hint;
 
   /// 끝난 퍼즐에만 채워진다.
@@ -309,6 +309,7 @@ class TodayPuzzle {
     int? attemptsLeft,
     List<PuzzleAttempt>? attempts,
     PuzzleStatus? status,
+    bool? hintUnlocked,
     String? hint,
     String? answer,
   }) => TodayPuzzle(
@@ -321,7 +322,7 @@ class TodayPuzzle {
     attemptsLeft: attemptsLeft ?? this.attemptsLeft,
     attempts: attempts ?? this.attempts,
     status: status ?? this.status,
-    hintUnlocked: hintUnlocked,
+    hintUnlocked: hintUnlocked ?? this.hintUnlocked,
     hint: hint ?? this.hint,
     answer: answer ?? this.answer,
   );

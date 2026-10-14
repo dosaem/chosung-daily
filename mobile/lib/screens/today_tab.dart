@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:chosung/ads/ad_providers.dart';
+import 'package:chosung/ads/result_interstitial.dart';
 import 'package:chosung/analytics/analytics_event.dart';
 import 'package:chosung/analytics/analytics_service.dart';
 import 'package:chosung/api/api_exception.dart';
@@ -59,6 +61,9 @@ class _TodayTabState extends ConsumerState<TodayTab> {
     if (recorded) _guess.clear();
     if (!recorded || !mounted) return;
 
+    // 전면 광고는 "이번 실행에 제출이 있었는가" 뒤에만 뜬다(US 25).
+    ref.read(resultInterstitialProvider).markSubmitted();
+
     // **이 제출로 퍼즐이 끝난 순간**에만 이벤트를 찍고 시트를 띄운다. "결과
     // 보기" 로 다시 열 때는 둘 다 하지 않는다 — `puzzle_complete` 는 퍼즐당
     // 한 번이고, 다른 기기에서 이미 끝낸 퍼즐을 여는 경로(서버 상태가 처음부터
@@ -81,12 +86,22 @@ class _TodayTabState extends ConsumerState<TodayTab> {
   }
 
   /// S2 결과 시트. 폭에 따라 바텀시트/다이얼로그로 갈린다(SCREENS T2).
-  Future<void> _openResult(TodayPuzzle puzzle) => showResultSheet(
-    context: context,
-    puzzle: puzzle,
-    onShowRanking: () => context.go(AppRoutes.ranking),
-    onLinkAccount: () => context.go(AppRoutes.records),
-  );
+  ///
+  /// 시트를 **닫은 뒤** 전면 광고 차례다(US 24). SCREENS S2 는 "시트가 완전히
+  /// 뜬 뒤" 라고 적었지만 티켓 31 이 "결과 시트 닫힘 후" 로 좁혔다 — 결과를
+  /// 읽는 중에 전면 광고가 덮으면 확인 자체를 못 한다.
+  Future<void> _openResult(TodayPuzzle puzzle) async {
+    await showResultSheet(
+      context: context,
+      puzzle: puzzle,
+      onShowRanking: () => context.go(AppRoutes.ranking),
+      onLinkAccount: () => context.go(AppRoutes.records),
+    );
+    if (!mounted) return;
+    await ref
+        .read(resultInterstitialProvider)
+        .showAfterResultSheet(puzzleId: puzzle.puzzleId);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -182,8 +197,11 @@ class _Board extends StatelessWidget {
           enabled: !offline && !ready.submitting,
         ),
     ];
-    // 보상형 버튼(onWatchAd)은 광고 SDK 가 들어오는 티켓 31 이 넣는다.
-    final hintCard = HintCard(hint: puzzle.hint);
+    final hintCard = _HintSlot(
+      // 퍼즐이 바뀌면 "광고를 못 불러왔다" 도 같이 잊는다.
+      key: ValueKey(puzzle.puzzleId),
+      puzzle: puzzle,
+    );
     final attemptsLeft = AttemptsLeftLabel(attemptsLeft: puzzle.attemptsLeft);
 
     return Column(
@@ -232,6 +250,75 @@ class _Board extends StatelessWidget {
                 ),
         ),
       ],
+    );
+  }
+}
+
+/// HintCard + 힌트 미리 보기 흐름(US 4·32).
+///
+/// 비구독자는 보상형 광고를 끝까지 본 뒤에 `hint-unlock` 이 나가고, 구독자는
+/// 광고 없이 바로 나간다 — 어느 쪽인지는 광고 게이트가 판정한다.
+class _HintSlot extends ConsumerStatefulWidget {
+  const _HintSlot({required this.puzzle, super.key});
+
+  final TodayPuzzle puzzle;
+
+  @override
+  ConsumerState<_HintSlot> createState() => _HintSlotState();
+}
+
+class _HintSlotState extends ConsumerState<_HintSlot> {
+  /// 광고를 띄우거나 힌트를 여는 중. 두 번 누르면 광고가 두 번 뜬다.
+  bool _busy = false;
+
+  String? _notice;
+
+  /// 광고를 한 번 못 띄웠으면 이 퍼즐에서는 버튼을 끈다 — 누를 때마다 다시
+  /// 로드해 보면 매번 몇 초를 기다린 끝에 같은 실패를 본다.
+  bool _adUnavailable = false;
+
+  Future<void> _preview() async {
+    setState(() {
+      _busy = true;
+      _notice = null;
+    });
+    try {
+      if (ref.read(adGateProvider).hintPreviewNeedsAd) {
+        final earned = await ref.read(adServiceProvider).showRewarded();
+        if (!earned) {
+          // 로드 실패와 "중간에 닫음" 을 가르지 않는다 — 어느 쪽이든 보상이
+          // 없으니 힌트를 열어줄 근거가 없다.
+          if (mounted) {
+            setState(() {
+              _adUnavailable = true;
+              _notice = 'hint.ad_unavailable'.tr();
+            });
+          }
+          return;
+        }
+      }
+
+      final opened = await ref.read(todayPuzzleProvider.notifier).unlockHint();
+      if (!opened && mounted) {
+        setState(() => _notice = 'hint.unlock_failed'.tr());
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final gate = ref.watch(adGateProvider);
+    final blocked = !gate.canPreviewHint || _adUnavailable;
+
+    return HintCard(
+      hint: widget.puzzle.hint,
+      needsAd: gate.hintPreviewNeedsAd,
+      notice: _notice ?? (blocked ? 'hint.ad_unavailable'.tr() : null),
+      onPreview: blocked || _busy || widget.puzzle.status.isFinished
+          ? null
+          : () => unawaited(_preview()),
     );
   }
 }

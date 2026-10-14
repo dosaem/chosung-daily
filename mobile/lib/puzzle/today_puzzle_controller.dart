@@ -190,6 +190,51 @@ class TodayPuzzleNotifier extends AsyncNotifier<TodayState?> {
     }
   }
 
+  /// 힌트 미리 보기. 보상형 광고를 끝까지 본 비구독자와 구독자가 **같은
+  /// 호출**을 쓴다(US 4·32) — 서버는 광고 시청 여부를 알 수 없고(AdMob SSV
+  /// 미사용) 시도·순위도 건드리지 않는다(US 5).
+  ///
+  /// 열렸으면 true. 409 는 셋 다 "다시 읽으면 된다" 로 끝난다 — 이미 열렸으면
+  /// 재조회한 보드에 `hint` 가 채워져 오고(US 5a), 끝난 퍼즐·바뀐 퍼즐은
+  /// 보드 자체를 새로 읽어야 한다.
+  Future<bool> unlockHint() async {
+    final current = state.value;
+    if (current is! TodayPuzzleReady) return false;
+
+    final puzzle = current.puzzle;
+    if (puzzle.status.isFinished || puzzle.hint != null) return false;
+
+    final generation = ++_generation;
+    try {
+      final hint = await _api.unlockHint(puzzleId: puzzle.puzzleId);
+      if (!_canCommit(generation)) return false;
+      state = AsyncData(
+        TodayPuzzleReady(
+          puzzle: puzzle.copyWith(hint: hint, hintUnlocked: true),
+        ),
+      );
+      return true;
+    } on HintAlreadyUnlockedApiException {
+      _commitLoad(await _load(), generation);
+      return true;
+    } on AlreadyFinishedApiException {
+      // 그 사이 퍼즐이 끝났다(다른 기기의 제출). 보드를 새로 읽으면 결과가
+      // 보이니 따로 안내하지 않는다.
+      _commitLoad(await _load(), generation);
+      return false;
+    } on PuzzleChangedApiException {
+      _commitLoad(
+        await _load(),
+        generation,
+        notice: TodayNotice.puzzleChanged,
+      );
+      return false;
+    } on ApiException {
+      // 보드는 멀쩡하다 — 안내는 힌트 카드가 자기 자리에 띄운다.
+      return false;
+    }
+  }
+
   /// 제출 한 줄이 바꾼 다른 화면의 데이터를 버린다 — 순위(S3)와 7일 기록·
   /// streak(S4)이다. 탭을 유지하는 셸에서는 탭을 다시 열어도 위젯만 다시 보이고
   /// provider 는 그대로라, 여기서 알려주지 않으면 방금 올린 기록이 앱을 재시작할

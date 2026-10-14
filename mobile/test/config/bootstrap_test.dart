@@ -1,6 +1,11 @@
+import 'package:chosung/ads/ad_providers.dart';
+import 'package:chosung/ads/google_ad_service.dart';
 import 'package:chosung/config/firebase_bootstrap.dart';
 import 'package:chosung/config/sentry_bootstrap.dart';
+import 'package:chosung/main.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -36,6 +41,28 @@ void main() {
 
       expect(outcome, FirebaseBootstrap.skipped);
     });
+  });
+
+  // `adServiceProvider` 기본값은 no-op 이다(위젯 테스트가 플랫폼 채널을 타지
+  // 않게). 이 override 가 빠지면 **앱에서 광고가 통째로 사라진다** — 테스트는
+  // 전부 통과한 채로.
+  testWidgets('시작 트리가 실제 광고 SDK 를 끼운다', (tester) async {
+    late final Widget started;
+
+    await bootstrapChosungApp(
+      initializeFirebaseFn: () async => FirebaseBootstrap.skipped,
+      initializeLocalizationFn: () async {},
+      start: (app) => started = app,
+    );
+
+    // 띄우지 않고 override 만 본다 — 실제로 pump 하면 광고 SDK 가 플랫폼
+    // 채널을 타려 든다.
+    final container = ProviderContainer(
+      overrides: (started as ProviderScope).overrides,
+    );
+    addTearDown(container.dispose);
+
+    expect(container.read(adServiceProvider), isA<GoogleAdService>());
   });
 
   group('runWithSentry', () {

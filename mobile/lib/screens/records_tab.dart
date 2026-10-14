@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:chosung/account/account_controller.dart';
+import 'package:chosung/ads/ad_providers.dart';
 import 'package:chosung/api/api_models.dart';
 import 'package:chosung/api/api_providers.dart';
 import 'package:chosung/layout/adaptive_sheet.dart';
@@ -53,7 +54,8 @@ abstract final class RecordsSlot {
   /// 문자열이 있어서, 테스트가 목록 안쪽만 보려면 손잡이가 필요하다.
   static const reminderPicker = Key('records.reminder_picker');
 
-  /// 티켓 31: 광고 개인정보 설정(UMP privacy options 가 required 일 때만 표시).
+  /// 광고 개인정보 설정. UMP privacy options 가 required 인 지역에서만
+  /// 나온다(티켓 31).
   static const adPrivacy = Key('records.slot.ad_privacy');
 
   /// "하는 법"(온보딩 3장 다시 보기, 티켓 28).
@@ -281,14 +283,14 @@ class _AccountSlots extends ConsumerWidget {
   }
 }
 
-/// 오른쪽 열의 설정 리스트(T4). 광고 개인정보(티켓 31)만 자리로 남아 있다.
+/// 오른쪽 열의 설정 리스트(T4). 알림 두 줄(티켓 30)과 광고 개인정보(티켓 31)는
+/// 실제 동작이고, 자리로 남은 행은 없다.
 class _SettingsList extends ConsumerWidget {
   const _SettingsList();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final colors = AppColors.from(context);
-    final pending = 'records.slot_pending'.tr();
     final uiLanguage = Localizations.localeOf(context).languageCode;
     final open = ref.read(webLinkLauncherProvider);
     final version = ref.watch(appVersionProvider).value;
@@ -306,13 +308,17 @@ class _SettingsList extends ConsumerWidget {
         const _PuzzleLanguageRow(),
         const _Hairline(),
         const _NotificationRows(),
-        const _Hairline(),
-        // 티켓 31 이 UMP privacy options 가 required 일 때만 보이게 한다.
-        SettingsRow(
-          key: RecordsSlot.adPrivacy,
-          label: 'records.ad_privacy'.tr(),
-          value: pending,
-        ),
+        // UMP privacy options 가 required 인 지역(EEA)에서만 나온다 —
+        // 그 밖에서는 바꿀 선택 자체가 없어서 행을 띄우면 눌러도 아무 일이
+        // 일어나지 않는다(SCREENS S4). 구분선도 같이 숨어야 빈 칸이 안 남는다.
+        if (ref.watch(adGateProvider).showsPrivacyOptions) ...[
+          const _Hairline(),
+          SettingsRow(
+            key: RecordsSlot.adPrivacy,
+            label: 'records.ad_privacy'.tr(),
+            onTap: ref.read(adServiceProvider).showPrivacyOptionsForm,
+          ),
+        ],
         const _Hairline(),
         // 온보딩(S6)을 처음부터 다시 본다 — 완료 플래그는 그대로다.
         SettingsRow(
