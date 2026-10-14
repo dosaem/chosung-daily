@@ -30,6 +30,7 @@ from flask import (
     url_for,
 )
 
+from app.access_log import mask_email, remember_actor
 from app.config import KST
 from app.csrf import csrf_protected, issue_csrf_token
 from app.errors import ForbiddenError, NotFoundError, ValidationError
@@ -73,6 +74,10 @@ def admin_required(view):
         if account is None:
             flash(LOGIN_GUIDE)
             return redirect(url_for("web.index"))
+
+        # 허용 목록 판정 **전에** 적는다 — 거부된 접근 시도도 접속기록에
+        # 남아야 하고(고시 제8조), 그때 누가 시도했는지가 점검의 핵심이다.
+        remember_actor(mask_email(account.email) if account.email else f"guest.{account.guest_id}")
 
         if (account.email or "").strip().lower() not in current_app.config["ADMIN_EMAILS"]:
             raise ForbiddenError()

@@ -2,6 +2,7 @@ from datetime import date
 
 from flask import Blueprint, current_app, redirect, render_template, request, session
 
+from app.access_log import remember_actor
 from app.csrf import csrf_protected, issue_csrf_token
 from app.errors import ForbiddenError, UnauthorizedError
 from app.extensions import db
@@ -146,6 +147,7 @@ def account_delete_submit():
     guest = _session_guest()
     if guest is None:
         raise UnauthorizedError("삭제할 기록이 없습니다. 기록이 있는 기기에서 다시 시도해주세요.")
+    remember_actor(f"guest.{guest.id}")
     if session.get(DELETE_TARGET_SESSION_KEY) != guest.id:
         # 폼을 다시 받아야 한다. 다른 계정을 지워주는 쪽보다 한 번 더 확인받는 쪽이 싸다.
         raise ForbiddenError()

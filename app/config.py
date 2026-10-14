@@ -134,6 +134,16 @@ class Config:
     LEGAL_BUSINESS_PHONE = os.environ.get("LEGAL_BUSINESS_PHONE", "")
     LEGAL_PRIVACY_OFFICER = os.environ.get("LEGAL_PRIVACY_OFFICER", "")
 
+    # 개인정보처리시스템 접속기록(감사 로그·접근 로그 파일)의 보관 기간.
+    # **개인정보의 안전성 확보조치 기준**(개인정보보호위원회 고시 제2023-6호)
+    # 제8조 제1항이 1년 이상을 요구한다. 2년 이상은 ① 5만명 이상 정보주체
+    # ② 고유식별정보·민감정보 처리 ③ 기간통신사업자인 경우인데 이 서비스는 셋 다
+    # 아니라서(수집 항목은 /privacy #collection) 기본값이 법정 최소치인 365일이다.
+    # 정보주체가 5만명을 넘으면 이 값만 730 으로 올린다 — 코드는 안 고친다.
+    # `.env.example` 처럼 키만 두고 값이 비어 있어도(= 빈 문자열) 기본값으로 떨어지게
+    # `or` 를 쓴다 — `int("")` 는 ValueError 라 앱이 기동조차 못 한다.
+    ACCESS_LOG_RETENTION_DAYS = int(os.environ.get("ACCESS_LOG_RETENTION_DAYS") or 365)
+
     # 운영자 페이지(/admin)에 들어올 수 있는 구글 계정 이메일. 쉼표로 여러 개.
     # **기본값 없음** — 설정을 깜빡한 환경에서는 아무도 운영자가 아니다(전부 403).
     # 판정은 세션의 게스트에 연결된 Account.email 로 한다(app/admin.py) — 세션에는

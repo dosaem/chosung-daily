@@ -4,6 +4,7 @@ import time
 from flask import Flask
 from werkzeug.middleware.proxy_fix import ProxyFix
 
+from app.access_log import register_access_log
 from app.admin import register_admin
 from app.api import register_blueprints
 from app.cli import register_commands
@@ -45,6 +46,8 @@ def create_app(config_name: str | None = None) -> Flask:
     register_web(app)
     register_admin(app)
     register_error_handlers(app)
+    # 접속기록은 라우트가 아니라 응답 훅이다 — 블루프린트가 다 붙은 뒤에 건다.
+    register_access_log(app)
     register_commands(app)
 
     return app
