@@ -1,0 +1,4 @@
+/* 한국어 기기에서 보이는 앱 이름. Runner 타깃의 Resources 단계에 variant
+   group(InfoPlist.strings → ko)으로 들어 있다 — 파일만 두면 번들에 안 들어간다. */
+"CFBundleDisplayName" = "오늘의 초성";
+"CFBundleName" = "오늘의 초성";

@@ -1,0 +1,7 @@
+include: package:very_good_analysis/analysis_options.10.1.0.yaml
+
+analyzer:
+  errors:
+    # 앱 패키지는 pub 에 공개하지 않는다. 모든 public 멤버에 doc 주석을 강제하면
+    # "주석은 설계 판단에만" 이라는 이 레포 규칙과 충돌한다.
+    public_member_api_docs: ignore

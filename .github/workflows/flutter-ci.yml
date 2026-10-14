@@ -1,0 +1,49 @@
+name: Flutter CI
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/flutter-ci.yml'
+  pull_request:
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/flutter-ci.yml'
+
+jobs:
+  analyze-and-test:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: mobile
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Firebase 설정 파일(google-services.json / GoogleService-Info.plist)은
+      # 커밋하지 않는다. analyze·test 는 그 파일 없이 돌아야 하고, 앱도 파일이
+      # 없으면 Firebase 초기화를 건너뛴다(lib/config/firebase_bootstrap.dart).
+      - name: Firebase 설정 파일이 없는지 확인
+        run: |
+          test ! -f android/app/google-services.json
+          test ! -f ios/Runner/GoogleService-Info.plist
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.38.6'
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Format check
+        run: dart format --set-exit-if-changed lib test
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test

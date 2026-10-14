@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Firebase 콘솔 > 프로젝트 설정 > iOS 앱(com.dosaem.chosung) 에서 받은
+  GoogleService-Info.plist 를 이 디렉터리에 같은 이름으로 두고 Xcode 의 Runner
+  타깃에 추가한다(gitignore 됨). 아래 값은 자리표시자다 — 파일이 없거나 값이
+  가짜면 Firebase 초기화를 건너뛴 채 앱이 뜬다.
+-->
+<plist version="1.0">
+<dict>
+  <key>API_KEY</key>
+  <string>REPLACE_ME</string>
+  <key>GCM_SENDER_ID</key>
+  <string>000000000000</string>
+  <key>BUNDLE_ID</key>
+  <string>com.dosaem.chosung</string>
+  <key>PROJECT_ID</key>
+  <string>replace-me</string>
+  <key>STORAGE_BUCKET</key>
+  <string>replace-me.appspot.com</string>
+  <key>GOOGLE_APP_ID</key>
+  <string>1:000000000000:ios:0000000000000000000000</string>
+</dict>
+</plist>

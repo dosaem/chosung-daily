@@ -332,3 +332,32 @@ NAS 가 없어도 "대상 인자 하나가 설정을 다 고르는지" 와 "실�
 프로덕션 서버도 Sandbox 영수증을 받아들인다(심사용) — 영수증의 `environment` 를
 따르고 프로덕션 조회가 "없음" 이면 Sandbox 로 한 번 재조회한다. 그래서 심사
 전에 환경을 바꿔 끼우는 작업은 없다.
+### 22. Flutter 앱 골격 (`mobile/`) — 사람이 해야 하는 일
+
+코드 쪽은 Firebase 설정 파일·서명 키·스토어 계정이 **없어도** 돈다(`flutter
+analyze`·`flutter test`·디버그 실행 모두). 아래는 실기기·배포로 넘어가기 전에
+사람이 콘솔에서 해야 하는 일이다. 서명·워크플로는 티켓 32, 스토어 자산은 33.
+
+- [ ] Firebase 콘솔에서 Android 앱(`com.dosaem.chosung`)·iOS 앱(같은 번들 ID)을
+      등록하고 설정 파일을 각각 아래 경로에 둔다(둘 다 gitignore 돼 있다).
+      자리표시자 `.example` 파일이 같은 자리에 있으니 이름만 맞춰 바꿔 넣으면 된다.
+      - `mobile/android/app/google-services.json`
+      - `mobile/ios/Runner/GoogleService-Info.plist`
+- [ ] **Xcode 에서 `GoogleService-Info.plist` 를 Runner 타깃에 추가**한다(파일을
+      디렉터리에 두는 것만으로는 번들에 안 들어간다). 넣기 전에는 앱이 Firebase
+      초기화를 건너뛴 채 그대로 뜬다.
+- [ ] 한국어 앱 이름은 사람이 할 일이 아니다 — `ko.lproj/InfoPlist.strings` 가
+      Runner 타깃 Resources 에 들어 있고(`mobile/test/config/ios_project_test.dart`
+      가 지킨다), Android 는 `values-ko/strings.xml` 에 있다. 실기기에서 한국어로
+      "오늘의 초성", 영어로 "Hidden Vowels" 가 보이는지만 확인한다.
+- [ ] 실기기·스토어 빌드는 `--dart-define=API_BASE_URL=<서버 주소>/api/v1` 로 넘긴다.
+      기본값은 Android 에뮬레이터용 로컬 주소라 그대로 쓰면 실기기에서 안 붙는다.
+      Sentry 를 켜려면 `--dart-define=SENTRY_DSN=<DSN>` 을 같이 넘긴다(비어 있으면
+      초기화하지 않는다). 값 자체는 이 문서에 적지 않는다 — 이름만 둔다.
+- [ ] 앱 아이콘·스플래시는 **임시**다(`mobile/assets/icon/`, OVERRIDES §8 콘셉트를
+      그대로 그린 자리표시자). 최종본은 티켓 33 에서 만들고, 그때
+      `dart run flutter_launcher_icons` + `dart run flutter_native_splash:create` 를
+      다시 돌린다.
+- [ ] 점검·강제 업데이트 화면(S7)은 서버 `app_setting` 토글로 켠다(티켓 08·16).
+      실기기에서 한 번은 `maintenance_enabled` 와 `min_app_version_*` 를 올려
+      두 화면이 실제로 뜨는지 확인한다.

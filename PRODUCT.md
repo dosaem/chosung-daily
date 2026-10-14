@@ -9,11 +9,18 @@
 
 web
 
-> 이 레포의 UI 는 현재 `web/templates` + `web/static` (Jinja + vanilla JS) 뿐이라
-> `web` 이 사실이다. Flutter 앱(`mobile/`, 티켓 22~31)이 들어오면 네이티브 설계
-> 작업은 `reference/ios.md`·`android.md` 를 직접 읽어야 하고, 그때 이 값을
-> 다시 판단한다. 앱과 웹은 **같은 디자인 토큰**을 쓰므로(OVERRIDES §1) OS 별로
-> 디자인 언어를 바꾸는 `adaptive` 는 아니다.
+> 이 레포에는 이제 두 UI 가 있다: 웹(`web/templates` + `web/static`, Jinja +
+> vanilla JS)과 Flutter 앱(`mobile/`, 티켓 22 에서 들어옴). Platform 은 값을
+> 하나만 쓸 수 있어서 **`web` 을 유지**한다 — 이 값이 `ios`/`android`/`adaptive`
+> 가 되면 `impeccable detect` 가 네이티브 프로젝트로 보고 꺼지는데, 웹 티켓
+> (17·18)의 완료 조건이 detect 0건이라 그 게이트를 잃는다.
+>
+> **앱(`mobile/`)은 네이티브로 다룬다**: 설계·검수는 `impeccable detect` 가 아니라
+> `audit.native` 체크리스트로 하고, 두 OS 로 출시하므로 `reference/ios.md` 와
+> `reference/android.md` 를 **둘 다** 읽고 점수를 매긴다(티켓 22 의 기록은
+> `review/impl-evidence-22.md`). 앱과 웹은 OS 별로 디자인 언어를 바꾸지 않고
+> **같은 OVERRIDES 토큰 하나**를 쓴다(OVERRIDES §1) — 그래서 `adaptive` 의 원래
+> 뜻("OS 별로 디자인 언어를 바꾸는 하나의 제품")에도 해당하지 않는다.
 
 ## Users
 
