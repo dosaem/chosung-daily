@@ -276,3 +276,240 @@ OVERRIDES §8, 티켓 18.
 
 없다. 티켓 체크박스 전부 구현·검증했고, 위 "알려진 중간 상태"는 티켓 18 범위로
 넘어가는 항목이다.
+
+---
+
+## 수정 라운드 1
+
+`review/impl-review-17.md` "라운드 1" 의 결함 2건(BLOCKER 0 / MAJOR 2 / MINOR 0)을
+고쳤다. 리뷰어의 지적은 둘 다 사실이었다 — 재현부터 똑같이 재현됐다(아래 "수정 전"
+출력). 미수정 MINOR 는 없다(리뷰가 MINOR 0 건).
+
+- 기준점이 바뀌었다: 리뷰는 로컬 `main` = `abf3e9a`(12) 위에서 봤고, 이 라운드는
+  **`main` = `bf287f6` "Merge 티켓 06" 위로 rebase** 했다(충돌 없음, 7 커밋).
+  그래서 아래 전체 테스트 수치는 리뷰의 699 가 아니라 **722** 다.
+- 전용 테스트 자원은 그대로다: `TEST_DATABASE_URL=...chosung_daily_test_t17`,
+  `TEST_REDIS_URL=redis://127.0.0.1:6379/5`. 공용 테스트 DB·Redis DB 1 은 안
+  건드렸다. 접속 URL 의 자격 증명은 이 문서에 적지 않는다.
+- 마이그레이션은 여전히 17 이 추가한 게 없다. `uv run flask db heads` →
+  `dae1b5af0cf7 (head)` 1줄, exit 0 (06 이 들어와 리비전 ID 가 `a5bab2f58a7b` 에서
+  바뀌었다).
+- 리뷰 파일(`review/impl-review-17.md`)은 수정하지 않았다.
+
+### 재현 테스트를 어디에 뒀는가
+
+리뷰가 정확히 짚었다 — 기존 JS 검증은 **번들 문자열 어서션**(`tests/test_web.py`)이라
+"함수가 있다"까지만 본다. 두 결함은 모두 *실행* 결과라서 그 방식으로는 잡히지 않는다.
+그래서 번들을 실제로 돌리는 테스트를 새로 넣었다:
+
+| 파일 | 역할 |
+|---|---|
+| `tests/js/harness.mjs` | `web/static/app.js` 를 node `vm` 에서 실행하는 최소 대역. DOM(요소·classList·innerHTML 비우기)·`localStorage`·`fetch` 도착 순서만 제공하고, **검사 대상 함수는 작업 트리의 번들 그대로** 쓴다. 번들 끝의 `init();` 한 줄만 뗀다(없으면 바로 throw 해서 조용히 통과하지 않는다). |
+| `tests/js/stale_submit_response.mjs` | D-17-1 시나리오 3개(오답 stale / 정답 stale / 전환 없는 대조군) |
+| `tests/js/error_message_language.mjs` | D-17-2 시나리오 6개(VALIDATION_ERROR·ALREADY_FINISHED·RATE_LIMITED·UNAUTHORIZED·매핑 없는 code·today 의 NO_PUZZLE_TODAY) |
+| `tests/test_web_js.py` | 위 시나리오를 돌리고 판정한다. 사전은 `UI_STRINGS[language]` 를 그대로 넘겨서, 문구 키가 없으면 테스트가 먼저 터진다. |
+
+Playwright 는 그대로 안 들였다(스펙 "미정 항목" 5) — 브라우저 없이 번들만 돌린다.
+그래서 **레이아웃·실제 HTTP 왕복은 이 테스트가 대신하지 못한다**. README "웹 수동
+체크리스트" 에 9·10 번 항목(제출 중 언어 전환 / 영어 UI 오류 문구)을 추가했다.
+`node` 가 없는 환경에서는 `pytest.mark.skipif` 로 건너뛴다(CI 의 `ubuntu-latest` 에는
+node 가 있다).
+
+#### 수정 전 (red) — 리뷰의 재현이 그대로 재현된다
+
+수정 전 번들로 되돌려 같은 테스트를 돌렸다:
+
+```
+$ git checkout 669caf0 -- web/static/app.js
+$ uv run pytest tests/test_web_js.py -q
+FAILED tests/test_web_js.py::test_stale_wrong_guess_response_does_not_touch_the_new_puzzle
+FAILED tests/test_web_js.py::test_stale_correct_guess_response_does_not_finish_the_new_puzzle
+FAILED tests/test_web_js.py::test_server_error_messages_are_shown_in_the_ui_language
+FAILED tests/test_web_js.py::test_an_unmapped_error_code_falls_back_to_the_generic_ui_string
+FAILED tests/test_web_js.py::test_no_error_message_leaks_korean_into_the_english_ui
+5 failed, 1 passed in 0.28s
+```
+
+통과한 1건은 대조군(`test_a_submit_without_a_switch_still_updates_the_board`)이다 —
+테스트가 그냥 다 빨간 게 아니라, 깨진 두 경로만 집어낸다는 뜻이다.
+
+같은 시나리오의 원시 출력(수정 전):
+
+```
+stale_wrong   : {"puzzleId":2,"puzzleLanguage":"en","attempts":[{"guess":"사과","feedback":[true,false]}],"attemptsLeft":4,"boardRows":1,"attemptsLeftText":"남은 기회 4/5",...}
+stale_correct : {"puzzleId":2,"puzzleLanguage":"en","attempts":[{"guess":"사과","feedback":[true,true]}],"attemptsLeft":4,"finalStatus":"success","boardRows":1,"guessFormHidden":true,"resultHidden":false}
+guess_validation / already_finished / rate_limited / unauthorized / unknown / today_no_puzzle
+  → "정답은 5글자입니다." / "이미 정답을 맞춘 퍼즐입니다." / "제출이 너무 많습니다. …" /
+    "인증이 필요합니다." / "서버 오류가 발생했습니다." / "오늘의 퍼즐이 아직 준비되지 않았습니다."
+```
+
+`stale_correct` 는 리뷰가 적은 것보다 한 발 더 나간 상태까지 보여준다 — 새 en 퍼즐의
+입력 폼이 숨고(`guessFormHidden:true`) 결과 패널이 열려(`resultHidden:false`) **ko
+정답으로 완료** 표시된다.
+
+### D-17-1 — MAJOR — 전환 이전 요청의 응답이 새 퍼즐 상태를 오염시킨다
+
+**원인.** `submitGuess` 가 응답을 받은 시점에 "이 응답이 지금 화면의 퍼즐 것인가" 를
+묻지 않는다. `fetch` 를 기다리는 동안 언어 칩(제출 중에도 눌린다)·409 재조회·계정·
+백업 전환이 끝나면 `state` 는 이미 **다른 퍼즐**인데, 응답 처리부는 그걸 모르고
+`state.attempts.push(...)`·`renderAttemptsLeft(...)`·`showResult(...)` 를 지금 상태에
+그대로 쓴다. 증상(보드에 한 줄)이 아니라 이 "응답 ↔ 상태 불일치" 가 원인이다.
+
+**수정 내용.** `web/static/app.js` `submitGuess`:
+
+```js
+const requestedPuzzleId = state.puzzleId;
+const res = await fetch(`${API_BASE}/puzzles/today/guesses`, {
+  …, body: JSON.stringify({ puzzle_id: requestedPuzzleId, guess }),
+});
+const data = await res.json();
+
+if (state.puzzleId !== requestedPuzzleId) return;
+```
+
+- 요청을 보낸 퍼즐 ID 를 들고 있다가, 응답 시점에 화면이 그 퍼즐이 아니면 **응답을
+  통째로 버린다** — 409 재조회도, 오류 안내도 하지 않는다. 이미 폐기한 퍼즐의 이야기다.
+- 같은 ID 를 요청 본문의 `puzzle_id` 로도 쓴다(전에는 `state.puzzleId` 를 직접 읽었다).
+  요청 조립 시점엔 값이 같지만, "요청이 말한 퍼즐" 과 "응답을 검사하는 기준" 이 한
+  변수에서 나오는 게 맞다.
+- `discardLocalPlayState()` 가 `state.puzzleId = null` 로 두기 때문에, 전환이 아직
+  새 퍼즐을 못 받은 중간 상태(`null`)에서도 가드가 걸린다.
+- **칩을 제출 중에 비활성화하는 쪽은 고르지 않았다.** 자정 경과나 다른 기기의 언어
+  변경처럼 칩을 안 눌러도 퍼즐이 갈리는 경로가 있어서, 막을 곳은 입력이 아니라 응답
+  반영 지점이다. README "### 17. 늦게 온 제출 응답은 버린다" 에 적었다.
+
+**증명.** 수정 후 같은 시나리오:
+
+```
+stale_wrong   : {"puzzleId":2,"puzzleLanguage":"en","attempts":[],"attemptsLeft":5,"finalStatus":null,
+                 "boardRows":0,"attemptsLeftText":"남은 기회 5/5","guessFormHidden":false,"resultHidden":true}
+stale_correct : {"puzzleId":2,"puzzleLanguage":"en","attempts":[],"attemptsLeft":5,"finalStatus":null,
+                 "boardRows":0,"attemptsLeftText":"남은 기회 5/5","guessFormHidden":false,"resultHidden":true}
+fresh_wrong   : {"puzzleId":1,"puzzleLanguage":"ko","attempts":[{"guess":"사과","feedback":[true,false]}],
+                 "attemptsLeft":4,"boardRows":1,"attemptsLeftText":"남은 기회 4/5"}   ← 대조군: 평소대로 반영
+```
+
+`tests/test_web_js.py::test_stale_wrong_guess_response_does_not_touch_the_new_puzzle`,
+`::test_stale_correct_guess_response_does_not_finish_the_new_puzzle`,
+`::test_a_submit_without_a_switch_still_updates_the_board` 가 이걸 고정한다.
+
+**리뷰어의 독립 재현 명령으로도 확인.** `review/impl-review-17.md` 의 node 명령을
+그대로 돌리면(사전 stub 에 `error_guess_length` 키 한 개만 더 넣어야 한다 — 아래
+D-17-2 가 그 키를 쓴다):
+
+```
+{"puzzleId":2,"language":"en","attempts":[],"left":5}
+The answer is 5 letters.
+```
+
+전: `{"puzzleId":2,"language":"en","attempts":[{"guess":"사과",…}],"left":4}` / `정답은 5글자입니다.`
+
+### D-17-2 — MAJOR — 영어 UI 의 일반 오류가 한국어로 출력된다
+
+**원인.** `data.message || t("generic_error")`(제출)·`body.message || t("puzzle_load_failed")`
+(today 조회)가 **서버 message 를 사전보다 먼저** 쓴다. 그런데 API 오류 message 는
+한국어 한 벌뿐이다(`app/errors.py`) — API 는 기기 언어를 모르고, 앱(Flutter)도 같은
+응답을 받는다. 그래서 "정상적인 오류 응답" 에서는 번역된 fallback 이 아예 안 쓰인다.
+리뷰가 "우선순위 문제" 라고 쓴 게 정확하다.
+
+**수정 내용.**
+
+- `web/static/app.js`: `code → 사전 키` 표와 그걸 쓰는 한 줄짜리 함수를 넣고, 두
+  호출 지점을 바꿨다.
+
+```js
+const ERROR_STRING_KEYS = {
+  VALIDATION_ERROR: "error_guess_length",
+  ALREADY_FINISHED: "error_already_finished",
+  RATE_LIMITED: "error_rate_limited",
+  NO_PUZZLE_TODAY: "error_no_puzzle_today",
+  UNAUTHORIZED: "error_unauthorized",
+};
+
+function errorText(body, fallbackKey) {
+  const key = ERROR_STRING_KEYS[body.code];
+  return key ? t(key, { length: state.length }) : t(fallbackKey);
+}
+```
+
+  - `showMessage(errorText(data, "generic_error"))` (제출), `showMessage(errorText(body, "puzzle_load_failed"))` (today).
+  - **서버 message 는 더 이상 화면에 안 쓴다.** 매핑에 없는 code(`INTERNAL_ERROR` 등)는
+    부른 쪽이 준 기본 문구로 눕는다.
+- `app/utils/ui_strings.py`: ko/en 각각 5개 추가 — `error_guess_length`
+  (`"정답은 {length}글자예요."` / `"The answer is {length} letters."`),
+  `error_already_finished`, `error_rate_limited`, `error_no_puzzle_today`,
+  `error_unauthorized`.
+- `{length}` 는 서버 message 를 파싱하지 않고 화면이 이미 들고 있는 `state.length` 에서
+  온다. 웹에서 닿는 `VALIDATION_ERROR` 는 길이 불일치 하나다 — 빈 답은 `handleSubmit`,
+  50자 초과는 입력창 `maxLength` 가 미리 막는다(`app/schemas/guess.py`).
+- **API 를 기기 언어별로 번역하는 쪽은 고르지 않았다.** 모든 엔드포인트가
+  `Accept-Language` 를 받아야 하고 앱 클라이언트의 계약도 바뀐다. 17 범위가 아니다
+  (스펙 §A.16 은 UI 문구 ko/en 만 요구한다). README "### 17. 서버 오류 문구는 `code` 로
+  사전에서 고른다" 에 적었다.
+- `ALREADY_FINISHED` 의 서버 message 두 가지("이미 정답을 맞춘" / "이미 기회를 모두
+  사용한")는 사전 문구 하나("이미 끝난 퍼즐이에요.")로 합쳤다. 화면에서 할 일이 같다.
+
+**증명.** 수정 후, en 사전을 넘겨 실제 `submitGuess`·`loadToday` 를 돌린 `#message`:
+
+```
+guess_validation       : The answer is 5 letters.
+guess_already_finished : You've already finished this puzzle.
+guess_rate_limited     : Too many guesses. Please try again in a moment.
+guess_unauthorized     : We couldn't check your record. Please reload.
+guess_unknown          : Something went wrong.          ← 매핑 없는 code 는 generic_error
+today_no_puzzle        : Today's puzzle isn't ready yet.
+```
+
+`tests/test_web_js.py::test_server_error_messages_are_shown_in_the_ui_language`,
+`::test_an_unmapped_error_code_falls_back_to_the_generic_ui_string`,
+`::test_no_error_message_leaks_korean_into_the_english_ui`(출력에 한글이 한 자라도
+있으면 실패) 가 고정한다.
+
+`t(변수)` 는 기존 `test_bundle_only_uses_keys_that_exist` 의 정규식(`t("키"`)에 안
+걸린다. 그래서 `tests/test_ui_strings.py::test_api_error_codes_map_to_keys_that_exist`
+를 더해 매핑의 값이 전부 사전에 있는지 본다 — 키 이름을 잘못 적으면 그 오류에서만
+`undefined` 가 뜨는 걸 막는다.
+
+### 같이 바꾼 것 (수정 범위 안)
+
+- `tests/test_web.py::test_js_sends_puzzle_id_with_a_guess`: 어서션을
+  `"puzzle_id: state.puzzleId"` → `"const requestedPuzzleId = state.puzzleId;"` +
+  `"puzzle_id: requestedPuzzleId"` 로 갱신했다. 뜻("제출은 그릴 때 받은 퍼즐 ID 를
+  들고 간다")은 그대로고 표현만 바뀌었다.
+- `tests/test_web.py`·`tests/test_ui_strings.py` 머리말의 "JS 테스트 러너가 없어서"
+  문장이 더 이상 사실이 아니라서 고쳤다(번들 실행 테스트가 생겼다 / Playwright 는
+  여전히 없다).
+- README "웹 수동 체크리스트" 머리말도 같은 이유로 고쳤고, 9·10 번 항목을 추가했다.
+- 기능 추가·리팩토링은 하지 않았다. 서버 코드는 `app/utils/ui_strings.py` 의 문구
+  10줄(ko/en 5쌍)만 늘었다 — API·스키마·마이그레이션 변경 없음.
+
+### 전체 검증 (rebase 후)
+
+```
+$ git rebase main                      # main = bf287f6 "Merge 티켓 06"
+Successfully rebased and updated refs/heads/dosaem/t17-web-play-flow-i18n.
+
+$ uv run pytest -q
+722 passed in 493.98s (0:08:13)        # exit 0
+
+$ uv run ruff check .
+All checks passed!                      # exit 0
+
+$ uv run flask db heads
+dae1b5af0cf7 (head)                     # 1줄, exit 0 (17 은 마이그레이션 없음)
+
+$ git diff --check main...HEAD
+                                        # 출력 없음, exit 0
+```
+
+`git status` 는 clean 이고 브랜치는 로컬 `main`(`bf287f6`) 바로 위에 있다.
+`origin/main` 은 쓰지 않았고 `git push` 도 하지 않았다.
+
+### 남은 것 / 이 라운드가 못 한 것
+
+- **브라우저 재확인은 안 했다.** 이번 수정은 JS 로직 두 지점이고 CSS·마크업을
+  건드리지 않아서 `impeccable detect` 를 다시 돌리지 않았다(라이트 0건 주장은 라운드
+  이전 그대로다). 다크 OS 중간 상태도 그대로 티켓 18 범위다(§6).
+- 수동 체크리스트 9·10 번은 **문서로만 추가**했다. 실제 Slow 3G 전환 조작은 node
+  대역의 응답 보류로 대신했다 — 같은 순서를 만들지만 실제 브라우저·네트워크는 아니다.
+- 미수정 MINOR 없음(리뷰 MINOR 0건).
