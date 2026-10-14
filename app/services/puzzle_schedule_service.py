@@ -186,6 +186,13 @@ def replace_assignment(
       다른 정답과 비교된 결과다. 오늘이어도 시도가 없으면 바꿀 수 있다 —
       운영자가 자정 직후에 기념일 문제로 갈아끼우는 게 US 54 의 주 용도다.
 
+    "시도 없음" 검사는 퍼즐 행을 `FOR UPDATE` 로 잠근 뒤에 한다 — 검사와 UPDATE
+    사이에 첫 제출이 커밋되면 그 시도는 옛 정답으로 판정됐는데 보드는 새 정답을
+    가리키게 된다(리뷰 D-23-1). 제출 쪽도 같은 행을 공유 잠금으로 잡으므로
+    (`guess_service.submit_guess`) 어느 쪽이 먼저 오든 뒤에 온 쪽이 멈춘다: 제출이
+    먼저면 여기서 "시도 1건" 을 보고 거부하고, 교체가 먼저면 제출이 바뀐 정답을 보고
+    PUZZLE_CHANGED 로 끊긴다.
+
     커밋이 끝난 뒤 `puzzle:{date}:{lang}` 캐시를 지운다 — 오늘 퍼즐 읽기가
     cache-aside 라(`puzzle_service.get_today_puzzle_or_404`) 안 지우면 TTL 26시간
     동안 옛 단어가 계속 나간다. 롤백된 교체가 캐시를 날리지 않게 순서를 그렇게 뒀다.
@@ -203,7 +210,7 @@ def replace_assignment(
             f"{language.value} 단어만 배정할 수 있어요 (고른 단어는 {word.language.value})."
         )
 
-    puzzle = puzzle_repository.find_by_date(puzzle_date, language)
+    puzzle = puzzle_repository.lock_by_date(puzzle_date, language)
     if puzzle is not None:
         attempts = attempt_repository.count_by_puzzle([puzzle.id]).get(puzzle.id, 0)
         if attempts:
