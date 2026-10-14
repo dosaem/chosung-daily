@@ -7,6 +7,9 @@
 그래서 "덤프가 gzip 으로 떨어지는지", "14일 지난 파일이 지워지는지",
 "실패하면 Slack 으로 쏘는지" 는 흉내가 아니라 스크립트가 한 일을 본다.
 
+덤프는 **공개키(CMS 봉투)로 암호화**해서만 디스크에 남는다(티켓 36) — 그래서
+`openssl` 은 스텁이 아니라 진짜를 쓰고, 테스트가 만든 개인키로 실제로 풀어 본다.
+
 MySQL 컨테이너를 띄우는 실제 복구 리허설은 `docs/RELEASE.md` "복구 리허설" 절.
 """
 
@@ -36,6 +39,30 @@ DAY = 86400
 # ---------------------------------------------------------------- 스텁 환경
 
 
+def _make_keypair(directory: Path):
+    """백업 암호화용 공개키 인증서 + 개인키 한 쌍.
+
+    운영에서는 개인키가 NAS 밖에 있다(`docs/RELEASE.md` "### 36."). 테스트는
+    "공개키로 쓴 덤프가 그 개인키로만 열린다" 를 보려고 둘 다 만든다.
+    """
+    cert, key = directory / "backup-cert.pem", directory / "backup-key.pem"
+    subprocess.run(
+        [
+            "openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+            "-keyout", str(key), "-out", str(cert), "-days", "3650",
+            "-subj", "/CN=chosung-daily backup test",
+        ],
+        check=True,
+        capture_output=True,
+    )
+    return cert, key
+
+
+@pytest.fixture(scope="module")
+def backup_keypair(tmp_path_factory):
+    return _make_keypair(tmp_path_factory.mktemp("backup-keys"))
+
+
 def _write_stub(bin_dir, name, body):
     path = bin_dir / name
     path.write_text(f"#!/bin/bash\n{body}\n", encoding="utf-8")
@@ -44,7 +71,7 @@ def _write_stub(bin_dir, name, body):
 
 
 @pytest.fixture
-def stub(tmp_path):
+def stub(tmp_path, backup_keypair):
     """PATH 스텁 + 호출 기록 디렉터리를 가진 셸 실행 환경."""
 
     class Stub:
@@ -65,6 +92,8 @@ def stub(tmp_path):
                 "MYSQL_DATABASE": "chosung_daily",
                 "MYSQL_HOST": "mysql",
                 "DUMP_DIR": str(self.dumps),
+                # 공개키만 백업 쪽에 둔다 — 이 값이 비면 백업은 아예 돌지 않는다.
+                "BACKUP_ENCRYPTION_CERT_FILE": str(backup_keypair[0]),
             }
 
         def write(self, name, body):
@@ -104,6 +133,7 @@ def stub(tmp_path):
             return len(list(self.log.glob(f"{name}.*.args")))
 
     s = Stub()
+    s.key = backup_keypair[1]
     # mysqldump: 인자를 기록하고 가짜 덤프를 stdout 으로 흘린다.
     s.write(
         "mysqldump",
@@ -124,15 +154,98 @@ def stub(tmp_path):
 # ---------------------------------------------------------------- backup.sh
 
 
-def test_backup_writes_gzipped_dump(stub):
+def _decrypt(path: Path, key: Path) -> str:
+    """암호화된 덤프를 개인키로 풀어 평문 SQL 로 돌려준다."""
+    decrypted = subprocess.run(
+        ["openssl", "cms", "-decrypt", "-binary", "-inform", "DER",
+         "-inkey", str(key), "-in", str(path)],
+        check=True,
+        capture_output=True,
+    ).stdout
+    return gzip.decompress(decrypted).decode("utf-8")
+
+
+def test_backup_writes_an_encrypted_dump(stub):
     result = stub.run("backup.sh")
     assert result.returncode == 0, result.stderr
 
-    dumps = sorted(stub.dumps.glob("*.sql.gz"))
+    dumps = sorted(stub.dumps.glob("*.sql.gz.enc"))
     assert len(dumps) == 1
     assert dumps[0].name.startswith("chosung_daily-")
-    body = gzip.decompress(dumps[0].read_bytes()).decode("utf-8")
-    assert "INSERT INTO word" in body
+    assert "INSERT INTO word" in _decrypt(dumps[0], stub.key)
+
+
+def test_the_dump_on_disk_is_not_readable_without_the_private_key(stub):
+    """티켓 36 의 요점. NAS 폴더가 뚫려도 덤프 내용은 열리지 않아야 한다."""
+    assert stub.run("backup.sh").returncode == 0
+
+    dump = next(iter(stub.dumps.glob("*.sql.gz.enc")))
+    raw = dump.read_bytes()
+    assert b"INSERT INTO word" not in raw
+    assert "사과".encode() not in raw
+    # 봉투 머리에는 수신자 인증서의 DN 이 들어간다(공개 정보다) — 덤프 **내용**이
+    # 안 보이는 게 요점이다.
+    # gzip 매직도 안 보인다 — 압축 결과가 통째로 봉투 안에 들어간다.
+    assert not raw.startswith(b"\x1f\x8b")
+
+    _, wrong_key = _make_keypair(stub.dumps.parent)
+    failed = subprocess.run(
+        ["openssl", "cms", "-decrypt", "-binary", "-inform", "DER",
+         "-inkey", str(wrong_key), "-in", str(dump)],
+        capture_output=True,
+        check=False,
+    )
+    assert failed.returncode != 0, "다른 키로도 복호화됐다"
+
+
+def test_no_plaintext_dump_is_left_anywhere(stub):
+    """임시 파일도 평문으로 남지 않는다 — 압축 결과를 파일로 떨어뜨리지 않고
+    `mysqldump | gzip | openssl` 한 줄로 흘린다."""
+    assert stub.run("backup.sh").returncode == 0
+
+    assert list(stub.dumps.glob("*.sql.gz")) == []
+    assert list(stub.dumps.glob("*.sql")) == []
+    assert list(Path(stub.env["TMPDIR"]).iterdir()) == []
+
+
+def test_backup_refuses_to_run_without_the_recipient_certificate(stub):
+    """수신자 공개키가 없으면 **백업을 만들지 않는다** — 평문으로 조용히 떨어지면
+    방침이 약속한 "암호화 보관" 이 거짓이 된다."""
+    result = stub.run(
+        "backup.sh",
+        BACKUP_ENCRYPTION_CERT_FILE="",
+        SLACK_WEBHOOK_URL="https://hooks.example.test/T/B/XYZ",
+    )
+
+    assert result.returncode != 0
+    assert list(stub.dumps.iterdir()) == [], "암호화 없이 덤프를 만들었다"
+    args = stub.args("curl")
+    assert args is not None, "암호화 설정 누락이 알림 없이 끝났다"
+    assert "https://hooks.example.test/T/B/XYZ" in args
+    assert "BACKUP_ENCRYPTION_CERT_FILE" in "\n".join(args)
+
+
+def test_backup_fails_when_the_certificate_file_is_missing(stub, tmp_path):
+    result = stub.run(
+        "backup.sh",
+        BACKUP_ENCRYPTION_CERT_FILE=str(tmp_path / "nope.pem"),
+        SLACK_WEBHOOK_URL="https://hooks.example.test/T/B/XYZ",
+    )
+
+    assert result.returncode != 0
+    assert list(stub.dumps.iterdir()) == []
+    assert stub.args("curl") is not None
+
+
+def test_backup_fails_when_encryption_fails(stub):
+    """암호화 단계가 깨지면 반쪽 파일을 "그 날의 백업" 으로 남기지 않는다."""
+    stub.write("openssl", 'echo "openssl: bad certificate" >&2\nexit 1')
+
+    result = stub.run("backup.sh", SLACK_WEBHOOK_URL="https://hooks.example.test/T/B/XYZ")
+
+    assert result.returncode != 0
+    assert list(stub.dumps.iterdir()) == []
+    assert stub.args("curl") is not None
 
 
 def test_backup_dump_is_consistent_and_restorable_whole_database(stub):
@@ -158,9 +271,11 @@ def test_backup_never_puts_password_on_the_command_line(stub):
 
 
 def test_backup_keeps_14_days_and_deletes_older(stub):
-    old = stub.dumps / "chosung_daily-20260101-040000.sql.gz"
+    """암호화 확장자(`.sql.gz.enc`)와 전환기에 남아 있는 평문 덤프(`.sql.gz`)를
+    둘 다 보존 대상으로 본다 — 한쪽만 지우면 디스크가 차거나 평문이 영원히 남는다."""
+    old = stub.dumps / "chosung_daily-20260101-040000.sql.gz.enc"
     borderline = stub.dumps / "chosung_daily-20260108-040000.sql.gz"
-    recent = stub.dumps / "chosung_daily-20260112-040000.sql.gz"
+    recent = stub.dumps / "chosung_daily-20260112-040000.sql.gz.enc"
     keep_me = stub.dumps / "README.txt"
     for path in (old, borderline, recent, keep_me):
         path.write_bytes(b"x")
@@ -179,7 +294,7 @@ def test_backup_keeps_14_days_and_deletes_older(stub):
 
 
 def test_backup_retention_days_is_configurable(stub):
-    old = stub.dumps / "chosung_daily-20260101-040000.sql.gz"
+    old = stub.dumps / "chosung_daily-20260101-040000.sql.gz.enc"
     old.write_bytes(b"x")
     now = time.time()
     os.utime(old, (now - 5 * DAY, now - 5 * DAY))
@@ -246,7 +361,7 @@ def test_backup_notifies_slack_when_the_dump_cannot_be_moved_into_place(stub):
 
     assert result.returncode != 0
     assert stub.args("curl") is not None, "mv 실패가 알림 없이 끝났다"
-    assert list(stub.dumps.glob("*.sql.gz")) == [], "제 이름으로 못 옮긴 덤프가 남았다"
+    assert list(stub.dumps.glob("*.sql.gz*")) == [], "제 이름으로 못 옮긴 덤프가 남았다"
 
 
 def test_backup_notifies_slack_when_retention_prune_fails(stub):
@@ -295,9 +410,33 @@ def test_cron_time_is_configurable(stub):
 
 @pytest.fixture
 def dump_file(tmp_path):
+    """전환기에 남아 있는 **평문** 덤프(암호화 전에 뜬 것). 당분간 복원 가능해야 한다."""
     path = tmp_path / "chosung_daily-20261013-040000.sql.gz"
     path.write_bytes(gzip.compress(b"DROP DATABASE IF EXISTS chosung_daily;\n"))
     return path
+
+
+DUMP_SQL = b"DROP DATABASE IF EXISTS chosung_daily;\nCREATE DATABASE chosung_daily;\n"
+
+
+def _encrypt_dump(path: Path, cert: Path, sql: bytes = DUMP_SQL) -> Path:
+    path.write_bytes(
+        subprocess.run(
+            ["openssl", "cms", "-encrypt", "-binary", "-aes-256-cbc", "-outform", "DER",
+             "-stream", "-recip", str(cert)],
+            input=gzip.compress(sql),
+            check=True,
+            capture_output=True,
+        ).stdout
+    )
+    return path
+
+
+@pytest.fixture
+def encrypted_dump(tmp_path, backup_keypair):
+    return _encrypt_dump(
+        tmp_path / "chosung_daily-20261014-040000.sql.gz.enc", backup_keypair[0]
+    )
 
 
 @pytest.fixture
@@ -556,6 +695,97 @@ def test_restarting_the_app_does_not_clear_the_puzzle_cache(app):
         for key in get_redis().scan_iter(match="puzzle:*"):
             get_redis().delete(key)
         assert get_cached_puzzle(stale_date, PuzzleLanguage.KO) is None
+
+
+# --------------------------------------- 암호화 덤프 복구 (티켓 36)
+
+
+def test_restore_decrypts_with_the_key_file_and_pipes_it_into_mysql(
+    docker_stub, encrypted_dump, backup_keypair
+):
+    result = docker_stub.run(
+        "restore.sh",
+        "-y",
+        str(encrypted_dump),
+        "chosung-daily-prod",
+        BACKUP_DECRYPTION_KEY_FILE=str(backup_keypair[1]),
+    )
+    assert result.returncode == 0, result.stderr
+
+    assert docker_stub.call_stdin("docker", 0).startswith("DROP DATABASE IF EXISTS")
+
+
+def test_restore_takes_the_key_as_an_argument_too(docker_stub, encrypted_dump, backup_keypair):
+    """운영자가 개인키를 env 에 넣지 않고 그 자리에서 경로만 주고 싶을 때."""
+    result = docker_stub.run(
+        "restore.sh", "-y", "-k", str(backup_keypair[1]), str(encrypted_dump), "chosung-daily-prod"
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert docker_stub.call_stdin("docker", 0).startswith("DROP DATABASE IF EXISTS")
+
+
+def test_restore_without_a_key_stops_before_touching_mysql(docker_stub, encrypted_dump):
+    """키 분실 = 복구 불가다. 그 사실이 **MySQL 을 건드리기 전에** 드러나야 한다 —
+    DROP DATABASE 가 먼저 흘러가면 복구 실패가 멀쩡한 DB 를 날린다."""
+    result = docker_stub.run(
+        "restore.sh", "-y", str(encrypted_dump), "chosung-daily-prod",
+        BACKUP_DECRYPTION_KEY_FILE="",
+    )
+
+    assert result.returncode != 0
+    assert docker_stub.args("docker") is None
+    assert "BACKUP_DECRYPTION_KEY_FILE" in result.stderr
+
+
+def test_restore_with_the_wrong_key_stops_before_touching_mysql(
+    docker_stub, encrypted_dump, tmp_path
+):
+    _, wrong_key = _make_keypair(tmp_path)
+
+    result = docker_stub.run(
+        "restore.sh", "-y", "-k", str(wrong_key), str(encrypted_dump), "chosung-daily-prod"
+    )
+
+    assert result.returncode != 0
+    assert docker_stub.args("docker") is None
+
+
+def test_restore_rejects_a_corrupted_encrypted_dump_before_touching_mysql(
+    docker_stub, encrypted_dump, backup_keypair
+):
+    whole = encrypted_dump.read_bytes()
+    encrypted_dump.write_bytes(whole[: len(whole) // 2])
+
+    result = docker_stub.run(
+        "restore.sh", "-y", "-k", str(backup_keypair[1]), str(encrypted_dump),
+        "chosung-daily-prod",
+    )
+
+    assert result.returncode != 0
+    assert docker_stub.args("docker") is None
+
+
+def test_restore_still_accepts_a_legacy_plaintext_dump(docker_stub, dump_file):
+    """전환기: 암호화 전에 뜬 `.sql.gz` 덤프도 보존 기간 동안은 복원할 수 있어야 한다
+    (그 기간이 지나 사라지면 평문 경로를 뺀다 — `docs/RELEASE.md` "### 36." 체크박스)."""
+    result = docker_stub.run("restore.sh", "-y", str(dump_file), "chosung-daily-prod")
+
+    assert result.returncode == 0, result.stderr
+    assert docker_stub.call_stdin("docker", 0).startswith("DROP DATABASE IF EXISTS")
+
+
+def test_restore_does_not_write_the_decrypted_dump_to_disk(
+    docker_stub, encrypted_dump, backup_keypair, tmp_path
+):
+    """복호화 결과를 임시 파일로 떨어뜨리지 않는다 — 스트림으로 mysql 에 흘린다."""
+    docker_stub.run(
+        "restore.sh", "-y", "-k", str(backup_keypair[1]), str(encrypted_dump),
+        "chosung-daily-prod", TMPDIR=str(docker_stub.tmp),
+    )
+
+    assert list(docker_stub.tmp.iterdir()) == []
+    assert list(tmp_path.glob("*.sql")) == []
 
 
 # --------------------------------------------------------- compose 의 backup 서비스
