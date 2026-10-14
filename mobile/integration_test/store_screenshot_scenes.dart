@@ -61,18 +61,11 @@ enum StoreScene {
   bool get hasShell => this != StoreScene.language;
 }
 
-/// 리더보드 표시 이름은 **서버가 만든 문자열을 앱이 그대로 찍는다**
-/// (`app/services/puzzle_metrics.py` `display_name`, `ranking_tab.dart`).
-/// 지금 서버는 UI 언어와 무관하게 "게스트 #a3f1" 를 주므로, en 스크린샷도 같은
-/// 라벨로 찍는다 — 앱이 만들지 않는 화면을 스토어에 올리지 않으려고.
-/// (코디네이터 확인 2026-10-15, `review/impl-evidence-35.md` 참고)
-const _leaderboardNames = [
-  '게스트 #a3f1',
-  '게스트 #7b20',
-  '게스트 #1c08',
-  '게스트 #92de',
-  '게스트 #4f61',
-];
+/// 리더보드 익명 태그. 서버는 **언어 중립 태그만** 주고 "게스트 #" / "Guest #"
+/// 접두사는 화면이 자기 UI 언어로 붙인다(티켓 38, `ranking.guest`,
+/// README "38.") — 그래서 같은 태그로 ko·en 을 찍으면 각 로케일의 접두사가
+/// 붙은 그림이 나온다.
+const _leaderboardTags = ['a3f1', '7b20', '1c08', '92de', '4f61'];
 
 /// ko "지하철역" — `fakeKoMask` 와 같은 퍼즐이다. 시도 두 줄은 **정답과 앞뒤가
 /// 맞는** 피드백이어야 한다: 스토어 스크린샷은 사람이 들여다보는 그림이라,
@@ -167,27 +160,27 @@ List<StoreScreenshotScene> storeScreenshotScenes({required Locale locale}) {
     leaderboard: fakeLeaderboard(
       language: language,
       entries: [
-        fakeLeaderboardEntry(rank: 1, display: _leaderboardNames[0]),
+        fakeLeaderboardEntry(rank: 1, anonTag: _leaderboardTags[0]),
         fakeLeaderboardEntry(
           rank: 2,
-          display: _leaderboardNames[1],
+          anonTag: _leaderboardTags[1],
           seconds: 63,
         ),
         fakeLeaderboardEntry(
           rank: 3,
-          display: _leaderboardNames[2],
+          anonTag: _leaderboardTags[2],
           attempts: 2,
           seconds: 95,
         ),
         fakeLeaderboardEntry(
           rank: 4,
-          display: _leaderboardNames[3],
+          anonTag: _leaderboardTags[3],
           attempts: 3,
           seconds: 188,
         ),
         fakeLeaderboardEntry(
           rank: 5,
-          display: _leaderboardNames[4],
+          anonTag: _leaderboardTags[4],
           attempts: 3,
           seconds: 402,
         ),

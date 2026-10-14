@@ -53,6 +53,7 @@ Play 데이터 보안을 방침과 1:1 대조해 **차이 3건**을 찾아 2건�
 | `docs/play-data-safety.md` | Play 데이터 보안 설문 답안(콘솔 입력은 사람) |
 | `tests/test_store_metadata.py`, `tests/test_store_labels.py` | 메타데이터·워크플로·라벨 대조 테스트 |
 | `mobile/ios/Podfile.lock` | 이 티켓이 처음으로 iOS 를 로컬 빌드하면서 생겼다. pod 버전을 고정해 두는 쪽이 CI 와 로컬이 갈리지 않아 커밋한다(`Pods/` 는 그대로 gitignore) |
+| `review/ocr-store-shots-35.py` | (리뷰 전 보정) en 스크린샷 OCR 검사 — 한글 글자 수와 잘못된 단수/복수를 센다. 10.4 참고 |
 
 **고친 것**
 
@@ -67,6 +68,9 @@ Play 데이터 보안을 방침과 1:1 대조해 **차이 3건**을 찾아 2건�
 | `README.md` | "22." 한 줄 + "### 35." 설계 판단 |
 | `.scratch/store-launch/design-system/hidden-vowels/OVERRIDES.md` | §8 에 30px 확인 결과·대비비(티켓이 명시적으로 지시) |
 | `.github/workflows/flutter-ci.yml` | 포맷 검사 대상에 `integration_test test_driver` 추가 |
+| (리뷰 전 보정) `mobile/integration_test/store_screenshot_scenes.dart` | 리더보드 fake 를 `display`(한글 하드코딩) → `anonTag` 로. 10.2 |
+| (리뷰 전 보정) `mobile/test/store/store_screenshot_scenes_test.dart` | 로케일마다 "리더보드 글자는 UI 언어뿐" 단언 추가. 10.2 |
+| (리뷰 전 보정) `mobile/ios/fastlane/screenshots/en-US/**`, `mobile/android/fastlane/metadata/android/en-US/images/**` | en 10장 재캡처(결과·리더보드 × 3기기 + Play 복사본). 10.3 |
 
 ## 3. 체크박스별 실행 증거
 
@@ -304,17 +308,18 @@ mobile/ios/fastlane/screenshots/ko/iphone69_ko_06_language.png
    캡처로 덮인다(`docs/RELEASE.md` "### 35." 체크박스).
    - 처음에는 `sys.boot_completed` 만 기다려서 "Can't find service: package" 로
      죽었다 — 스크립트가 **패키지 매니저 서비스**까지 기다리도록 고쳤다.
-2. **en 리더보드 스크린샷에 한글 라벨이 보인다.** 서버
-   (`app/services/puzzle_metrics.py` `display_name`)가 UI 언어와 무관하게
-   "게스트 #a3f1" 를 주고 앱은 그 문자열을 그대로 찍는다. 앱이 실제로 만드는 화면을
-   그대로 올리는 쪽(= 지금)과 보기 좋게 바꾸는 쪽 중 **코디네이터에게 물었고
-   (`orca orchestration ask`, msg_362190935e4e) 답을 기다리는 중**이라, 거짓이 없는
-   쪽으로 찍어 두었다. 서버 라벨을 언어 중립으로 바꾸는 건 백엔드 응답 변경이라 이
-   티켓 범위 밖이다.
-3. **en 번역의 복수형**: 리더보드가 "1 tries" 로 나온다(`ranking.attempts` =
-   `{count} tries`). 스토어 스크린샷에 그대로 보이지만 **고치지 않았다** — 번역
-   파일과 복수 처리는 티켓 27 소관이고, 여기서 고치면 그 티켓의 테스트와 겹친다.
-   코디네이터에게 보고한다(MINOR).
+2. ~~**en 리더보드 스크린샷에 한글 라벨이 보인다.**~~ **해소됨 — 아래 "10. 리뷰
+   전 보정" 참고.** 서버(`app/services/puzzle_metrics.py` `display_name`)가 UI
+   언어와 무관하게 "게스트 #a3f1" 를 줘서, 앱이 실제로 만드는 화면을 그대로 올리는
+   쪽(= 당시)과 보기 좋게 바꾸는 쪽 중 **코디네이터에게 물었고**
+   (`orca orchestration ask`, msg_362190935e4e) 거짓이 없는 쪽으로 찍어 두었다.
+   사용자가 **"서버를 고쳐서 다시 찍는다"** 로 정해 **티켓 38**(`1172b9b`)이 응답을
+   언어 중립 `anon_tag` 로 바꿨고, 이 티켓은 그 위로 rebase 해 다시 찍었다.
+3. ~~**en 번역의 복수형**: 리더보드가 "1 tries" 로 나온다.~~ **해소됨 — 같은
+   티켓 38 이 `ranking.attempts` 를 `one`/`other` plural 로 바꿨다**(en "1 try" /
+   "2 tries"). 당시 이 티켓에서 고치지 않은 이유(번역 파일·복수 처리는 다른 티켓
+   소관, 여기서 고치면 테스트가 겹친다)는 그대로 유효하고, 실제로 그 티켓이 고쳤다.
+   아래 "10. 리뷰 전 보정" 에 다시 찍은 그림과 확인 기록이 있다.
 4. **`impeccable detect` / `audit.native` 는 돌리지 않았다.** 이 티켓의 완료 조건에
    없고(웹 UI·Flutter 화면을 바꾸지 않았다), 화면 코드 변경이 0건이다.
 
@@ -410,3 +415,249 @@ feed263 자산 35: App Store 스크린샷 ko/en (iPhone 6.9"/6.5" · iPad 13")
 | `.github/workflows/flutter-ci.yml` | 포맷 검사 경로 한 줄 |
 | `tests/test_app_deploy_workflow.py` | 34 의 `COLLECTED` 표에 라벨 2건 |
 | `.env.example` | 건드리지 않았다 — 이 티켓은 새 설정값이 없다(스토어 쪽은 GitHub secret) |
+
+## 10. 리뷰 전 보정 (티켓 38 머지 후)
+
+리뷰 전에 코디네이터가 낸 보정 작업(`fix-35-r0`). 7 의 2·3 번으로 남겨 두었던 두
+MINOR 가 **티켓 38**(`1172b9b`, 로컬 `main`)에서 서버·번역 쪽으로 고쳐졌다 —
+리더보드 응답이 `display` 대신 언어 중립 `anon_tag` 를 주고, 접두사("게스트 #" /
+"Guest #")와 en 복수형은 앱이 자기 UI 언어로 붙인다. 사용자 결정은 **"서버를
+고쳐서 다시 찍는다"** 였다.
+
+### 10.1 rebase — 충돌 0건
+
+```
+$ git log --oneline main -1
+1172b9b Merge 티켓 38: 리더보드 익명 이름 언어 중립화·en 복수형
+
+$ git rebase main
+Successfully rebased and updated refs/heads/dosaem/t35-store-assets-metadata-screenshots
+```
+
+**충돌은 없었다.** 겹치는 파일은 `README.md` 하나뿐인데 38 은 끝에 "### 38." 절을
+더하고 35 는 그 앞에 "### 35." 절과 "22. Flutter 앱" 끝 한 줄을 더해서 자리가
+겹치지 않는다. 자동 병합이 양쪽 뜻을 모두 살렸는지는 38 의 절을 `main` 과 직접
+비교해 확인했다:
+
+```
+$ diff <(git show main:README.md  | sed -n '/^### 38\./,/^### /p') \
+       <(sed -n '/^### 38\./,/^### /p' README.md)
+(차이 없음)
+```
+
+`git log main..HEAD` 는 이 티켓의 커밋만 담고 있고 `main` 의 38 커밋은 조상으로
+들어갔다.
+
+### 10.2 스크린샷 fake 데이터를 `anon_tag` 로
+
+`fakeLeaderboardEntry` 의 인자가 38 에서 `display` → `anonTag` 로 바뀌었다(서버
+응답과 같은 모양). 장면 파일이 들고 있던 **하드코딩된 한글 이름 5개**를 태그 5개로
+바꿨다 — 접두사는 이제 화면이 붙인다.
+
+```dart
+// 보정 전 (mobile/integration_test/store_screenshot_scenes.dart)
+const _leaderboardNames = ['게스트 #a3f1', '게스트 #7b20', ...];
+fakeLeaderboardEntry(rank: 1, display: _leaderboardNames[0]),
+
+// 보정 후
+const _leaderboardTags = ['a3f1', '7b20', '1c08', '92de', '4f61'];
+fakeLeaderboardEntry(rank: 1, anonTag: _leaderboardTags[0]),
+```
+
+같은 파일의 주석("지금 서버는 UI 언어와 무관하게 '게스트 #a3f1' 를 주므로 en
+스크린샷도 같은 라벨로 찍는다")도 더는 사실이 아니라 38 의 규칙으로 고쳐 썼다.
+
+**다른 언어 글자가 섞이면 스토어 반송 사유라서, 찍기 전에 잡는 테스트를 더했다.**
+`test/store/store_screenshot_scenes_test.dart` 에 로케일마다 한 개
+(`$language — 리더보드 장면의 글자는 UI 언어뿐이다`): 리더보드 장면을 띄워 **그려진
+`Text` 위젯의 문자열을 전부 모아** ① 1위 줄이 그 로케일의 `ranking.guest` + 태그
+`a3f1` 인지 ② 1회 시도 줄이 `ranking.attempts.plural(1)` 인지(en "1 try") ③ 반대
+언어의 글자(en 화면의 "게스트", ko 화면의 "Guest")가 0건인지 ④ en 에 "1 tries" 가
+없는지를 단언한다. 그림이 아니라 **실제 위젯 문자열**을 읽으므로 OCR 보다 정확하고
+CI(시뮬레이터 없음)에서 돈다.
+
+### 10.3 다시 찍은 파일 — en 10개, ko 0개
+
+`./scripts/store_screenshots.sh en` (기존 스크립트·기기 세트 그대로). 10개가 바뀌었다:
+
+```
+ M mobile/ios/fastlane/screenshots/en-US/iphone69_en_02_result.png
+ M mobile/ios/fastlane/screenshots/en-US/iphone69_en_03_leaderboard.png
+ M mobile/ios/fastlane/screenshots/en-US/iphone65_en_02_result.png
+ M mobile/ios/fastlane/screenshots/en-US/iphone65_en_03_leaderboard.png
+ M mobile/ios/fastlane/screenshots/en-US/ipad13_en_02_result.png
+ M mobile/ios/fastlane/screenshots/en-US/ipad13_en_03_leaderboard.png
+ M mobile/android/fastlane/metadata/android/en-US/images/phoneScreenshots/iphone69_en_02_result.png
+ M mobile/android/fastlane/metadata/android/en-US/images/phoneScreenshots/iphone69_en_03_leaderboard.png
+ M mobile/android/fastlane/metadata/android/en-US/images/tenInchScreenshots/ipad13_en_02_result.png
+ M mobile/android/fastlane/metadata/android/en-US/images/tenInchScreenshots/ipad13_en_03_leaderboard.png
+```
+
+Play 쪽 4개는 iOS 캡처를 그대로 복사한 것이고(스크립트가 하는 일), 해시가 원본과
+같은지 확인했다 — 4개 모두 일치. 해상도도 규격대로다: 6.9" 1320×2868, 6.5"
+1242×2688, iPad 13" 2064×2752.
+
+**en 5장 중 3장은 다시 찍었는데도 바이트가 그대로였다**(`01_home`, `04_records`,
+`06_language`). 이게 두 가지를 동시에 말해 준다:
+
+1. **캡처가 결정적이다.** 같은 장면을 다시 찍으면 같은 바이트가 나온다 — 가짜
+   응답뿐이고 상태바도 고정이라서. 그러니 "바뀐 파일 = 실제로 글자가 바뀐 화면"
+   으로 읽어도 된다.
+2. **실제로 바뀐 글자는 리더보드뿐이다.** `02_result` 가 같이 바뀐 건 글자가 아니라
+   **결과 시트의 다음 퍼즐 카운트다운**(`result.countdown`)이 찍는 순간의 시각을
+   보여주기 때문이다 — 찍을 때마다 달라지는 값이라 내용 변화가 아니다.
+   `result.stats_row` 도 38 에서 plural 로 바뀌었지만 그건 `Semantics` 라벨이라
+   그림에 안 보인다.
+
+**ko 는 한 장도 다시 찍지 않았다 — 글자가 하나도 안 바뀌어서다.** 38 의 ko 번역은
+`other` 한 형태뿐이라 보정 전후 문자열이 같다. 보정 전 하드코딩 값과 보정 후
+`ko.json` 이 푸는 값을 직접 맞춰 봤다:
+
+| | 보정 전 | 보정 후(ko) | 같은가 |
+|---|---|---|---|
+| 리더보드 이름 5개 | `게스트 #a3f1` … `게스트 #4f61` | `ranking.guest` + 태그 → `게스트 #a3f1` … `게스트 #4f61` | **같다** |
+| 시도 라벨(1회) | `{count}회` → `1회` | `ranking.attempts.other` `{count}회` → `1회` | **같다** |
+| 연속/누적 | `{count}일` · `{count}문제` | `streak.days.other` · `streak.puzzles.other` (동일 문자열) | **같다** |
+
+같은 비교에서 en 만 `게스트 #a3f1` → `Guest #a3f1` 로 갈린다. 위 1 번(캡처가
+결정적)과 합치면 **ko 를 다시 찍어도 같은 바이트가 나온다**는 뜻이라, 바뀌지 않은
+그림을 커밋에 섞지 않으려고 돌리지 않았다. `git status` 에 ko 파일이 0건인 것으로
+확인된다.
+
+### 10.4 "en 에 한글이 없다" 직접 확인
+
+세 겹으로 확인했다.
+
+**(1) 위젯 문자열 단언** — 10.2 의 새 테스트. en 리더보드 장면의 `Text` 중
+"게스트" 를 담은 것 0건, "1 tries" 0건, 1위 줄 = `Guest #a3f1`, 1회 줄 = `1 try`.
+
+**(2) 그림 OCR** — 찍힌 PNG 를 `tesseract --psm 6` 으로 읽어 한글 코드포인트
+(`가-힣`, `ㄱ-ㆎ`)와 잘못된 복수형을 셌다. 검사 스크립트는
+`review/ocr-store-shots-35.py`.
+
+```
+$ python3 -I review/ocr-store-shots-35.py mobile/ios/fastlane/screenshots/en-US 'iphone69_en_*.png'
+--- iphone69_en_01_home.png
+    수량 문구: ['12 days', '5 tries']
+    한글 0자 · 잘못된 단수/복수 없음
+--- iphone69_en_02_result.png
+    수량 문구: 없음
+    한글 0자 · 잘못된 단수/복수 없음
+--- iphone69_en_03_leaderboard.png
+    1 Guest #a3f1 1try 00:00:41
+    2 Guest #7620 1try 00:01:03
+    3 Guest #1c08 2tries 00:01:35
+    4 Guest #92de 3tries 00:03:08
+    5 Guest #4f61 3tries 00:06:42
+    수량 문구: ['4 tries']
+    한글 0자 · 잘못된 단수/복수 없음
+--- iphone69_en_04_records.png
+    수량 문구: ['12 days', '30 days', '41 puzzles', '7 days']
+    한글 0자 · 잘못된 단수/복수 없음
+--- iphone69_en_06_language.png
+    수량 문구: 없음
+    한글 0자 · 잘못된 단수/복수 없음
+
+== 한글 + 잘못된 복수형 합계: 0 ==
+```
+
+6.5" 와 iPad 13" 의 리더보드도 같은 다섯 줄(`Guest #a3f1` … `Guest #4f61`),
+한글 0자, 잘못된 복수형 0건이다.
+
+OCR 에 걸린 두 가지를 짚어 둔다. `#7b20` 이 `#7620` 으로 읽히는 건 `b`/`6` 글리프
+혼동이고(위 (1) 의 위젯 단언이 정확한 문자열을 본다), 처음 짠 검사기가
+`04_records` 를 "1 puzzles" 로 잡은 건 **"41 puzzles" 의 꼬리**를 부분문자열로
+문 것이었다 — 앞에 숫자가 없을 때만 세도록 고쳤다(실제 화면은
+`12 days / 30 days / 41 puzzles` 로 전부 맞다). tesseract 에 한국어 traineddata 가
+없어서 OCR 은 **한글을 읽지 못하고 깨진 라틴 문자로 떨군다** — 그래서 OCR 은 "한글이
+없다" 의 보조 근거이고, 주 근거는 (1) 의 위젯 단언이다.
+
+**(3) 눈으로 보기** — `iphone69_en_03_leaderboard.png` 를 직접 열어 봤다:
+`My rank #23 · 4 tries · 00:12:34` 카드 아래로 `Guest #a3f1` `1 try` /
+`Guest #7b20` `1 try` / `Guest #1c08` `2 tries` / `Guest #92de` `3 tries` /
+`Guest #4f61` `3 tries`, 맨 아래 고정된 내 줄이 `23 You 4 tries 00:12:34`.
+한글은 한 글자도 없다.
+
+### 10.5 Android 네이티브 캡처 — 이번에도 실패(폴백)
+
+7 의 1 번과 같은 결론이지만 **실패 신호가 달라졌다.** 지난번은 설치할 공간이
+없다는 오류였고(`Requested internal only, but not enough space`), 이번엔 이미 떠
+있던 에뮬레이터(`emulator-5554`, `adb devices` 에 `device` 상태)가 **시스템 서비스를
+잃은 상태**였다:
+
+```
+cmd: Failure calling service activity: Broken pipe (32)
+adb: failed to install .../app-debug.apk: cmd: Can't find service: package
+Application failed to start on attempt: 1..3
+Android 캡처 실패/건너뜀 — iPhone 6.9" 캡처를 Play 폰 세트로 쓴다
+```
+
+스크립트의 `android_device()` 는 `adb devices` 에 에뮬레이터가 **이미 보이면** 부팅
+대기(`sys.boot_completed` + `service check package`)를 건너뛰고 그 시리얼을 바로
+돌려준다. 그래서 반쯤 죽은 에뮬레이터를 그대로 썼다. **고치지 않았다** — 이번
+원인은 부팅이 덜 끝난 게 아니라 시스템 서버가 죽어 있는 것이라, 대기 루프를 넣어도
+영원히 기다릴 뿐 캡처가 되지는 않는다. 즉 검증할 수 없는 수정이 된다. 남은 AVD 를
+비우거나 거기 설치된 **사용자의 다른 앱을 지우는 일은 하지 않았다**(7 의 1 번과 같은
+선). 폴백은 설계대로 동작했고 Play 폰 세트는 iPhone 6.9" 캡처(= 같은 Flutter 표면,
+OS 상태바 없음)로 채워졌다. 사람이 AVD 를 비우고 다시 돌리면 네이티브 캡처로
+덮인다(`docs/RELEASE.md` "### 35." 체크박스). **MINOR 로 코디네이터에게 보고한다.**
+
+### 10.6 범위 밖 변경을 되돌린 것
+
+iOS 빌드가 `pod install` 을 돌리면서 `mobile/ios/Runner.xcodeproj/project.pbxproj`
+와 `Runner.xcworkspace/contents.xcworkspacedata` 에 CocoaPods 통합(Pods 그룹·
+xcconfig·Embed Pods Frameworks 단계)을 써 넣었다. 이 티켓이 뜻한 변경이 아니고
+`main`/HEAD 에도 통합이 안 들어가 있어서 **되돌렸다**(`git checkout --`). 빌드할 때
+다시 생성되는 파일이라 되돌려도 캡처·빌드에 지장이 없다(되돌린 뒤
+`flutter build apk --debug` 가 exit 0).
+
+### 10.7 보정 후 전체 검증
+
+```
+$ cd mobile && flutter analyze
+Analyzing mobile...
+No issues found! (ran in 7.8s)
+
+$ dart format --output=none --set-exit-if-changed lib test integration_test test_driver
+Formatted 127 files (0 changed) in 0.59 seconds.
+
+$ flutter test
+00:53 +428: All tests passed!
+
+$ flutter build apk --debug ; echo $?
+✓ Built build/app/outputs/flutter-apk/app-debug.apk
+0
+```
+
+`flutter test` 는 보정 전 416 → **428**이다: 38 이 더한 10개와 이 보정이 더한
+**2개**(로케일당 리더보드 라벨 1개)가 들어왔다. `mobile/build` 는 확인 뒤 지웠다.
+
+```
+$ uv run ruff check .
+All checks passed!
+
+$ TEST_DATABASE_URL=...chosung_daily_test_t35 \
+  TEST_REDIS_URL=redis://localhost:6379/7 \
+  TEST_MIGRATION_DATABASE_URL=...chosung_daily_test_t35_migrations \
+  uv run pytest -q
+1468 passed in 1589.30s (0:26:29)
+```
+
+8.2 의 1459 → **1468**이다. 늘어난 9개는 38 이 더한 것
+(`tests/test_ui_strings.py` · `tests/test_web_js.py` · `tests/test_leaderboard.py`)이고
+**이 보정은 백엔드 테스트를 더하거나 고치지 않았다**. Redis 는 코디네이터가 지정한
+**DB 7** 을 썼다(8.2 의 첫 실행은 DB 9 였다 — 둘 다 이 티켓 전용이고 다른
+워크트리와 겹치지 않는다). 같은 시간대에 다른 워크트리(t29·t30·t31·main)의 pytest 가
+돌고 있었지만 **DB·Redis 가 티켓별로 갈라져 있어** 서로 건드리지 않는다. 이
+worktree 에서 돈 pytest 는 이 하나뿐이다(실행 전 `ps` 로 확인).
+
+
+### 10.8 남는 MINOR (고치지 않고 적어 둔다)
+
+1. **Android 네이티브 캡처 폴백** — 10.5. 사람이 AVD 를 비우고 다시 돌리는 항목이
+   이미 `docs/RELEASE.md` "### 35." 에 있다.
+2. **`spec.md` 가 아직 옛 필드를 적고 있다.** `.scratch/store-launch/spec.md` 의
+   API 표 아래 줄이 그대로다:
+   > 리더보드 `display` = `"게스트 #" + guest.id 16진 4자리`.
+   38 이 응답을 `anon_tag` 로 바꾸면서 이 줄을 안 고쳤다. **스펙은 38 소관이고 이
+   티켓이 건드릴 자리가 아니라 고치지 않았다** — 코디네이터에게 보고한다.

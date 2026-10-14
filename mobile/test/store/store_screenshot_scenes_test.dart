@@ -112,6 +112,51 @@ void main() {
       }
     });
 
+    // 티켓 38 이후: 서버는 언어 중립 태그만 주고 접두사·복수형은 화면이 붙인다.
+    // 스토어에 올라가는 그림이라 **다른 언어의 글자가 섞이면 바로 반송 사유**다 —
+    // 스크린샷을 찍으러 가기 전에 여기서 잡는다(`review/impl-evidence-35.md`
+    // "리뷰 전 보정").
+    testWidgets('$language — 리더보드 장면의 글자는 UI 언어뿐이다', (tester) async {
+      setViewSize(tester, phone);
+
+      final scene = storeScreenshotScenes(
+        locale: locale,
+      ).firstWhere((scene) => scene.scene == StoreScene.leaderboard);
+      await _pumpScene(tester, scene);
+
+      final texts = tester
+          .widgetList<Text>(find.byType(Text))
+          .map((text) => text.data ?? '')
+          .toList();
+
+      // 1위 줄은 UI 언어의 접두사 + 서버 태그다.
+      expect(
+        texts,
+        contains('ranking.guest'.tr(namedArgs: {'tag': 'a3f1'})),
+        reason: '접두사는 UI 언어가 붙인다(README "38.")',
+      );
+      // 1회 시도 줄의 복수형. en 은 "1 try", ko 는 "1회".
+      expect(
+        texts,
+        contains('ranking.attempts'.plural(1, name: 'count')),
+        reason: 'en 은 1 회에 "1 tries" 가 아니라 "1 try" 여야 한다',
+      );
+
+      final foreign = language == 'ko' ? 'Guest' : '게스트';
+      expect(
+        texts.where((text) => text.contains(foreign)),
+        isEmpty,
+        reason: '$language 스크린샷에 "$foreign" 가 섞이면 안 된다',
+      );
+      if (language == 'en') {
+        expect(
+          texts.where((text) => text.contains('1 tries')),
+          isEmpty,
+          reason: '티켓 38 에서 고친 복수형이 되돌아가지 않았는지',
+        );
+      }
+    });
+
     testWidgets('$language — 모든 장면이 라이트 모드다(기기가 다크여도)', (tester) async {
       setViewSize(tester, phone);
       tester.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
