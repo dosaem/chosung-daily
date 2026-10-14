@@ -92,15 +92,37 @@ void _serverAfterSolve(FakeApiClient api) {
     );
 }
 
-/// 정답을 제출한다(오늘 탭에 있어야 한다).
-Future<void> _submitAnswer(WidgetTester tester) async {
-  await tester.enterText(find.byType(TextField), '지하철역');
+/// 첫 오답 한 줄이 쌓인 뒤의 서버 상태로 바꾼다 — 서버 `day_result`
+/// (`app/services/game_rules.py`)는 시도 1~4회 오답을 `in_progress` 로 센다.
+void _serverAfterFirstWrongGuess(FakeApiClient api) {
+  api.history = fakeHistory(
+    results: const [
+      {PuzzleLanguage.ko: DayResult.none, PuzzleLanguage.en: DayResult.none},
+      {PuzzleLanguage.ko: DayResult.none, PuzzleLanguage.en: DayResult.none},
+      {PuzzleLanguage.ko: DayResult.none, PuzzleLanguage.en: DayResult.none},
+      {PuzzleLanguage.ko: DayResult.none, PuzzleLanguage.en: DayResult.none},
+      {PuzzleLanguage.ko: DayResult.none, PuzzleLanguage.en: DayResult.none},
+      {PuzzleLanguage.ko: DayResult.none, PuzzleLanguage.en: DayResult.none},
+      {
+        PuzzleLanguage.ko: DayResult.inProgress,
+        PuzzleLanguage.en: DayResult.none,
+      },
+    ],
+  );
+}
+
+/// 답을 제출한다(오늘 탭에 있어야 한다).
+Future<void> _submit(WidgetTester tester, String guess) async {
+  await tester.enterText(find.byType(TextField), guess);
   await tester.pump();
   final submit = find.widgetWithText(FilledButton, '제출');
   await tester.ensureVisible(submit);
   await tester.pumpAndSettle();
   await _tapAndSettle(tester, submit);
 }
+
+/// 정답을 제출한다(오늘 탭에 있어야 한다).
+Future<void> _submitAnswer(WidgetTester tester) => _submit(tester, '지하철역');
 
 void main() {
   // todayPuzzleProvider 가 AppLifecycleListener 를 만든다.
@@ -179,27 +201,63 @@ void main() {
     expect(find.text('1문제'), findsOne);
   });
 
-  testWidgets('끝나지 않은 제출은 순위·기록을 다시 읽지 않는다', (tester) async {
+  testWidgets('D-27-5: 내 기록을 먼저 본 뒤 첫 오답을 내면 오늘 칸이 진행 중으로 바뀐다', (
+    tester,
+  ) async {
     final api = _freshGuestApi()
       // 기본값이 오답 + 남은 기회 4 다 — 오늘이 끝나지 않는 제출.
       ..guessResult = fakeGuessResult();
     await _pumpApp(tester, api: api);
 
+    // 먼저 내 기록을 본다 — 오늘은 미플레이다.
+    await _tapAndSettle(tester, find.text('내 기록'));
+    expect(
+      tester.widgetList<DayCell>(find.byType(DayCell)).last.result,
+      DayResult.none,
+    );
+
+    // 오늘 탭으로 돌아가 오답 한 줄을 쌓는다(남은 기회 4 — 아직 안 끝났다).
+    await _tapAndSettle(tester, find.text('오늘'));
+    _serverAfterFirstWrongGuess(api);
+    await _submit(tester, '지하촌역');
+    expect(api.submittedGuesses.single.guess, '지하촌역');
+
+    // 내 기록으로 복귀하면 오늘 칸이 진행 중이다 — 서버의 none → in_progress
+    // 전이를 화면이 읽어야 한다(US 16a).
+    await _tapAndSettle(tester, find.text('내 기록'));
+    expect(api.fetchMyHistoryDays.length, 2);
+    expect(
+      tester.widgetList<DayCell>(find.byType(DayCell)).last.result,
+      DayResult.inProgress,
+    );
+  });
+
+  testWidgets('끝나지 않은 제출은 순위·streak 을 다시 읽지 않고 7일도 첫 줄에만 반응한다', (
+    tester,
+  ) async {
+    final api = _freshGuestApi()..guessResult = fakeGuessResult();
+    await _pumpApp(tester, api: api);
+
     await _tapAndSettle(tester, find.text('순위'));
     await _tapAndSettle(tester, find.text('내 기록'));
     await _tapAndSettle(tester, find.text('오늘'));
-    await tester.enterText(find.byType(TextField), '지하촌역');
-    await tester.pump();
-    final submit = find.widgetWithText(FilledButton, '제출');
-    await tester.ensureVisible(submit);
-    await tester.pumpAndSettle();
-    await _tapAndSettle(tester, submit);
+    await _submit(tester, '지하촌역');
 
-    expect(api.submittedGuesses.single.guess, '지하촌역');
+    // 첫 오답은 7일 칸의 분류를 미플레이 → 진행 중으로 바꾼다.
+    await _tapAndSettle(tester, find.text('내 기록'));
+    expect(api.fetchMyHistoryDays.length, 2);
 
-    // 오답 한 줄은 순위에도 기록에도 올라가지 않는다 — 다시 읽을 이유가 없다.
+    // 두 번째 오답은 같은 진행 중이라 다시 읽을 게 없다.
+    await _tapAndSettle(tester, find.text('오늘'));
+    api.guessResult = fakeGuessResult(attemptsLeft: 3);
+    await _submit(tester, '지하천역');
+    await _tapAndSettle(tester, find.text('내 기록'));
+    expect(api.submittedGuesses.length, 2);
+    expect(api.fetchMyHistoryDays.length, 2);
+
+    // 순위는 푼 사람만 올라가고 streak·누적도 끝난 뒤에 바뀐다.
+    await _tapAndSettle(tester, find.text('순위'));
     expect(api.fetchTodayLeaderboardLimits.length, 1);
-    expect(api.fetchMyHistoryDays.length, 1);
     expect(api.fetchMyStatsCalls, 1);
   });
 }

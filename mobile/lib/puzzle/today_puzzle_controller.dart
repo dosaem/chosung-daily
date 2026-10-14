@@ -103,7 +103,7 @@ class TodayPuzzleNotifier extends AsyncNotifier<TodayState> {
       if (!_canCommit(generation)) return false;
       final played = applyGuess(puzzle: puzzle, guess: guess, result: result);
       state = AsyncData(TodayPuzzleReady(puzzle: played));
-      if (played.status.isFinished) _invalidateDayResultReaders();
+      _invalidateGuessReaders(played);
       return true;
     } on PuzzleChangedApiException {
       // 시도는 소비되지 않았다. 새 퍼즐을 읽어와 그 위에 메시지를 올린다.
@@ -130,18 +130,26 @@ class TodayPuzzleNotifier extends AsyncNotifier<TodayState> {
     }
   }
 
-  /// 오늘 결과가 확정되면 그 결과로 바뀌는 다른 화면의 데이터를 버린다 —
-  /// 순위(S3)와 7일 기록·streak(S4)이다. 탭을 유지하는 셸에서는 탭을 다시 열어도
-  /// 위젯만 다시 보이고 provider 는 그대로라, 여기서 알려주지 않으면 방금 올린
-  /// 기록이 앱을 재시작할 때까지 어디에도 안 나온다(US 12·14·16a·16b).
+  /// 제출 한 줄이 바꾼 다른 화면의 데이터를 버린다 — 순위(S3)와 7일 기록·
+  /// streak(S4)이다. 탭을 유지하는 셸에서는 탭을 다시 열어도 위젯만 다시 보이고
+  /// provider 는 그대로라, 여기서 알려주지 않으면 방금 올린 기록이 앱을 재시작할
+  /// 때까지 어디에도 안 나온다(US 12·14·16a·16b).
   ///
-  /// 끝나지 않은 시도 한 줄로는 부르지 않는다 — 순위는 푼 사람만 올라가고 7일
-  /// 칸·누적·streak 도 끝난 뒤에 바뀌어서, 매 제출마다 세 번을 다시 읽을 이유가
-  /// 없다.
-  void _invalidateDayResultReaders() {
-    ref
-      ..invalidate(leaderboardProvider)
-      ..invalidate(historyProvider);
+  /// 7일 칸은 **하루의 분류가 바뀔 때마다** 다시 읽는다. 서버 `day_result`
+  /// (`app/services/game_rules.py`)는 시도 0개를 `none`, 1~4회 오답을
+  /// `in_progress` 로 세기 때문에, 끝나지 않은 **첫** 제출도 `미플레이 → 진행 중`
+  /// 전이를 만든다(US 16a). 두 번째 오답부터는 같은 `in_progress` 라 다시 읽을
+  /// 게 없다 — 매 제출마다 왕복하지 않는다.
+  ///
+  /// 순위·streak·누적은 오늘이 끝나야 바뀐다 — 순위는 푼 사람만 올라가고
+  /// streak·누적도 확정된 결과만 센다.
+  void _invalidateGuessReaders(TodayPuzzle played) {
+    final finished = played.status.isFinished;
+    if (finished || played.attempts.length == 1) {
+      ref.invalidate(historyProvider);
+    }
+    if (!finished) return;
+    ref.invalidate(leaderboardProvider);
     // streak 은 무효화가 아니라 재조회다 — 다시 빌드하면 플레이 전 시작
     // snapshot 으로 돌아간다.
     unawaited(ref.read(myStatsProvider.notifier).refresh());
