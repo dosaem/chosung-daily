@@ -117,7 +117,10 @@ void main() {
 
     test('권한이 없으면 아무것도 걸지 않고 걸려 있던 우리 알림을 취소한다', () async {
       permission.currentResult = NotificationPermission.denied;
-      scheduler.pending.addAll({NotificationPlan.dailyId, 20261015});
+      scheduler.pending.addAll({
+        NotificationPlan.dailyId: null,
+        20261015: null,
+      });
 
       final result = await start();
 
@@ -130,7 +133,15 @@ void main() {
       permission.currentResult = NotificationPermission.granted;
       final now = tz.TZDateTime.now(seoul);
       final todayId = NotificationPlan.reminderId(now);
-      scheduler.pending.add(todayId);
+      // 걸려 있는 예약은 **울릴 순간까지** 들고 있다(실제 플러그인은 payload
+      // 에서 되읽는다) — 그 순간이 계획과 같으면 다시 걸지 않는다.
+      scheduler.pending[todayId] = tz.TZDateTime(
+        seoul,
+        now.year,
+        now.month,
+        now.day,
+        NotificationPlan.reminderHour,
+      );
 
       await start();
 
@@ -230,7 +241,7 @@ void main() {
       await pumpEventQueue();
 
       expect(scheduler.pendingReminders, isEmpty);
-      expect(scheduler.pending, {NotificationPlan.dailyId});
+      expect(scheduler.pending.keys, {NotificationPlan.dailyId});
       expect(settings.settings.reminderEnabled, isFalse);
     });
 
@@ -355,6 +366,26 @@ void main() {
       final after = result.read(notificationSyncProvider).first.when;
       expect(after.location.name, 'America/New_York');
       expect(timeZone.reads, greaterThan(1));
+    });
+
+    test('시간대가 바뀌면 걸려 있던 리마인더도 새 로컬 20:00 으로 다시 건다', () async {
+      // 리마인더 ID 는 **로컬 날짜**다. 비행기에서 내리면 같은 날짜 ID 라도
+      // 발화 순간이 달라지는데, ID 만 보고 skip 하면 서울 20:00 에 걸린 예약이
+      // 뉴욕에서 07:00 에 울린다(D-30-1).
+      permission.currentResult = NotificationPermission.granted;
+      final result = await start();
+      scheduler.scheduled.clear();
+
+      timeZone.location = newYork;
+      await resume();
+
+      final plan = result.read(notificationSyncProvider);
+      expect(plan, hasLength(8));
+      expect(
+        scheduler.scheduled,
+        containsAll(plan),
+        reason: '계획에 있는 알림은 실제로 OS 에 걸려 있어야 한다',
+      );
     });
 
     test('복귀하면 권한도 다시 묻는다 (시스템 설정에서 켜고 돌아온 경우)', () async {

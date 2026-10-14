@@ -37,6 +37,23 @@ class ScheduledNotification {
   String toString() => 'ScheduledNotification($id, ${kind.name}, $when)';
 }
 
+/// OS 대기 목록의 한 줄. 플러그인은 ID·문구·payload 만 돌려주므로, 발화
+/// 시각은 **예약할 때 payload 에 적어둔 것**을 읽어 온다
+/// (`PluginNotificationScheduler`).
+@immutable
+class PendingNotification {
+  const PendingNotification({required this.id, required this.when});
+
+  final int id;
+
+  /// 이 예약이 울릴 순간. 앱이 적어둔 시각을 못 읽으면(이전 버전이 건 예약,
+  /// payload 손상) `null` 이다 — 그때는 "모른다" 로 다루고 다시 건다.
+  final DateTime? when;
+
+  @override
+  String toString() => 'PendingNotification($id, $when)';
+}
+
 /// 예약 규칙의 상수와 ID 규칙(스펙 §A.9).
 abstract final class NotificationPlan {
   /// 일일 알림은 ID 가 고정이다 — 반복 예약 하나라 날짜마다 쌓이지 않는다.

@@ -104,7 +104,7 @@ class NotificationSyncController extends Notifier<List<ScheduledNotification>> {
       final scheduler = ref.read(notificationSchedulerProvider);
       final actions = diffPendingNotifications(
         desired: desired,
-        pendingIds: await scheduler.pendingIds(),
+        pending: await scheduler.pendingNotifications(),
       );
       for (final id in actions.cancel) {
         await scheduler.cancel(id);
