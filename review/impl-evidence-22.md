@@ -472,3 +472,60 @@ rebase 로 들어온 `main`(티켓 12 머지)과 함께 돌려 확인만 했다)
 내부에서 읽는 저장소를 테스트에서 `setMockInitialValues({})` 로 비워두기
 위해서다. 없으면 `flutter test` 가 그 플랫폼 채널 응답을 기다리며 멈춘다
 (직접 확인: 4분 넘게 출력 없음 → 강제 종료).
+
+### 라운드 1 추가 — 네이티브 빌드로 확인 (코디네이터 지시)
+
+리뷰가 남긴 "iOS 전체 빌드 미실행" 한계를 이번 라운드에서 지웠다. **Firebase
+설정 파일 2개가 없는 상태 그대로**(`ls` 로 부재 확인) 두 플랫폼을 다 빌드했다.
+
+```
+$ JAVA_HOME=/opt/homebrew/opt/openjdk@17 flutter build apk --debug --no-pub
+Running Gradle task 'assembleDebug'...                             15.8s
+✓ Built build/app/outputs/flutter-apk/app-debug.apk        # exit 0
+
+$ flutter build ios --no-codesign --debug --no-pub      # Xcode 26.2 (17C52)
+Running pod install...                                             50.2s
+Running Xcode build...
+Xcode build done.                                               68.7s
+✓ Built build/ios/iphoneos/Runner.app                      # exit 0
+```
+
+**D-22-2 재현·확인 (실제 `pod install`).** 수정 전 설정(세 파일을 `9056321^`
+버전으로 되돌림)에서 `pod install` 이 실패하고, 수정 후에는 위처럼 통과한다.
+
+```
+$ git checkout 9056321^ -- mobile/ios/{Podfile,Runner.xcodeproj/project.pbxproj,Flutter/AppFrameworkInfo.plist}
+$ cd mobile/ios && pod install
+[!] CocoaPods could not find compatible versions for pod "firebase_analytics":
+Specs satisfying the `firebase_analytics (from `.symlinks/plugins/firebase_analytics/ios`)`
+dependency were found, but they required a higher minimum deployment target.
+[!] Automatically assigning platform `iOS` with version `13.0` on target `Runner`
+    because no platform was specified.
+POD EXIT=1
+# 되돌림: git checkout HEAD -- 위 세 파일, Podfile.lock·Pods/ 삭제
+```
+
+**D-22-3 확인 (빌드 산출물).** 만들어진 앱 번들에 한국어 리소스가 실제로 들어
+있다 — 파일 참조만 있고 번들에 없던 상태가 사라졌다.
+
+```
+$ ls build/ios/iphoneos/Runner.app/
+AppFrameworkInfo.plist  Assets.car  Base.lproj  Frameworks  Info.plist  ko.lproj  Runner …
+$ plutil -p build/ios/iphoneos/Runner.app/ko.lproj/InfoPlist.strings
+{
+  "CFBundleDisplayName" => "오늘의 초성"
+  "CFBundleName" => "오늘의 초성"
+}
+$ plutil -p build/ios/iphoneos/Runner.app/Info.plist | grep -E 'MinimumOS|CFBundleDisplayName'
+  "CFBundleDisplayName" => "Hidden Vowels"      # 영어 기기 이름
+  "MinimumOSVersion" => "15.0"
+```
+
+**빌드 부산물은 커밋하지 않았다.** `pod install` 은 `project.pbxproj` 와
+`Runner.xcworkspace/contents.xcworkspacedata` 에 Pods 통합(xcconfig·
+`[CP] Check Pods Manifest.lock`·Embed Frameworks)을 써넣고 `Podfile.lock` 을
+만든다. 이건 로컬 빌드 상태이고 `Pods/` 는 `ios/.gitignore` 에 있으므로, 두
+파일을 `git checkout HEAD --` 로 되돌리고 `Podfile.lock`·`Pods/` 를 지웠다
+(`git status` 출력 없음). `Podfile.lock` 을 커밋할지는 **서명·릴리스 빌드를 맡는
+티켓 32 의 판단**으로 남긴다 — CI(ubuntu)는 iOS 빌드를 하지 않아 이 티켓에서
+검증할 수 없다. 여전히 안 한 것: 실기기 설치·시뮬레이터 스크린샷(티켓 32·34).
