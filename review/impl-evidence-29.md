@@ -874,30 +874,25 @@ $ cd mobile && flutter test test/puzzle/today_puzzle_controller_test.dart test/s
 - **공식 Google/Apple 로그인 버튼 에셋**은 여전히 `docs/RELEASE.md` "### 29."
   의 사람 확인 항목이다(라운드 1~3 과 같음).
 
-### 재실행 (로컬 main 위, 전부 수정 후)
+### 재실행 ①: 티켓 38 머지 위(`1172b9b`)
 
-로컬 `main` 은 `8ddc8fd`(티켓 28 머지) 그대로여서 `git rebase main` 은
-`up to date` 였다 — 라운드 2 에서 이미 그 위로 올려 둔 상태다.
+수정을 끝내고 그때의 로컬 `main`(`1172b9b`, 티켓 38 머지) 위로 rebase 해서 전부
+돌렸다. **백엔드 전체 테스트는 이 지점에서 돌린 것이 마지막이다** — 그 다음
+머지(`b11f011`)는 `app/`·`tests/`·`migrations/`·`web/` 에 변경이 0줄이라
+코디네이터 확인을 받고 다시 돌리지 않았다(아래 ②).
 
 ```
-$ git log --oneline -1 main
-8ddc8fd Merge 티켓 28: 앱 온보딩·권한 사전 안내
-
-$ git rebase main
-Current branch dosaem/t29-app-account-link-switch-delete is up to date.
-
 $ cd mobile && flutter test
-00:36 +456: All tests passed!
+00:42 +466: All tests passed!
 
 $ cd mobile && flutter analyze
-No issues found! (ran in 4.8s)
+No issues found! (ran in 3.7s)
 
 $ cd mobile && dart format --output=none --set-exit-if-changed .
-Formatted 133 files (0 changed) in 0.18 seconds.
+Formatted 133 files (0 changed) in 0.19 seconds.
 
 $ cd mobile && flutter build apk --debug
-✓ Built build/app/outputs/flutter-apk/app-debug.apk
-(종료 코드 0, 코디네이터 추가 지시. 끝난 뒤 `mobile/build` 는 지웠다)
+✓ Built build/app/outputs/flutter-apk/app-debug.apk   (exit=0)
 
 $ uv run ruff check .
 All checks passed!
@@ -906,24 +901,83 @@ $ export TEST_DATABASE_URL='mysql+pymysql://chosung:chosung@localhost:3306/chosu
 $ export TEST_REDIS_URL='redis://localhost:6379/3'
 $ export TEST_MIGRATION_DATABASE_URL='mysql+pymysql://chosung:chosung@localhost:3306/chosung_daily_test_t29_migrations?charset=utf8mb4'
 $ uv run pytest -q
-........................................................................ [ 97%]
-...................................                                      [100%]
-1403 passed in 1423.63s (0:23:43)
+........................................................................ [ 96%]
+............................................                             [100%]
+1412 passed in 2097.62s (0:34:57)
 ```
 
-앱 테스트 **449 → 456**. 늘어난 7개 중 6개가 이 라운드의 재현 테스트고(위 표의
-5개 + "첫 조회 중 계정이 바뀌면 그 응답은 보드가 되지 않는다"), 1개는 언어
-경계 폐기 테스트다. 백엔드는 이번 라운드에도 한 줄도 건드리지 않았고
-(`git diff --name-only main...HEAD` 에 `app/`·`migrations/`·`tests/` 없음)
-같은 전용 자원(DB `chosung_daily_test_t29`, Redis DB 3, 마이그레이션 전용
-`..._migrations`)으로 돌렸다 — 공용 테스트 DB 를 비우지 않았고 새 DB 를 만들지도,
-기본 DB 로 떨어지지도 않았다. 1403 passed / 실패·재실행 0. 23분이 걸린 것은 다른
-워커(t30·t31)의 pytest 와 같은 기계를 나눠 썼기 때문이다. 마이그레이션 변경이
+백엔드는 이번 라운드에도 한 줄도 건드리지 않았고(`git diff --name-only
+main...HEAD` 에 `app/`·`migrations/`·`tests/` 없음) 같은 전용 자원(DB
+`chosung_daily_test_t29`, Redis DB 3, 마이그레이션 전용 `..._migrations`)으로
+돌렸다 — 공용 테스트 DB 를 비우지 않았고 새 DB 를 만들지도, 기본 DB 로
+떨어지지도 않았다. 1412 passed / 실패·재실행 0. 35분이 걸린 것은 다른 워커
+(t30·t31)의 pytest 와 같은 기계를 나눠 썼기 때문이다. 마이그레이션 변경이
 없으므로 `flask db heads` 는 이번에도 확인 대상이 아니다.
 
-작업 트리는 clean 이고 `main`(`8ddc8fd`)이 `HEAD` 의 조상이다. 이 라운드의
-커밋은 4개다 — 결함 수정(보드 폐기 + 계정 세대), 언어 경계 폐기, 조회 응답
-경계 보강, 가드 주석 한 줄.
+### 티켓 30(로컬 알림) 통합 — 재실행 ②: `b11f011` 위
+
+작업 중 로컬 `main` 이 두 번 움직였다(`8ddc8fd` → `1172b9b` 티켓 38 →
+`b11f011` 티켓 30). 티켓 30 은 같은 S4 화면에 알림 행을 넣어서 rebase 가
+단순 재적용이 아니라 **두 티켓의 S4 통합**이 됐다. 코디네이터에게 범위를 묻고
+("양쪽 뜻을 모두 살려 풀고 골든 2장은 다시 뜬다, pytest 는 다시 돌리지 않아도
+된다 — 두 베이스 사이에 백엔드 변경 0줄") 그대로 했다. 백엔드 변경이 없다는
+것은 직접도 확인했다(`git diff --name-only 1172b9b..b11f011 -- app tests
+migrations web` → 빈 출력).
+
+충돌 해결(양쪽 뜻을 모두 살림):
+
+| 자리 | 어떻게 |
+|---|---|
+| `mobile/pubspec.yaml` | `sign_in_with_apple`(29)과 `timezone`(30)을 둘 다, 알파벳 순서로 |
+| `assets/translations/ko.json`·`en.json` | `notification`(30)과 `account`(29) 두 블록을 나란히 |
+| `test/golden/ranking_records_golden_test.dart` | `_shell` 이 `notificationsGranted`(30)와 `linkedAccount`(29)를 같이 받고, override 도 양쪽을 다 끼운다 |
+| `test/screens/records_tab_test.dart` 하네스 | 알림 저장소(30) + 로컬 플래그(29) override 둘 다 |
+| 설정 행 활성 판정 | 이미 동작: 하는 법(28)·백업 코드(29)·일일 알림(30). 리마인더는 **스위치**가 탭을 받으므로 행 `onTap` 이 비어 있는 게 맞다. 아직 자리: 구독(32)·광고 개인정보(31) |
+| 골든 `records_light_390`·`records_tablet_1024` | 두 쪽이 같은 파일을 바꿔 충돌 — 재생성으로 해결 |
+
+통합이 드러낸 두 가지는 코드로 고쳤다.
+
+- `lib/notifications/notification_controller.dart:136` `_recordCompleted` 가
+  `AsyncValue<TodayState>` 를 받고 있었다. 홈 상태가 `TodayState?` 가 됐으므로
+  시그니처를 맞췄다(동작은 그대로 — `is! TodayPuzzleReady` 로 거른다).
+- `오픈소스 라이선스 행은 라이선스 화면을 연다` 가 깨졌다. 1열 S4 에 계정
+  카드(29)와 알림 두 행(30)이 얹히며 마지막 행이 화면 밖(y=887 > 844)으로
+  밀려 탭이 빈 곳을 눌렀다. 실제 사용자처럼 `ensureVisible` 로 스크롤한 뒤
+  누르게 고쳤다 — 화면 구성이 바뀐 것이지 결함이 아니다.
+
+S4 골든 4장을 다시 뜨고 눈으로 확인했다(`records_light_390`,
+`records_linked_390`, `records_tablet_1024`, `records_notification_off_390`).
+연결됨 줄의 마스킹된 이메일(29)과 일일 알림·리마인더 행(30), 권한 꺼짐 안내(30)가
+한 화면에 같이 있고, 태블릿 2열은 왼쪽 계정·구독·백업 코드 / 오른쪽 설정 리스트
+배치를 유지한다.
+
+```
+$ git rebase main          # main = b11f011 (Merge 티켓 30)
+Successfully rebased and updated refs/heads/dosaem/t29-app-account-link-switch-delete.
+
+$ cd mobile && flutter test
+00:47 +537: All tests passed!
+
+$ cd mobile && flutter analyze
+No issues found! (ran in 9.7s)
+
+$ cd mobile && dart format --output=none --set-exit-if-changed .
+Formatted 153 files (0 changed) in 0.46 seconds.
+
+$ cd mobile && flutter build apk --debug
+✓ Built build/app/outputs/flutter-apk/app-debug.apk   (exit=0)
+(끝난 뒤 `mobile/build` 는 지웠다)
+
+$ uv run ruff check .
+All checks passed!
+```
+
+앱 테스트는 티켓 30 의 테스트가 합류해 **537**이 됐다. 이 라운드가 더한 것은
+7개다 — D-29-5 재현 6개와 언어 경계 폐기 1개.
+
+작업 트리는 clean 이고 `main`(`b11f011`)이 `HEAD` 의 조상이다. 이 라운드의
+커밋은 5개다 — 결함 수정(보드 폐기 + 계정 세대), 언어 경계 폐기, 조회 응답
+경계 보강, 가드 주석 한 줄, 티켓 30 통합.
 
 ### 바뀐 파일 (이 라운드)
 
@@ -934,5 +988,6 @@ $ uv run pytest -q
 | `mobile/lib/puzzle/today_puzzle_controller.dart` | `discard()`·`discardTodayPuzzle(ref)`, 상태 타입 `TodayState?`, 제출을 가드로 감싸기, 경계를 넘은 조회 응답 폐기 |
 | `mobile/lib/account/account_controller.dart` | `_adopt` 가 무효화 대신 보드를 폐기 |
 | `mobile/lib/settings/puzzle_language_controller.dart` | 같은 폐기를 언어 경계에, `PATCH /me` 를 가드로 감싸기 |
-| `mobile/test/...` (4개 파일) | 재현 테스트 6개, 하네스에 토큰 저장소 주입 자리 |
+| `mobile/test/...` (4개 파일) | 재현 테스트 6개 + 언어 경계 폐기 1개, 하네스에 토큰 저장소 주입 자리 |
 | `README.md` | 홈 보드 폐기와 계정 세대 문단, `_serverDeleted` → `_deletedToken` 명칭 정정 |
+| 티켓 30 통합분 | `lib/notifications/notification_controller.dart`(시그니처), `test/screens/records_tab_test.dart`(스크롤·행 판정), `test/golden/ranking_records_golden_test.dart`(하네스), S4 골든 4장, `pubspec.yaml`, 번역 2개 |
