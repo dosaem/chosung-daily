@@ -5,6 +5,7 @@ import 'package:chosung/api/api_models.dart';
 import 'package:chosung/api/api_providers.dart';
 import 'package:chosung/app.dart';
 import 'package:chosung/config/provider_retry.dart';
+import 'package:chosung/notifications/notification_settings.dart';
 import 'package:chosung/puzzle/today_puzzle_controller.dart';
 import 'package:chosung/screens/records_tab.dart';
 import 'package:chosung/settings/legal_links.dart';
@@ -18,6 +19,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../fakes/fake_api_client.dart';
+import '../fakes/fake_notifications.dart';
 import '../layout/adaptive_scaffold_test.dart' show setViewSize;
 
 /// 내 기록 탭만 띄운다. 홈 탭은 실제 셸에서 계속 살아 있으므로
@@ -41,6 +43,11 @@ Widget _app({
     webLinkLauncherProvider.overrideWithValue((url) async {
       openedUrls.add(url);
     }),
+    // 알림 설정은 기기 로컬 저장소에서 온다(티켓 30). 알림 행 자체는
+    // `records_notifications_test.dart` 가 따로 본다.
+    notificationSettingsStoreProvider.overrideWithValue(
+      InMemoryNotificationSettingsStore(),
+    ),
   ],
   child: AppLocalizationScope(
     startLocale: locale,
@@ -279,7 +286,7 @@ void main() {
     expect(find.byType(LicensePage), findsOneWidget);
   });
 
-  testWidgets('29~32 가 채울 자리는 전부 있고 아직 눌리지 않는다', (tester) async {
+  testWidgets('29·31·32 가 채울 자리는 전부 있고 아직 눌리지 않는다', (tester) async {
     await _pumpRecords(tester, api: FakeApiClient());
 
     for (final slot in [
@@ -295,18 +302,22 @@ void main() {
       expect(find.byKey(slot), findsOneWidget, reason: '$slot 자리가 없다');
     }
 
-    // 남은 자리는 비활성이다 — 29~32 가 onTap 을 채운다. "하는 법" 은 티켓 28
-    // 이 채웠고(온보딩 다시 보기), 그 동작은 온보딩 화면 테스트가 본다.
+    // 남은 자리는 비활성이다 — 29·31·32 가 onTap 을 채운다. "하는 법" 은 티켓
+    // 28 이, 일일 알림은 티켓 30 이 채웠다(리마인더는 행 대신 스위치가 받는다).
+    final filled = [RecordsSlot.howTo, RecordsSlot.dailyNotification];
     for (final row in tester.widgetList<SettingsRow>(
       find.byType(SettingsRow),
     )) {
-      if (row.key == null || row.key == RecordsSlot.howTo) continue;
+      if (row.key == null || filled.contains(row.key)) continue;
       expect(row.onTap, isNull, reason: '${row.key} 는 아직 비활성이어야 한다');
     }
-    expect(
-      tester.widget<SettingsRow>(find.byKey(RecordsSlot.howTo)).onTap,
-      isNotNull,
-    );
+    for (final key in filled) {
+      expect(
+        tester.widget<SettingsRow>(find.byKey(key)).onTap,
+        isNotNull,
+        reason: '$key 는 이미 동작해야 한다',
+      );
+    }
   });
 
   testWidgets('영어 UI 에서도 같은 화면이 뜬다', (tester) async {

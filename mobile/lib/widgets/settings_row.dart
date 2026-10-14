@@ -12,6 +12,7 @@ class SettingsRow extends StatelessWidget {
     super.key,
     this.value,
     this.onTap,
+    this.trailing,
     this.destructive = false,
   });
 
@@ -21,6 +22,11 @@ class SettingsRow extends StatelessWidget {
   final String label;
   final String? value;
   final VoidCallback? onTap;
+
+  /// 값 대신 놓는 조작 위젯(리마인더 on/off 스위치, 티켓 30). 스스로 탭을 먹는
+  /// 위젯이라 그 행의 [onTap] 은 비워 둔다 — 행을 눌러도, 스위치를 눌러도
+  /// 같은 일이 벌어지게 만들면 "껐는데 다시 켜졌다" 가 생긴다.
+  final Widget? trailing;
 
   /// 계정 삭제처럼 되돌릴 수 없는 행(OVERRIDES §2 `destructive`).
   final bool destructive;
@@ -56,6 +62,10 @@ class SettingsRow extends StatelessWidget {
                     color: colors.mutedForeground,
                   ),
                 ),
+              ],
+              if (trailing case final trailing?) ...[
+                const SizedBox(width: 8),
+                trailing,
               ],
               if (enabled) ...[
                 const SizedBox(width: 4),
