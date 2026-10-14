@@ -307,15 +307,14 @@ $ <ENV> uv run pytest tests/test_subscription_recheck.py -q                # 수
 30 passed in 28.85s
 ```
 
-**남는 순서 하나(의도).** 두 조회가 **동시에 떠 있고** A(active, 더 오래된
-사실)가 B(revoked)보다 먼저 쓰는 순서에서는, B 가 자기 응답을 버린다 — 둘 중
-어느 응답이 더 최신인지 서버가 알 방법이 없기 때문이다(Play 응답에는 비교할
-시각이 없다). 이때 철회는 "되돌려지는" 게 아니라 **다음 재조회(≤1시간, 또는
-Beat 03:30)로 밀린다** — 스펙 §A.8 이 폴링에 허용한 반영 지연 안이고, 불확실할
-때 돈 낸 구독자 쪽으로 기울이는 이 모듈의 기존 규칙(실패 시 저장값 유지)과도
-같은 방향이다. 리뷰가 지적한 "이미 저장된 철회가 오래된 응답에 덮이는" 경우는
-어느 순서에서도 없어졌다: 마지막에 쓰는 쪽은 항상 그 직전 값을 잠금 아래에서
-다시 읽은 쪽이다.
+**남는 순서 하나 — ~~의도~~ 철회됨(수정 라운드 2, D-13-3).** 이 라운드에서는
+"A(active)가 먼저 쓰면 뒤에 확인된 B(revoked)가 자기 응답을 버린다" 를 폴링에
+허용된 반영 지연으로 설명했다. **그 판단이 틀렸다.** 스펙 §A.8 "철회가
+확인되면 그 응답부터 권한 없음" 과 US 30c "환불을 서버가 확인하는 즉시 권한이
+사라진다" 는 **성공으로 받아 둔 철회 응답**에는 그 지연을 허용하지 않는다 —
+실패 시 저장값 유지와 성공 응답 폐기는 다르다. 수정 라운드 2 에서 폐기 규칙을
+권한 방향으로 갈라(새 응답의 권한 ≤ 저장된 권한이면 적는다) 두 순서 모두 최종
+`revoked` 가 되게 고쳤다. 아래 `## 수정 라운드 2` 를 본다.
 
 ### D-13-2 (MINOR) — 공유 README API 표의 기존 행을 직접 수정함
 
@@ -398,3 +397,141 @@ SELECT subscription.id, …, subscription.recheck_failures, subscription.created
 이 라운드에서도 Apple·Google·Slack 실제 호출 0건, 프로덕션 접근·`git push` 없음,
 시크릿 값은 파일·로그·이 문서에 남기지 않았다(설정 이름만). 재현·확인 스크립트는
 세션 scratchpad 에 뒀고 레포에 커밋하지 않았다 — 레포에 남는 재현은 위 테스트 2개다.
+
+## 수정 라운드 2
+
+최종 리뷰 라운드 2(`review/impl-review-13.md` "## 라운드 2")의 결함: MAJOR 1건
+(D-13-3), MINOR 0건, REPEAT 0건. 라운드 1 의 D-13-1·D-13-2 는 FIXED 로 확인됐다.
+아래는 D-13-3 의 원인·수정·증명이다. 리뷰어 지적이 틀렸다고 판단해 그대로 둔
+항목은 없다 — 반대로 **라운드 1 문서가 "의도" 라고 적어 둔 주장을 철회했다**
+(위 D-13-1 절 끝 문단을 그 취지로 갱신했다). 리뷰 파일은 수정하지 않았다.
+
+### D-13-3 (MAJOR) — 먼저 커밋된 active 때문에 뒤에 확인된 철회 응답을 버림
+
+**재현(수정 전).** 리뷰의 순서를 그대로 테스트로 옮겼다 — A 가 `/me/stats`
+경로로 스토어에 묻는 동안 독립 app context(독립 DB 세션) B 가 active 를 먼저
+커밋하고, 그 뒤 A 가 스토어에서 **철회(Apple status 5)를 성공으로** 받는다.
+스토어 경계(`app_store.fetch_subscription_status`) 하나만 바꿔 끼우고 TTL
+판정·잠금·저장 판단·권한 조립은 실제 코드를 지난다.
+
+```
+$ <ENV> uv run pytest tests/test_subscription_recheck.py -q -k "discarded or delayed"   # 수정 전
+>       assert entitlement.active is False
+E       AssertionError: assert True is False
+E        +  where True = EntitlementResponse(active=True,
+E              until=datetime.datetime(2026, 11, 1, 0, 0, tzinfo=datetime.timezone.utc),
+E              status=<SubscriptionStatus.ACTIVE: 'active'>, source=<SubscriptionStore.APPLE: 'apple'>,
+E              next_check_at=...).active
+FAILED tests/test_subscription_recheck.py::test_a_confirmed_revocation_is_not_discarded_by_an_earlier_active_write
+1 failed, 2 passed, 28 deselected in 4.97s
+```
+
+같이 돌린 2건이 D-13-1 재현 테스트(반대 순서)다 — 그쪽은 계속 통과한다. 즉
+결함은 "겹침 처리" 전체가 아니라 **방향 하나**였다.
+
+**원인.** 라운드 1 이 쓰기 직전 `SELECT ... FOR UPDATE` 재읽기를 넣을 때, 폐기
+조건을 **"조회하는 동안 행이 바뀌었나"** 하나로 뒀다(`_superseded`). 그러면 DB
+가 바뀌었다는 사실이 "우리가 들고 있는 스토어 응답이 더 오래됐다" 의 증거로
+쓰인다. 두 사실은 다르다: 겹친 다른 요청이 active 를 먼저 커밋했어도, 그 뒤에
+도착한 **성공 응답이 철회**라면 그건 스토어가 지금 알려준 사실이다. 그래서
+철회를 저장하지 않고 건너뛰며 `/me/stats` 가 active 를 응답했고, B 가
+`last_verified_at` 을 올려 둔 탓에 다음 1시간 TTL 까지 그 상태가 유지됐다.
+라운드 1 증거 문서는 이 순서를 "폴링에 허용된 지연" 으로 정당화했는데, 스펙
+§A.8("철회가 확인되면 그 응답부터 권한 없음")·US 30c("확인하는 즉시 권한이
+사라진다")는 **못 물어본 시간**에만 그 지연을 허용한다. 실패 시 저장값
+유지(`_count_failure`)와 성공 응답 폐기는 다른 일이다.
+
+**수정** (`app/services/subscription_recheck.py`). 폐기 조건을 두 단계로
+갈랐다. 행 잠금·재읽기는 그대로 두고(`_changed_while_asking`), 바뀐 행에
+우리 응답을 버리는 경우를 **권한을 되살리는 응답 하나로 좁혔다**
+(`_restores_entitlement`). 판정은 §A.8 판정표 순수 함수
+`entitlement.is_entitled` 를 두 상태(새 응답 / 지금 저장된 행)에 그대로 적용해
+비교한다 — **새 응답의 권한 ≤ 저장된 권한이면 적고, 늘리는 쪽이면 버린다.**
+
+| 겹친 상황 | 새 응답 권한 vs 저장된 권한 | 동작 | 근거 |
+|---|---|---|---|
+| 늦게 도착한 active 가 이미 저장된 철회를 덮으려 함 | 없음 → 있음(늘림) | 버린다 | D-13-1. 환불된 구독의 광고 제거 권한을 되살릴 수 없다. 복구가 사실이면 다음 재조회(≤1h)나 영수증 재전송(§A.8 (b))이 돌려준다 |
+| 먼저 커밋된 active 뒤에 받은 철회·보류·만료 | 있음 → 없음(줄임) | **적는다** | D-13-3. §A.8 "철회가 확인되면 그 응답부터 권한 없음", US 30c |
+| 갱신끼리 겹침(둘 다 active) | 있음 → 있음(같음) | 적는다 | 권한은 유지된다. 만료일이 더 이르면 `until` 이 잠깐 과거로 가지만 ±24h 5분 TTL 이 바로 고친다 |
+| 조회 중 아무 변화 없음 | — | 적는다 | 평시 경로. 겹침 판정이 평시 동작을 바꾸지 않는다 |
+
+실패 경로(`StoreUnavailableError`·`ReceiptInvalidError`·`ValueError`·Google
+pending)는 라운드 1 과 같다 — 세 군데에 흩어져 있던 "바뀌었으면 카운터도
+건드리지 않는다" 를 `_count_failure` 하나로 모았을 뿐 동작은 그대로다.
+
+**증명.** 두 순서를 각각 실제 DB 동시성 테스트로 못 박았다
+(`tests/test_subscription_recheck.py`, "겹친 재조회" 두 절).
+
+| 테스트 | 순서 | 무엇을 못 박나 |
+|---|---|---|
+| `test_a_delayed_store_response_does_not_revive_a_confirmed_revocation` | B(revoked) 먼저 커밋 → A(active) 늦게 도착 | A 의 응답이 버려지고 `entitlement.active is False`, 저장 상태 `revoked` (D-13-1) |
+| `test_a_confirmed_revocation_is_not_discarded_by_an_earlier_active_write` | B(active) 먼저 커밋 → A(revoked) 늦게 도착 | A 의 응답부터 `entitlement.active is False`, `entitlement.status is REVOKED`, 저장 상태 `revoked` (D-13-3) |
+| `test_a_delayed_failure_does_not_count_against_a_fresh_success` | B 성공 커밋 → A 실패 | A 의 실패가 B 가 리셋한 `recheck_failures`(0)를 건드리지 않음 |
+
+둘 다 `_recheck_in_another_session` 으로 **독립 app context = 독립 DB
+세션·커넥션·트랜잭션**을 열어 실제 겹침을 만든다(같은 세션으로 흉내 내면
+identity map 이 행을 공유해 겹침이 사라진다).
+
+```
+$ <ENV> uv run pytest tests/test_subscription_recheck.py tests/test_entitlement.py -q   # 수정 후
+..........................................................               [100%]
+58 passed in 14.44s
+```
+
+### 미수정 MINOR (라운드 2)
+
+없다. 라운드 2 리뷰의 MINOR 는 0건이고, 라운드 1 의 MINOR(D-13-2)는 FIXED 로
+확인됐다. 리뷰어 지적 중 틀렸다고 판단해 남긴 것도 없다.
+
+### 문서 갱신 (수정 범위 안)
+
+- `README.md` `### 13.` 의 "겹친 재조회" 항목: "나중에 적힌 쪽이 이긴다" → **"권한을
+  빼는 쪽이 이긴다"** 로 바꿨다. 바뀐 동작을 설명하는 내 소유 절이라 그 안에서만
+  고쳤고, 공유 API 표·Beat 스케줄 표는 건드리지 않았다(`git diff` 로 확인).
+- 이 문서의 수정 라운드 1 D-13-1 절 끝 문단: "남는 순서 하나(의도)" 주장을
+  철회하고 이 절을 가리키게 갱신했다.
+- `docs/adr/0003-*.md`, 스펙 미정 항목, `CONTEXT.md` 는 겹침 규칙을 언급하지
+  않아 갱신할 것이 없다(`grep` 으로 확인). 마이그레이션·`.env.example`·
+  `docs/RELEASE.md` 변경 없음.
+
+### 재실행 (로컬 main `b8f63cc` 위 rebase 후)
+
+전용 테스트 자원 그대로다: DB `chosung_daily_test_t13`, 마이그레이션 DB
+`chosung_daily_test_t13_migrations`, Redis DB 15 (`TEST_DATABASE_URL` /
+`TEST_MIGRATION_DATABASE_URL` / `TEST_REDIS_URL`). 자격 값은 기록하지 않는다.
+공용 테스트 DB 는 건드리지 않았다.
+
+```
+$ <ENV> uv run pytest -q
+........................................................................ [  8%]
+........................................................................ [ 17%]
+........................................................................ [ 26%]
+........................................................................ [ 35%]
+........................................................................ [ 44%]
+........................................................................ [ 53%]
+........................................................................ [ 62%]
+........................................................................ [ 71%]
+........................................................................ [ 80%]
+........................................................................ [ 89%]
+........................................................................ [ 98%]
+................                                                         [100%]
+808 passed in 484.24s (0:08:04)
+
+$ uv run ruff check .
+All checks passed!                      # 종료 코드 0
+
+$ FLASK_APP=wsgi.py uv run flask db heads
+d7a1f0ca0a29 (head)
+
+$ git diff --check main...HEAD           # 출력 없음, 종료 코드 0
+$ git status --short                     # 출력 없음 (clean)
+```
+
+라운드 1 의 807 → **808 passed**. 늘어난 1개가 D-13-3 재현 테스트이고, 실패·skip·
+재실행은 없다. 마이그레이션은 이 라운드에서 추가·삭제·수정이 없어 체인
+(`dae1b5af0cf7` → `d7a1f0ca0a29`)과 heads 1줄이 그대로다. 티켓 24(태블릿 적응형)
+머지로 움직인 main 위에 rebase 했고 충돌은 없었다.
+
+이 라운드에서도 Apple·Google·Slack 실제 호출 0건, 프로덕션 접근·`git push` 없음,
+시크릿 값은 파일·로그·이 문서에 남기지 않았다(설정 이름만). 재현은 레포에 남는
+위 테스트 2개가 전부다 — 임시 스크립트는 세션 scratchpad 에만 뒀다.
