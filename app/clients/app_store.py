@@ -134,6 +134,40 @@ def fetch_subscription(receipt_jws: str) -> AppleSubscription:
     )
 
 
+@translating_store_failures("App Store")
+def fetch_subscription_status(
+    store_key: str, environment: SubscriptionEnvironment
+) -> AppleSubscription:
+    """이미 아는 구독(`originalTransactionId`)의 **현재 상태만** 읽어 온다.
+
+    재조회 경로(티켓 13)가 쓴다. `fetch_subscription` 과 달리 영수증이 없다 —
+    구매 때 한 번 검증해서 `store_key` 를 받아 적었으니 주인 확인을 다시 할
+    일이 없고, 앱이 영수증을 들고 있지 않은 Beat 경로에서도 불러야 한다.
+
+    환경은 행에 적어둔 값을 그대로 쓴다(Sandbox 구매는 계속 Sandbox 다).
+    프로덕션에 없으면 `_fetch_status` 가 Sandbox 로 한 번 더 물어본다.
+    """
+    credentials = _credentials()
+    raw_status, transaction, renewal_info, environment = _fetch_status(
+        store_key, credentials, environment
+    )
+    if transaction is None:
+        # 상태는 왔는데 거래 정보가 없다 = 만료일을 모른다. 저장값을 덮어쓰면
+        # 유효한 구독의 만료일이 사라지니 "지금은 모른다"(503)로 올린다.
+        logger.warning("Apple 구독 상태에 거래 정보가 없다 (store_key=%s)", store_key)
+        raise StoreUnavailableError()
+
+    return AppleSubscription(
+        store_key=store_key,
+        product_id=transaction.get("productId") or "",
+        bundle_id=transaction.get("bundleId") or "",
+        environment=environment,
+        raw_status=raw_status,
+        transaction=transaction,
+        renewal_info=renewal_info,
+    )
+
+
 def _credentials() -> _Credentials:
     config = current_app.config
     values = {

@@ -33,6 +33,7 @@ PREVIOUS_REVISION = "9ec267465b4e"  # 퍼즐 언어 직전 리비전
 APP_SETTING_PARENT_REVISION = "f394da7f4d88"  # 설정 테이블 직전 리비전
 HINT_UNLOCK_PARENT_REVISION = "a5bab2f58a7b"  # 힌트 미리 보기 테이블 직전 리비전
 REVOCATION_RETRY_PARENT_REVISION = "dae1b5af0cf7"  # 애플 철회 재시도 테이블 직전 리비전
+RECHECK_COUNTER_PARENT_REVISION = "94a83f12fddb"  # 재조회 실패 카운터 직전 리비전
 
 PUZZLE_DATE = date(2026, 10, 13)
 KO_ANSWER = "해리 포터"
@@ -384,3 +385,53 @@ def test_apple_revocation_retry_rows_outlive_the_deleted_guest(migration_engine)
         "client_id": "com.example.test.app",
     }
     assert foreign_keys == set()
+
+
+def _subscription_columns(engine) -> set[str]:
+    with engine.connect() as conn:
+        return {row[0] for row in conn.execute(text("SHOW COLUMNS FROM subscription")).all()}
+
+
+def test_subscription_recheck_failures_round_trips(migration_engine):
+    """13: 재조회 실패 카운터가 upgrade 로 생기고 downgrade 로 사라져야 한다."""
+    _run_flask_db(_migration_database_url(), "upgrade")
+    assert "recheck_failures" in _subscription_columns(migration_engine)
+
+    _run_flask_db(_migration_database_url(), "downgrade", RECHECK_COUNTER_PARENT_REVISION)
+    assert "recheck_failures" not in _subscription_columns(migration_engine)
+
+    _run_flask_db(_migration_database_url(), "upgrade")
+    assert "recheck_failures" in _subscription_columns(migration_engine)
+
+
+def test_subscription_rows_created_before_the_counter_existed_get_zero(migration_engine):
+    """옛 스키마 시절 구독 행(카운터가 없던 행)도 upgrade 후 0으로 채워진다 —
+    NOT NULL 컬럼을 붙이는데 DB 기본값이 없으면 기존 행에서 막힌다."""
+    _run_flask_db(_migration_database_url(), "upgrade")
+    _run_flask_db(_migration_database_url(), "downgrade", RECHECK_COUNTER_PARENT_REVISION)
+
+    with migration_engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO guest (token, puzzle_language, created_at) "
+                "VALUES (:token, 'ko', NOW())"
+            ),
+            {"token": GUEST_TOKEN},
+        )
+        conn.execute(
+            text(
+                "INSERT INTO subscription (guest_id, store, store_key, product_id, "
+                "environment, status, expires_at, last_verified_at, created_at) "
+                "SELECT id, 'apple', '2000000111111111', 'adfree_monthly', 'Production', "
+                "'active', NOW(), NOW(), NOW() FROM guest"
+            )
+        )
+
+    _run_flask_db(_migration_database_url(), "upgrade")
+
+    with migration_engine.connect() as conn:
+        row = conn.execute(
+            text("SELECT status, recheck_failures FROM subscription")
+        ).mappings().one()
+
+    assert dict(row) == {"status": "active", "recheck_failures": 0}

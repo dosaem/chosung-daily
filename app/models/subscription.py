@@ -52,8 +52,14 @@ class Subscription(db.Model):
     # (Apple `gracePeriodExpiresDate`) 컬럼을 나눠 뒀다.
     expires_at: datetime | None = db.Column(db.DateTime, nullable=True)
     grace_expires_at: datetime | None = db.Column(db.DateTime, nullable=True)
-    # 마지막으로 스토어에 물어본 시각. 재조회 TTL(1시간)의 기준이다 — 티켓 13.
+    # 마지막으로 스토어에 **성공적으로** 물어본 시각. 재조회 TTL(1시간, 만료
+    # ±24h 는 5분)의 기준이다. 재조회가 실패하면 올리지 않는다 — 그래야 다음
+    # 호출이 바로 다시 시도한다(app/services/subscription_recheck.py).
     last_verified_at: datetime = db.Column(db.DateTime, nullable=False, default=utcnow)
+    # 연속 재조회 실패 횟수. 성공하면 0으로 돌아간다. Beat 가 3회 이상인 행을
+    # 운영자에게 알린다(스펙 §A.8·§A.12) — 스토어 설정이 틀어졌거나 구독자
+    # 한 명이 계속 조회 실패하는 상태를 사람이 보도록.
+    recheck_failures: int = db.Column(db.Integer, nullable=False, default=0)
     created_at: datetime = db.Column(db.DateTime, nullable=False, default=utcnow)
 
     guest = db.relationship("Guest")

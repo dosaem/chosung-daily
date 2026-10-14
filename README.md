@@ -85,7 +85,7 @@ web/                  # Jinja 템플릿 1장 + vanilla JS
 | POST | `/api/v1/puzzles/today/guesses` | 정답 제출 (`{puzzle_id, guess}`) → 판정/피드백/남은시도/(종료 시)정답, 퍼즐 불일치 409 `PUZZLE_CHANGED` | Bearer |
 | GET | `/api/v1/puzzles/today/stats?language=` | 시도 횟수별 정답자 비율 (언어별, 기본 게스트 선호) | Bearer |
 | GET | `/api/v1/puzzles/today/leaderboard?language=&limit=20` | 랭킹(적은 시도 우선, 같으면 빨리 푼 순, 언어별) → `entries [{rank, display, attempts, seconds, is_me}]` + `me {rank, attempts, seconds} \| null`(21위 밖이어도 내 순위) | Bearer |
-| GET | `/api/v1/me/stats` | 내 퍼즐 언어 · streak · 최대streak · 누적 정답 | Bearer |
+| GET | `/api/v1/me/stats` | 내 퍼즐 언어 · streak · 최대streak · 누적 정답 · `entitlement {active, until, status, source, next_check_at}`(1h TTL 지나면 스토어 재조회, 만료 ±24h 는 5분) | Bearer |
 | GET | `/api/v1/me/history?days=7` | 최근 N일(KST, 상한 31) 퍼즐 언어별 결과 → `[{date, results: {ko, en}}]`, 각 값 `success\|fail\|in_progress\|none` | Bearer |
 | POST | `/api/v1/session/sync` | 이 브라우저=이 게스트를 세션 쿠키에 동기화 (로그인 전 필수) | Bearer |
 | GET | `/api/v1/auth/<provider>/login` | 구글/애플 로그인 시작 (리다이렉트) | 세션 쿠키 |
@@ -228,6 +228,7 @@ celery 브로커 큐와 rate limit 카운터는 DB 와 무관해서 건드리지
 | 09:00 | `tasks.notify_low_word_pool` | 언어별 미사용 단어 잔량이 **14일치 미만**이면 Slack 알림 | Slack 전송 실패는 경고 로그만 (`app/clients/slack.py`) |
 | 월 09:10 | `tasks.notify_apple_secret_expiry` | 애플 `client_secret`(JWT) 만료가 **7일 안**이면 Slack 알림 (주 1회) | 같음 |
 | 09:20 | `tasks.retry_apple_revocations` | 실패한 애플 연결 철회(`apple_revocation_retry`)를 다시 시도하고, 7일 넘긴 행은 폐기 + Slack 알림 | 한 행이 실패해도 나머지 행은 그날 계속 시도 |
+| 03:30 | `tasks.recheck_expiring_subscriptions` | `active\|grace\|hold` 중 **만료 3일 이내** 구독을 스토어에 재조회하고, 연속 3회 실패가 쌓인 구독이 있으면 Slack 알림 | 그 구독만 실패 카운터 +1, 나머지는 계속 (저장값 유지) |
 
 잔량 알림을 자정이 아니라 09:00 에 둔 건, 알림이 운영자가 깨어 있는 시간에 와야
 그날 안에 `flask seed-words` 로 단어를 채울 수 있어서다. 잔량은 "아직 한 번도
@@ -240,6 +241,7 @@ uv run celery -A celery_app.celery call tasks.ensure_today_puzzle
 uv run celery -A celery_app.celery call tasks.notify_low_word_pool
 uv run celery -A celery_app.celery call tasks.notify_apple_secret_expiry
 uv run celery -A celery_app.celery call tasks.retry_apple_revocations
+uv run celery -A celery_app.celery call tasks.recheck_expiring_subscriptions
 ```
 
 ## 운영: 단어 CSV 업로드 (`/admin`)
@@ -1309,6 +1311,74 @@ Split View 최소 폭 약 320 은 compact 로 떨어뜨린다). 각 화면의 2�
 바텀시트, medium 이상에서 가운데 다이얼로그(최대 폭 560, 상하 여백 48)를 고르므로
 26·29·32 는 폭을 신경 쓰지 않고 내용 위젯만 넘기면 된다.
 
+### 13. 구독 권한 판정표 · 1시간 TTL 재조회 · 웹훅 미도입
+
+구독 행은 "스토어가 마지막으로 말해준 상태" 이고, **광고를 끌지 말지는 그 행을
+보고 순수 함수가 판정한다**(`app/services/entitlement.py`). 판정표는 스펙 §A.8
+그대로다.
+
+| `status` | 권한 | 조건 |
+|---|---|---|
+| `active` | 있음 | `expires_at + 24h > now` |
+| `grace` | 있음 | `grace_expires_at > now` |
+| `hold` | 없음 | — (만료일이 미래여도 없음) |
+| `expired` · `revoked` · `replaced` | 없음 | — |
+
+- **24시간 유예는 `active` 에만 준다.** 흡수하려는 건 "갱신은 됐는데 서버가
+  아직 모름" 하나뿐이다. 자동 갱신 직후 스토어가 새 만료일을 주기까지 몇 시간이
+  걸릴 수 있고, 그 사이에 돈 낸 구독자에게 광고를 띄우면 그게 환불 사유가 된다.
+  확인된 철회(`revoked`)·보류(`hold`)에 같은 유예를 주면 반대로 환불한 사용자가
+  하루 더 공짜로 쓰는 셈이라, 유예를 상태별로 갈랐다.
+- **시각이 비어 있으면 권한도 없다.** "미래까지 유효" 를 증명할 수 없는 행에
+  권한을 주면, 스토어 응답이 깨졌을 때 조용히 광고가 꺼진 채로 남는다.
+- **판정 함수는 시계를 인자로 받는다.** `now` 를 안에서 읽으면 "유예 3일째",
+  "만료 1시간 뒤" 를 테스트하려고 시계를 가로채야 한다. 인자로 받으니
+  `tests/test_entitlement.py` 는 DB·Flask·monkeypatch 없이 판정표를 그대로 적는다.
+
+**재조회는 세 경로**다(`app/services/subscription_recheck.py`).
+
+1. `GET /me/stats` — 그 게스트의 `active|grace|hold` 구독 중 `last_verified_at +
+   1h` 가 지난 것(**경계 포함**)만 스토어에 다시 묻는다. 앱은 응답의
+   `next_check_at`(= `last_verified_at + 1h`)에 타이머를 걸어 다시 부르므로,
+   포그라운드 세션에서 철회 반영 지연이 **최대 1시간 + 타이머 오차**다.
+   경계를 포함으로 둔 이유: 앱이 `next_check_at` 정각에 호출하는데 서버가 "아직
+   1초 모자라다" 로 건너뛰면 그 호출이 통째로 헛돈다(스펙 미정 항목 19).
+2. `POST /subscriptions/verify` — 앱이 시작·포그라운드 복귀 때 스토어 구매
+   동기화로 받은 영수증을 다시 올리는 경로. TTL 과 무관하게 즉시 반영된다.
+   만료 ±24h 밖에서 복구된 결제(예: 만료 이틀 뒤의 재구독)가 이 길로 들어온다.
+3. Celery Beat 03:30 — `active|grace|hold` 중 만료 3일 이내를 전부 재조회한다.
+   앱을 아예 안 켜는 구독자의 행도 하루 한 번은 확인하는 안전망이라 TTL 을 보지
+   않는다. 만료가 한 달 뒤인 구독을 매일 묻지 않는 건, 스토어가 상태를 바꾸는
+   시점이 만료·갱신 주변이기 때문이다.
+
+- **만료 ±24h 안에서는 간격이 5분**이다. 스펙 본문은 이 구간을 "상한 없이 매
+  호출 재조회" 로 뒀는데, 그러면 포그라운드 앱이 `/me/stats` 를 부르는 만큼
+  스토어 API 를 때린다 — 갱신 반영이 최대 5분 늦는 대신 호출 수를 묶었다(스펙
+  미정 항목 18 확정). 그 5분 동안에도 24h 유예가 권한을 유지해 주므로 사용자가
+  광고를 보지는 않는다. `next_check_at` 에는 이 5분을 싣지 않는다 — 앱이 알아야
+  할 건 "다음에 언제 물어보면 되나" 고, 더 촘촘한 간격은 서버 안쪽 상한이다.
+- **재조회가 실패하면 저장값을 그대로 둔다.** 타임아웃 3초(래퍼 상수)로 끊고,
+  `last_verified_at` 을 올리지 않아서 다음 호출이 바로 다시 시도한다. 스토어
+  장애로 돈 낸 구독자의 광고를 켜지 않는 쪽을 택했다. Apple 이 "어느 환경에도
+  없는 거래"(400)라고 답한 경우도 같다 — 권한을 뺏는 판단은 스토어가 분명히
+  말해준 상태(`revoked`·`expired`·`hold`)로만 한다.
+- **연속 실패 3회는 사람 몫이다.** 실패할 때마다 `subscription.recheck_failures`
+  를 올리고 성공하면 0으로 되돌린다. Beat 가 한 바퀴 돈 뒤 3회 이상 쌓인 행을
+  **한 건의 Slack 알림으로 묶어** 보낸다(구독마다 보내면 설정이 틀어진 날 같은
+  메시지로 채널이 덮인다). 알림에 `store_key` 는 넣지 않는다 — 결제 식별자를
+  알림 채널로 복제하는 셈이라, 운영자는 행 ID 로 DB 에서 찾는다.
+- **재조회는 영수증 없이 돈다.** 구매 때 영수증으로 주인을 확인해 `store_key` 를
+  받아 적었으니(§12) 다시 확인할 게 없고, Beat 는 앱이 들고 있는 JWS 를 아예 못
+  본다. 그래서 Apple 쪽에 `fetch_subscription_status(store_key, environment)` 를
+  따로 뒀다 — 환경은 행에 적어둔 값을 쓴다(Sandbox 구매는 계속 Sandbox 다).
+  Google 은 `store_key` 가 곧 `purchaseToken` 이라 구매 때와 같은 조회다.
+- **스토어 웹훅(App Store Server Notifications / Play RTDN)을 안 쓴다.** 둘 다
+  Pub/Sub·엔드포인트 등록 같은 사람 설정이 붙고, 재시도·중복·순서 역전을 우리가
+  처리해야 한다. 지금 필요한 건 "구독자 한 명이 환불했을 때 광고가 몇 분 안에
+  돌아오나" 이고, 그건 위 1시간 TTL + 앱의 구매 동기화로 이미 만족한다. 구독자가
+  실제로 생기면 폴링을 **대체하는 게 아니라 보완하는** 형태로 붙인다(미정 항목 1).
+  웹훅부터 깔면 사람 설정과 상태 머신 디버깅에 시간을 쓰는데, 그 코드가 면접에서
+  설명할 값으로 폴링보다 특별히 낫지도 않다.
 
 ### 14. 계정 삭제 — 한 커밋 · 애플 revoke 재시도
 

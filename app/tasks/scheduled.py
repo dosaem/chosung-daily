@@ -7,6 +7,7 @@ from app.services.puzzle_maintenance_service import (
     ensure_today_puzzles_for_all_languages,
     flush_daily_stats_for_yesterday,
 )
+from app.services.subscription_recheck import recheck_expiring_subscriptions
 from app.services.word_pool_service import notify_low_word_pool
 from celery_app import celery
 
@@ -41,9 +42,18 @@ def retry_apple_revocations_task():
     retry_pending_revocations()
 
 
+@celery.task(name="tasks.recheck_expiring_subscriptions")
+def recheck_expiring_subscriptions_task():
+    recheck_expiring_subscriptions()
+
+
 # 시각은 전부 KST다(celery.conf.timezone = "Asia/Seoul").
 # 잔량 알림을 09:00에 둔 이유: 자정 배정 직후가 아니라 운영자가 깨어 있는
 # 시간에 와야 그날 안에 CSV를 채울 수 있다.
+# 구독 재검증을 03:30 에 둔 이유: 만료 임박 구독 수만큼 스토어 API 를 타므로
+# 자정 배치(퍼즐 배정·통계)와 떼어놨고, 새벽이면 스토어도 한가하다. 하루 한 번만
+# 돌면 되는 안전망이다 — 앱을 켜는 구독자는 `/me/stats` 의 1시간 TTL 재조회가
+# 먼저 잡아낸다(스펙 §A.8).
 # 애플 secret 만료 알림은 주 1회(월 09:10)다 — 갱신 자체는 요청 경로가 하고
 # (스펙 §A.13) 이건 "갱신이 안 돌고 있다"를 잡는 안전망이라 매일 볼 일이 아니다.
 # 잔량 알림과 10분 떼어놔서 두 Slack 메시지가 한 번에 겹치지 않게 했다.
@@ -70,6 +80,10 @@ BEAT_SCHEDULE = {
     "retry-apple-revocations": {
         "task": "tasks.retry_apple_revocations",
         "schedule": crontab(hour=9, minute=20),
+    },
+    "recheck-expiring-subscriptions": {
+        "task": "tasks.recheck_expiring_subscriptions",
+        "schedule": crontab(hour=3, minute=30),
     },
 }
 

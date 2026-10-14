@@ -8,6 +8,7 @@ from app.repositories.attempt_repository import DaySummary, summarize_by_date_an
 from app.schemas.history import HistoryDay
 from app.schemas.stats import LinkedAccount, MyStatsResponse
 from app.services.game_rules import day_result
+from app.services.subscription_recheck import entitlement_for
 
 # 기록 화면이 한 번에 요청할 수 있는 날짜 수의 상한(스펙 §A' `/me/history`).
 # 한 달치까지는 미니 그리드로 볼 만하고, 그 이상은 쿼리 한 번에 담지 않는다.
@@ -31,6 +32,10 @@ def get_my_stats(guest: Guest) -> MyStatsResponse:
         max_streak=stats.max_streak,
         solved_count=stats.solved_count,
         linked_account=linked_account,
+        # 구독이 있고 TTL(1시간, 만료 ±24h 는 5분)이 지났으면 여기서 스토어를
+        # 다시 물어본다 — 앱이 이 엔드포인트만 보고 광고를 켜고 끄기 때문에,
+        # 철회를 가장 빨리 반영할 수 있는 자리다(스펙 §A.8).
+        entitlement=entitlement_for(guest),
     )
 
 

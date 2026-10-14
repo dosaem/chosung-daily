@@ -48,7 +48,7 @@ def verify_receipt(guest: Guest, store: SubscriptionStore, receipt: str) -> Enti
 
     # 방금 올린 영수증이 권한을 주지 못해도(유예 종료·보류) 게스트가 다른
     # 스토어에 살아 있는 구독을 들고 있을 수 있으니 전체를 보고 판정한다.
-    return build_entitlement(find_by_guest(guest.id))
+    return build_entitlement(find_by_guest(guest.id), utcnow())
 
 
 @dataclass(frozen=True)
