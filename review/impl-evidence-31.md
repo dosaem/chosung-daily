@@ -13,7 +13,7 @@ SDK 를 초기화하고, 배너는 탭 바 아래 예약 슬롯에 콘텐츠 열
 보면 힌트가 열리고 구독자는 광고 없이 같은 호출을 쓴다. EEA 면 S4 에 "광고 개인정보
 설정" 행이 생긴다. 앱 테스트 **457개 통과**(이 티켓이 더한 건 59개, 골든 5장 갱신),
 `flutter analyze` 0건 · `dart format` 변경 없음 · 백엔드 `ruff check` 통과 ·
-`pytest` 통과(§6).
+`pytest` 1403개 통과(§6).
 
 ## 1. 티켓 체크박스 ↔ 증거
 
@@ -180,8 +180,15 @@ All checks passed!
 
 $ TEST_DATABASE_URL=...chosung_daily_test_t31 TEST_REDIS_URL=redis://127.0.0.1:6379/5 \
   TEST_MIGRATION_DATABASE_URL=...chosung_daily_test_t31_migrations uv run pytest -q
-PYTEST_PLACEHOLDER
+........................................ [100%]
+1403 passed in 1171.65s (0:19:31)
 ```
+
+백엔드는 한 줄도 안 건드렸다(`git diff main..HEAD -- app/ web/ tests/ migrations/`
+빈 결과). 위 실행은 **로컬 `main`(티켓 28 머지, `8ddc8fd`) 위에 rebase 된 상태**
+에서 돌렸고(`git rebase main` 은 "up to date" — main 이 안 움직였다), 그 뒤의
+커밋은 `mobile/` 만 건드렸다. 전용 자원: DB `chosung_daily_test_t31`, Redis 5,
+마이그레이션 DB `chosung_daily_test_t31_migrations`.
 
 네이티브 빌드 — **둘 다 처음에는 실패했고 §7 에 고친 내용을 적었다**:
 
