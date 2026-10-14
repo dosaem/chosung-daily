@@ -164,3 +164,52 @@ PY
 - 이전 4건 모두 FIXED, REPEAT 0건. 현재 미해결: **BLOCKER 0 · MAJOR 1(D-12-5) · MINOR 0**.
 
 판정: FAIL
+
+## 라운드 3
+
+- 검토일: 2026-10-14. 구현 HEAD `4f194ce`, 로컬 main `b43567e` 기준 `git diff main...HEAD`와 `git log main..HEAD`를 확인했다. origin/main은 사용하지 않았다.
+- 티켓 12, 스펙 §A.8·§A'·§A.17·미정 14, ADR 0003, CONTEXT, 이전 두 라운드와 구현 증거를 대조했다. UI 변경은 없으며 하위 에이전트를 사용하지 않았다.
+
+### 체크박스별 판정
+
+| 티켓 요구 | 판정 | 직접 확인한 근거 |
+|---|---|---|
+| Subscription 필드·6종 상태·unique(store, store_key)·마이그레이션·단일 head | 충족 | `app/models/subscription.py:28` 및 `a5bab2f58a7b` migration의 필드·유니크 제약 일치. down_revision은 `ff06a1bf5afc`, heads 출력 한 줄. DB 저장·멱등·마이그레이션 검증 결과는 아래 기록 |
+| 공식 Apple/Google 래퍼·JWS 검증·환경 선택·Sandbox 1회 폴백·3초 | 충족 | 실제 Apple SDK 생성자를 두 환경에서 직접 실행. `_verify_transaction`과 최신 거래 검증, 폴백 횟수 assertion 확인. 외부 호출을 가로채 Apple request의 timeout과 Google HTTP 객체의 timeout이 각각 3임을 직접 관측 |
+| 순수 상태 매핑 2개·grace·pending 무행·미정 14 기록 | 충족 | `subscription_status.py`의 순수 함수 및 fixture별 매핑 확인. PAUSED→hold, PENDING 계열→무행, Google grace의 expiryTime 사용. revoked 라벨은 이전 라운드와 동일하게 미정 14에 기록된 명시 플래그 계약 기준으로 평가 |
+| Bearer verify·상품/번들/패키지·멱등 upsert·복원 재지정·권한·400/503 | 충족 | 기존 with_guest 인증, 상품/번들 대조, Google configured packageName 요청, unique 충돌 재조회와 guest 재지정 확인. D-12-5 직접 재현이 이제 503을 반환하고, AppError는 공통 경계에서 그대로 통과 |
+| 지정 fixture 테스트 5종 | 충족 | 중복 전달·동시 전달, linkedPurchaseToken 교체, Sandbox 폴백, 다른 게스트 복원, 상품 불일치 테스트와 assertion을 확인. DNS 회귀는 실제 Google SDK·httplib2를 통과하고 연결 경계에서만 실패를 주입 |
+| 임시 active/grace 권한 함수; 판정표·TTL은 13 | 충족 | `app/services/entitlement.py:28`이 active/grace 상태로 권한을 조립하며 현재 시각은 읽지 않음. 시간 판정·재조회·Beat는 티켓 13 범위 |
+| .env.example 스토어 설정·README 설계 판단 | 충족 | APP_STORE_APP_APPLE_ID를 포함한 설정이 실제 검증기로 연결되고 README `### 12.`에 공식 라이브러리·RevenueCat 미사용·store_key 멱등 설명 존재 |
+
+### 이전 결함 재판정
+
+| ID | 이전 심각도 | 판정 | 위치·재현 및 관측 |
+|---|---|---|---|
+| D-12-1 | BLOCKER | FIXED | `app/clients/app_store.py:208`, `app/config.py:40`. 합성 appAppleId=123으로 실제 SignedDataVerifier를 Sandbox/Production 각각 생성 → 모두 성공, `_app_apple_id=123` 확인 |
+| D-12-2 | MAJOR | FIXED | `app/clients/app_store.py:240`, `:291`, `app/clients/store_boundary.py:40`. APIException 분류·requests 예외 변환 및 공통 경계 확인. 회귀 테스트는 실제 래퍼를 통해 Timeout/ConnectionError/503/401→503, 거래 없음→400을 검증 |
+| D-12-3 | MAJOR | FIXED | `app/clients/app_store.py:122`, `:304`, `tests/test_store_clients.py:213`. 제출 거래 expiresDate=1000과 최신 거래=1793491200000을 구분하고 최신 값 반환 및 두 JWS 검증 호출을 검증하는 회귀 테스트 확인. 서비스가 반환 transaction을 정규화해 저장 |
+| D-12-4 | MINOR | FIXED | `app/clients/app_store.py:199`. 기존 `header.W10.signature`와 `header.bnVsbA.signature`를 `_environment_of`에 직접 입력 → 둘 다 ReceiptInvalidError. 엔드포인트의 비객체 payload 회귀도 확인 |
+| D-12-5 | MAJOR | FIXED | `app/clients/play.py:70`, `tests/test_subscription_verify.py:342`. 라운드 2의 인라인 재현을 다시 실행: 실제 Google SDK 정적 discovery와 httplib2를 사용하고 socket.getaddrinfo에서 합성 DNS 실패 주입 → **503 STORE_UNAVAILABLE**. 외부 DNS/스토어 호출과 DB 쓰기는 없었음 |
+
+### 신규 결함
+
+현재 검토에서 확인된 신규 결함 없음. 이전 5건 FIXED, REPEAT 0건.
+
+### 범위·보안·참고
+
+- Bearer 인증 및 요청 스키마, 상품·앱 식별자 검증을 확인했다. 쿠키 인증 경로가 아니므로 CSRF 누락으로 보지 않는다. 실제 외부 서비스 자격증명이 변경 파일에 기록된 사례는 발견하지 못했다.
+- README API 행과 `### 12.`, RELEASE `### 12.`, .env.example `[12]`, 티켓이 확정하도록 지정한 스펙 미정 14의 변경만 확인했다. 다른 티켓 내용을 삭제하거나 수정한 흔적은 없다.
+- 새 공통 오류 경계는 기존 AppError를 보존하고 미분류 예외를 503으로 변환한다. 해당 분류 표 테스트 외에 실제 SDK DNS 경계 테스트가 있어 D-12-5를 래퍼 전체 mock으로 숨기지 않는다.
+- 스토어 fixture는 합성 응답이며 실제 서명된 구매 영수증이나 Sandbox 실구매를 검증한 것은 아니다. 계정·실제 외부 서비스·NAS·프로덕션에는 접근하지 않았다. 취향·스타일 제안 없음.
+
+### 직접 실행한 검증
+
+- `TEST_DATABASE_URL`은 기존 `chosung_daily_test_t12`, `TEST_MIGRATION_DATABASE_URL`은 기존 `chosung_daily_test_t12_migrations`, `TEST_REDIS_URL`은 Redis DB 14로 지정했다. 모두 localhost 개발 서비스이며 새 DB 생성이나 기본 테스트 DB 폴백은 하지 않았다. 접속 문자열의 비밀번호는 기록하지 않는다.
+- `uv run ruff check .` → `All checks passed!`, exit 0.
+- `FLASK_APP=wsgi.py uv run flask db heads` → `a5bab2f58a7b (head)` 한 줄, exit 0.
+- `git diff main...HEAD --check` → 출력 없음, exit 0.
+- `uv run pytest -q` → **668 passed in 446.53s (0:07:26)**, exit 0. 티켓 12 회귀·상태 매핑·DB 멱등/복원/교체 및 마이그레이션 왕복 테스트를 포함한 최초 전체 실행이 통과하여 재실행은 필요하지 않았다.
+- 현재 미해결 결함: **BLOCKER 0 · MAJOR 0 · MINOR 0**. 이전 5건 모두 FIXED, 신규 0건.
+
+판정: PASS
