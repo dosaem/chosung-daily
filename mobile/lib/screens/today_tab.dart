@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:chosung/ads/ad_providers.dart';
+import 'package:chosung/ads/ad_service.dart';
 import 'package:chosung/ads/result_interstitial.dart';
 import 'package:chosung/analytics/analytics_event.dart';
 import 'package:chosung/analytics/analytics_service.dart';
@@ -284,14 +285,16 @@ class _HintSlotState extends ConsumerState<_HintSlot> {
     });
     try {
       if (ref.read(adGateProvider).hintPreviewNeedsAd) {
-        final earned = await ref.read(adServiceProvider).showRewarded();
-        if (!earned) {
-          // 로드 실패와 "중간에 닫음" 을 가르지 않는다 — 어느 쪽이든 보상이
-          // 없으니 힌트를 열어줄 근거가 없다.
+        final outcome = await ref.read(adServiceProvider).showRewarded();
+        if (outcome != RewardedOutcome.earned) {
+          // 광고를 **못 띄운** 경우에만 버튼을 끈다. 중간에 닫은 건 다시
+          // 누르면 되는 일이라 안내만 남기고 버튼은 살려 둔다.
           if (mounted) {
             setState(() {
-              _adUnavailable = true;
-              _notice = 'hint.ad_unavailable'.tr();
+              _adUnavailable = outcome == RewardedOutcome.unavailable;
+              _notice = _adUnavailable
+                  ? 'hint.ad_unavailable'.tr()
+                  : 'hint.ad_not_finished'.tr();
             });
           }
           return;

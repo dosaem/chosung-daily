@@ -71,7 +71,8 @@
     "label": "Hint",
     "preview": "Preview the hint",
     "ad_unavailable": "Can't load an ad right now",
-    "unlock_failed": "Couldn't open the hint"
+    "unlock_failed": "Couldn't open the hint",
+    "ad_not_finished": "Watch the whole ad to open the hint"
   },
   "result": {
     "success_title": "The answer is {answer}!",

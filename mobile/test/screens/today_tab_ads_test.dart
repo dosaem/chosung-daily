@@ -1,6 +1,7 @@
 import 'package:app_tracking_transparency/app_tracking_transparency.dart';
 import 'package:chosung/ads/ad_gate.dart';
 import 'package:chosung/ads/ad_providers.dart';
+import 'package:chosung/ads/ad_service.dart';
 import 'package:chosung/ads/interstitial_store.dart';
 import 'package:chosung/analytics/analytics_service.dart';
 import 'package:chosung/api/api_exception.dart';
@@ -145,9 +146,9 @@ void main() {
       expect(find.text('서울에 가장 많다'), findsOne);
     });
 
-    testWidgets('광고를 끝까지 못 보면 버튼이 잠기고 안내가 뜬다', (tester) async {
+    testWidgets('광고를 못 띄우면 버튼이 잠기고 안내가 뜬다', (tester) async {
       final api = FakeApiClient();
-      final ads = FakeAdService(rewardEarned: false);
+      final ads = FakeAdService(rewarded: RewardedOutcome.unavailable);
 
       await pumpToday(tester, api: api, ads: ads);
       await tapAndSettle(tester, previewButton());
@@ -156,6 +157,27 @@ void main() {
       expect(api.unlockedHintPuzzleIds, isEmpty);
       expect(find.text('지금은 광고를 불러올 수 없어요'), findsOne);
       expect(previewEnabled(tester), isFalse);
+    });
+
+    // 떴는데 중간에 닫은 건 다시 누르면 되는 일이다 — 버튼을 끄면 그 퍼즐에서
+    // 힌트를 영영 못 연다.
+    testWidgets('광고를 중간에 닫으면 안내만 뜨고 다시 누를 수 있다', (tester) async {
+      final api = FakeApiClient();
+      final ads = FakeAdService(rewarded: RewardedOutcome.dismissed);
+
+      await pumpToday(tester, api: api, ads: ads);
+      await tapAndSettle(tester, previewButton());
+
+      expect(find.text('광고를 끝까지 봐야 힌트가 열려요'), findsOne);
+      expect(api.unlockedHintPuzzleIds, isEmpty);
+      expect(previewEnabled(tester), isTrue);
+
+      ads.rewarded = RewardedOutcome.earned;
+      await tapAndSettle(tester, previewButton());
+
+      expect(ads.rewardedShowCalls, 2);
+      expect(api.unlockedHintPuzzleIds, [1]);
+      expect(find.text('서울에 가장 많다'), findsOne);
     });
 
     testWidgets('광고를 띄울 수 없는 세션이면 처음부터 비활성이다', (tester) async {

@@ -1,6 +1,19 @@
 import 'package:chosung/ads/ad_gate.dart';
 import 'package:flutter/widgets.dart';
 
+/// 보상형 광고 한 번의 결과. **"못 띄웠다" 와 "안 끝까지 봤다" 를 가른다** —
+/// 앞은 버튼을 끄고(다시 눌러도 같은 실패다) 뒤는 다시 누를 수 있어야 한다.
+enum RewardedOutcome {
+  /// 끝까지 봐서 보상을 얻었다 → 힌트를 연다.
+  earned,
+
+  /// 떴지만 보상 전에 닫았다 → 안내만 하고 버튼은 살려 둔다.
+  dismissed,
+
+  /// 로드·표시가 실패해 광고 자체를 못 띄웠다 → 이 퍼즐에서는 버튼을 끈다.
+  unavailable,
+}
+
 /// 로드된 배너 하나. 위젯과 해제를 같이 들고 다닌다 — 화면이 `BannerAd` 를
 /// 직접 알면 테스트에서 광고 SDK 를 끼울 수밖에 없다.
 abstract interface class LoadedBannerAd {
@@ -35,9 +48,8 @@ abstract interface class AdService {
   /// 전면 광고를 로드해서 띄운다. 실제로 떴으면 true.
   Future<bool> showInterstitial();
 
-  /// 보상형 광고를 띄운다. **끝까지 봐서 보상을 얻었을 때만** true —
-  /// 중간에 닫거나 로드가 실패하면 false 다.
-  Future<bool> showRewarded();
+  /// 보상형 광고를 띄운다.
+  Future<RewardedOutcome> showRewarded();
 }
 
 /// 아무 광고도 띄우지 않는 구현. 광고 SDK 를 끼우지 않은 트리(위젯 테스트·
@@ -61,5 +73,5 @@ class NoopAdService implements AdService {
   Future<bool> showInterstitial() async => false;
 
   @override
-  Future<bool> showRewarded() async => false;
+  Future<RewardedOutcome> showRewarded() async => RewardedOutcome.unavailable;
 }

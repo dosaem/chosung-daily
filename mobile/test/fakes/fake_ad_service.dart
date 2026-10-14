@@ -14,7 +14,7 @@ class FakeAdService implements AdService {
     this.consentError,
     this.bannerLoads = true,
     this.interstitialShows = true,
-    this.rewardEarned = true,
+    this.rewarded = RewardedOutcome.earned,
   });
 
   UmpStatus consent;
@@ -26,8 +26,8 @@ class FakeAdService implements AdService {
   /// 전면 광고가 실제로 떴는가(로드 실패·표시 실패면 false).
   bool interstitialShows;
 
-  /// 보상형을 끝까지 봤는가. false = 로드 실패 또는 중간에 닫음.
-  bool rewardEarned;
+  /// 보상형 광고가 어떻게 끝나는가(끝까지 봄 / 중간에 닫음 / 못 띄움).
+  RewardedOutcome rewarded;
 
   int consentRequests = 0;
   int initializeCalls = 0;
@@ -68,9 +68,9 @@ class FakeAdService implements AdService {
   }
 
   @override
-  Future<bool> showRewarded() async {
+  Future<RewardedOutcome> showRewarded() async {
     rewardedShowCalls++;
-    return rewardEarned;
+    return rewarded;
   }
 }
 

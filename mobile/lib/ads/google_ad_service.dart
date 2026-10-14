@@ -101,22 +101,28 @@ class GoogleAdService implements AdService {
   }
 
   @override
-  Future<bool> showRewarded() async {
+  Future<RewardedOutcome> showRewarded() async {
     final ad = await _loadRewarded();
-    if (ad == null) return false;
+    if (ad == null) return RewardedOutcome.unavailable;
 
     var earned = false;
-    final finished = Completer<bool>();
+    final finished = Completer<RewardedOutcome>();
     ad.fullScreenContentCallback = FullScreenContentCallback(
-      // 보상은 **닫힐 때** 확정한다 — 중간에 닫으면 콜백이 안 오고, 끝까지
-      // 봤으면 닫히기 전에 이미 와 있다.
+      // 보상은 **닫힐 때** 확정한다 — 중간에 닫으면 보상 콜백이 안 오고,
+      // 끝까지 봤으면 닫히기 전에 이미 와 있다.
       onAdDismissedFullScreenContent: (ad) {
         unawaited(ad.dispose());
-        if (!finished.isCompleted) finished.complete(earned);
+        if (!finished.isCompleted) {
+          finished.complete(
+            earned ? RewardedOutcome.earned : RewardedOutcome.dismissed,
+          );
+        }
       },
       onAdFailedToShowFullScreenContent: (ad, error) {
         unawaited(ad.dispose());
-        if (!finished.isCompleted) finished.complete(false);
+        if (!finished.isCompleted) {
+          finished.complete(RewardedOutcome.unavailable);
+        }
       },
     );
     await ad.show(onUserEarnedReward: (ad, reward) => earned = true);
