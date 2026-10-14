@@ -12,6 +12,8 @@ instance/
 k6/results/
 celerybeat-schedule*
 backups*/
+# 접속기록(기본 LOG_DIR=./logs). 원격 IP 가 들어 있는 개인정보다 — 커밋되면 안 된다.
+logs*/
 
 # impeccable(디자인 검사 도구): 공유 설정은 .impeccable/config.json 만 커밋한다
 .impeccable/config.local.json

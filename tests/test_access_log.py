@@ -127,6 +127,19 @@ def _readme_action_table() -> dict[str, str]:
     return rows
 
 
+def test_every_admin_route_is_in_the_action_table(app):
+    """`/admin` 라우트를 새로 만들면 표에 넣어야 한다 — 운영자 화면 접속은 전부
+    접속기록 대상이라(고시 제8조) 하나라도 빠지면 그 화면만 조용히 기록이 없다."""
+    admin_endpoints = {
+        rule.endpoint for rule in app.url_map.iter_rules() if rule.endpoint.startswith("admin.")
+    }
+
+    assert admin_endpoints
+    assert admin_endpoints <= set(access_log_wiring.ACTION_BY_ENDPOINT), sorted(
+        admin_endpoints - set(access_log_wiring.ACTION_BY_ENDPOINT)
+    )
+
+
 def test_the_recorded_actions_match_the_readme_table():
     table = _readme_action_table()
     assert table, "README 설계 판단 36. 에 기록되는 행위 표가 없다"

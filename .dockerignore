@@ -14,6 +14,10 @@ k6/
 # 이미지에 구워진다.
 backups*/
 
+# 접속기록(기본 LOG_DIR=./logs). 덤프와 같은 이유로 bind mount 이고, 원격 IP 가
+# 들어 있는 개인정보라 이미지에 구워지면 보관 기간 통제를 벗어난다.
+logs*/
+
 .venv/
 tests/
 migrations/__pycache__/

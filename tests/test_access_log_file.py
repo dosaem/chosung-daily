@@ -243,3 +243,11 @@ def test_the_backup_container_cron_also_rotates_the_access_log():
     cron = (SCRIPTS / "backup-cron.sh").read_text(encoding="utf-8")
 
     assert "rotate-access-log.sh" in cron
+
+
+def test_access_logs_are_not_committed_or_baked_into_the_image():
+    """`LOG_DIR` 기본값(`./logs`, develop 은 `./logs-develop`)에 원격 IP 가 든 접속기록이
+    쌓인다 — 커밋되지도, `COPY . .` 로 이미지에 들어가지도 않아야 한다(덤프와 같은 이유).
+    """
+    assert "logs*/" in (ROOT / ".gitignore").read_text(encoding="utf-8").split()
+    assert "logs*/" in (ROOT / ".dockerignore").read_text(encoding="utf-8").split()
