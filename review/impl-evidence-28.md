@@ -263,7 +263,23 @@ OK: Alembic head 1개
 파일이 걸린다(이 티켓은 `.py` 를 한 줄도 바꾸지 않았다). CI(`.github/workflows/ci.yml`)
 가 돌리는 `ruff check .` 만 게이트로 본다.
 
-### 6.5 돌리지 않은 것
+### 6.5 rebase 후 재실행 (`git rebase main`, main = 34ec7ec)
+
+`main` 이 움직이지 않아 rebase 는 no-op 이었고(`up to date`), 그 상태에서 다시 돌렸다.
+
+```
+$ cd mobile && flutter analyze       -> No issues found!
+$ cd mobile && dart format --output=none --set-exit-if-changed .  -> 0 changed (exit 0)
+$ cd mobile && flutter test          -> +392: All tests passed
+$ uv run ruff check .                -> All checks passed!
+$ ./scripts/check_migration_heads.sh -> OK: Alembic head 1개
+$ git status --short                 -> (비어 있음)
+```
+
+백엔드 pytest 는 다시 돌리지 않았다 — `git diff main -- app/ tests/ migrations/ web/
+scripts/ '*.py'` 가 비어 있어 §6.3 의 1403개와 같은 코드다.
+
+### 6.6 돌리지 않은 것
 
 - `flutter build apk` / `flutter build ios` — 이 머신의 디스크 여유 제약으로 네이티브
   빌드는 돌리지 않았다. 새 플러그인 2개의 iOS 최소 버전 요구는
