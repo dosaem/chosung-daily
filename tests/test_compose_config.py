@@ -7,6 +7,7 @@ prod 와 develop 을 같은 NAS 에서 동시에 돌리려면 compose 파일에 
 docs/RELEASE.md 의 로컬 검증 절차).
 """
 
+import re
 from pathlib import Path
 
 import pytest
@@ -88,3 +89,77 @@ def test_dockerignore_excludes_non_backend_paths():
         if line.strip() and not line.startswith("#")
     }
     assert {"mobile/", ".scratch/", "review/", ".venv/", "tests/"} <= entries
+
+
+# ------------------------------------------------- 컨테이너가 실제로 받는 env
+#
+# `environment:` 와 `env_file:` 을 따로 보면 "선언돼 있다" 까지만 알 수 있다.
+# 컨테이너 안에서 실제로 보이는 값은 둘을 합친 것이고(`environment` 가 이긴다),
+# `${VAR}`·`${VAR:-기본값}` 은 **`--env-file` 쪽에서만** 치환된다 — env 파일에
+# 적어둔 값이 자동으로 컨테이너까지 흘러가지 않는다. 이 차이에서 티켓 36 의
+# 두 결함이 나왔다(backup 에 인증서 경로가 안 들어가고, app 의 LOG_DIR 이
+# 호스트 경로인 채로 들어갔다). 그래서 **합친 결과**를 본다.
+
+_PLACEHOLDER = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(:?-)?([^}]*)\}")
+
+
+def _interpolate(value, env):
+    """compose 의 `${VAR}`·`${VAR-기본값}`·`${VAR:-기본값}` 치환.
+
+    `:-` 는 "없거나 비었으면 기본값", `-` 는 "없으면 기본값" 이다.
+    """
+
+    def replace(match):
+        name, separator, default = match.groups()
+        if separator == ":-":
+            return env.get(name) or default
+        if separator == "-":
+            return env.get(name, default)
+        return env.get(name, "")
+
+    return _PLACEHOLDER.sub(replace, value)
+
+
+def _container_env(compose, service, env_filename):
+    """`docker compose --env-file <파일> config` 가 그 서비스에 넣는 환경변수."""
+    env_file_values = _env_example(env_filename)
+    merged = dict(env_file_values) if "env_file" in compose["services"][service] else {}
+    for key, value in compose["services"][service].get("environment", {}).items():
+        merged[key] = _interpolate(str(value), env_file_values)
+    return merged
+
+
+ENV_EXAMPLES = [".env.prod.example", ".env.develop.example"]
+
+
+@pytest.mark.parametrize("env_filename", ENV_EXAMPLES)
+def test_the_backup_container_receives_the_encryption_certificate(prod_compose, env_filename):
+    """36: 인증서 경로가 backup 까지 안 가면 매일 백업이 통째로 실패한다.
+
+    `scripts/backup.sh` 는 이 값이 비면 덤프를 만들지 않고 끝낸다 — 평문 백업을
+    남기지 않기 위한 설계라, 전달이 빠지면 "암호화 보관" 이 아니라 "백업 없음" 이
+    된다. env 파일에 적어두는 것만으로는 전달되지 않는다.
+    """
+    env = _container_env(prod_compose, "backup", env_filename)
+
+    assert env.get("BACKUP_ENCRYPTION_CERT_FILE") == "/backups/backup-cert.pem"
+
+
+@pytest.mark.parametrize("env_filename", ENV_EXAMPLES)
+@pytest.mark.parametrize("service", ["app", "backup"])
+def test_the_log_dir_the_container_sees_is_the_mount_target(prod_compose, service, env_filename):
+    """36: 컨테이너 안의 `LOG_DIR` 은 bind mount 의 **컨테이너 쪽** 경로여야 한다.
+
+    env 파일의 `LOG_DIR` 은 호스트 폴더(`./logs`)다. 그대로 app 에 흘러가면
+    Gunicorn 이 WORKDIR(`/srv`) 기준의 `/srv/logs/access.log` 에 쓰고, backup 은
+    `/logs` 만 회전한다 — 접속기록이 컨테이너와 함께 사라지고 1년 보관·만료
+    삭제가 하나도 안 걸린다.
+    """
+    mount_target = next(
+        spec.rsplit(":", 1)[1]
+        for spec in prod_compose["services"][service]["volumes"]
+        if spec.endswith(":/logs")
+    )
+    env = _container_env(prod_compose, service, env_filename)
+
+    assert env.get("LOG_DIR") == mount_target

@@ -38,8 +38,8 @@ class AccessLog(db.Model):
     result: str = db.Column(db.String(16), nullable=False)
     status_code: int = db.Column(db.Integer, nullable=False)
     # 체인이 갈라지지 않게 **DB 가** 막는다: 한 해시를 두 행이 가리킬 수 없다.
-    # 동시에 들어온 두 요청이 같은 직전 행을 읽으면(아래 리포지토리의 행 잠금이
-    # 막지만, 빈 테이블의 첫 행처럼 잠글 행이 없는 경우가 있다) 둘째 INSERT 가
-    # 여기서 깨진다 — 체인이 조용히 두 갈래로 갈리는 쪽보다 낫다.
+    # 동시에 들어온 두 요청을 한 줄로 세우는 건 리포지토리의 네임드 락이고, 이
+    # 유니크는 앱을 거치지 않은 INSERT 까지 막는 마지막 선이다 — 체인이 조용히
+    # 두 갈래로 갈리는 쪽보다 INSERT 가 깨지는 쪽이 낫다.
     prev_hash: str = db.Column(db.String(64), nullable=False, unique=True)
     hash: str = db.Column(db.String(64), nullable=False, unique=True)

@@ -391,3 +391,218 @@ b1c7d4e0a932 (head)
   삭제를 500 으로 되돌리는 쪽이 더 거짓이라고 판단했다 — 근거는 `app/access_log.py` 주석.
 - 전환기 평문 경로(`restore.sh` 의 `.sql.gz`, `backup.sh` 보존 정리의 `.sql.gz` 패턴)는
   **일부러 남겼다**. 제거 시점은 RELEASE "### 36." 의 "전환기 정리" 체크박스.
+
+---
+
+## 수정 라운드 1
+
+`review/impl-review-36.md` 라운드 1 판정 FAIL — BLOCKER 0 / MAJOR 3 / MINOR 0. 세 건
+전부 고쳤다. 리뷰어 지적이 틀렸다고 본 건은 없다. 미수정 MINOR 도 없다(리뷰가 0건).
+
+각 결함은 **리뷰의 재현 방법 그대로 먼저 재현**하고, 그 재현을 실패하는 테스트로 고정한
+뒤(red) 고쳤다(green).
+
+### D-36-1 — 인증서 설정이 backup 컨테이너에 전달되지 않아 매일 백업이 실패함 (MAJOR)
+
+**원인.** `backup` 서비스에는 `env_file` 이 없다(호스트 경로·앱 시크릿이 섞여 들어오는 걸
+막으려는 의도적 선택). compose 의 `--env-file` 은 **`environment:` 에 선언한 키만**
+컨테이너로 넣기 때문에, `.env` 에 `BACKUP_ENCRYPTION_CERT_FILE` 을 적어도 컨테이너
+안에서는 비어 있다. `scripts/backup.sh` 는 이 값이 비면 "평문으로 떨어뜨리느니 실패" 규칙
+대로 mysqldump 전에 끝낸다 → 문서대로 설정해도 매일 백업이 통째로 안 생긴다.
+
+**수정.** `docker-compose.prod.yml` backup 서비스에 `BACKUP_ENCRYPTION_CERT_FILE:
+${BACKUP_ENCRYPTION_CERT_FILE:-}` 을 선언했다(왜 env_file 이 아닌지 주석으로 남김).
+
+**재현(수정 전) — 리뷰의 명령 그대로.**
+
+```
+$ ENV_FILE=.env.prod.example docker compose -f docker-compose.prod.yml \
+    --env-file .env.prod.example config --format json |
+  uv run python -c 'import json,sys; s=json.load(sys.stdin)["services"]; print(s["backup"]["environment"].get("BACKUP_ENCRYPTION_CERT_FILE", "MISSING"))'
+MISSING
+```
+
+**증명하는 테스트.** `tests/test_compose_config.py::test_the_backup_container_receives_the_encryption_certificate`
+— `environment:` 와 `env_file:` 을 compose 규칙대로 **합친** 컨테이너 환경을 만들어
+비교한다(`_container_env`). prod·develop 예시 두 벌을 본다.
+
+```
+$ uv run pytest tests/test_compose_config.py -q -k encryption_certificate   # 수정 전
+FAILED ...[.env.prod.example] - AssertionError: assert None == '/backups/backup-cert.pem'
+FAILED ...[.env.develop.example] - AssertionError: assert None == '/backups/backup-cert.pem'
+2 failed
+```
+
+```
+$ uv run pytest tests/test_compose_config.py tests/test_access_log_file.py -q   # 수정 후
+31 passed in 1.24s
+```
+
+**수정 후 같은 재현 명령(실제 docker compose config).**
+
+```
+$ for f in .env.prod.example .env.develop.example; do ... config --format json ... ; done
+--- .env.prod.example
+backup BACKUP_ENCRYPTION_CERT_FILE: /backups/backup-cert.pem
+--- .env.develop.example
+backup BACKUP_ENCRYPTION_CERT_FILE: /backups/backup-cert.pem
+```
+
+### D-36-2 — Gunicorn 로그가 공유 볼륨 밖에 기록되어 회전·보관되지 않음 (MAJOR)
+
+**원인.** `.env` 의 `LOG_DIR` 은 **호스트** 폴더(`./logs`)인데, app 은 그 env 파일을
+`env_file` 로 통째로 받는다. `gunicorn.conf.py` 가 같은 이름을 **컨테이너 안 경로**로
+읽어서 WORKDIR(`/srv`) 기준 `/srv/logs/access.log` 에 쓴다 — 마운트 target 은 `/logs`
+라서 접속기록이 컨테이너 파일시스템에만 쌓인다(재생성하면 사라지고, `/logs` 만 보는
+backup 의 회전·만료 삭제가 하나도 안 걸린다). 한 이름이 호스트 경로와 컨테이너 경로를
+겸한 게 원인이다.
+
+**수정.** 컨테이너가 보는 값을 마운트 target 으로 고정했다 — `docker-compose.prod.yml`
+의 app·backup `environment:` 에 `LOG_DIR: /logs`(`environment` 가 `env_file` 을 이긴다).
+`.env` 의 `LOG_DIR` 은 호스트 경로 전용으로 남는다. `docs/RELEASE.md` "### 36. (b)" 에
+그 구분과 배포 직후 확인 체크박스를 추가했다.
+
+**재현(수정 전).**
+
+```
+app LOG_DIR: ./logs          # 기대: /logs
+app volumes: [('<체크아웃>/logs', '/logs')]
+backup LOG_DIR: MISSING
+```
+
+**증명하는 테스트.** `tests/test_compose_config.py::test_the_log_dir_the_container_sees_is_the_mount_target`
+— app·backup × prod·develop 4갈래로, 합친 컨테이너 환경의 `LOG_DIR` 이 `:/logs` 마운트의
+**컨테이너 쪽** 경로와 같은지 본다. 수정 전 `assert './logs' == '/logs'` 로 실패했다.
+
+**실측(코디네이터 요청) — 로컬 전용 스택으로 문서대로 한 바퀴.**
+프로젝트명 `chosung-daily-t36local`, 포트 18089, 호스트 폴더·키는 세션 스크래치패드,
+자체 서명 인증서로 `docs/RELEASE.md` "### 36." 1~4번 절차를 그대로 따라갔다. NAS·프로덕션·
+외부 서비스는 건드리지 않았고(Slack webhook 빈 값), 끝나고 `down -v --rmi local` +
+`docker builder prune` 로 컨테이너·볼륨·이미지·빌드 캐시를 원래 수치로 되돌렸다.
+
+```
+$ docker compose -p chosung-daily-t36local exec app sh -c 'echo LOG_DIR=$LOG_DIR; ls -l /logs; ls -l /srv/logs'
+LOG_DIR=/logs
+-rw-r--r-- 1 root root 440 Oct 14 08:21 access.log
+ls: cannot access '/srv/logs': No such file or directory
+
+$ cat <호스트 LOG_DIR>/access.log        # 호스트에서 같은 파일이 보인다
+192.168.107.1 [14/Oct/2026:08:21:08 +0000] "GET /healthz" 404 117 "curl/8.7.1" 0.005835
+192.168.107.1 [14/Oct/2026:08:21:15 +0000] "GET /api/v1/health" 404 117 "curl/8.7.1" 0.005376
+192.168.107.1 [14/Oct/2026:08:21:15 +0000] "GET /" 200 8484 "curl/8.7.1" 0.025450
+```
+
+`?token=should-not-appear` 를 붙여 부른 요청도 경로만 남았다 — 쿼리스트링 제외가 실물에서
+확인된다.
+
+```
+$ docker compose -p chosung-daily-t36local exec backup sh -c 'echo CERT=$BACKUP_ENCRYPTION_CERT_FILE LOG_DIR=$LOG_DIR; /scripts/backup.sh'
+CERT=/backups/backup-cert.pem LOG_DIR=/logs
+[backup] ... dumping chosung_daily from mysql -> /backups/chosung_daily-20261014-172122.sql.gz.enc (encrypted)
+[backup] ... wrote 4.0K /backups/chosung_daily-20261014-172122.sql.gz.enc
+[backup] ... done (1 dumps kept)
+
+$ head -c 16 <호스트 BACKUP_DIR>/chosung_daily-20261014-172122.sql.gz.enc | xxd
+00000000: 3080 0609 2a86 4886 f70d 0107 03a0 8030   # CMS 봉투(평문·gzip 아님)
+
+$ openssl cms -decrypt -binary -inform DER -inkey <개인키> -in <덤프> | gzip -dc | head -2
+-- MySQL dump 10.13  Distrib 8.4.11, for Linux (aarch64)
+
+$ docker compose -p chosung-daily-t36local exec backup /scripts/rotate-access-log.sh
+[rotate-access-log] ... rotated -> /logs/access.log-20261014.gz (4.0K)
+[rotate-access-log] ... done (1 files kept)
+
+$ ls -l <호스트 LOG_DIR>
+-rw-r--r--@ 1 saem  wheel    0 Oct 14 17:21 access.log            # copytruncate 로 비워짐
+-rw-rw-rw-@ 1 saem  wheel  172 Oct 14 17:21 access.log-20261014.gz
+$ gzip -dc <호스트 LOG_DIR>/access.log-20261014.gz | head -1
+192.168.107.1 [14/Oct/2026:08:21:08 +0000] "GET /healthz" 404 117 "curl/8.7.1" 0.005835
+$ curl -s -o /dev/null http://127.0.0.1:18089/ && cat <호스트 LOG_DIR>/access.log
+192.168.107.1 [14/Oct/2026:08:21:42 +0000] "GET /" 200 8484 "curl/8.7.1" 0.017250   # 회전 뒤에도 같은 파일에 계속 쌓인다
+```
+
+### D-36-3 — 동시 감사 기록이 중복 키 오류로 유실됨 (MAJOR)
+
+**원인.** `append` 가 직전 행을 `SELECT ... FOR UPDATE` 로 잠그는 것만으로는 직렬화가 안
+된다. ① 테이블이 비어 있으면 **잠글 행이 없어서** 모두가 genesis 를 `prev_hash` 로 잡고,
+② 잠금을 기다리던 쪽이 깨어나도 그 사이 커밋된 **새 꼬리**는 이미 지나간 인덱스 스캔에
+안 들어와 낡은 `prev_hash` 로 INSERT 한다. `prev_hash` 유니크가 체인이 갈라지는 것은
+막지만, 응답 훅이 예외를 삼키므로(이미 끝난 요청을 500 으로 되돌리지 않는 설계) **기록
+자체가 사라진다.** 증상(1062)이 아니라 "직렬화가 없다" 가 원인이다.
+
+**수정.** `app/repositories/access_log_repository.py` 의 append 를 **MySQL 네임드 락**
+(`GET_LOCK`)으로 감쌌다 — README "설계 판단 36." 이 원래 설명하던 방식이고, 테이블이 비어
+있어도 걸린다. 락은 **전용 연결**(AUTOCOMMIT)에서 잡고 **커밋한 뒤에** 푼다: 네임드 락은
+트랜잭션이 아니라 연결에 붙어 있어서 기록 세션의 연결로 잡으면 commit 이 그 연결을 풀에
+돌려준 뒤 같은 연결로 풀 수 있다는 보장이 없고, 커밋 전에 풀면 다음 기록이 아직 안 보이는
+꼬리를 읽어 같은 유실이 돌아온다. 이름에 DB 이름을 붙여 같은 MySQL 서버의
+prod/develop/테스트가 서로를 막지 않게 했다(네임드 락은 서버 전역). 못 잡으면
+`AppendLockTimeout` 으로 올려 훅이 Sentry 에 남긴다. 모델의 `prev_hash`/`hash` 유니크는
+그대로 뒀다 — 앱을 거치지 않은 INSERT 까지 DB 가 막는 마지막 선이다. README 의 해당
+문단도 "왜 FOR UPDATE 로는 안 되는지" 까지 적도록 고쳤다.
+
+**증명하는 테스트.** `tests/test_concurrency.py` 에 리뷰의 재현(10 스레드)을 그대로 옮겼다
+— 빈 체인과 기존 체인 두 경우, 실제 테스트 MySQL(`chosung_daily_test_t36`)·실제 스레드·
+세션으로 돈다. 별도 검증 테이블을 만들지 않고 제품 코드 경로를 그대로 쓴다.
+
+- `test_ten_concurrent_access_log_appends_on_an_empty_chain_lose_nothing`
+- `test_ten_concurrent_access_log_appends_on_an_existing_chain_lose_nothing`
+
+```
+$ uv run pytest tests/test_concurrency.py -q -k ten_concurrent     # 수정 전 (red)
+FAILED ...empty_chain_lose_nothing   - AssertionError: ['IntegrityError', ... ] (오류 8건, 2행만 남음)
+FAILED ...existing_chain_lose_nothing - AssertionError: ['IntegrityError', ... ] (오류 8건)
+2 failed, 6 deselected in 1.99s
+```
+
+```
+$ uv run pytest tests/test_concurrency.py -q -k access_log          # 수정 후 (green) × 5회
+3 passed, 5 deselected in 2.34s
+3 passed, 5 deselected in 2.24s
+3 passed, 5 deselected in 4.38s
+3 passed, 5 deselected in 2.78s
+3 passed, 5 deselected in 1.51s
+```
+
+### 변경 파일 (수정 라운드 1)
+
+| 파일 | 왜 |
+|---|---|
+| `docker-compose.prod.yml` | D-36-1 인증서 env 전달, D-36-2 app·backup 의 `LOG_DIR: /logs` |
+| `app/repositories/access_log_repository.py` | D-36-3 네임드 락 직렬화 |
+| `tests/test_compose_config.py` | D-36-1·2 재현 테스트(합친 컨테이너 환경) |
+| `tests/test_concurrency.py` | D-36-3 재현 테스트(10 스레드 × 빈/기존 체인) |
+| `README.md` | 설계 판단 36. — FOR UPDATE 가 왜 모자란지, 전용 연결로 잡는 이유 |
+| `docs/RELEASE.md` | "### 36. (b)" — `LOG_DIR` 호스트/컨테이너 구분, 배포 직후 확인 체크박스 |
+
+`review/impl-review-36.md` 는 건드리지 않았다.
+
+### 전체 재실행 (수정 라운드 1 기준)
+
+전용 자원: `TEST_DATABASE_URL`=`chosung_daily_test_t36`,
+`TEST_MIGRATION_DATABASE_URL`=`chosung_daily_test_t36_migrations`,
+`TEST_REDIS_URL`=Redis DB 10. 공용 테스트 DB 는 건드리지 않았다.
+
+```
+$ uv run pytest -q
+1353 passed in 1250.55s (0:20:50)          # 종료 코드 0 (공용 MySQL 혼잡으로 13분 → 21분)
+
+$ uv run ruff check .
+All checks passed!
+
+$ uv run flask db heads
+b1c7d4e0a932 (head)                        # 1줄·1개 head, 새 마이그레이션 없음
+```
+
+전체 실행 도중 `app/models/access_log.py` 의 **주석 한 문단**을 네임드 락 설명에 맞게
+고쳤다(코드 변경 없음). 그래서 끝난 뒤 영향 범위를 다시 돌렸다.
+
+```
+$ uv run pytest tests/test_access_log.py tests/test_concurrency.py tests/test_compose_config.py -q
+66 passed in 72.19s
+
+$ uv run ruff check .
+All checks passed!
+```
+
+로컬 `main`(`055b56c`) 위로 rebase 했고(이미 그 위라 변화 없음) 작업 트리는 clean 이다.

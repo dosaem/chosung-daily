@@ -695,11 +695,23 @@ openssl cms -decrypt -binary -inform DER -inkey chosung-backup-key.pem \
 - `LOG_DIR` 이 쓰기 불가면 Gunicorn 이 **기동하면서 죽는다**(접속기록이 조용히 빠지는
   쪽보다 배포 시점에 멈추는 쪽을 골랐다). 첫 배포 때 `docker compose logs app` 으로
   확인한다.
+- `.env` 의 `LOG_DIR` 은 **호스트 경로 전용**이다. 컨테이너 안에서 Gunicorn·회전
+  스크립트가 보는 경로는 compose 의 `environment:` 가 `/logs`(마운트 target)로 고정한다
+  — 호스트 경로가 컨테이너까지 흘러가면 Gunicorn 이 WORKDIR(`/srv`) 기준 상대 경로에
+  써서 마운트 밖에 쌓인다.
 
 **사람이 할 일**
 
 - [ ] prod·develop `.env` 에 `LOG_DIR` 을 넣고 그 폴더를 만든다(`ACCESS_LOG_RETENTION_DAYS`
       는 비워 두면 365).
+- [ ] 첫 배포 직후 **호스트 쪽** `LOG_DIR` 에 `access.log` 가 실제로 생겼는지 본다.
+      컨테이너 안에만 있으면 마운트 밖에 쌓이는 것이라 보관·회전이 전부 안 걸린다.
+
+      ```bash
+      docker compose -f docker-compose.prod.yml -p chosung-daily-prod --env-file .env \
+        exec app sh -c 'echo $LOG_DIR; ls -l /logs'   # /logs 와 access.log
+      ls -l "$LOG_DIR"                                 # 호스트에서도 같은 파일이 보인다
+      ```
 - [ ] **매월 1회 점검** — 지난달 보고서를 돌리고 결과(총 건수·거부 건수·체인 검증)를
       운영 기록에 보관한다. 고시 제8조 제2항이 요구하는 "월 1회 이상 점검" 이다.
       거부 건수가 평소와 다르거나 체인이 끊겼으면 원인을 확인한다.

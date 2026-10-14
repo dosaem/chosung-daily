@@ -57,6 +57,11 @@ services:
       FLASK_ENV: production
       DATABASE_URL: mysql+pymysql://chosung:${MYSQL_PASSWORD}@mysql:3306/chosung_daily?charset=utf8mb4
       REDIS_URL: redis://redis:6379/0
+      # env 파일의 LOG_DIR 은 **호스트** 폴더(./logs)라서 그대로 두면 Gunicorn 이
+      # WORKDIR(/srv) 기준의 /srv/logs/access.log 에 쓴다 — 마운트 밖이라 접속기록이
+      # 컨테이너와 함께 사라지고 backup 의 회전·만료 삭제도 안 걸린다. 컨테이너가
+      # 보는 값은 마운트의 컨테이너 쪽 경로로 덮는다(environment 가 env_file 을 이긴다).
+      LOG_DIR: /logs
     # Cloudflare Tunnel이 NAS 안에서 http://127.0.0.1:${APP_PORT}로 붙는다 —
     # LAN/인터넷에 직접 노출할 필요가 없어서 루프백에만 바인딩한다(기존 프로젝트들의
     # 0.0.0.0 공개 바인딩보다 한 단계 더 좁힌 선택, README "배포" 절에 이유 적어둠).
@@ -120,6 +125,12 @@ services:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
       ACCESS_LOG_RETENTION_DAYS: ${ACCESS_LOG_RETENTION_DAYS:-365}
+      # 이 서비스에는 env_file 이 없다(호스트 경로·앱 시크릿이 섞여 들어온다) —
+      # --env-file 에 적어둔 값은 여기 선언한 것만 컨테이너로 간다. 빠지면
+      # backup.sh 가 "평문으로 떨어뜨리느니 실패" 규칙대로 덤프를 아예 안 만든다.
+      BACKUP_ENCRYPTION_CERT_FILE: ${BACKUP_ENCRYPTION_CERT_FILE:-}
+      # 회전 대상은 app 과 같은 컨테이너 쪽 경로다(아래 마운트의 target).
+      LOG_DIR: /logs
     entrypoint: ["/bin/bash", "/scripts/backup-cron.sh"]
     # 덤프는 named volume 이 아니라 호스트(NAS) 폴더에 둔다 — 컨테이너·볼륨이
     # 날아가도 DSM 파일 탐색기로 꺼낼 수 있어야 백업이다. 이 컨테이너는 root 로
