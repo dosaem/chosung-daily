@@ -372,7 +372,29 @@ $ git rebase main
 (이미 main 위에 있다 — 충돌 없음)
 ```
 
-rebase 뒤 `git status` 는 깨끗하고 `git log main..HEAD` 에 이 티켓의 커밋만 있다.
+rebase 는 no-op 이었다(main 이 움직이지 않았다) — 전체 스위트를 돌린 트리가 지금
+트리와 같다. 그 뒤에 더한 건 문서 커밋뿐이라(`spec.md` 한 줄, 이 증거 문서) **문서를
+읽는 테스트만** 다시 돌렸다:
+
+```
+$ uv run pytest tests/test_store_labels.py tests/test_store_metadata.py \
+    tests/test_app_deploy_workflow.py tests/test_legal_checklist.py -q
+304 passed in 150.84s (0:02:30)
+
+$ uv run ruff check .
+All checks passed!
+```
+
+rebase 뒤 `git status` 는 깨끗하고 `git log main..HEAD` 에 이 티켓의 커밋 6개만 있다:
+
+```
+b14a6e1 문서 35: README "설계 판단" 35. · RELEASE 사람 작업 · 구현 증거
+feed263 자산 35: App Store 스크린샷 ko/en (iPhone 6.9"/6.5" · iPad 13")
+7cb128d 수정 35: 스토어 라벨 1:1 대조 — ASC 라벨 2건 추가, Play 데이터 보안 답안
+7f7c54d 티켓 35: 스토어 텍스트·심사 노트·스크린샷·업로드 워크플로
+9a01597 티켓 35: 스토어 스크린샷 장면·드라이버·캡처 스크립트
+36bad91 티켓 35: 앱 아이콘·스플래시를 OVERRIDES §8 라이트 타일 3칸으로
+```
 
 ## 9. 다른 티켓과 공유하는 파일
 
