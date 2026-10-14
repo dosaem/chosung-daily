@@ -1,9 +1,9 @@
 """게임 화면의 UI 문자열 사전(`app/utils/ui_strings.py`).
 
-웹 문구는 전부 이 사전에서 나온다 — 템플릿도 JS 도 하드코딩하지 않는다. JS 테스트
-러너가 없어서(스펙 "미정 항목" 5: Playwright 보류) 사전 자체를 파이썬에서 검증하고,
-템플릿·번들이 참조하는 키가 사전에 다 있는지도 여기서 본다. 번역 누락은 이 사전에서
-생기는 가장 흔한 버그다.
+웹 문구는 전부 이 사전에서 나온다 — 템플릿도 JS 도 하드코딩하지 않는다. 사전 자체를
+파이썬에서 검증하고, 템플릿·번들이 참조하는 키가 사전에 다 있는지도 여기서 본다.
+번역 누락은 이 사전에서 생기는 가장 흔한 버그다. 실제로 그 문구가 화면에 나오는지는
+`tests/test_web_js.py` 가 번들을 돌려서 본다.
 
 언어 판정(`resolve_ui_language`)은 티켓 09 가 만든 공용 유틸이라 `tests/test_ui_language.py`
 가 본다 — 여기선 "사전이 그 유틸이 돌려줄 수 있는 언어를 모두 덮는가"만 확인한다.
@@ -89,3 +89,19 @@ def test_bundle_only_uses_keys_that_exist():
 
     assert used, "번들이 사전을 전혀 안 쓰고 있다"
     assert used <= set(UI_STRINGS["ko"]), used - set(UI_STRINGS["ko"])
+
+
+def test_api_error_codes_map_to_keys_that_exist():
+    """`ERROR_STRING_KEYS` 는 `t(변수)` 로 쓰여서 위 정규식에 안 걸린다 — 따로 본다.
+
+    API 오류 message 는 한국어 한 벌뿐이라(app/errors.py) 번들이 code 로 사전 문구를
+    고른다. 키 이름을 잘못 적으면 그 오류에서만 `undefined` 가 뜬다.
+    """
+    table = re.search(
+        r"const ERROR_STRING_KEYS = \{(.*?)\};", BUNDLE.read_text(encoding="utf-8"), re.S
+    )
+    assert table, "번들에서 ERROR_STRING_KEYS 를 찾지 못했다"
+    mapping = dict(re.findall(r'(\w+): "(\w+)"', table.group(1)))
+
+    assert mapping, "오류 code 매핑이 비어 있다"
+    assert set(mapping.values()) <= set(UI_STRINGS["ko"])

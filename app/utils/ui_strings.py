@@ -57,6 +57,13 @@ UI_STRINGS: dict[str, dict[str, str]] = {
         # 계정 삭제(티켓 14)가 /?deleted=1 로 돌려보낸 뒤, 옛 토큰을 버리고 띄우는 안내.
         "account_deleted": "계정과 기록을 삭제했어요. 새 기록으로 다시 시작합니다.",
         "generic_error": "오류가 발생했어요.",
+        # API 오류 code 별 문구. 서버 응답의 `message` 는 한국어 한 벌뿐이라
+        # (app/errors.py) 영어 UI 에 그대로 쓸 수 없다 — JS 가 code 로 여기서 고른다.
+        "error_guess_length": "정답은 {length}글자예요.",
+        "error_already_finished": "이미 끝난 퍼즐이에요.",
+        "error_rate_limited": "제출이 너무 많아요. 잠시 후 다시 시도해주세요.",
+        "error_no_puzzle_today": "오늘의 퍼즐이 아직 준비되지 않았어요.",
+        "error_unauthorized": "기록을 확인할 수 없어요. 새로고침해주세요.",
         # 결과·공유
         "result_success": '정답은 "{answer}"였어요!',
         "result_fail": '아쉬워요, 정답은 "{answer}"였어요.',
@@ -114,6 +121,11 @@ UI_STRINGS: dict[str, dict[str, str]] = {
         "puzzle_changed": "There's a new puzzle",
         "account_deleted": "Your account and records were deleted. Starting fresh.",
         "generic_error": "Something went wrong.",
+        "error_guess_length": "The answer is {length} letters.",
+        "error_already_finished": "You've already finished this puzzle.",
+        "error_rate_limited": "Too many guesses. Please try again in a moment.",
+        "error_no_puzzle_today": "Today's puzzle isn't ready yet.",
+        "error_unauthorized": "We couldn't check your record. Please reload.",
         "result_success": 'The answer was "{answer}"!',
         "result_fail": 'So close — the answer was "{answer}".',
         "share_open": "Share result",

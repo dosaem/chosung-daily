@@ -1,12 +1,14 @@
 """웹 메인 페이지 렌더 + 번들 계약.
 
-JS 테스트 러너는 안 들인다(스펙 "미정 항목" 5: Playwright 보류). 그래서 서버가
-책임지는 부분(문구 사전, 기기 언어, 섹션 마크업)은 실제 요청으로 검증하고, JS 쪽
-계약은 번들 내용으로 회귀만 막는다 — 손으로 확인할 것은 README "웹 수동 체크리스트".
+브라우저는 안 띄운다(스펙 "미정 항목" 5: Playwright 보류). 그래서 서버가 책임지는
+부분(문구 사전, 기기 언어, 섹션 마크업)은 실제 요청으로 검증하고, JS 쪽 계약은 번들
+내용으로 회귀만 막는다. 번들을 **실행**해서 보는 동작은 `tests/test_web_js.py` 가
+맡는다 — 문자열 어서션만으로는 응답 도착 순서나 오류 문구 같은 실행 결과를 못 잡는다
+(review/impl-review-17.md D-17-1 · D-17-2). 레이아웃과 실제 왕복은 README "웹 수동
+체크리스트".
 
-번들 문자열만 보면 "있는 코드가 맞게 동작하는가"를 못 본다(티켓 14 D-14-1). 그래서
-삭제 신호 처리는 실제 `app.js` 를 Node `vm` 에서 실행해 동작으로 고정한다. 티켓 17
-이 더한 실행 테스트는 `tests/test_web_js.py` 에 있다.
+티켓 14 의 삭제 신호 처리는 그보다 먼저 같은 이유로 실행 테스트를 붙였다(D-14-1) —
+`tests/fixtures/js/deleted_state_harness.mjs` 를 쓰는 아래 절이 그것이다.
 """
 
 import json
@@ -211,9 +213,12 @@ def test_backup_and_restore_panel_is_kept(client):
 
 
 def test_js_sends_puzzle_id_with_a_guess(client):
+    """제출은 "그릴 때 받은" 퍼즐 ID 를 들고 간다 — 응답이 늦게 와도 그 ID 로 판단한다
+    (응답 도착 순서까지 보는 건 tests/test_web_js.py)."""
     bundle = _bundle()
 
-    assert "puzzle_id: state.puzzleId" in bundle
+    assert "const requestedPuzzleId = state.puzzleId;" in bundle
+    assert "puzzle_id: requestedPuzzleId" in bundle
     assert "state.puzzleId = puzzle.puzzle_id" in bundle
 
 

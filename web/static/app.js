@@ -18,6 +18,24 @@ function t(key, vars = {}) {
   return STRINGS[key].replace(/\{(\w+)\}/g, (_, name) => vars[name]);
 }
 
+// API 오류 응답의 `message` 는 한국어 한 벌뿐이다(app/errors.py) — 기기 언어가
+// en 이면 그대로 띄울 수 없다. 그래서 화면 문구는 `code` 로 UI 사전에서 고른다.
+// 사전에 없는 code(INTERNAL_ERROR 등)는 부른 쪽이 준 기본 문구로 눕힌다.
+const ERROR_STRING_KEYS = {
+  // 웹에서 닿는 VALIDATION_ERROR 는 길이 불일치 하나다 — 빈 답은 handleSubmit 이,
+  // 50자 초과는 입력창 maxLength 가 미리 막는다(app/schemas/guess.py).
+  VALIDATION_ERROR: "error_guess_length",
+  ALREADY_FINISHED: "error_already_finished",
+  RATE_LIMITED: "error_rate_limited",
+  NO_PUZZLE_TODAY: "error_no_puzzle_today",
+  UNAUTHORIZED: "error_unauthorized",
+};
+
+function errorText(body, fallbackKey) {
+  const key = ERROR_STRING_KEYS[body.code];
+  return key ? t(key, { length: state.length }) : t(fallbackKey);
+}
+
 const state = {
   token: null,
   today: null,
@@ -109,7 +127,7 @@ async function loadToday() {
   const res = await fetch(`${API_BASE}/puzzles/today`, { headers: authHeaders() });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    showMessage(body.message || t("puzzle_load_failed"));
+    showMessage(errorText(body, "puzzle_load_failed"));
     return null;
   }
   return res.json();
@@ -395,12 +413,20 @@ async function handleSubmit(event) {
 
 async function submitGuess(input, raw) {
   const guess = normalizeGuess(raw);
+  // 응답을 기다리는 동안 보고 있던 퍼즐이 갈릴 수 있다 — 언어 칩은 제출 중에도
+  // 눌리고, 계정·백업 전환이나 409 재조회도 같은 틈을 만든다. 그렇게 폐기한
+  // 퍼즐의 응답을 지금 화면에 반영하면 보드·남은 기회·힌트·완료 표시가 전 퍼즐의
+  // 답으로 오염된다(서버 기록은 멀쩡한데 화면만 틀린다). 그래서 요청을 보낸
+  // 퍼즐 ID 를 들고 있다가, 돌아왔을 때 화면이 그 퍼즐이 아니면 통째로 버린다.
+  const requestedPuzzleId = state.puzzleId;
   const res = await fetch(`${API_BASE}/puzzles/today/guesses`, {
     method: "POST",
     headers: jsonHeaders(),
-    body: JSON.stringify({ puzzle_id: state.puzzleId, guess }),
+    body: JSON.stringify({ puzzle_id: requestedPuzzleId, guess }),
   });
   const data = await res.json();
+
+  if (state.puzzleId !== requestedPuzzleId) return;
 
   if (data.code === "PUZZLE_CHANGED") {
     // 자정이 지났거나 다른 기기에서 언어를 바꿨다. 시도는 소비되지 않았으니
@@ -412,7 +438,7 @@ async function submitGuess(input, raw) {
   }
 
   if (!res.ok) {
-    showMessage(data.message || t("generic_error"));
+    showMessage(errorText(data, "generic_error"));
     return;
   }
 
