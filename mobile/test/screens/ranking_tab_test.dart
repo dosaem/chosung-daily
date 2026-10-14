@@ -234,6 +234,21 @@ void main() {
     expect(find.text('순위를 불러오지 못했어요'), findsOneWidget);
   });
 
+  // 로딩 스켈레톤은 고정 높이 8줄이라, 짧은 가로 화면에서는 Column 이 화면을
+  // 넘었다(D-27-4). 세로 폭이 모자랄 때 레이아웃 예외를 내지 않아야 한다.
+  testWidgets('로딩 스켈레톤은 짧은 가로 화면(844x390)에서도 넘치지 않는다', (tester) async {
+    final api = FakeApiClient();
+    setViewSize(tester, const Size(844, 390));
+    await tester.runAsync(() async {
+      await tester.pumpWidget(_app(api: api));
+    });
+    await tester.pump();
+
+    expect(find.byType(SkeletonBox), findsWidgets);
+    expect(tester.takeException(), isNull);
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('영어 UI 에서도 같은 화면이 뜬다', (tester) async {
     await _pumpRanking(
       tester,

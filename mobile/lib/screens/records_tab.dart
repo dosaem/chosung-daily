@@ -4,9 +4,9 @@ import 'package:chosung/layout/adaptive_sheet.dart';
 import 'package:chosung/layout/app_breakpoint.dart';
 import 'package:chosung/layout/reading_width.dart';
 import 'package:chosung/records/history_controller.dart';
+import 'package:chosung/records/my_stats_controller.dart';
 import 'package:chosung/settings/legal_links.dart';
 import 'package:chosung/settings/puzzle_language_controller.dart';
-import 'package:chosung/startup/startup_controller.dart';
 import 'package:chosung/theme/app_colors.dart';
 import 'package:chosung/widgets/settings_row.dart';
 import 'package:chosung/widgets/seven_day_grid.dart';
@@ -57,6 +57,7 @@ class RecordsTab extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final isExpanded = AppBreakpoint.of(context).isExpanded;
     const left = _RecordsColumn(
+      storageKey: PageStorageKey('records.column.left'),
       children: [
         _StreakCard(),
         SizedBox(height: 24),
@@ -66,6 +67,7 @@ class RecordsTab extends ConsumerWidget {
       ],
     );
     const right = _RecordsColumn(
+      storageKey: PageStorageKey('records.column.right'),
       children: [_SettingsList(), SizedBox(height: 8), _DeleteAccountSlot()],
     );
 
@@ -88,6 +90,7 @@ class RecordsTab extends ConsumerWidget {
           // 폰·medium: 폰 순서 그대로 1열(SCREENS S4·T4).
           : const ReadingWidth(
               child: _RecordsColumn(
+                storageKey: PageStorageKey('records.column.single'),
                 children: [
                   _StreakCard(),
                   SizedBox(height: 24),
@@ -107,13 +110,21 @@ class RecordsTab extends ConsumerWidget {
 
 /// 한 열. 2열일 때 두 열이 따로 스크롤된다 — 설정이 길어져도 기록이 밀려
 /// 올라가지 않는다.
+///
+/// [storageKey] 는 폭이 바뀔 때 읽던 위치를 돌려주는 자리다(SCREENS "태블릿
+/// 레이아웃" — 현재 탭과 스크롤 위치는 유지된다). 1열↔2열은 스크롤 위젯 트리를
+/// 교체하므로, 이 키가 없으면 새 Scrollable 이 0 에서 시작해 화면 맨 위로
+/// 돌아간다. 열마다 키가 다른 이유는 열의 내용이 다르기 때문이다 — 1열의
+/// 위치를 2열 왼쪽에 끼워 넣으면 엉뚱한 곳이 열린다.
 class _RecordsColumn extends StatelessWidget {
-  const _RecordsColumn({required this.children});
+  const _RecordsColumn({required this.storageKey, required this.children});
 
+  final PageStorageKey<String> storageKey;
   final List<Widget> children;
 
   @override
   Widget build(BuildContext context) => SingleChildScrollView(
+    key: storageKey,
     padding: const EdgeInsets.all(16),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -122,13 +133,14 @@ class _RecordsColumn extends StatelessWidget {
   );
 }
 
-/// 현재 · 최고 · 누적 3칸(S4 상단). 값은 시작할 때 읽은 `/me/stats` 다.
+/// 현재 · 최고 · 누적 3칸(S4 상단). 값은 `/me/stats` 고, 플레이 결과가 생기면
+/// 다시 읽은 값이다 — 시작 snapshot 만 읽으면 방금 올린 기록이 안 보인다.
 class _StreakCard extends ConsumerWidget {
   const _StreakCard();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final stats = ref.watch(startupStatsProvider);
+    final stats = ref.watch(myStatsProvider).value;
     if (stats == null) return const SkeletonBox(height: 72);
 
     return Row(

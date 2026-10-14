@@ -368,10 +368,21 @@ class _LoadingSkeleton extends StatelessWidget {
             const SizedBox(height: 12),
             const SkeletonBox(height: 44),
             const SizedBox(height: 16),
-            for (var row = 0; row < 8; row++) ...[
-              const SkeletonBox(height: 40),
-              const SizedBox(height: 6),
-            ],
+            // 목록 자리는 남은 높이만 쓴다 — 로드가 끝난 _Board 와 같은 구조다.
+            // 고정 높이 8줄을 Column 에 그대로 쌓으면 짧은 가로 화면에서 화면
+            // 아래로 넘친다(가로 390dp 에서 106dp 초과). 넘는 줄은 그리지 않고
+            // 자른다 — 기다리는 동안의 자리 표시라 스크롤할 것도 없다.
+            Expanded(
+              child: ListView.builder(
+                padding: EdgeInsets.zero,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: 8,
+                itemBuilder: (context, index) => const Padding(
+                  padding: EdgeInsets.only(bottom: 6),
+                  child: SkeletonBox(height: 40),
+                ),
+              ),
+            ),
           ],
         ),
       ),

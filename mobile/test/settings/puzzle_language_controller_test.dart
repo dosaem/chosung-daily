@@ -96,6 +96,29 @@ void main() {
     expect(setting.changing, isFalse);
   });
 
+  // 리뷰(D-27 라운드 1)가 "늦은 응답을 버린다" 는 주장의 직접 사례가 없다고
+  // 지적한 자리다 — 떠난 쓰기와 다시 빌드된 정본을 역순으로 도착시켜 본다.
+  test('다시 빌드된 뒤 도착한 늦은 응답은 새 정본을 덮지 않는다', () async {
+    final gate = Completer<void>();
+    final api = FakeApiClient()..updatePuzzleLanguageGate = gate;
+    final container = _container(api);
+
+    final pending = container
+        .read(puzzleLanguageProvider.notifier)
+        .change(PuzzleLanguage.en);
+    expect(container.read(puzzleLanguageProvider).changing, isTrue);
+
+    // 그 사이 /me/stats 가 다시 읽히면(시작 재시도) 서버 값이 다시 정본이 된다.
+    container.invalidate(puzzleLanguageProvider);
+    expect(container.read(puzzleLanguageProvider).language, PuzzleLanguage.ko);
+    expect(container.read(puzzleLanguageProvider).changing, isFalse);
+
+    // 이제야 도착한 en 응답은 버려진다.
+    gate.complete();
+    expect(await pending, isFalse);
+    expect(container.read(puzzleLanguageProvider).language, PuzzleLanguage.ko);
+  });
+
   test('바꾸는 중에는 다음 요청을 받지 않는다 — 서버 쓰기를 직렬화한다', () async {
     final gate = Completer<void>();
     final api = FakeApiClient()..updatePuzzleLanguageGate = gate;

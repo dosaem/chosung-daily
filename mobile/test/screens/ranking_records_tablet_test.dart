@@ -232,6 +232,36 @@ void main() {
       );
     });
 
+    // 폭이 바뀌면 1열↔2열로 스크롤 위젯 트리가 교체된다. 그때 읽던 위치를
+    // 잃으면 화면 맨 위로 돌아간다(D-27-3) — SCREENS "태블릿 레이아웃" 공통
+    // 규칙은 현재 탭과 스크롤 위치를 유지하라고 한다.
+    testWidgets('390 → 1024 → 390 왕복에도 읽던 스크롤 위치가 남는다', (tester) async {
+      await _pump(
+        tester,
+        api: FakeApiClient(),
+        tab: const RecordsTab(),
+        size: const Size(390, 844),
+      );
+
+      final column = find.descendant(
+        of: find.byType(RecordsTab),
+        matching: find.byType(Scrollable),
+      );
+      double offset() => tester.state<ScrollableState>(column).position.pixels;
+
+      await tester.drag(column, const Offset(0, -184));
+      await tester.pumpAndSettle();
+      final scrolled = offset();
+      expect(scrolled, greaterThan(0));
+
+      setViewSize(tester, const Size(1024, 768));
+      await tester.pumpAndSettle();
+      setViewSize(tester, const Size(390, 844));
+      await tester.pumpAndSettle();
+
+      expect(offset(), scrolled);
+    });
+
     testWidgets('1024 → 390 으로 좁아져도 같은 자리들이 남는다', (tester) async {
       await _pump(
         tester,
