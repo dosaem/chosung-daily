@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Sign in with Apple(티켓 29, 스펙 §A.6). 이 권한이 없으면
+	     sign_in_with_apple 이 1000 오류로 떨어진다. Apple Developer 의
+	     App ID 에서도 같은 capability 를 켜야 프로비저닝이 맞는다. -->
+	<key>com.apple.developer.applesignin</key>
+	<array>
+		<string>Default</string>
+	</array>
+</dict>
+</plist>

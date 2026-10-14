@@ -31,6 +31,25 @@
 		<string>????</string>
 		<key>CFBundleVersion</key>
 		<string>$(FLUTTER_BUILD_NUMBER)</string>
+		<!-- 구글 로그인(티켓 29). iOS 는 서버 aud 가 iOS 클라이언트 ID 라
+		     serverClientId 를 쓰지 않고 여기 값을 쓴다(스펙 §A.6 표).
+		     값은 ios/Flutter/Secrets.xcconfig 가 넣는다 — 콘솔 등록 전에는
+		     비어 있고, 그러면 연결 버튼이 "로그인하지 못했어요" 로 떨어진다. -->
+		<key>GIDClientID</key>
+		<string>$(GOOGLE_IOS_CLIENT_ID)</string>
+		<key>CFBundleURLTypes</key>
+		<array>
+			<dict>
+				<key>CFBundleTypeRole</key>
+				<string>Editor</string>
+				<!-- 역방향 클라이언트 ID(com.googleusercontent.apps.…) — 구글이
+				     로그인 뒤 앱으로 돌아올 때 쓰는 스킴이다. -->
+				<key>CFBundleURLSchemes</key>
+				<array>
+					<string>$(GOOGLE_IOS_URL_SCHEME)</string>
+				</array>
+			</dict>
+		</array>
 		<key>LSRequiresIPhoneOS</key>
 		<true/>
 		<key>UILaunchStoryboardName</key>
