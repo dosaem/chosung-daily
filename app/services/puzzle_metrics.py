@@ -69,6 +69,15 @@ def record_leaderboard(
     )
 
 
+def remove_from_leaderboard(puzzle_date: date, language: PuzzleLanguage, guest_id: int) -> None:
+    """리더보드에서 한 게스트를 뺀다. 계정 삭제가 쓴다(스펙 §A.7).
+
+    없는 멤버를 지워도 Redis 는 0 을 돌려주고 끝이라, 그 게스트가 오늘 풀었는지
+    먼저 묻지 않는다 — 왕복 한 번으로 끝낸다.
+    """
+    safe_redis_call("zrem", _leaderboard_key(puzzle_date, language), str(guest_id))
+
+
 def get_today_stats(puzzle_date: date, language: PuzzleLanguage) -> TodayStatsResponse:
     counts = safe_redis_call("hgetall", stats_key(puzzle_date, language)) or {}
 

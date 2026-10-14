@@ -32,6 +32,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 PREVIOUS_REVISION = "9ec267465b4e"  # 퍼즐 언어 직전 리비전
 APP_SETTING_PARENT_REVISION = "f394da7f4d88"  # 설정 테이블 직전 리비전
 HINT_UNLOCK_PARENT_REVISION = "a5bab2f58a7b"  # 힌트 미리 보기 테이블 직전 리비전
+REVOCATION_RETRY_PARENT_REVISION = "dae1b5af0cf7"  # 애플 철회 재시도 테이블 직전 리비전
 
 PUZZLE_DATE = date(2026, 10, 13)
 KO_ANSWER = "해리 포터"
@@ -334,3 +335,52 @@ def test_hint_unlock_rows_are_one_per_guest_and_puzzle(migration_engine):
 
     with migration_engine.connect() as conn:
         assert conn.execute(text("SELECT COUNT(*) FROM hint_unlock")).scalar() == 1
+
+
+def test_apple_revocation_retry_table_round_trips(migration_engine):
+    """14: 애플 철회 재시도 테이블이 upgrade 로 생기고 downgrade 로 사라져야 한다."""
+    _run_flask_db(_migration_database_url(), "upgrade")
+    assert "apple_revocation_retry" in _table_names(migration_engine)
+
+    _run_flask_db(_migration_database_url(), "downgrade", REVOCATION_RETRY_PARENT_REVISION)
+    assert "apple_revocation_retry" not in _table_names(migration_engine)
+
+    _run_flask_db(_migration_database_url(), "upgrade")
+    assert "apple_revocation_retry" in _table_names(migration_engine)
+
+
+def test_apple_revocation_retry_rows_outlive_the_deleted_guest(migration_engine):
+    """이 테이블엔 게스트 외래 키가 없어야 한다 — 행이 생기는 시점에 게스트는
+    이미 지워져 있다. 마이그레이션이 만든 스키마만으로 넣고 읽을 수 있어야 한다."""
+    _run_flask_db(_migration_database_url(), "upgrade")
+
+    with migration_engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO apple_revocation_retry "
+                "(refresh_token_enc, client_id, created_at) "
+                "VALUES ('gAAAAA-ciphertext', 'com.example.test.app', NOW())"
+            )
+        )
+
+    with migration_engine.connect() as conn:
+        row = conn.execute(
+            text("SELECT refresh_token_enc, client_id FROM apple_revocation_retry")
+        ).mappings().one()
+        foreign_keys = {
+            r[0]
+            for r in conn.execute(
+                text(
+                    "SELECT constraint_name FROM information_schema.table_constraints "
+                    "WHERE table_schema = DATABASE() "
+                    "AND table_name = 'apple_revocation_retry' "
+                    "AND constraint_type = 'FOREIGN KEY'"
+                )
+            ).all()
+        }
+
+    assert dict(row) == {
+        "refresh_token_enc": "gAAAAA-ciphertext",
+        "client_id": "com.example.test.app",
+    }
+    assert foreign_keys == set()
