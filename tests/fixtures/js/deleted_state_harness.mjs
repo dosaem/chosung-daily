@@ -144,7 +144,11 @@ runInContext(source, context, { filename: "app.js" });
 // init() 의 앞머리와 같은 순서: 삭제 신호 처리 → 토큰 확보.
 await context.discardDeletedAccountState();
 const tokenAfterDiscard = localStorage.getItem(TOKEN_KEY);
-const issuedToken = await context.ensureToken();
+// 수정 라운드 1 부터 `ensureToken()` 은 토큰을 돌려주지 않고 성공 여부만 돌려준다
+// — 발급 실패를 예외가 아니라 화면 상태로 눕히려고 바꿨다(D-18-1). 발급된 토큰은
+// `state.token` 에 있다.
+const issued = await context.ensureToken();
+const issuedToken = issued ? runInContext("state.token", context) : null;
 
 process.stdout.write(
   JSON.stringify({

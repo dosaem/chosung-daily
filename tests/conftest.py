@@ -30,6 +30,11 @@ def app():
         yield app
         db.session.remove()
         db.drop_all()
+        # 이 픽스처는 테스트마다 새 앱 = 새 엔진 = 새 커넥션 풀을 만든다. 풀을 안
+        # 닫으면 쓰고 버린 연결이 스위트가 끝날 때까지 MySQL 에 Sleep 으로 쌓여서
+        # (실측 43개 테스트에 28개), 공용 MySQL 의 max_connections(151) 를 두고
+        # 병렬로 도는 다른 워커의 테스트를 굶긴다. 앱을 버릴 때 풀도 같이 버린다.
+        db.engine.dispose()
 
 
 @pytest.fixture

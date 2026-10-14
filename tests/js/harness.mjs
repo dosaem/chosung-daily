@@ -15,6 +15,8 @@ import vm from "node:vm";
 const BUNDLE = new URL("../../web/static/app.js", import.meta.url);
 
 // HTML 에서 class="hidden" 으로 시작하는 것들(web/templates/index.html).
+// 티켓 18 이 퍼즐 영역·제출 폼·상태 카드·오프라인 배너를 여기 추가했다 — 처음
+// 보이는 건 스켈레톤 하나뿐이다.
 const INITIALLY_HIDDEN = [
   "result",
   "linked-account",
@@ -22,7 +24,15 @@ const INITIALLY_HIDDEN = [
   "restore-panel",
   "share-copied",
   "copy-token-done",
+  "puzzle",
+  "guess-form",
+  "puzzle-state",
+  "puzzle-state-countdown",
+  "offline-banner",
 ];
+
+// 상단 섹션 토글(오늘 · 순위 · 내 기록). 링크와 패널이 `data-section*` 로 짝을 맞춘다.
+const SECTIONS = ["today", "leaderboard", "records"];
 
 function makeElement(tagName = "div") {
   const classes = new Set();
@@ -32,6 +42,7 @@ function makeElement(tagName = "div") {
     textContent: "",
     value: "",
     maxLength: null,
+    disabled: false,
     children: [],
     dataset: {},
     attributes: {},
@@ -99,6 +110,18 @@ export function loadApp({ strings, lang = "ko" }) {
     chip.dataset.puzzleLanguage = language;
     return chip;
   });
+  const sectionLinks = SECTIONS.map((name) => {
+    const link = makeElement("button");
+    link.dataset.section = name;
+    link.setAttribute("aria-pressed", String(name === "today"));
+    return link;
+  });
+  const sectionPanels = SECTIONS.map((name) => {
+    const panel = makeElement("section");
+    panel.dataset.sectionPanel = name;
+    if (name !== "today") panel.classList.add("hidden");
+    return panel;
+  });
 
   const document = {
     documentElement: { lang },
@@ -108,7 +131,13 @@ export function loadApp({ strings, lang = "ko" }) {
     },
     createElement: (tagName) => makeElement(tagName),
     querySelectorAll(selector) {
-      return selector === "[data-puzzle-language]" ? chips : [];
+      return (
+        {
+          "[data-puzzle-language]": chips,
+          "[data-section]": sectionLinks,
+          "[data-section-panel]": sectionPanels,
+        }[selector] ?? []
+      );
     },
     querySelector(selector) {
       return this.querySelectorAll(selector)[0] ?? null;
@@ -118,15 +147,30 @@ export function loadApp({ strings, lang = "ko" }) {
   for (const id of INITIALLY_HIDDEN) document.getElementById(id).classList.add("hidden");
   document.getElementById("ui-strings").textContent = JSON.stringify(strings);
 
+  // `online`/`offline` 은 window 이벤트다 — 대역은 핸들러를 받아 두고 시나리오가
+  // 직접 부른다(브라우저 없이 연결 상태를 흉내낼 방법이 없다).
+  const windowListeners = {};
+  const windowStub = {
+    addEventListener(type, handler) {
+      (windowListeners[type] ??= []).push(handler);
+    },
+  };
+
   const context = vm.createContext({
     document,
     console,
     localStorage: makeStorage(),
-    navigator: { clipboard: { writeText: async () => {} } },
+    navigator: { onLine: true, clipboard: { writeText: async () => {} } },
     location: { search: "", pathname: "/", href: "/", reload: () => {} },
     history: { replaceState: () => {} },
+    window: windowStub,
     setTimeout,
     clearTimeout,
+    // 카운트다운 타이머는 `unref()` 로 둔다 — 안 그러면 "퍼즐 없음" 상태로 끝난
+    // 시나리오에서 node 가 1초 타이머를 붙들고 종료하지 않는다(테스트가 타임아웃).
+    // 똑딱이는 동작 자체는 `renderCountdown()` 을 직접 불러서 본다.
+    setInterval: (handler, ms) => setInterval(handler, ms).unref(),
+    clearInterval,
     URLSearchParams,
     fetch: async () => {
       throw new Error("대역이 예상하지 못한 fetch 호출");
@@ -143,6 +187,13 @@ export function loadApp({ strings, lang = "ko" }) {
     context,
     document,
     chips,
+    sectionLinks,
+    sectionPanels,
+    /** 브라우저가 보냈을 `online`/`offline` 이벤트를 흘려 넣는다. */
+    async emitWindow(type) {
+      context.navigator.onLine = type === "online";
+      for (const handler of windowListeners[type] ?? []) await handler();
+    },
     /** 샌드박스 안에서 표현식을 평가한다. */
     run: (expression) => vm.runInContext(expression, context),
     /** 다음 fetch 응답을 정한다. */

@@ -254,7 +254,7 @@ results.late_today_stats_body = await switchWhileBodyPending({
 
   await app.run("reloadPuzzle()");
 
-  results.unparsable_body = { message: app.el("message").textContent };
+  results.unparsable_body = { message: app.el("puzzle-state-text").textContent };
 }
 
 console.log(JSON.stringify(results));

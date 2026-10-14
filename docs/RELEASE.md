@@ -730,3 +730,20 @@ openssl cms -decrypt -binary -inform DER -inkey chosung-backup-key.pem \
       2025-10 개정에서 접속기록 조항이 유예 대상으로 들어가 조 번호가 바뀔 수 있다 —
       출시 전에 국가법령정보센터 현행 고시로 §8 번호를 확인하고, 바뀌었으면 방침·
       `docs/legal-checklist.md`·README 의 인용을 갱신한다(보관 기간 1년/2년은 같다).
+### 18. 웹 메인 페이지 — 출시 전 사람이 채울 값
+
+메인 페이지의 앱 설치 CTA(App Store / Google Play 배지)와 iOS Smart App Banner 는
+**설정값이 비어 있으면 아예 렌더되지 않는다**(`app/web.py` 의 `index`, `web/templates/index.html`).
+스토어에 앱을 올린 뒤 `.env` 에 채운다 — 코드 변경은 필요 없다.
+
+- [ ] `STORE_URL_IOS` — App Store 제품 페이지 URL. 비면 iOS 배지 없음.
+- [ ] `STORE_URL_ANDROID` — Play 스토어 제품 페이지 URL. 비면 Android 배지 없음.
+- [ ] `APP_STORE_ID` — App Store 숫자 ID. 비면 `<meta name="apple-itunes-app">` 를
+      내보내지 않는다(빈 `app-id=` 를 내면 Safari 가 "앱 없음" 배너를 그린다).
+- [ ] **공식 배지 아트워크로 교체.** 지금 배지는 스토어 이름을 적은 텍스트 버튼이다 —
+      Apple/Google 의 배지 이미지는 각 사의 마케팅 가이드라인(크기·여백·언어별 파일)에
+      묶여 있어서 레포에 임의로 그려 넣지 않았다. 출시 때 공식 배지를 받아
+      `web/static/` 에 두고 `.store-badge` 안의 텍스트를 `<img>` 로 바꾼다.
+      교체해도 "설정값이 비면 안 그린다" 규칙은 그대로 둔다.
+- [ ] 공유 텍스트의 링크(`https://chosung.dosaem.com/?utm_source=share`,
+      `web/static/app.js` 의 `SHARE_URL`)가 실제 운영 도메인과 같은지 확인한다.

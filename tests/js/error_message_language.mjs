@@ -50,7 +50,9 @@ for (const [name, [status, body]] of Object.entries(GUESS_ERRORS)) {
   results[`guess_${name}`] = app.el("message").text;
 }
 
-// 퍼즐이 없는 날의 today 조회도 같은 우선순위 문제를 갖는다.
+// 퍼즐이 없는 날의 today 조회도 같은 우선순위 문제를 갖는다. 티켓 18 부터 이 안내는
+// `#message` 가 아니라 인라인 상태 카드(`#puzzle-state-text`)에 뜬다 — 카운트다운과
+// 재시도 버튼이 같은 카드에 있어야 해서다(OVERRIDES §7).
 {
   const app = loadApp({ strings, lang });
   app.run("state.token = 'test-token'");
@@ -61,7 +63,7 @@ for (const [name, [status, body]] of Object.entries(GUESS_ERRORS)) {
     })
   );
   await app.run("loadToday()");
-  results.today_no_puzzle = app.el("message").text;
+  results.today_no_puzzle = app.el("puzzle-state-text").text;
 }
 
 console.log(JSON.stringify(results));
