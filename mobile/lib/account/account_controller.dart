@@ -57,11 +57,18 @@ class AccountState {
 class AccountNotifier extends Notifier<AccountState> {
   ApiClient get _api => ref.read(apiClientProvider);
 
-  /// 서버 삭제가 이미 끝났는가. `DELETE /me` 는 **두 번 부를 수 없다** —
-  /// 두 번째는 지워진 게스트 인증이라 401 이고(`app/api/me.py` `delete_me`),
-  /// 그 401 이 사용자에게는 "삭제 실패" 로 보인다. 뒷단계(게스트 발급)가
-  /// 실패했을 때 재시도가 거기서부터 이어지게 하려고 기억해 둔다.
-  bool _serverDeleted = false;
+  /// 서버 삭제가 끝난 **토큰**. `DELETE /me` 는 그 계정에 두 번 부를 수
+  /// 없다 — 두 번째는 지워진 게스트 인증이라 401 이고(`app/api/me.py`
+  /// `delete_me`), 그 401 이 사용자에게는 "삭제 실패" 로 보인다. 뒷단계(게스트
+  /// 발급)가 실패했을 때 재시도가 거기서부터 이어지게 하려고 기억해 둔다.
+  ///
+  /// "삭제했다" 가 아니라 **어느 계정을** 삭제했는지를 들고 있는 이유: 그냥
+  /// 참/거짓이면 발급 실패 뒤 다른 계정으로 전환했을 때 그 참이 남아 새 계정의
+  /// `DELETE /me` 를 건너뛴다 — 서버에 계정이 그대로 남은 채로 "삭제했어요" 가
+  /// 뜬다(D-29-4). 토큰을 바꾸는 길은 [_adopt] 말고도 있어서(시작 흐름의 401
+  /// 복구, `StartupNotifier._fetchStats`) 플래그를 내리는 자리를 외우는 대신
+  /// 지금 토큰과 맞춰 본다.
+  String? _deletedToken;
 
   @override
   AccountState build() => const AccountState();
@@ -107,9 +114,12 @@ class AccountNotifier extends Notifier<AccountState> {
   /// 기기 단위 플래그는 남긴다([LocalFlag.perAccount]).
   Future<void> deleteAccount() async {
     await _run(AccountAction.delete, () async {
-      if (!_serverDeleted) {
+      // 복원이 아직 안 끝났을 수 있다 — 지금 토큰을 모르면 삭제가 끝난 계정이
+      // 지금 계정인지 알 수 없다(`link` 과 같은 이유로 기다렸다 읽는다).
+      final current = await ref.read(guestTokenProvider.future);
+      if (current == null || current != _deletedToken) {
         await _api.deleteAccount();
-        _serverDeleted = true;
+        _deletedToken = current;
         // 서버에서 사라진 계정의 로컬 흔적은 발급을 기다리지 않고 지금
         // 버린다 — 발급이 실패해 멈춰도 지워진 계정의 이름·기록이 화면에
         // 남아 있으면 안 된다.
@@ -124,7 +134,6 @@ class AccountNotifier extends Notifier<AccountState> {
       final token = await _api.createGuest(
         puzzleLanguage: ref.read(devicePuzzleLanguageProvider),
       );
-      _serverDeleted = false;
       await _adopt(token);
       return const AccountState();
     });

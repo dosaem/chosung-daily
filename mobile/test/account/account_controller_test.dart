@@ -4,6 +4,7 @@ import 'package:chosung/api/api_exception.dart';
 import 'package:chosung/api/api_models.dart';
 import 'package:chosung/api/api_providers.dart';
 import 'package:chosung/config/provider_retry.dart';
+import 'package:chosung/guest/guest_token_provider.dart';
 import 'package:chosung/guest/guest_token_store.dart';
 import 'package:chosung/local/local_flags.dart';
 import 'package:chosung/puzzle/today_puzzle_controller.dart';
@@ -442,6 +443,84 @@ void main() {
 
       expect(api.deleteAccountCalls, 1);
       expect(api.createGuestCalls, 2);
+      expect(world.store.token, 'fresh-guest');
+      expect(world.container.read(accountProvider).error, isNull);
+    });
+
+    test('삭제 복구 중 다른 계정으로 전환하면 그 계정도 서버에서 지운다', () async {
+      // D-29-4 재현: A 의 `DELETE /me` 는 성공했고 `POST /guests` 만 실패했다.
+      // 그 뒤 백업 코드로 B 로 전환하면 삭제가 끝난 계정은 더 이상 **지금
+      // 계정이 아니다** — 두 번째 삭제는 B 의 `DELETE /me` 를 보내야 한다.
+      // 건너뛰면 서버의 B 계정이 남은 채로 "삭제했어요" 가 뜬다.
+      final api = FakeApiClient(nextGuestToken: 'fresh-guest')
+        ..statsByToken['b-backup-code'] = fakeMyStats(
+          currentStreak: 7,
+          linkedAccount: const LinkedAccount(
+            provider: 'google',
+            email: 'b@gmail.com',
+          ),
+        )
+        ..createGuestError = const NetworkApiException(
+          code: networkErrorCode,
+          message: 'offline',
+        );
+      final world = _container(
+        api,
+        signIn: _signInReturning(null),
+        startup: fakeMyStats(
+          linkedAccount: const LinkedAccount(
+            provider: 'apple',
+            email: 'a@icloud.com',
+          ),
+        ),
+      );
+
+      final notifier = world.container.read(accountProvider.notifier);
+      await notifier.deleteAccount();
+      expect(api.deleteAccountCalls, 1);
+
+      // 네트워크가 돌아왔고, 사용자는 발급 재시도 대신 B 의 기록을 불러온다.
+      api.createGuestError = null;
+      await notifier.restoreWithBackupCode('b-backup-code');
+      expect(world.store.token, 'b-backup-code');
+      expect(
+        world.container.read(myStatsProvider).value?.linkedAccount?.email,
+        'b@gmail.com',
+      );
+
+      await notifier.deleteAccount();
+
+      expect(api.deleteAccountCalls, 2);
+      expect(api.createGuestCalls, 2);
+      expect(world.store.token, 'fresh-guest');
+      expect(world.container.read(accountProvider).error, isNull);
+    });
+
+    test('삭제 복구 중 시작 흐름이 토큰을 바꿔도 새 계정을 서버에서 지운다', () async {
+      // D-29-4 와 같은 원인의 다른 길: 토큰을 바꾸는 자리는 `_adopt` 만이
+      // 아니다 — 시작 흐름은 401 을 만나면 토큰을 버리고 새 게스트를 발급한다
+      // (`StartupNotifier._fetchStats`). 삭제가 끝났다는 기억이 그 새 토큰까지
+      // 따라오면 새 계정의 `DELETE /me` 를 건너뛴다.
+      final api = FakeApiClient(nextGuestToken: 'fresh-guest')
+        ..createGuestError = const NetworkApiException(
+          code: networkErrorCode,
+          message: 'offline',
+        );
+      final world = _container(api, signIn: _signInReturning(null));
+
+      final notifier = world.container.read(accountProvider.notifier);
+      await notifier.deleteAccount();
+      expect(api.deleteAccountCalls, 1);
+
+      // 시작 흐름의 401 복구와 같은 동작.
+      api.createGuestError = null;
+      await world.container
+          .read(guestTokenProvider.notifier)
+          .replaceWith('recovered-guest');
+
+      await notifier.deleteAccount();
+
+      expect(api.deleteAccountCalls, 2);
       expect(world.store.token, 'fresh-guest');
       expect(world.container.read(accountProvider).error, isNull);
     });

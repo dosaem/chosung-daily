@@ -482,6 +482,56 @@ void main() {
       expect(await world.flags.isSet(LocalFlag.linkAccountNoticeSeen), isFalse);
       expect(find.text('계정을 삭제하고 새로 시작했어요'), findsOneWidget);
     });
+
+    testWidgets('발급 실패 뒤 다른 계정을 불러오면 그 계정을 지운다', (tester) async {
+      // D-29-4 를 화면에서 본다: A 삭제 성공 → 발급 실패 → 백업 코드로 B 전환
+      // → 다시 삭제. 마지막 삭제가 B 의 `DELETE /me` 를 생략하면 서버에 B 가
+      // 남은 채로 "삭제하고 새로 시작했어요" 가 뜬다 — 사용자의 삭제 요구가
+      // 이행되지 않는다.
+      final api = FakeApiClient(nextGuestToken: 'fresh-guest')
+        ..statsByToken['b-backup-code'] = fakeMyStats(
+          currentStreak: 7,
+          linkedAccount: const LinkedAccount(
+            provider: 'google',
+            email: 'b@gmail.com',
+          ),
+        )
+        ..createGuestError = const NetworkApiException(
+          code: networkErrorCode,
+          message: 'offline',
+        );
+      final world = await _pump(
+        tester,
+        client: api,
+        startup: fakeMyStats(
+          linkedAccount: const LinkedAccount(
+            provider: 'apple',
+            email: 'a@icloud.com',
+          ),
+        ),
+      );
+
+      await _tap(tester, find.byKey(RecordsSlot.deleteAccount));
+      await _tap(tester, find.byKey(deleteAccountConfirmKey));
+      expect(api.deleteAccountCalls, 1);
+      expect(find.text('네트워크에 연결할 수 없어요'), findsOneWidget);
+
+      api.createGuestError = null;
+      await _tap(tester, find.text('다른 기기 기록 불러오기'));
+      await tester.enterText(find.byKey(backupCodeFieldKey), 'b-backup-code');
+      await tester.pumpAndSettle();
+      await _tap(tester, find.byKey(backupCodeSubmitKey));
+
+      expect(world.store.token, 'b-backup-code');
+      expect(find.text('Google · b***@gmail.com 연결됨'), findsOneWidget);
+
+      await _tap(tester, find.byKey(RecordsSlot.deleteAccount));
+      await _tap(tester, find.byKey(deleteAccountConfirmKey));
+
+      expect(find.text('계정을 삭제하고 새로 시작했어요'), findsOneWidget);
+      expect(api.deleteAccountCalls, 2);
+      expect(world.store.token, 'fresh-guest');
+    });
   });
 
   group('태블릿(T2)', () {
