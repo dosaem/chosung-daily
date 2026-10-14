@@ -459,16 +459,59 @@ def test_store_rows_separate_sign_in_from_subscription_verification(client, lang
         assert phrase.lower() in row, f"{prefix} {lang} 행에 없는 문구: {phrase}"
 
 
+def _refusal_text(client, lang: str, prefix: str) -> str:
+    """받는 자 행에서 "거부 방법·효과" 칸만 떼어낸다."""
+    row = _store_row(client, lang, prefix)
+    return row[row.index("거부 방법" if lang == "ko" else "How to refuse") :]
+
+
 @pytest.mark.parametrize("prefix", STORE_ROW_PREFIXES)
 @pytest.mark.parametrize("lang", ["ko", "en"])
 def test_store_rows_do_not_claim_unlinking_stops_every_transfer(client, lang, prefix):
     """거부 수단을 범위 없이 단정하는 옛 문구가 돌아오는 것을 막는다."""
-    row = _store_row(client, lang, prefix)
-    refusal = row[row.index("거부 방법" if lang == "ko" else "How to refuse") :]
+    refusal = _refusal_text(client, lang, prefix)
 
     # 거부 효과를 적은 문장이 "로그인" / "sign-in" 범위를 먼저 밝혀야 한다.
     scope = "로그인" if lang == "ko" else "Sign-in"
     no_transfer = "이전이 없" if lang == "ko" else "there is no transfer"
     assert refusal.index(scope) < refusal.index(no_transfer), (
         f"{prefix} {lang}: 범위를 밝히지 않은 '이전이 없다' 단정"
+    )
+
+
+# 애플 행만의 사실: 연결 철회는 이전을 멈추는 수단이 아니라 그 자체가 이전이다.
+# `account_deletion_service.delete_guest_account` 가 계정 행을 지운 **뒤** 보관한
+# refresh token 을 애플로 보내고, 그 호출이 실패하면 계정이 없는 상태로 토큰만
+# `AppleRevocationRetry` 에 남아 `apple_revocation_service.retry_pending_revocations`
+# 가 최대 7일 동안 다시 보낸다. 방침이 이 세 경우를 갈라 적어야 한다.
+APPLE_REVOCATION_PHRASES = {
+    "ko": ["연결 철회", "연결한 계정을 삭제하면", "철회를 위해 Apple 로 전송", "7일"],
+    "en": [
+        "Revocation",
+        "delete an account you linked",
+        "send the Apple refresh token",
+        "7 days",
+    ],
+}
+
+
+@pytest.mark.parametrize("lang", ["ko", "en"])
+def test_apple_row_discloses_revocation_as_a_transfer(client, lang):
+    """철회가 그 자체로 이전이고 실패 시 7일 재전송이 있음을 적어야 한다."""
+    refusal = _refusal_text(client, lang, "Apple (")
+
+    for phrase in APPLE_REVOCATION_PHRASES[lang]:
+        assert phrase in refusal, f"애플 {lang} 거부 방법에 없는 문구: {phrase}"
+
+
+@pytest.mark.parametrize("lang", ["ko", "en"])
+def test_apple_row_does_not_fold_revocation_into_the_no_transfer_scope(client, lang):
+    """"연결을 철회하면 이전이 없다" 는 옛 범위가 돌아오는 것을 막는다."""
+    refusal = _refusal_text(client, lang, "Apple (")
+    no_transfer = "이전이 없" if lang == "ko" else "there is no transfer"
+    scope = refusal[: refusal.index(no_transfer)].lower()
+
+    revocation = "철회" if lang == "ko" else "revocation"
+    assert revocation not in scope, (
+        f"애플 {lang}: 연결 철회를 '이전이 없다' 범위에 넣었다 — 철회는 토큰을 애플로 보낸다"
     )
