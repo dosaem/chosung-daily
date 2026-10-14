@@ -312,6 +312,19 @@ chosung.dosaem.com 은 "하루 한 문제 초성 맞추기"가 돌아가는 Flas
 품질이 나쁘면 Open Library 로 바꾸는 선택지는 그대로 열려 있다(래퍼가 함수 하나라
 교체 지점이 한 곳이다).
 
+- (티켓 26 반영) 미정 20 확정: 분석 이벤트 4개의 이름·파라미터는
+**`puzzle_complete(language, success, attempts)` · `share` · `paywall_view` ·
+`subscribe_start`** 다. `language` 는 퍼즐 언어 wire 값(`ko`/`en`),
+`attempts` 는 쓴 시도 수(서버 `attempts_left` 로 계산), **`success` 는 bool 이
+아니라 `1`/`0`** — Firebase Analytics 는 파라미터 값으로 String·num 만 받는다
+(`logEvent` 가 assert 로 막는다). `puzzle_complete`·`share` 는 티켓 26(결과
+시트)이, `paywall_view`·`subscribe_start` 는 티켓 32 가 발화한다.
+`puzzle_complete` 는 **제출로 퍼즐이 끝난 순간 한 번**만 찍는다(결과 시트를 다시
+열거나 다른 기기에서 끝낸 퍼즐을 열 때는 안 찍는다). 이름 표는
+`mobile/lib/analytics/analytics_event.dart` 한 곳이고 순수 함수 테스트
+(`test/analytics/analytics_event_test.dart`)가 고정한다. 근거는 README "26.".
+
+
 ## Further Notes
 
 - 운영자 계정은 정확히 두 개: `dosaem90@gmail.com`, `hsseo@dosaem.com`.
