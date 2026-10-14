@@ -62,7 +62,7 @@
 | 에러 코드→도메인 예외 매핑 골격 | `lib/api/api_exception.dart`(sealed + 코드표 + status 폴백), `test/api/dio_api_client_test.dart` "에러 매핑" 5개(401/400/5xx/연결실패/JSON 아닌 본문) |
 | 토큰 secure storage 보관, 없으면 `POST /guests {puzzle_language}`(기기 언어 en → en) | `lib/guest/guest_token_store.dart`(Keychain/Android), `test/startup/startup_controller_test.dart` "저장된 토큰이 없으면 게스트를 발급해 저장한다" / "기기 언어가 en 이면 en 게스트로 발급한다" / "저장된 토큰이 있으면 발급하지 않는다", `test/app_startup_branch_test.dart` "토큰이 없으면 게스트를 발급하고 홈으로 간다" |
 | 401 이면 새 게스트 | `test/startup/startup_controller_test.dart` "내 기록이 401 이면 새 게스트를 발급하고 다시 읽는다"(`fetchMyStatsCalls == 2`, 저장소 토큰 교체) + "새 게스트로도 401 이면 예외를 올린다"(무한 재시도 없음) |
-| 토큰 상태를 Provider 로 노출(27 교체·28 구독), ApiClient 에 숨기지 않음 | `lib/guest/guest_token_provider.dart`. `test/guest/guest_token_provider_test.dart` 6개 — 복원 / `replaceWith`(27) / `clear` / **변경 구독**(28) / 동기 읽기(Bearer 용). `dio_api_client_test.dart` 가 "토큰을 매 요청마다 읽어 붙인다" 를 확인 |
+| 토큰 상태를 Provider 로 노출(27 교체·28 구독), ApiClient 에 숨기지 않음 | `lib/guest/guest_token_provider.dart`. `test/guest/guest_token_provider_test.dart` 6개 — 복원 / `replaceWith`(27) / `clear` / **변경 구독**(28) / 동기 읽기(Bearer 용). `dio_api_client_test.dart` 의 "같은 클라이언트가 요청마다 토큰을 다시 읽는다" 가 같은 Dio 인스턴스에서 토큰 교체 전후 두 요청의 `Authorization` 헤더를 비교(수정 라운드 1 에서 추가) |
 | OVERRIDES 토큰 → ThemeData(라이트/다크), 토큰 이름 상수, 그림자 없음 | `lib/theme/app_colors.dart`(필드 이름 = 토큰 이름), `lib/theme/app_theme.dart`. `test/theme/app_theme_test.dart` 10개 — 표 값 일치, brand 를 면·글자색으로 안 씀, 배경색, **그림자 전부 0**, Pretendard+Inter 폴백, 본문 16/1.5, 모서리 10·20, 터치 타깃 ≥48, ThemeExtension |
 | Pretendard, Lucide | `pubspec.yaml` fonts 3종 + `assets/fonts/Pretendard-LICENSE.txt`, `lucide_icons` 의존성 + 화면에서 `LucideIcons.*` 사용 |
 | iPad 중앙 정렬 최대 600px 래퍼 | `lib/widgets/max_width_body.dart`, `test/app_startup_branch_test.dart` "본문은 600px 를 넘지 않는다 (iPad)"(1668×2388 뷰에서 화면 폭 834, 본문 600) |
@@ -277,3 +277,198 @@ Material `NavigationBar` 3개(2~5 범위, 섹션만 — 액션 없음)이고, �
   앱 쪽 주입값(`API_BASE_URL`, `SENTRY_DSN`)은 `--dart-define` 이라 `.env` 가 아니고,
   `mobile/README.md` 와 `docs/RELEASE.md` "22." 에 이름만 적었다.
 - 스펙 "미정 항목" 은 건드리지 않았다 — 이 티켓에서 새로 미룬 결정이 없다.
+
+## 수정 라운드 1
+
+최종 리뷰(라운드 1, FAIL)의 **BLOCKER 1 / MAJOR 1 / MINOR 1** 을 전부 고쳤다.
+"리뷰어가 틀렸다" 로 넘긴 항목은 없다. 커밋 1개(`fix(22): 수정 라운드 1 …`),
+로컬 `main` **abf3e9a**(티켓 12 머지) 위로 `git rebase main` 완료 — 충돌 없음,
+작업 트리 clean.
+
+### D-22-1 (BLOCKER) — 국제화 초기화 누락으로 실제 앱 시작 실패
+
+**재현(수정 전).** 리뷰의 재현 코드를 그대로 레포 밖에 두고 돌렸다.
+
+```
+$ flutter test --no-pub /tmp/t22_startup_review_test.dart --reporter expanded
+  Expected: null
+    Actual: LateError:<LateInitializationError: Field '_deviceLocale@1510168148' has not been initialized.>
+00:00 +0 -1: Some tests failed.
+```
+
+**원인.** 설치된 `easy_localization 3.0.8` 의
+`EasyLocalizationController` 는 기기 언어를 `static late Locale _deviceLocale`
+에 담아두고, **`initEasyLocation()`(= `EasyLocalization.ensureInitialized()`)
+에서만** 그 값을 채운다
+(`~/.pub-cache/.../easy_localization-3.0.8/lib/src/easy_localization_controller.dart:11,:213`).
+`startLocale` 이 null 이고 저장된 언어도 없으면 생성자가 바로 그 필드를 읽는다
+(같은 파일 `:57-62`). 그래서 `main` 이 초기화를 부르지 않으면 첫 빌드에서 죽는다.
+`saveLocale: false` 는 선택 언어 **저장**만 끄는 옵션이라 이 초기화를 대신하지
+않는다 — `lib/app.dart` 의 "`ensureInitialized` 도 필요 없다" 주석이 틀렸다.
+
+**수정.** 증상(테스트가 언어를 고정해서 통과하던 것)이 아니라 시작 경로를 고친다.
+
+- `mobile/lib/l10n/localization_bootstrap.dart` 신규 — `initializeLocalization()`
+  (`EasyLocalization.ensureInitialized()` 래퍼 + 왜 필요한지 주석).
+- `mobile/lib/main.dart` — Firebase 다음, `runApp` 앞에서 그 함수를 `await`.
+  main 본문은 `bootstrapChosungApp({initializeFirebaseFn, initializeLocalizationFn, start})`
+  로 빼서 **시작 순서 자체를 테스트 대상으로** 만들었다.
+- `mobile/lib/app.dart` — 틀린 주석을 실제 동작으로 고쳤다(초기화가 먼저 와야 한다).
+
+**고정한 테스트.** 위젯 테스트가 이 결함을 못 본 이유(모두 `startLocale` 을
+주입한다)를 그대로 메운다.
+
+- `test/l10n/localization_bootstrap_test.dart`
+  - `기기 언어를 강제하지 않는 실제 시작 경로가 예외 없이 뜬다` — 리뷰의 재현과
+    같은 구성(`AppLocalizationScope(child: …)`, `startLocale` 없음)을 **앱이 실제로
+    하는 초기화 뒤에** 띄우고, 고른 언어가 지원 언어 중 하나인지 본다.
+  - `시작 순서: Firebase → 국제화 초기화 → runApp` — `bootstrapChosungApp` 에
+    가짜 초기화를 넣어 호출 순서를 확인한다.
+- `test/app_startup_branch_test.dart` — `언어를 고정하지 않는 실제 시작 경로로도
+  홈이 뜬다`(`locale: null`). 가짜 `ApiClient` 만 두고 앱 트리를 통째로 띄운다.
+
+**증명(수정 후).**
+
+```
+$ flutter test --no-pub test/l10n/localization_bootstrap_test.dart --reporter expanded
+00:00 +0: 기기 언어를 강제하지 않는 실제 시작 경로가 예외 없이 뜬다
+00:00 +1: 시작 순서: Firebase → 국제화 초기화 → runApp
+00:00 +2: All tests passed!
+
+# 순서 테스트가 회귀를 실제로 잡는지 — main 에서 초기화 한 줄만 주석 처리하고
+$ flutter test --no-pub test/l10n/localization_bootstrap_test.dart
+  Expected: ['firebase', 'localization', 'runApp']
+    Actual: ['firebase', 'runApp']
+00:02 +1 -1: Some tests failed.      # 주석을 되돌림
+```
+
+**리뷰 재현 코드를 그대로 다시 돌리면 여전히 실패한다 — 의도된 결과다.** 그
+스니펫은 `AppLocalizationScope` 만 띄우고 앱의 초기화 단계를 건너뛴다.
+`easy_localization` 은 그 초기화를 `main` 에서 하도록 문서화돼 있고
+(`easy_localization_app.dart:158` "ensureInitialized needs to be called in main"),
+위젯 안에서 `await` 하려면 첫 프레임을 빈 화면으로 내보내야 해서(네이티브
+스플래시가 그 프레임에 사라진다) 시작 화면이 깜빡인다. 그래서 초기화는 `main`
+에 두고, **같은 재현을 "앱이 하는 초기화 + 언어 고정 없음" 으로 바꿔** 위 두
+테스트로 고정했다. 초기화를 빼먹는 회귀는 순서 테스트가 잡는다.
+
+### D-22-2 (MAJOR) — iOS 최소 버전이 Firebase 의존성과 호환되지 않음
+
+**재현·원인(수정 전).** 리뷰와 같은 방법(설치된 podspec + CocoaPods 판정).
+
+```
+$ rg -n 'IPHONEOS_DEPLOYMENT_TARGET' mobile/ios/Runner.xcodeproj/project.pbxproj
+349,476,527:  IPHONEOS_DEPLOYMENT_TARGET = 13.0;
+$ grep -n deployment_target ~/.pub-cache/.../firebase_core-4.15.0/ios/firebase_core.podspec
+30:  s.ios.deployment_target = '15.0'      # firebase_analytics-12.6.0 도 15.0
+
+$ ruby -e '... Pod::Platform.new(:ios, v).supports?(required) ...'
+app=iOS 13.0, dependency=iOS 15.0, compatible=false
+app=iOS 15.0, dependency=iOS 15.0, compatible=true
+```
+
+Podfile 의 `platform` 선언은 주석이었고(`# platform :ios, '13.0'`), Xcode 세
+구성과 `AppFrameworkInfo.plist` 는 13.0 이었다. Firebase 설정 파일이 없어도
+네이티브 플러그인은 설치 대상이라 런타임 스킵으로 가려지지 않는다.
+
+**수정.** 프로젝트의 iOS 플랫폼을 **15.0** 으로 올리고, 세 군데가 같은 값을
+갖도록 한다 — `project.pbxproj` Debug/Release/Profile 3곳, Podfile 의
+`platform :ios, '15.0'`(주석 해제 + 이유), `Flutter/AppFrameworkInfo.plist` 의
+`MinimumOSVersion`. 스펙·티켓에 최소 OS 버전 지정이 없어 의존성이 요구하는
+값으로 맞췄고, 근거는 README `### 22.` "SDK 선택" 에 한 문장으로 남겼다.
+
+**고정한 테스트.** `test/config/ios_project_test.dart`
+`iOS 최소 버전 — 프로젝트·Podfile·앱 프레임워크가 한 값이고 pod 요구치를 만족한다`:
+세 설정을 읽어 값이 하나인지 보고, `.dart_tool/package_config.json` 으로 풀린
+패키지들의 podspec(`s.ios.deployment_target` / `s.platform = :ios, '…'`)을 모두
+읽어 그 최대치 이상인지 확인한다. Dart analyze·위젯 테스트·Android 빌드는 이
+설정을 보지 않으므로 설정 파일을 직접 읽는 테스트로 지킨다.
+
+```
+# 수정 전(빨강)
+  Expected: an object with length of <1>
+    Actual: Set:['13.0', null]        # Podfile 선언이 주석이라 null
+# 수정 후
+$ flutter test --no-pub test/config/ios_project_test.dart --reporter expanded
+00:00 +1: 한국어 앱 이름 …
+00:00 +2: All tests passed!
+```
+
+### D-22-3 (MINOR) — 한국어 iOS 앱 이름 파일이 번들에 포함되지 않음
+
+**원인.** `ko.lproj/InfoPlist.strings` 파일만 있고 Runner 타깃에 연결돼 있지
+않았다(`rg 'InfoPlist.strings|ko.lproj' project.pbxproj` → 일치 없음). 파일을
+디렉터리에 두는 것만으로는 번들에 들어가지 않는다.
+
+**수정.** `project.pbxproj` 에 직접 넣었다(손으로 할 일로 남기지 않는다).
+
+- `PBXFileReference` `ko` → `ko.lproj/InfoPlist.strings`
+- `PBXVariantGroup` `InfoPlist.strings`(자식 = 위 참조) + Runner 그룹에 추가
+- `PBXBuildFile` → Runner 의 `PBXResourcesBuildPhase` 에 등록
+- `knownRegions` 에 `ko` 추가
+- `docs/RELEASE.md` `### 22.` 의 "Xcode 에서 ko.lproj 를 추가" 체크박스를 빼고,
+  "사람이 할 일이 아니다 — 보이는지만 확인" 으로 바꿨다. 리소스 파일 주석도 고쳤다.
+
+**증명.** 파일 문법(`plutil -lint`)과 실제 구조(CocoaPods 의 `xcodeproj` 1.27.0)
+둘 다 확인했다.
+
+```
+$ plutil -lint mobile/ios/Runner.xcodeproj/project.pbxproj
+Runner.xcodeproj/project.pbxproj: OK
+
+$ ruby -e '... Xcodeproj::Project.open("Runner.xcodeproj") ...'
+resource: LaunchScreen.storyboard (PBXVariantGroup) children=Base:Base.lproj/LaunchScreen.storyboard
+resource: AppFrameworkInfo.plist (PBXFileReference) children=Flutter/AppFrameworkInfo.plist
+resource: Assets.xcassets (PBXFileReference) children=Assets.xcassets
+resource: Main.storyboard (PBXVariantGroup) children=Base:Base.lproj/Main.storyboard
+resource: InfoPlist.strings (PBXVariantGroup) children=ko:ko.lproj/InfoPlist.strings
+knownRegions=["en", "Base", "ko"]
+project Debug/Release/Profile: 15.0
+```
+
+**고정한 테스트.** `test/config/ios_project_test.dart`
+`한국어 앱 이름 — ko.lproj/InfoPlist.strings 가 Runner 타깃 Resources 에 들어 있다`:
+파일 참조 → variant group → build file → Resources 단계까지 ID 사슬을 따라가고
+`knownRegions` 에 `ko` 가 있는지 본다(주석 문자열이 아니라 구조를 본다).
+수정 전에는 파일 참조 자체가 없어 빨강이었다.
+
+### 리뷰의 "테스트 경계" 지적 (결함 미집계 항목)
+
+리뷰가 "증거 문서의 설명이 과장" 이라고 지적한 한 줄
+(`Dio 가 매 요청마다 토큰을 읽는 것을 테스트한다`)을 **테스트를 더해 사실로**
+만들었다: `test/api/dio_api_client_test.dart` 의
+`같은 클라이언트가 요청마다 토큰을 다시 읽는다` 가 같은 Dio 인스턴스로 두 번
+호출하면서 중간에 토큰을 바꾸고 `Authorization` 헤더 두 개를 비교한다
+(`['Bearer first-token', 'Bearer second-token']`). 위 §3 표의 해당 문구도
+새 테스트 이름으로 고쳤다.
+
+### 미수정 MINOR
+
+없다. 리뷰의 MINOR(D-22-3)는 고쳤고, 리뷰가 결함으로 집계하지 않은 지적도
+위와 같이 처리했다. 리뷰가 남긴 **검증 한계**(iOS 전체 빌드·실기기·시뮬레이터
+캡처 없음)는 이 라운드에서도 그대로다 — `pod install`/Xcode 빌드와 실기기는
+티켓 32·34 의 사람 체크리스트다. iOS 쪽은 위처럼 podspec·CocoaPods 판정과
+프로젝트 파일 구조로만 확인했다.
+
+### 라운드 1 수정 후 전체 재검증 (로컬 `main` abf3e9a 위에서)
+
+| 명령 | 결과 |
+|---|---|
+| `flutter analyze` (mobile/) | `No issues found!` (3.0s) |
+| `dart format --output=none --set-exit-if-changed .` | `Formatted 47 files (0 changed)` |
+| `flutter test --no-pub` (mobile/) | `All tests passed!` — **87 passed** (리뷰 시점 81 → +6) |
+| `uv run ruff check .` (루트) | `All checks passed!` |
+| `TEST_DATABASE_URL=…/chosung_daily_test_t22 TEST_REDIS_URL=redis://localhost:6379/10 uv run pytest -q` | **668 passed** in 365.98s |
+| `uv run flask db heads` | `a5bab2f58a7b (head)` — 1개 |
+| `git diff --check` / `git status --short` | 출력 없음(clean), `main` 위로 rebase 됨 |
+
+Python 코드·마이그레이션은 이 라운드에서도 한 줄도 바꾸지 않았다(pytest 는
+rebase 로 들어온 `main`(티켓 12 머지)과 함께 돌려 확인만 했다). 테스트는 이
+티켓 전용 자원(DB `chosung_daily_test_t22`, Redis DB 10)만 썼고 공용 테스트 DB·
+다른 워커의 자원은 건드리지 않았다. 외부 서비스 호출·배포·`git push` 없음,
+시크릿 값을 적지 않았다. `review/impl-review-22.md` 는 수정하지 않았다.
+
+**패키지 변경 1건:** `shared_preferences` 를 **dev_dependencies** 에만 더했다
+(이미 `easy_localization` 의 전이 의존성). 앱 코드는 쓰지 않는다 — 초기화가
+내부에서 읽는 저장소를 테스트에서 `setMockInitialValues({})` 로 비워두기
+위해서다. 없으면 `flutter test` 가 그 플랫폼 채널 응답을 기다리며 멈춘다
+(직접 확인: 4분 넘게 출력 없음 → 강제 종료).
