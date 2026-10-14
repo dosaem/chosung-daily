@@ -81,6 +81,21 @@ class OAuthProviderUnavailableError(AppError):
     message = "이 로그인 방식은 아직 설정되지 않았습니다."
 
 
+class ReceiptInvalidError(AppError):
+    code = "RECEIPT_INVALID"
+    status_code = 400
+    message = "영수증을 확인할 수 없습니다."
+
+
+class StoreUnavailableError(AppError):
+    """스토어 쪽 장애·설정 누락. 영수증이 틀린 게 아니라 "지금은 모른다" 라서
+    앱이 나중에 다시 올려야 한다 — 그래서 400 이 아니라 503 이다."""
+
+    code = "STORE_UNAVAILABLE"
+    status_code = 503
+    message = "스토어 확인에 실패했습니다. 잠시 후 다시 시도해주세요."
+
+
 def register_error_handlers(app):
     @app.errorhandler(AppError)
     def handle_app_error(err: AppError):

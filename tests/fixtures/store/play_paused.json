@@ -1,0 +1,16 @@
+{
+  "kind": "androidpublisher#subscriptionPurchaseV2",
+  "startTime": "2026-10-01T00:00:00Z",
+  "regionCode": "KR",
+  "subscriptionState": "SUBSCRIPTION_STATE_PAUSED",
+  "acknowledgementState": "ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED",
+  "lineItems": [
+    {
+      "productId": "adfree_monthly",
+      "expiryTime": "2026-11-01T00:00:00Z",
+      "autoRenewingPlan": {
+        "autoRenewEnabled": false
+      }
+    }
+  ]
+}

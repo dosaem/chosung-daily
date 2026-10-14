@@ -306,3 +306,29 @@ NAS 가 없어도 "대상 인자 하나가 설정을 다 고르는지" 와 "실�
       과 같은 주소인지 확인.
 - [ ] 본문 내용이 바뀌면 `app/web.py` 의 `LEGAL_EFFECTIVE_DATE` 도 같이 올린다
       (README "법적 문서" 절의 갱신 트리거).
+### 12. 구독 검증 — 배포 전 준비물 (2026-10-14)
+
+`POST /subscriptions/verify` 가 동작하려면 배포 때 아래가 **먼저** 있어야 한다.
+없으면 엔드포인트가 `STORE_UNAVAILABLE`(503)을 주고 앱은 구매를 완료 처리하지
+못한다(스토어가 결제를 되돌린다 — Play 는 3일 내 acknowledge 미완 시 자동 환불).
+
+1. **마이그레이션**: `flask db upgrade` (리비전 `a5bab2f58a7b`, `subscription`
+   테이블 추가). 롤백은 같은 리비전의 `downgrade` 로 테이블만 지운다.
+2. **환경변수**(`.env.example` `[12]` 절 참고). 값 자체는 이 레포에 넣지 않는다.
+   - Apple: `APP_STORE_BUNDLE_ID`, `APP_STORE_APP_APPLE_ID`(App Store Connect
+     앱 정보의 숫자 Apple ID — Production 검증기의 필수 인자다),
+     `APP_STORE_ISSUER_ID`, `APP_STORE_KEY_ID`,
+     `APP_STORE_PRIVATE_KEY`(.p8), `APP_STORE_ROOT_CERT_PATHS`
+   - Google: `PLAY_PACKAGE_NAME`, `PLAY_SERVICE_ACCOUNT_FILE`(서비스 계정 JSON 경로)
+   - 공통: `SUBSCRIPTION_PRODUCT_ID`(기본 `adfree_monthly`)
+3. **서버에 올려야 하는 파일 2개** — 둘 다 컨테이너 안에서 읽을 수 있어야 한다.
+   - Apple Root CA 인증서(`.cer`, DER). https://www.apple.com/certificateauthority/
+   - Play 서비스 계정 JSON 키 (Play Console > API 액세스)
+4. **스토어 쪽 선행 작업**(사람, 스펙 D2): 양 스토어에 구독 상품 `adfree_monthly`
+   등록, App Store Connect 의 In-App Purchase 키 발급, Play 서비스 계정에
+   "재무 데이터 보기" 권한 부여. Billing Grace Period 를 켜 두지 않으면 `grace`
+   상태가 아예 안 온다.
+
+프로덕션 서버도 Sandbox 영수증을 받아들인다(심사용) — 영수증의 `environment` 를
+따르고 프로덕션 조회가 "없음" 이면 Sandbox 로 한 번 재조회한다. 그래서 심사
+전에 환경을 바꿔 끼우는 작업은 없다.

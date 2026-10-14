@@ -93,6 +93,7 @@ web/                  # Jinja 템플릿 1장 + vanilla JS
 | GET | `/api/v1/config` | 앱 설정(최소 앱 버전·점검·지원 언어·스토어 링크), 60초 캐시 | - |
 | GET | `/privacy` | 개인정보처리방침 (Jinja, ko/en — `?lang=` 또는 Accept-Language) | - |
 | GET | `/terms` | 이용약관 (Jinja, ko/en — `?lang=` 또는 Accept-Language) | - |
+| POST | `/api/v1/subscriptions/verify` | 스토어 영수증 검증 → 구독 upsert → `entitlement {active, until, status, source, next_check_at}` | Bearer |
 
 에러 응답은 전부 `{code, message}` + 적절한 HTTP status로 통일 (아래 "에러 응답" 참고).
 
@@ -813,6 +814,59 @@ Sentry 는 `SENTRY_DSN` 이 있을 때만 켠다(`app/observability.py`). 초기
 함정: 이런 보장은 `sentry_sdk.init` 인자를 mock 으로 보는 테스트로는 검증이 안 된다.
 `tests/test_sentry.py` 뒤쪽은 실제 SDK 를 켜고 Transport 만 메모리로 바꿔서 완성된
 이벤트 payload 에 민감값이 없는지 본다. 설정을 손대면 이 테스트가 잡아준다.
+### 12. 구독 검증 — 공식 라이브러리, RevenueCat 미사용, `store_key` 멱등
+
+광고 제거 구독의 권한은 서버가 판단한다(ADR 0003). 그 구현에서 정한 것들.
+
+- **스토어 공식 라이브러리를 쓴다.** Apple 은 `app-store-server-library`,
+  Google 은 `google-api-python-client` 다. 영수증 검증의 본질은 JWS 서명 체인
+  검증과 OAuth 토큰 발급이고, 직접 구현하면 Apple 이 Root CA 를 교체할 때마다
+  우리 코드가 깨진다. 설명할 값어치가 있는 건 "검증 결과를 어떻게 해석하고
+  저장하느냐" 쪽이라 그 부분만 우리 코드로 남겼다.
+- **RevenueCat 같은 구독 백엔드를 쓰지 않는다.** 하루면 붙지만, 상태 정규화와
+  권한 판정이 전부 남의 서비스 안으로 들어가서 면접에서 설명할 코드가 없어진다.
+  구독 상품이 하나(`adfree_monthly`)뿐이라 직접 다룰 분량도 작다. 대신 스토어
+  웹훅(App Store Server Notifications / Play RTDN)을 안 쓰는 값은 치른다 —
+  철회 반영이 최대 1시간 늦는다(ADR 0003, 미정 항목 1).
+- **멱등의 열쇠는 게스트가 아니라 `store_key` 다.** `unique(store, store_key)`
+  하나가 전부다(Apple `originalTransactionId` / Google `purchaseToken`). 앱은
+  같은 영수증을 구매 직후·재설치 복원·앱 시작 동기화마다 다시 올리고, 서버
+  응답을 받은 뒤에야 구매를 완료 처리하기 때문에 "같은 영수증이 여러 번 온다"
+  가 정상 동작이다. 그래서 복원·기기 교체로 다른 게스트가 같은 영수증을
+  올리면 행을 새로 만들지 않고 `guest_id` 만 옮긴다.
+  - 동시에 두 번 올라오면 둘 다 "행이 없다" 를 보고 둘 다 INSERT 를 시도한다.
+    유니크 제약이 한쪽을 막고, 막힌 쪽은 이긴 행을 다시 읽어 갱신으로 돈다
+    (`app/services/subscription_service.py` 의 `_save`).
+  - `guest_id` 에는 유니크를 걸지 않았다. 애플에서 사고 안드로이드로 옮기면
+    한 게스트에 행이 둘인 상태가 실제로 생긴다.
+- **외부 호출 래퍼와 상태 매핑을 나눴다**(§01 의 원칙을 구독에 적용).
+  `app/clients/app_store.py`·`play.py` 는 네트워크만 타고 타임아웃 3초를 쓴다.
+  Apple 숫자 status(1~5)와 Google `SUBSCRIPTION_STATE_*` 를 우리 enum 으로
+  옮기는 건 `app/services/subscription_status.py` 의 순수 함수 둘이고, 테스트는
+  실제 응답 모양 fixture(`tests/fixtures/store/`)로 그 둘만 때린다.
+- **Sandbox 영수증을 프로덕션 서버가 받아들인다.** App Review 심사자는
+  프로덕션 빌드에 Sandbox 계정으로 구독을 산다. 그래서 환경을 서버 설정으로
+  고정하지 않고 영수증(JWS)의 `environment` 를 따르고, 프로덕션 조회가
+  "그런 거래 없음"(4040010/4040005)이면 Sandbox 로 **한 번만** 재조회한다.
+- **영수증은 "주인 확인", 저장할 사실은 "상태 조회" 에서 읽는다.** 앱이 올린
+  JWS 는 구매 시점에 서명된 거래라 재구독·갱신 뒤에는 만료일이 이미 과거다.
+  그래서 영수증으로는 `originalTransactionId` 만 확보하고, 만료일·상품은 상태
+  조회 응답의 `signedTransactionInfo`(최신 거래)를 다시 검증해서 쓴다. 둘을
+  섞으면 복원 한 번에 유효한 구독의 만료일이 과거로 되돌아간다.
+- **스토어 실패는 래퍼 안에서 400/503 으로 갈라 둔다.** 어느 환경에도 없는
+  거래(4040010/4040005)만 `RECEIPT_INVALID`(400)이고, 타임아웃·인증 실패·
+  Apple 5xx 는 전부 `STORE_UNAVAILABLE`(503)이다. 공식 라이브러리의
+  `APIException`·`requests` 예외를 그대로 올리면 앱은 500 만 보고 영수증을
+  버려야 할지 다시 올려야 할지 알 수 없다.
+- **Google 의 철회(환불)는 `revoked` 가 아니라 `expired` 로 기록된다.**
+  Play Developer API v2 응답(`SubscriptionPurchaseV2`)에는 철회 전용 필드가
+  없다 — 그 신호는 Voided Purchases API 와 RTDN `SUBSCRIPTION_REVOKED` 에만
+  있고 둘 다 아직 도입 전이다(미정 항목 1·14). 응답만 보고 철회를 추측하는
+  대신(예: `canceledStateContext.developerInitiatedCancellation` 을 환불로
+  읽기) `subscriptionState` 를 그대로 옮기고, 순수 함수에 명시적 `revoked`
+  플래그 자리만 뒀다. 환불이 실제로 관측되는 모양은 "만료일이 아직 미래인데
+  EXPIRED" 이고, 권한 판정표에서 `expired` 와 `revoked` 는 같은 칸(권한 없음)
+  이라 사용자가 보는 결과는 같다.
 
 ### 07. 리더보드 익명 표시 — 이메일도 게스트 ID도 안 내려보낸다
 
