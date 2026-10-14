@@ -535,3 +535,33 @@ FAILED tests/test_web.py::test_deleted_signal_keeps_the_token_when_the_check_can
 `test_the_switched_guest_can_delete_itself_from_a_freshly_rendered_form` 가 실제
 `POST /api/v1/session/sync` 로 세션을 심어 "전환된 게스트가 자기를 지운다" 를 본다. 빠진
 고리는 **프론트가 그 요청을 보내는가** 하나였고, 위 6개 테스트가 그걸 고정한다.
+
+### 전체 검증 (라운드 2 수정 후, 로컬 `main` = `1afeffa` 위)
+
+```
+$ uv run pytest -q   # TEST_DATABASE_URL=...chosung_daily_test_t18, TEST_REDIS_URL=...6
+1403 passed in 1193.43s (0:19:53)
+
+$ uv run ruff check .
+All checks passed!
+```
+
+- `uv run pytest -q --collect-only` → **1403 tests collected**. 수는 전부 통과한 수와 같다.
+  1403 = 티켓 36 머지로 늘어난 `main` 의 수 + 티켓 18 이 더한 테스트. 이번 라운드가 더한 건
+  6개(경로 1·2·2b·3·4·5)이고, 기존 테스트가 빠지거나 skip 으로 바뀐 건 없다.
+- 첫 두 번의 전체 실행은 **고아 pytest 프로세스가 같은 테스트 DB 를 잡고 있어** 픽스처가
+  대량 ERROR 로 죽었다(2시간 50분 교착). 코디네이터가 양쪽을 종료한 뒤 단독으로 한 번 돌린
+  결과가 위 출력이다. 결함이 아니라 실행 환경 경합이었다 — 같은 커밋으로 `tests/test_web_js.py`
+  (51 passed)·`tests/test_web.py`·`tests/test_web_design.py`(합계 106 passed)는 교착 중에도
+  정상 통과했다.
+- `git diff --check main...HEAD` → exit 0. 작업 트리 clean, 로컬 `main`(`1afeffa`) 위.
+  rebase 는 충돌 없이 6개 커밋을 다시 얹었다(`Successfully rebased and updated`).
+- 디자인 재검증은 이번 라운드에서 다시 돌리지 않았다 — 바꾼 파일이 `web/static/app.js` 와
+  테스트뿐이고, CSS·템플릿은 한 줄도 건드리지 않았다. 리뷰의 `impeccable detect` 입력은
+  실행 스크립트를 제거한 정적 HTML + 인라인 CSS 라서 `app.js` 는 애초에 검사 대상이 아니다.
+- 이번 라운드에서 바꾼 파일 3개: `web/static/app.js`, `tests/js/web_states_and_sections.mjs`,
+  `tests/test_web_js.py`(+ 이 문서). 애플리케이션 변경은 `app.js` 한 파일이다.
+- 미수정 MINOR: **없다**(라운드 2 의 미해결은 MAJOR 1건뿐이었다). 리뷰어 지적이 틀렸다고
+  본 항목도 없다 — D-18-4 는 재현됐고, 리뷰가 적은 기대/실제 값과 같았다.
+- 프로덕션 접근·배포·`git push`·외부 서비스 호출 없음. 공용 테스트 DB·Redis DB 1 은 건드리지
+  않았다. 시크릿 값은 이 문서에 없다.
