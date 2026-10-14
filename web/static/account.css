@@ -1,0 +1,45 @@
+/* `/account/delete` 전용. 페이지 레이아웃(.doc*)은 문서 페이지의 legal.css 를
+ * 그대로 쓰고(같은 "중앙 정렬 카드 한 장", OVERRIDES §10), 이 파일에는 이
+ * 페이지에만 있는 삭제 폼·버튼만 둔다. 색·간격은 tokens.css 변수만 쓴다. */
+
+.delete-form {
+  margin: var(--space-8) 0 var(--space-6);
+}
+
+/* destructive 는 "계정 삭제, 오류" 색이다(OVERRIDES §2). 면으로 쓰는 자리는
+ * 이 버튼 하나뿐이고, 그래서 primary 버튼(--color-primary-button)과 모양은 같고
+ * 색만 다르다 — 플레이어가 이 버튼만 다르게 읽어야 한다.
+ *
+ * 글자색으로 --color-on-primary-button 을 쓴다. 라이트에서 흰색(#ffffff), 다크에서
+ * 어두운 색(#141a26)이 되는 짝이고, destructive 면 위 대비가 양쪽 다 기준을 넘는
+ * 유일한 조합이다: 흰 글자 on #DC2626 = 4.83:1 (라이트 OK), 흰 글자 on #EF4444 =
+ * 3.76:1 (다크 미달), #141a26 글자 on #EF4444 = 4.83:1 (다크 OK). 다크에서 밝은 면
+ * 위에 어두운 글자를 쓰는 건 --color-tile-text-on-correct 와 같은 규칙이다. */
+.delete-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: var(--touch-target-min);
+  padding: var(--space-3) var(--space-6);
+  border: 0;
+  border-radius: var(--radius-button);
+  background: var(--color-destructive);
+  color: var(--color-on-primary-button);
+  font-family: inherit;
+  font-size: var(--font-size-base);
+  font-weight: 700;
+  line-height: var(--line-height-body);
+  cursor: pointer;
+}
+
+.delete-button:focus-visible {
+  outline: 2px solid var(--color-foreground);
+  outline-offset: 3px;
+}
+
+.delete-links {
+  color: var(--color-muted-foreground);
+  font-size: var(--font-size-sm);
+}

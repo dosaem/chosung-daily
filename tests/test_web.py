@@ -22,3 +22,17 @@ def test_static_js_sends_puzzle_id_with_a_guess(client):
 
     assert b"puzzle_id: state.puzzleId" in res.data
     assert b"state.puzzleId = puzzle.puzzle_id" in res.data
+
+
+def test_static_js_discards_the_token_after_account_deletion(client):
+    """삭제 후 /?deleted=1 로 돌아온 브라우저는 옛 토큰을 버리고 새 게스트를 받아야
+    한다(티켓 14). JS 테스트 러너가 없어서 번들 내용으로 확인한다 — 웹 개편
+    (티켓 17·18)에서 이 호출이 빠지면 삭제 직후 화면이 전부 401 로 죽는다.
+
+    수동 확인 항목은 `docs/RELEASE.md` "### 14." 에 있다.
+    """
+    js = client.get("/static/app.js").data
+
+    assert b'params.has("deleted")' in js
+    assert b"safeStorageRemove(TOKEN_KEY)" in js
+    assert b"discardDeletedAccountState();" in js

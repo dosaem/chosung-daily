@@ -1,0 +1,83 @@
+{% extends "account/_layout.html" %}
+{% block document %}
+{% if csrf_token %}
+<p>
+  이 브라우저의 기록(게스트)과 연결된 계정을 지웁니다.
+  <strong>되돌릴 수 없습니다</strong> — 지운 기록은 복구할 방법이 없습니다.
+</p>
+
+<h2>지워지는 데이터</h2>
+{# 항목 이름은 개인정보처리방침 "수집하는 정보와 보유 기간" 절과 같은 말을 쓴다 —
+   방침과 다른 이름으로 적으면 두 문서가 서로 다른 약속을 하는 셈이 된다. #}
+<dl>
+  <dt>게스트 토큰</dt>
+  <dd>기록의 주인이 되는 문자열. "내 기록 백업" 의 백업 코드가 이 값입니다.</dd>
+
+  <dt>계정 이메일</dt>
+  <dd>연결한 구글 또는 애플 계정의 이메일과 고유 식별자.</dd>
+
+  <dt>애플 refresh token</dt>
+  <dd>
+    애플로 로그인했다면, 애플 쪽 연결(Apple ID 를 사용하는 앱)까지 함께 철회하고
+    토큰을 폐기합니다. 철회가 실패하면 암호화된 상태로 최대 7일간 재시도용으로만
+    남긴 뒤 폐기합니다.
+  </dd>
+
+  <dt>시도 기록</dt>
+  <dd>제출한 단어, 정답 여부, 시도 횟수, 연속 기록과 누적 정답 수.</dd>
+
+  <dt>구독 식별자</dt>
+  <dd>광고 제거 구독의 스토어 구매 식별자와 만료 시각.</dd>
+
+  <dt>오늘의 순위</dt>
+  <dd>오늘 리더보드에 올라간 기록(두 퍼즐 언어 모두).</dd>
+</dl>
+
+<p class="doc-note">
+  <strong>구독은 자동으로 해지되지 않습니다.</strong> 결제를 멈추려면 App Store 또는
+  Google Play 의 구독 관리에서 따로 해지해야 합니다. 계정을 지워도 스토어 쪽 구독은
+  그대로 남습니다.
+</p>
+
+<p class="doc-note">
+  서버 백업본에는 삭제 전 데이터가 최대 14일간 남아 있다가 순차적으로 폐기됩니다
+  (방침 <a href="{{ url_for('web.privacy', lang='ko') }}#collection">수집하는 정보와 보유 기간</a>).
+</p>
+
+<form class="delete-form" method="post" action="{{ url_for('web.account_delete_submit') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+  <button class="delete-button" type="submit">계정과 모든 기록 삭제</button>
+</form>
+
+<p class="delete-links">
+  자세한 내용:
+  <a href="{{ url_for('web.privacy', lang='ko') }}#collection">수집하는 정보와 보유 기간</a> ·
+  <a href="{{ url_for('web.privacy', lang='ko') }}#rights">삭제와 이용자 권리</a>
+</p>
+{% else %}
+<p>
+  이 브라우저에는 지울 기록이 없습니다. 기록은 기기에 저장된 게스트 토큰에 붙어
+  있어서, <strong>삭제하려는 기기의 브라우저나 앱에서</strong> 지워야 합니다.
+</p>
+
+<h2>지우는 방법</h2>
+<ul>
+  <li>
+    웹: 기록이 있는 브라우저에서
+    <a href="{{ url_for('web.index') }}">오늘의 초성</a>을 한 번 열어 기록을 불러온 뒤
+    이 페이지로 돌아오면 삭제 버튼이 나옵니다.
+  </li>
+  <li>앱: 내 기록 화면 맨 아래 "계정 삭제".</li>
+  <li>
+    기기를 잃어버렸거나 위 방법이 안 되면 운영자에게 메일로 요청하세요 —
+    <a href="mailto:{{ contact_email }}">{{ contact_email }}</a>
+  </li>
+</ul>
+
+<p class="delete-links">
+  자세한 내용:
+  <a href="{{ url_for('web.privacy', lang='ko') }}#collection">수집하는 정보와 보유 기간</a> ·
+  <a href="{{ url_for('web.privacy', lang='ko') }}#rights">삭제와 이용자 권리</a>
+</p>
+{% endif %}
+{% endblock %}
