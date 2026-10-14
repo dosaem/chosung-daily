@@ -4,6 +4,14 @@
 #
 # env: MYSQL_HOST(기본 mysql) MYSQL_DATABASE(기본 chosung_daily) MYSQL_ROOT_PASSWORD
 #      DUMP_DIR(기본 /backups) BACKUP_RETENTION_DAYS(기본 14) SLACK_WEBHOOK_URL(없으면 알림 생략)
+#      BACKUP_ENCRYPTION_CERT_FILE(**필수** — 수신자 공개키 인증서 경로)
+#
+# 덤프는 `mysqldump | gzip | openssl cms -encrypt` 한 줄로 흘러서 `*.sql.gz.enc`
+# 로만 남는다. 평문·압축 중간 파일을 만들지 않는다. 암호화는 **공개키(CMS 봉투)**
+# 방식이라 이 컨테이너에는 공개키 인증서만 있고, 복호화에 필요한 개인키는 NAS 에
+# 두지 않는다(복구할 때만 `scripts/restore.sh` 에 넘긴다 — docs/RELEASE.md "### 36.").
+# 공개키 설정이 없으면 **백업을 만들지 않고 실패**한다: 평문으로 조용히 떨어지면
+# 개인정보처리방침이 약속한 "암호화 보관" 이 거짓이 된다.
 # -E: ERR trap 을 함수 안에서도 받는다(아래 trap 이 모든 실패를 알림으로 보낸다).
 set -Eeuo pipefail
 
@@ -12,6 +20,7 @@ MYSQL_DATABASE="${MYSQL_DATABASE:-chosung_daily}"
 DUMP_DIR="${DUMP_DIR:-/backups}"
 BACKUP_RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-14}"
 SLACK_WEBHOOK_URL="${SLACK_WEBHOOK_URL:-}"
+BACKUP_ENCRYPTION_CERT_FILE="${BACKUP_ENCRYPTION_CERT_FILE:-}"
 
 log() { echo "[backup] $(date '+%Y-%m-%d %H:%M:%S%z') $*"; }
 
@@ -47,24 +56,36 @@ chmod 600 "$cnf"
 trap 'rm -f "$cnf" "${tmp_dump:-}"' EXIT
 printf '[client]\npassword=%s\n' "${MYSQL_ROOT_PASSWORD:-}" >"$cnf"
 
+# 공개키 확인을 mysqldump 보다 먼저 한다 — 덤프를 뜬 다음에 암호화에서 막히면
+# 그 사이 평문이 메모리·파이프를 거쳐간다(그리고 그 날 백업은 어차피 없다).
+[ -n "$BACKUP_ENCRYPTION_CERT_FILE" ] ||
+  fail "BACKUP_ENCRYPTION_CERT_FILE is not set - refusing to write an unencrypted dump"
+[ -f "$BACKUP_ENCRYPTION_CERT_FILE" ] ||
+  fail "encryption certificate not found: $BACKUP_ENCRYPTION_CERT_FILE"
+
 mkdir -p "$DUMP_DIR" || fail "cannot create dump dir $DUMP_DIR"
 stamp="$(date '+%Y%m%d-%H%M%S')"
-dump="$DUMP_DIR/$MYSQL_DATABASE-$stamp.sql.gz"
+dump="$DUMP_DIR/$MYSQL_DATABASE-$stamp.sql.gz.enc"
 # 덤프 도중 컨테이너가 죽으면 반쪽 파일이 "그 날의 백업" 으로 남는다. 임시
 # 이름으로 쓰고 끝까지 성공했을 때만 제 이름으로 옮긴다.
 tmp_dump="$dump.partial"
 
-log "dumping $MYSQL_DATABASE from $MYSQL_HOST -> $dump"
+log "dumping $MYSQL_DATABASE from $MYSQL_HOST -> $dump (encrypted)"
 # --single-transaction: InnoDB 를 테이블 잠금 없이 한 시점으로 뜬다(04:00 에도
 #   누가 플레이할 수 있다). --databases + --add-drop-database: 덤프 안에
 #   CREATE/DROP DATABASE 가 들어가서 복구가 "덤프 시점 그대로" 가 된다
 #   (복구 후에 덤프 이후 생긴 행이 남지 않는다).
+# `-stream` 이 있어야 openssl 이 stdin 을 끝까지 흘려 받는다(없으면 입력을 통째로
+# 메모리에 올린다). set -o pipefail 이라 세 단계 중 아무거나 깨지면 여기서 멈춘다.
 if ! mysqldump \
   "--defaults-extra-file=$cnf" \
   -h "$MYSQL_HOST" -u root \
   --single-transaction --quick --add-drop-database \
-  --databases "$MYSQL_DATABASE" | gzip -c >"$tmp_dump"; then
-  fail "mysqldump exited non-zero"
+  --databases "$MYSQL_DATABASE" |
+  gzip -c |
+  openssl cms -encrypt -binary -aes-256-cbc -outform DER -stream \
+    -recip "$BACKUP_ENCRYPTION_CERT_FILE" >"$tmp_dump"; then
+  fail "mysqldump | gzip | openssl pipeline exited non-zero"
 fi
 
 [ -s "$tmp_dump" ] || fail "dump is empty"
@@ -73,11 +94,14 @@ log "wrote $(du -h "$dump" | cut -f1) $dump"
 
 # 보존 N일 = 오늘 것까지 N개. `-mtime +$((N-1))` 는 "N일보다 더 오래된 것",
 # 즉 04:00 에 돌 때 N일 전 덤프가 지워지고 N개가 남는다.
+# 암호화 확장자와 전환기에 남아 있는 평문 덤프를 **둘 다** 본다 — 한쪽만 지우면
+# 디스크가 차거나(또는) 암호화 전 평문이 영원히 남는다.
 # 정리가 안 되면 디스크가 차서 다음 백업부터 실패한다 — 덤프는 떴더라도 알린다.
-if ! find "$DUMP_DIR" -maxdepth 1 -type f -name "$MYSQL_DATABASE-*.sql.gz" \
+if ! find "$DUMP_DIR" -maxdepth 1 -type f \
+  \( -name "$MYSQL_DATABASE-*.sql.gz" -o -name "$MYSQL_DATABASE-*.sql.gz.enc" \) \
   -mtime "+$((BACKUP_RETENTION_DAYS - 1))" -print -delete |
   while read -r old; do log "pruned $old"; done; then
   fail "retention prune failed in $DUMP_DIR (dump $dump is written)"
 fi
 
-log "done ($(find "$DUMP_DIR" -maxdepth 1 -type f -name '*.sql.gz' | wc -l | tr -d ' ') dumps kept)"
+log "done ($(find "$DUMP_DIR" -maxdepth 1 -type f -name '*.sql.gz.enc' | wc -l | tr -d ' ') dumps kept)"

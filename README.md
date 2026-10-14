@@ -194,7 +194,7 @@ prod·develop compose 에 `backup` 서비스가 돌면서 매일 **04:00 KST** �
 | | |
 |---|---|
 | 덤프 위치 | 호스트 `${BACKUP_DIR}`(기본 `./backups`) ← 컨테이너 `/backups` bind mount |
-| 파일 이름 | `chosung_daily-YYYYmmdd-HHMMSS.sql.gz` (mysqldump + gzip) |
+| 파일 이름 | `chosung_daily-YYYYmmdd-HHMMSS.sql.gz.enc` (mysqldump + gzip + 공개키 암호화) |
 | 보존 | 14일치 (`BACKUP_RETENTION_DAYS`, 오늘 것까지 14개) |
 | 실패 알림 | `SLACK_WEBHOOK_URL` 로 POST (비워두면 알림만 생략) |
 
@@ -203,10 +203,18 @@ prod·develop compose 에 `backup` 서비스가 돌면서 매일 **04:00 KST** �
 docker compose -f docker-compose.prod.yml -p chosung-daily-prod --env-file .env \
   exec backup /scripts/backup.sh
 
-# 복구 — 되돌릴 수 없다. 덤프 시점 이후의 행은 사라진다
-./scripts/restore.sh <덤프.sql.gz> chosung-daily-prod      # 확인 프롬프트
-./scripts/restore.sh -y <덤프.sql.gz> chosung-daily-prod   # 프롬프트 없이
+# 복구 — 되돌릴 수 없다. 덤프 시점 이후의 행은 사라진다. -k 는 복호화 개인키.
+./scripts/restore.sh -k <개인키.pem> <덤프.sql.gz.enc> chosung-daily-prod      # 확인 프롬프트
+./scripts/restore.sh -y -k <개인키.pem> <덤프.sql.gz.enc> chosung-daily-prod   # 프롬프트 없이
 ```
+
+**덤프는 암호화돼 있다.** `mysqldump | gzip | openssl cms -encrypt` 로 공개키(CMS 봉투)
+암호화한 `*.sql.gz.enc` 만 남고, 평문 덤프는 임시 파일로도 안 남는다. NAS 에는 공개키
+인증서(`BACKUP_ENCRYPTION_CERT_FILE`)만 두고 **복호화 개인키는 NAS 에 두지 않는다** —
+복구할 때 `-k` 나 `BACKUP_DECRYPTION_KEY_FILE` 로 그 자리에서 준다. 그래서 NAS 폴더가
+뚫려도 덤프 내용은 열리지 않고, 반대로 **개인키를 잃으면 모든 백업이 복구 불가**다. 키
+생성·보관·교체 절차는 `docs/RELEASE.md` "### 36.", 공개키 방식을 고른 근거는 아래
+"설계 판단 36.". 접속기록(접근 로그 파일)의 회전·보관도 같은 backup 컨테이너가 한다.
 
 `restore.sh` 는 MySQL 에 손대기 전에 `gzip -t` 로 덤프를 통째로 검사하고(깨진
 덤프로 DB 를 날리지 않는다), 복원이 끝나면 **Redis 의 파생 키(`puzzle:` 오늘
@@ -1853,6 +1861,120 @@ Apple 3.1.2(a)·Google Play 구독 정책)에서 판단이 갈린 곳은 **값�
 
 워커는 법률가가 아니다 — 통신판매업 신고 대상 여부, 축약 주소 표시의 적법성, 보호책임자
 지정은 사람이 출시 전에 확인할 항목으로 `docs/RELEASE.md` "### 16." 에 체크박스로 남겼다.
+
+
+### 36. 개인정보 안전성 확보조치 — 공개키 백업 암호화, 두 겹 접속기록, 해시 체인
+
+근거 조문은 **개인정보의 안전성 확보조치 기준**(개인정보보호위원회 고시 제2023-6호)이다.
+제8조(접속기록의 보관 및 점검), 제7조(개인정보의 암호화). 조문 → 문서 절 → 테스트 매핑은
+`docs/legal-checklist.md` "1-1.", 사람이 할 일은 `docs/RELEASE.md` "### 36.".
+
+**백업 덤프 암호화는 공개키 방식이다 — 대칭키가 아니라.** 백업은 NAS 에서 자동으로 돌기
+때문에, 대칭 암호(`openssl enc` + 패스프레이즈)로 하면 그 패스프레이즈가 NAS 의 `.env` 에
+있어야 한다. 그러면 "NAS 가 뚫리면 덤프도 열린다" — 암호화를 넣은 이유가 거의 사라진다.
+공개키로 하면 NAS 에는 **공개키 인증서만** 두고(`BACKUP_ENCRYPTION_CERT_FILE`) 복호화
+개인키는 운영자 비밀번호 관리자와 오프라인 사본에만 둔다. 복구할 때만 그 자리에서 넘긴다
+(`scripts/restore.sh -k`). 대가는 **키를 잃으면 모든 백업이 복구 불가**라는 것이고, 그래서
+RELEASE 의 키 보관 절차가 경고를 두 번 적는다.
+
+`age` 대신 `openssl cms -encrypt` 를 쓴다. backup 컨테이너는 `mysql:8` 이미지를 재사용하는데
+(§21) 그 이미지(Oracle Linux 9)에는 `age` 가 없고 기본 저장소에도 없다 — 넣으려면 전용
+이미지를 빌드하거나 컨테이너가 뜰 때마다 바이너리를 받아야 해서, cron 데몬을 안 쓴 것과
+같은 이유로 뺐다. 같은 이미지에 OpenSSL 3.5 가 있고 `openssl cms` 가 CMS 봉투 암호화를
+스트리밍으로(`-stream`) 해 준다 — 공개키 성질은 그대로다. 그래서 env 이름도 방식에 맞춰
+`BACKUP_ENCRYPTION_CERT_FILE` / `BACKUP_DECRYPTION_KEY_FILE` 이다(티켓 문구의
+`BACKUP_AGE_*` 와 다름 — 이름이 방식과 어긋나면 나중에 읽는 사람이 헷갈린다).
+
+파이프는 `mysqldump | gzip -c | openssl cms -encrypt` **한 줄**이다. 중간 결과를 파일로
+떨어뜨리면 그 순간 평문(또는 평문 압축)이 디스크에 남아서, 지운 뒤에도 "그 시점에 평문이
+있었다" 가 된다. 공개키 설정이 없거나 인증서 파일이 없으면 **덤프를 아예 뜨지 않고**
+실패하고 Slack 으로 알린다 — 평문으로 조용히 떨어지면 방침 `#destruction` 이 거짓이 된다.
+
+**접속기록은 두 겹이다.** 고시 제8조는 "개인정보처리시스템에 접속한 자" 의 기록을
+요구하는데, 한 겹으로 만들면 둘 중 하나가 된다: 모든 요청을 DB 에 쌓으면(퍼즐 조회까지)
+점검이 불가능한 양이 되고, 개인정보 처리 행위만 파일로 남기면 "누가·무엇을" 을 집계할
+수단이 없다. 그래서 갈랐다.
+
+| 겹 | 대상 | 저장 | 보관·삭제 |
+|---|---|---|---|
+| 감사 로그 | 개인정보 처리 행위(아래 표) | `access_log` 테이블 (해시 체인) | Beat 매일 04:10 만료 삭제 |
+| 접근 로그 | 그 밖의 모든 웹 요청 | `${LOG_DIR}/access.log` (Gunicorn) | backup 컨테이너 cron 이 일 회전·gzip·만료 삭제 |
+
+기록되는 행위는 아래로 고정한다. 코드의 `app/access_log.py` `ACTION_BY_ENDPOINT` 와 이
+표가 같은지 `tests/test_access_log.py::test_the_recorded_actions_match_the_readme_table` 이
+확인하고, 표의 **각 행위를 실제 요청으로 한 번씩 발생시켜** 행이 남는지도 같은 파일이 본다.
+
+| 행위 | 요청 |
+|---|---|
+| `admin.word.list` | `GET /admin/` |
+| `admin.word.form` | `GET /admin/words/new`, `GET /admin/words/<id>/edit` |
+| `admin.word.create` | `POST /admin/words` |
+| `admin.word.update` | `POST /admin/words/<id>` |
+| `admin.word.delete` | `POST /admin/words/<id>/delete` |
+| `admin.csv.form` | `GET /admin/words/import` |
+| `admin.csv.import` | `POST /admin/words/import` |
+| `admin.schedule.read` | `GET /admin/schedule` |
+| `admin.schedule.form` | `GET /admin/schedule/<날짜>/replace` |
+| `admin.schedule.replace` | `POST /admin/schedule/<날짜>/replace` |
+| `admin.settings.read` | `GET /admin/settings` |
+| `admin.settings.save` | `POST /admin/settings` |
+| `admin.book.search` | `GET /admin/books` |
+| `admin.book.create` | `POST /admin/books` |
+| `account.delete` | `DELETE /api/v1/me`, `POST /account/delete` |
+| `account.link` | `POST /api/v1/auth/token-exchange`, `GET|POST /api/v1/auth/<provider>/callback` |
+| `me.history.read` | `GET /api/v1/me/history` |
+| `me.profile.update` | `PATCH /api/v1/me` |
+
+운영자 화면은 **조회까지 전부** 들어 있다 — 운영자가 단어 목록을 여는 것 자체가 개인정보
+처리시스템 접속이다. 기록은 라우트 데코레이터가 아니라 `after_request` 훅 한 곳에서 한다.
+데코레이터를 붙이면 (a) `admin_required` 가 먼저 403 을 내는 요청은 기록이 안 남는데
+**막힌 접근 시도가 점검에서 가장 보고 싶은 기록**이고 (b) 새 `/admin` 라우트에 붙이는 걸
+잊으면 조용히 빠진다. 엔드포인트 표로 들고 있으면 라우트가 생길 때 표에 없다는 게 드러난다.
+행위자는 인증을 통과시킨 자리에서 `remember_actor` 로 적어 둔다 — 계정 삭제는 그 게스트
+행을 지우고 세션도 비워서, 응답 시점에는 누가 지웠는지 알아낼 방법이 없다.
+
+**로그에 비밀값·전체 이메일을 남기지 않는다.** 운영자 이메일은 `h***@dosaem.com` 으로
+가리고(운영자가 두 명이라 첫 글자 + 도메인으로 구분된다), 플레이어는 `guest.<id>` 다.
+Gunicorn 포맷에서는 Authorization 헤더·쿠키·쿼리스트링을 뺐다 — 지금은 URL 에 비밀값이
+안 오지만, 포맷이 `%(r)s`(요청 줄 전체)나 `%(q)s` 를 담고 있으면 나중에 쿼리로 뭔가를
+받는 순간 1년 보관되는 파일로 새어 나간다.
+
+**위변조 검출은 SHA-256 해시 체인이다.** 행마다 `hash = sha256(prev_hash + 행 내용)` 을
+넣고 `flask access-log verify` 가 처음부터 다시 계산한다. 행 내용이 바뀌면 그 행의 해시가
+안 맞고, 중간 행이 지워지면 다음 행의 `prev_hash` 가 안 맞아서 **두 경우가 다 잡힌다**
+(고시 제8조 제3항). 모델에 `updated_at` 이 없고 리포지토리에 update/delete 함수도 없다 —
+기록 경로 옆에 삭제 함수가 있으면 그게 곧 "지울 수 있는 로그" 다. 만료 삭제만 서비스의
+Beat 작업이 한다. 체인은 직렬화돼야 하므로 append 는 MySQL 네임드 락(`GET_LOCK`)으로 한
+줄씩 쌓는다 — 직전 행을 `SELECT ... FOR UPDATE` 로 잠그는 방식은 두 군데서 샌다.
+테이블이 비어 있으면 잠글 행이 아예 없고, 잠금을 기다리던 쪽이 깨어나도 그 사이 커밋된
+새 꼬리는 이미 지나간 인덱스 스캔에 안 들어와서 낡은 `prev_hash` 로 INSERT 한다. 유니크
+제약이 체인이 갈라지는 건 막지만, 응답 훅이 예외를 삼키는 만큼 기록 자체가 사라진다
+(동시 10건에 7~8건 유실, `tests/test_concurrency.py`). 락은 **전용 연결**에서 잡고
+커밋한 **뒤에** 푼다 — 네임드 락은 트랜잭션이 아니라 연결에 붙어 있어서, 기록 세션의
+연결로 잡으면 commit 이 그 연결을 풀에 돌려준 뒤 같은 연결로 풀 수 있다는 보장이 없다. 시각은 **초 단위로 끊어서**
+해시한다(MySQL `DATETIME` 이 마이크로초를 버려서, 안 끊으면 저장된 행에서 다시 계산한
+해시가 달라진다).
+
+**보관 기간 365일은 법정 최소치다.** 고시 제8조 제1항이 1년 이상을 요구하고, 2년 이상은
+① 5만명 이상 정보주체 ② 고유식별정보·민감정보 처리 ③ 기간통신사업자인 경우다. 이 서비스는
+셋 다 아니다 — 수집 항목에 주민등록번호·여권번호·생체정보 같은 고유식별정보나 사상·건강
+같은 민감정보가 없고(방침 `#collection`), 출시 전이라 정보주체도 5만명 미만이다. 그래서
+`ACCESS_LOG_RETENTION_DAYS` 기본값이 365 이고, 규모가 커지면 **설정값만** 올린다(코드는
+안 고친다 — RELEASE "### 36." 의 체크박스가 고지 문구도 같이 고치게 한다). 만료 삭제를
+04:10 에 둔 이유는 04:00 백업보다 뒤여야 한다는 것: 순서가 반대면 그 날 지워진 행이 당일
+덤프에만 남아 보관 기간을 넘겨 14일 더 살아 있게 된다.
+
+**접근 로그 회전은 `cp` + 비우기(copytruncate)다.** 앱 컨테이너의 Gunicorn 이 그 파일을
+열어둔 채라서 `mv` 로 옮기면 그 뒤 요청이 사라진 inode 로 흘러가고, 다른 컨테이너의
+프로세스에 USR1(로그 재열기)을 보낼 수도 없다. 그래서 내용만 복사하고 원본을 0 바이트로
+비운다 — 비우는 순간의 요청 한두 건이 섞일 수 있다는 게 알려진 대가다. 회전을 새 컨테이너로
+만들지 않고 **이미 매일 도는 backup 컨테이너의 루프**에 붙였다(§21 의 sleep 루프).
+
+**점검은 사람이 한다.** 고시 제8조 제2항이 "월 1회 이상" 점검을 요구하는데, 자동화할 수
+있는 건 집계뿐이고 "평소와 다른가" 는 사람 판단이다. `flask access-log report --month
+YYYY-MM` 이 행위별 건수·거부 건수·체인 검증 결과를 찍고, 실행·보관은 RELEASE "### 36." 의
+월간 체크박스다. `verify` 는 끊긴 게 있으면 **종료 코드가 0 이 아니다** — 눈으로 보는 것
+말고 점검 스크립트에서도 쓸 수 있어야 한다.
 
 
 ## 부하 테스트 요약

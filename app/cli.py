@@ -2,6 +2,7 @@ import click
 from flask.cli import with_appcontext
 
 from app.models import PuzzleLanguage
+from app.services.access_log_service import monthly_report, verify_chain
 from app.services.book_lookup_service import search_books
 from app.services.operator_alert_service import notify_operator
 from app.services.puzzle_schedule_service import schedule_puzzles
@@ -98,8 +99,54 @@ def notify_operator_test_command():
         click.echo("전송하지 않음 — SLACK_WEBHOOK_URL 설정과 서버 로그를 확인하세요")
 
 
+@click.group("access-log")
+def access_log_group():
+    """개인정보처리시스템 접속기록의 점검 명령(고시 제8조).
+
+    기록은 요청 경로가 자동으로 남긴다(`app/access_log.py`) — 여기 있는 건 사람이
+    "손대진 않았나"(verify)와 "이번 달에 무슨 일이 있었나"(report)를 확인하는 쪽이다.
+    월 1회 점검 절차는 `docs/RELEASE.md` "### 36.".
+    """
+
+
+@access_log_group.command("verify")
+@with_appcontext
+def access_log_verify_command():
+    """해시 체인을 처음부터 다시 계산해 끊긴 지점을 찾는다.
+
+    끊긴 게 있으면 **종료 코드가 0 이 아니다** — 사람이 눈으로 보는 것 말고
+    점검 스크립트에서도 쓸 수 있어야 한다.
+    """
+    result = verify_chain()
+    if result.broken_at is None:
+        click.echo(f"접속기록 {result.checked}행 검증 — 이상 없음")
+        return
+    click.echo(f"접속기록 체인이 끊겼습니다: id={result.broken_at} ({result.checked}행까지 검증)")
+    raise SystemExit(1)
+
+
+@access_log_group.command("report")
+@click.option("--month", required=True, help="점검할 달 (YYYY-MM)")
+@with_appcontext
+def access_log_report_command(month):
+    """월별 행위 수·거부 수·체인 검증 결과. 고시 제8조 제2항의 월 1회 점검용."""
+    try:
+        report = monthly_report(month)
+    except ValueError:
+        raise click.BadParameter("YYYY-MM 형식이어야 합니다", param_hint="--month") from None
+
+    click.echo(f"[{report.month}] 접속기록 총 {report.total}건, 거부 {report.denied}건")
+    for action, count in sorted(report.by_action.items(), key=lambda item: (-item[1], item[0])):
+        click.echo(f"  {action} {count}")
+    if report.chain.broken_at is None:
+        click.echo(f"체인 검증({report.chain.checked}행) — 이상 없음")
+    else:
+        click.echo(f"체인 검증 — 끊긴 지점 id={report.chain.broken_at}")
+
+
 def register_commands(app):
     app.cli.add_command(seed_words_command)
     app.cli.add_command(schedule_puzzles_command)
     app.cli.add_command(search_books_command)
     app.cli.add_command(notify_operator_test_command)
+    app.cli.add_command(access_log_group)

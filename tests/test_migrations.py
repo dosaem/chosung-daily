@@ -34,6 +34,7 @@ APP_SETTING_PARENT_REVISION = "f394da7f4d88"  # 설정 테이블 직전 리비�
 HINT_UNLOCK_PARENT_REVISION = "a5bab2f58a7b"  # 힌트 미리 보기 테이블 직전 리비전
 REVOCATION_RETRY_PARENT_REVISION = "dae1b5af0cf7"  # 애플 철회 재시도 테이블 직전 리비전
 RECHECK_COUNTER_PARENT_REVISION = "94a83f12fddb"  # 재조회 실패 카운터 직전 리비전
+ACCESS_LOG_PARENT_REVISION = "d7a1f0ca0a29"  # 접속기록 테이블 직전 리비전
 
 PUZZLE_DATE = date(2026, 10, 13)
 KO_ANSWER = "해리 포터"
@@ -435,3 +436,39 @@ def test_subscription_rows_created_before_the_counter_existed_get_zero(migration
         ).mappings().one()
 
     assert dict(row) == {"status": "active", "recheck_failures": 0}
+
+
+def test_access_log_table_round_trips(migration_engine):
+    """36: 접속기록 테이블이 upgrade 로 생기고 downgrade 로 사라져야 한다."""
+    _run_flask_db(_migration_database_url(), "upgrade")
+    assert "access_log" in _table_names(migration_engine)
+
+    _run_flask_db(_migration_database_url(), "downgrade", ACCESS_LOG_PARENT_REVISION)
+    assert "access_log" not in _table_names(migration_engine)
+
+    _run_flask_db(_migration_database_url(), "upgrade")
+    assert "access_log" in _table_names(migration_engine)
+
+
+def test_access_log_rows_are_insert_only_and_unique_by_hash(migration_engine):
+    """36: 같은 해시를 두 번 넣을 수 없다 — 체인 행이 중복되면 점검이 거짓이 된다.
+    마이그레이션이 만든 스키마만으로(모델 없이) 확인한다."""
+    _run_flask_db(_migration_database_url(), "upgrade")
+    insert = text(
+        "INSERT INTO access_log "
+        "(occurred_at, actor, remote_ip, action, target, result, status_code, "
+        " prev_hash, hash) "
+        "VALUES (NOW(), 'h***@dosaem.com', '127.0.0.1', 'admin.word.list', NULL, "
+        "        'success', 200, :prev, :hash)"
+    )
+    row = {"prev": "0" * 64, "hash": "a" * 64}
+
+    with migration_engine.begin() as conn:
+        conn.execute(insert, row)
+
+    with migration_engine.connect() as conn:
+        columns = {r[0] for r in conn.execute(text("SHOW COLUMNS FROM access_log")).all()}
+    assert "updated_at" not in columns
+
+    with pytest.raises(IntegrityError), migration_engine.begin() as conn:
+        conn.execute(insert, row)

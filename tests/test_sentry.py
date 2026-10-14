@@ -17,6 +17,8 @@ from sentry_sdk.integrations.flask import FlaskIntegration
 from sentry_sdk.transport import Transport
 
 from app import create_app
+from app.extensions import db
+from app.models import AccessLog
 from app.observability import init_sentry
 
 FAKE_DSN = "https://examplepublickey@o0.ingest.sentry.io/0"
@@ -124,7 +126,17 @@ def sentry_app(captured_events):
     # 경로를 안 탄다. 실제 운영과 같은 경로를 보려고 끈다.
     app.config["TESTING"] = False
     assert init_sentry(app) is True
-    return app
+    # 이 fixture 는 conftest 의 `app` 과 달리 자기 앱을 만들어서 스키마가 없다.
+    # 콜백은 접속기록 대상이라(티켓 36, `account.link`) 응답 훅이 행을 남기는데,
+    # 테이블이 없으면 그 실패가 ERROR 로그 → Sentry 이벤트 하나를 **더** 만들어서
+    # 아래 "이벤트 1건" 단언이 2건으로 깨진다. 운영에서는 테이블이 있으니, 여기서도
+    # 그 테이블만 만들어 같은 경로를 보게 한다(다른 테이블은 건드리지 않는다).
+    with app.app_context():
+        AccessLog.__table__.create(db.engine, checkfirst=True)
+    yield app
+    with app.app_context():
+        db.session.remove()
+        AccessLog.__table__.drop(db.engine, checkfirst=True)
 
 
 @pytest.fixture

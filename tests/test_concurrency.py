@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from app.extensions import db
 from app.models import (
+    AccessLog,
     Attempt,
     DailyPuzzle,
     Guest,
@@ -13,7 +14,7 @@ from app.models import (
     WordCategory,
 )
 from app.repositories import attempt_repository
-from app.services import guess_service
+from app.services import access_log_service, guess_service
 from app.services.guess_service import submit_guess
 from app.services.hint_service import unlock_hint
 from app.services.puzzle_schedule_service import replace_assignment
@@ -335,3 +336,110 @@ def test_submission_that_wins_the_lock_blocks_the_replacement(
         (original_word_id, replacement_word_id),
         (submit_outcome[0], replace_outcome[0]),
     )
+
+
+def test_concurrent_access_log_appends_keep_one_chain(app):
+    """36: 동시에 들어온 두 기록이 체인을 두 갈래로 갈라놓지 않는다.
+
+    `append` 는 MySQL 네임드 락으로 두 요청을 한 줄로 세운다
+    (`app/repositories/access_log_repository.py`). 기준점 한 행을 먼저 넣어
+    "이미 쌓인 체인 뒤에 붙는" 경우를 본다.
+    """
+    def record(actor):
+        access_log_service.record_access(
+            action="me.history.read",
+            actor=actor,
+            remote_ip="127.0.0.1",
+            target=None,
+            status_code=200,
+        )
+
+    record("guest.1")  # 기준점 — 잠글 직전 행
+    barrier = threading.Barrier(2)
+    errors = []
+
+    def worker(actor):
+        with app.app_context():
+            barrier.wait()
+            try:
+                record(actor)
+            except Exception as exc:
+                errors.append(type(exc).__name__)
+            finally:
+                db.session.remove()
+
+    threads = [threading.Thread(target=worker, args=(f"guest.{n}",)) for n in (2, 3)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert errors == [], errors
+    rows = db.session.query(AccessLog).order_by(AccessLog.id).all()
+    assert len(rows) == 3
+    # 한 줄로 이어져 있다 — 두 갈래면 아래 verify 가 끊긴 지점을 찍는다.
+    assert [row.prev_hash for row in rows[1:]] == [row.hash for row in rows[:-1]]
+    assert access_log_service.verify_chain().broken_at is None
+
+
+def _record_access(actor):
+    access_log_service.record_access(
+        action="me.history.read",
+        actor=actor,
+        remote_ip="127.0.0.1",
+        target=None,
+        status_code=200,
+    )
+
+
+def _append_concurrently(app, count):
+    """`count` 개 스레드가 같은 순간에 기록을 시도한다. (오류 목록, 남은 행 수)."""
+    barrier = threading.Barrier(count)
+    errors = []
+
+    def worker(index):
+        with app.app_context():
+            barrier.wait()
+            try:
+                _record_access(f"guest.{index}")
+            except Exception as exc:
+                errors.append(type(exc).__name__)
+            finally:
+                db.session.remove()
+
+    threads = [threading.Thread(target=worker, args=(index,)) for index in range(count)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    db.session.remove()
+    return errors, db.session.query(AccessLog).count()
+
+
+def test_ten_concurrent_access_log_appends_on_an_empty_chain_lose_nothing(app):
+    """36: 빈 체인에 열 건이 동시에 들어와도 한 건도 유실되지 않는다.
+
+    잠글 직전 행이 없는 상태가 가장 먼저 깨진다 — 첫 요청들이 전부 같은 genesis
+    를 `prev_hash` 로 잡으면 유니크 제약이 둘째부터 전부 막아서, 응답 훅이
+    예외를 삼킨 만큼 개인정보 처리 기록 자체가 사라진다.
+    """
+    errors, rows = _append_concurrently(app, 10)
+
+    assert errors == [], errors
+    assert rows == 10
+    assert access_log_service.verify_chain().broken_at is None
+
+
+def test_ten_concurrent_access_log_appends_on_an_existing_chain_lose_nothing(app):
+    """36: 이미 쌓인 체인 뒤에 동시에 붙여도 마찬가지다.
+
+    직전 행 잠금만으로는 부족하다 — 잠금을 기다리던 쪽이 깨어나도 그 사이 커밋된
+    새 꼬리를 못 보고 낡은 `prev_hash` 로 INSERT 해서 1062 로 떨어진다.
+    """
+    _record_access("guest.seed")
+
+    errors, rows = _append_concurrently(app, 10)
+
+    assert errors == [], errors
+    assert rows == 11
+    assert access_log_service.verify_chain().broken_at is None

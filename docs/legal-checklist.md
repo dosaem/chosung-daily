@@ -28,9 +28,9 @@
 | 개보법 §30①2 (백업 보존) | 삭제 후에도 백업본에 남는 기간(14일) 고지 | `privacy#collection` | `test_privacy_ko_has_the_required_phrases[14일]`, `tests/test_legal_pages.py::test_privacy_states_backup_retention` |
 | 개보법 §30①3 / §17 | 제3자 제공: 받는 자·목적·항목·보유 기간 | `privacy#third-parties` | `test_every_checklist_section_id_exists_in_both_languages` |
 | 개보법 §30①3 / §26 | 처리 위탁: 수탁자·위탁 업무 | `privacy#processors` | `test_every_checklist_section_id_exists_in_both_languages` |
-| 개보법 §30①4 / 시행령 §31①2 | 개인정보의 파기 절차·방법 (백업 덤프 암호화는 **미구현 — 출시 전 결정 필요**, `docs/RELEASE.md` "### 16.") | `privacy#destruction` | `test_privacy_ko_has_the_required_phrases[파기]`, `test_destruction_section_describes_the_real_backup_protection` |
+| 개보법 §30①4 / 시행령 §31①2 | 개인정보의 파기 절차·방법 (백업 덤프는 **공개키 암호화 — 구현됨**, 티켓 36) | `privacy#destruction` | `test_privacy_ko_has_the_required_phrases[파기]`, `test_destruction_section_describes_the_real_backup_protection`, `test_the_backup_script_encrypts_the_dump_with_a_public_key` |
 | 개보법 §30①5 / §35~§37 | 정보주체와 법정대리인의 권리·의무와 행사 방법 | `privacy#rights` | `test_delete_page_is_linked_from_the_rights_section` |
-| 개보법 §29 / 시행령 §30 | 안전성 확보 조치(암호화·접근 통제·접속기록) | `privacy#security` | `test_every_checklist_section_id_exists_in_both_languages`, `test_privacy_does_not_promise_unimplemented_log_retention` (접속기록 법정 보관은 현재 미구현 — 출시 전 적용 항목으로 `docs/RELEASE.md` "### 16.") |
+| 개보법 §29 / 시행령 §30 | 안전성 확보 조치(암호화·접근 통제·접속기록) | `privacy#security` | `test_every_checklist_section_id_exists_in_both_languages`, `test_privacy_states_the_implemented_log_retention` (접속기록 **1년 보관·월 1회 점검 — 구현됨**, 티켓 36) |
 | 개보법 §30①6 / §31 / 시행령 §32 | 개인정보 보호책임자의 **성명 또는 직책**·연락처 — **사용자 결정(2026-10-14): 직책 "운영자" + 이메일**(성명은 `LEGAL_PRIVACY_OFFICER` 를 채우면 표시) | `privacy#officer` | `test_privacy_ko_has_the_required_phrases[개인정보 보호책임자]` |
 | 시행령 §31①3 | 열람 청구를 접수·처리하는 부서(창구) | `privacy#officer` | `test_privacy_ko_has_the_required_phrases[열람]` |
 | 시행령 §31①4 / §63 | 권익 침해 구제 방법 — 개인정보침해신고센터(118), 개인정보 분쟁조정위원회(1833-6972) | `privacy#remedies` | `test_privacy_ko_has_the_required_phrases[118]`, `[1833-6972]` |
@@ -38,6 +38,24 @@
 | 개보법 §22의2 | 만 14세 미만 아동의 개인정보 처리(동의·미수집) | `privacy#children` | `test_privacy_ko_has_the_required_phrases[만 14세]` |
 | 시행령 §31①5 / §31② | 처리방침 변경 시 시행일·변경 내용·고지 방법, 이전 버전 확인 방법 | `privacy#changes` | `test_privacy_ko_has_the_required_phrases[시행일]` |
 | 개보법 §30①7의2 / §37의2 | 가명정보 처리·자동화된 결정 — **해당 없음** 을 명시 | `privacy#general` | `test_every_checklist_section_id_exists_in_both_languages` |
+
+### 1-1. 개인정보의 안전성 확보조치 기준 (개인정보보호위원회 고시 제2023-6호)
+
+개보법 §29 의 구체적 조치를 정한 고시다. 이 서비스에 걸리는 조문만 적는다 —
+보관 기간을 **1년**으로 정한 근거가 여기 있다(티켓 36).
+
+| 근거(조문·정책) | 요구 내용 | 문서·절 id | 확인 테스트 |
+|---|---|---|---|
+| 고시 §8① (접속기록의 보관) | 개인정보처리시스템 접속기록을 **1년 이상** 보관. 2년 이상은 ① 5만명 이상 정보주체 ② **고유식별정보·민감정보** 처리 ③ 기간통신사업자인 경우 — 이 서비스는 셋 다 아니므로(수집 항목에 주민등록번호·여권번호·생체정보·사상·건강 등이 없다) **법정 최소 1년 = `ACCESS_LOG_RETENTION_DAYS` 기본값 365** | `privacy#collection` · `privacy#security` | `test_privacy_states_the_implemented_log_retention`, `test_the_retention_period_in_the_notice_matches_the_setting`, `tests/test_access_log.py::test_the_default_retention_is_the_legal_minimum_of_one_year`, `tests/test_access_log.py::test_rows_past_the_retention_period_are_deleted`, `tests/test_access_log_file.py::test_rotated_files_past_the_retention_period_are_deleted` |
+| 고시 §8② (점검) | 접속기록을 **월 1회 이상** 점검 | `privacy#security` | `tests/test_access_log.py::test_the_monthly_report_counts_actions_denials_and_verifies_the_chain`, `tests/test_cli.py::test_access_log_report_prints_counts_denials_and_the_chain_result` (실행은 사람 — `docs/RELEASE.md` "### 36.") |
+| 고시 §8③ (위·변조 방지) | 접속기록이 위·변조·도난·분실되지 않도록 안전하게 보관 | `privacy#security` | `tests/test_access_log.py::test_verify_reports_the_row_where_the_chain_breaks`, `test_verify_detects_a_deleted_row_in_the_middle`, `test_the_repository_exposes_no_update_or_delete_path` |
+| 고시 §7 (개인정보의 암호화) | 인증정보·고유식별정보의 저장·전송 암호화 — 이 서비스는 **고유식별정보를 처리하지 않고** 비밀번호도 없다(로그인은 구글·애플 OAuth). 암호화 대상은 애플 refresh token 과 백업 덤프다 | `privacy#security` · `privacy#destruction` | `tests/test_secret_crypto.py`, `test_the_backup_script_encrypts_the_dump_with_a_public_key` |
+| 고시 §11 (재해·재난 대비) | 백업·복구 계획 — **적용 대상 아님**(10만명 이상 처리하는 대기업·중견기업·공공기관 또는 100만명 이상 중소기업). 그래도 매일 백업과 복구 리허설을 둔다(티켓 21·36) | `privacy#security` | `tests/test_backup_restore.py` |
+
+> **조문 번호 주의.** 위 번호는 **고시 제2023-6호(시행 2023. 9. 22.)** 기준이다. 2025-10
+> 개정(보유 규모별 차등화)에서 접속기록 조항은 1년 유예로 들어갔다고 보도돼 있어 조 번호가
+> 바뀔 수 있다 — 보관 기간 자체(1년, 상향 요건 2년)는 같다. 출시 전에 국가법령정보센터의
+> 현행 고시로 조 번호를 확인하는 체크박스는 `docs/RELEASE.md` "### 36." 에 있다.
 
 ## 2. 개인정보 보호법 제28조의8 (국외 이전 고지)
 
@@ -131,13 +149,17 @@ ko/en 양쪽에 둔다 — 처리의 법적 근거, 권리, 감독기관 신고�
 
 최종 리뷰(`review/impl-review-16.md` D-16-1~3)가 "구현하지 않은 조치를 고지했다" 를 잡아서,
 **방침의 보호조치·보유 기간 문장이 어느 코드·설정에 근거하는지** 를 여기에 고정한다. 원칙:
-방침은 현행 구현만 적고, 법이 요구하는데 아직 안 하는 조치는 코드로 새로 만들지 않고
-`docs/RELEASE.md` "### 16." 의 사람 체크박스로 남긴다.
+방침은 현행 구현만 적는다. 16 은 "법이 요구하는데 아직 안 하는 조치" 를 코드로 만들지 않고
+사람 체크박스로 남겼고, **티켓 36 이 그 두 건(백업 덤프 암호화·접속기록 보관·점검)을
+구현해서** 아래 두 행이 "미구현" 에서 "구현됨" 으로 바뀌었다(2026-10-14, 사용자 결정
+"필요할 수 있는 것이니 다 만들자"). 없는 기능을 거부 수단으로 안내하던 문구(D-16-5 의
+"연결 해제")도 같은 티켓에서 사실대로 고쳤다 —
+`tests/test_legal_pages.py::test_privacy_does_not_offer_an_unlink_feature_that_does_not_exist`.
 
 | 방침 문장(절) | 근거 코드·설정 | 상태 |
 |---|---|---|
-| 백업본은 **압축된** 덤프 파일째로 14일 뒤 삭제, 덤프 자체는 암호화하지 않고 접근 제한 폴더에만 둔다 (`privacy#destruction`) | `scripts/backup.sh`(`mysqldump ... \| gzip -c`, `BACKUP_RETENTION_DAYS` 보존 삭제), `docker-compose.prod.yml` backup 서비스(`${BACKUP_DIR}` bind mount) | 구현됨. **백업 덤프 암호화는 미구현 — 출시 전 결정 필요** (`tests/test_legal_checklist.py::test_the_backup_script_only_compresses_the_dump`) |
-| 서버 로그는 컨테이너 표준 출력에만 남기고 따로 모아 보관하지 않는다 / 접속기록 법정 보관은 출시 전 적용 예정 (`privacy#collection`, `privacy#security`) | `Dockerfile` CMD 의 Gunicorn(접근 로그 옵션 없음 = 기본값 "접근 로그 없음"), `docker-compose.prod.yml`(로그 드라이버·보존 설정 없음) | **개인정보처리시스템 접속기록 보관 미구현 — 출시 전 결정 필요** (`tests/test_legal_checklist.py::test_the_production_entrypoint_has_no_access_log`, `test_privacy_does_not_promise_unimplemented_log_retention`) |
+| 백업본은 **압축·암호화한** 덤프 파일째로 14일 뒤 삭제, 덤프는 공개키로 암호화해 저장하고 복호화 키는 서버에 없다 (`privacy#destruction`) | `scripts/backup.sh`(`mysqldump \| gzip -c \| openssl cms -encrypt`, `BACKUP_ENCRYPTION_CERT_FILE`, `BACKUP_RETENTION_DAYS` 보존 삭제), `scripts/restore.sh`(`BACKUP_DECRYPTION_KEY_FILE`), `docker-compose.prod.yml` backup 서비스 | 구현됨 (티켓 36, `tests/test_legal_checklist.py::test_the_backup_script_encrypts_the_dump_with_a_public_key`, `tests/test_backup_restore.py::test_the_dump_on_disk_is_not_readable_without_the_private_key`) |
+| 개인정보 처리 행위의 접속기록을 DB 에, 그 밖의 모든 요청을 접근 로그 파일에 남기고 **1년 보관 후 자동 삭제·월 1회 점검·해시 체인으로 위변조 검출** (`privacy#collection`, `privacy#security`) | `app/access_log.py`(기록 지점), `app/models/access_log.py`·`app/repositories/access_log_repository.py`(INSERT 전용·해시 체인), `app/services/access_log_service.py`(검증·만료 삭제·월 점검), `app/cli.py`(`flask access-log verify\|report`), `gunicorn.conf.py`(`${LOG_DIR}/access.log`), `scripts/rotate-access-log.sh`, `ACCESS_LOG_RETENTION_DAYS`(기본 365 = 고시 §8① 최소 기간) | 구현됨 (티켓 36, `tests/test_access_log.py`, `tests/test_access_log_file.py`, `tests/test_legal_checklist.py::test_the_production_entrypoint_configures_an_access_log`) |
 | Sentry 에 요청 본문·쿼리스트링·쿠키·IP·사용자 식별자를 보내지 않는다 (`privacy#collection`) | `app/observability.py` `SENTRY_DATA_COLLECTION` | 구현됨 (`tests/test_sentry.py`) |
 | 애플 refresh token 은 암호화 저장하고 철회 실패 시 최대 7일 후 폐기 (`privacy#destruction`) | `app/utils/secret_crypto.py`, `app/services/apple_revocation_service.py`, `app/models/apple_revocation_retry.py` | 구현됨 (`tests/test_secret_crypto.py`, `tests/test_apple_revocation.py`) |
 | 로그인은 계정을 연결하지 않으면 이전이 없지만, **구독 검증은 계정 연결과 무관하게** 구매 토큰·거래 ID 가 스토어로 전송된다 (`privacy#overseas`) | `app/api/subscriptions.py`(`@with_guest` — 게스트 인증만), `app/services/subscription_service.py`(`verify_receipt` 가 연결 계정 여부와 무관하게 스토어 클라이언트 호출) | 구현 동작과 일치 (`tests/test_subscription_verify.py::test_verify_reaches_the_store_without_a_linked_account`, `tests/test_legal_pages.py::test_store_rows_separate_sign_in_from_subscription_verification`) |

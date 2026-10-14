@@ -19,6 +19,7 @@ def test_tasks_are_registered():
     assert "tasks.notify_apple_secret_expiry" in celery.tasks
     assert "tasks.retry_apple_revocations" in celery.tasks
     assert "tasks.recheck_expiring_subscriptions" in celery.tasks
+    assert "tasks.purge_access_logs" in celery.tasks
 
 
 def test_beat_schedule_matches_spec_times():
@@ -66,6 +67,19 @@ def test_subscription_recheck_runs_daily_away_from_the_midnight_batch():
     assert recheck_schedule["schedule"].minute == {30}
 
 
+def test_access_log_purge_runs_daily_right_after_the_backup(app):
+    """접속기록 만료 삭제는 매일 04:10 — 04:00 백업보다 **뒤**다(티켓 36).
+
+    반대 순서면 그 날 지워진 행이 당일 덤프에만 남아, 보관 기간을 넘긴 개인정보가
+    백업 보존 기간(14일)만큼 더 살아 있게 된다.
+    """
+    purge = celery.conf.beat_schedule["purge-access-logs"]
+
+    assert purge["task"] == "tasks.purge_access_logs"
+    assert purge["schedule"].hour == {4}
+    assert purge["schedule"].minute == {10}
+
+
 def test_beat_schedule_is_merged_from_task_modules():
     """태스크 모듈이 자기 몫을 들고 있고 celery_app.py가 합친다 — 태스크를 추가하는
     티켓이 celery_app.py의 한 딕셔너리를 같이 고치지 않게 한 구조다."""
@@ -102,12 +116,16 @@ def test_tasks_delegate_to_the_service_functions(monkeypatch):
         "recheck_expiring_subscriptions",
         lambda: called.append("subscription-recheck") or 0,
     )
+    monkeypatch.setattr(
+        scheduled, "purge_expired_access_logs", lambda: called.append("access-log-purge") or 0
+    )
 
     scheduled.ensure_today_puzzle_task.run()
     scheduled.notify_low_word_pool_task.run()
     scheduled.notify_apple_secret_expiry_task.run()
     scheduled.retry_apple_revocations_task.run()
     scheduled.recheck_expiring_subscriptions_task.run()
+    scheduled.purge_access_logs_task.run()
 
     assert called == [
         "ensure",
@@ -115,6 +133,7 @@ def test_tasks_delegate_to_the_service_functions(monkeypatch):
         "apple-secret",
         "apple-revocations",
         "subscription-recheck",
+        "access-log-purge",
     ]
 
 

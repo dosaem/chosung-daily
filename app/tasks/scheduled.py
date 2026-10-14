@@ -1,6 +1,7 @@
 from celery.schedules import crontab
 from redis.exceptions import RedisError
 
+from app.services.access_log_service import purge_expired_access_logs
 from app.services.apple_revocation_service import retry_pending_revocations
 from app.services.apple_secret_service import notify_apple_secret_expiry
 from app.services.puzzle_maintenance_service import (
@@ -42,6 +43,11 @@ def retry_apple_revocations_task():
     retry_pending_revocations()
 
 
+@celery.task(name="tasks.purge_access_logs")
+def purge_access_logs_task():
+    purge_expired_access_logs()
+
+
 @celery.task(name="tasks.recheck_expiring_subscriptions")
 def recheck_expiring_subscriptions_task():
     recheck_expiring_subscriptions()
@@ -57,6 +63,9 @@ def recheck_expiring_subscriptions_task():
 # 애플 secret 만료 알림은 주 1회(월 09:10)다 — 갱신 자체는 요청 경로가 하고
 # (스펙 §A.13) 이건 "갱신이 안 돌고 있다"를 잡는 안전망이라 매일 볼 일이 아니다.
 # 잔량 알림과 10분 떼어놔서 두 Slack 메시지가 한 번에 겹치지 않게 했다.
+# 접속기록 만료 삭제는 매일 04:10 이다. 04:00 백업 덤프가 그 날 지워질 행까지
+# 담은 뒤에 지운다 — 순서가 반대면 "법정 기간이 지나 지운 기록" 이 그 날 백업에만
+# 남아서 보관 기간을 넘겨 살아 있게 된다(티켓 36).
 # 애플 철회 재시도는 매일 09:20 이다(스펙 §A.7 "Beat 가 매일 재시도"). 폐기 알림이
 # 울릴 수 있어서 다른 두 알림과 같은 아침 시간대에 두고 10분씩 떼어놨다 — 운영자가
 # 깨어 있고, 세 Slack 메시지가 한꺼번에 오지 않는다.
@@ -80,6 +89,10 @@ BEAT_SCHEDULE = {
     "retry-apple-revocations": {
         "task": "tasks.retry_apple_revocations",
         "schedule": crontab(hour=9, minute=20),
+    },
+    "purge-access-logs": {
+        "task": "tasks.purge_access_logs",
+        "schedule": crontab(hour=4, minute=10),
     },
     "recheck-expiring-subscriptions": {
         "task": "tasks.recheck_expiring_subscriptions",

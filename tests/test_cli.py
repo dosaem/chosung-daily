@@ -1,5 +1,9 @@
+from sqlalchemy import text
+
+from app.extensions import db
 from app.models import DailyPuzzle, PuzzleLanguage, Word
-from app.services import operator_alert_service
+from app.services import access_log_service, operator_alert_service
+from app.utils.time import utcnow
 
 
 def test_seed_words_command(app, tmp_path):
@@ -88,3 +92,62 @@ def test_notify_operator_test_command_sends_through_the_wrapper(app, monkeypatch
     assert "전송 완료" in result.output
     assert len(sent) == 1
     assert "연결 테스트" in sent[0]
+
+
+# ------------------------------------------- 접속기록 점검 CLI (티켓 36)
+
+
+def _append_access_log_row(action="me.history.read", status_code=200):
+    return access_log_service.record_access(
+        action=action, actor="guest.1", remote_ip="127.0.0.1", target=None, status_code=status_code
+    )
+
+
+def test_access_log_verify_passes_on_an_untouched_chain(app):
+    _append_access_log_row()
+    _append_access_log_row()
+
+    result = app.test_cli_runner().invoke(args=["access-log", "verify"])
+
+    assert result.exit_code == 0
+    assert "2행" in result.output
+    assert "이상 없음" in result.output
+
+
+def test_access_log_verify_exits_nonzero_and_names_the_broken_row(app):
+    """위·변조 검출이 종료 코드로도 나와야 사람이 아니라 점검 스크립트도 쓸 수 있다."""
+    _append_access_log_row()
+    tampered = _append_access_log_row()
+    _append_access_log_row()
+    db.session.execute(
+        text("UPDATE access_log SET actor = 'guest.999' WHERE id = :id"), {"id": tampered.id}
+    )
+    db.session.commit()
+
+    result = app.test_cli_runner().invoke(args=["access-log", "verify"])
+
+    assert result.exit_code != 0
+    assert f"id={tampered.id}" in result.output
+
+
+def test_access_log_report_prints_counts_denials_and_the_chain_result(app):
+    _append_access_log_row()
+    _append_access_log_row(action="admin.word.list")
+    _append_access_log_row(action="admin.word.list", status_code=403)
+
+    result = app.test_cli_runner().invoke(
+        args=["access-log", "report", "--month", utcnow().strftime("%Y-%m")]
+    )
+
+    assert result.exit_code == 0
+    assert "총 3건" in result.output
+    assert "admin.word.list 2" in result.output
+    assert "me.history.read 1" in result.output
+    assert "거부 1건" in result.output
+    assert "이상 없음" in result.output
+
+
+def test_access_log_report_rejects_a_month_it_cannot_parse(app):
+    result = app.test_cli_runner().invoke(args=["access-log", "report", "--month", "2026-13"])
+
+    assert result.exit_code != 0

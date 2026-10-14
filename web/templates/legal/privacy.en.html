@@ -49,7 +49,8 @@
   <dd>
     If you link a Google or Apple account, we store the email address and the unique identifier
     the provider gives us. Nothing is collected if you never link an account. Retention: until
-    you unlink or delete your account.
+    you delete your account &mdash; there is no "unlink only" feature, so deleting the account is
+    the only way to remove the stored email.
   </dd>
 
   <dt>Apple refresh token</dt>
@@ -95,14 +96,19 @@
   <dt>Access and error logs</dt>
   <dd>
     To investigate failures, error stacks and processing records are written to our server
-    logs, and the path and time of a failing request are sent to Sentry. Our server logs do
-    not record identifying values such as emails or tokens, and Sentry is configured not to
-    receive request bodies, query strings, cookies, IP addresses, or user identifiers.
-    Retention: Sentry deletes events under its own retention policy, and our server logs are
-    only written to container standard output and are <strong>not collected into separate
-    storage</strong> (they are gone once the container is recreated). A configuration that
-    keeps access logs for the period the law requires will be in place
-    <strong>before launch</strong>, and we will update the retention in this section then.
+    logs, and the path and time of a failing request are sent to Sentry. On top of that we keep
+    <strong>access logs for the personal-data processing system</strong> in two layers: every
+    personal-data action &mdash; opening an operator page, deleting an account, reading your own
+    records, linking an account &mdash; is recorded in the database as who, when, from where,
+    what, and the outcome (an operator email is stored only masked, as
+    <code>h***@example.com</code>), and every other web request is recorded in an access log
+    file (remote IP, time, method, path, status, response size, browser, response time). These
+    logs never record tokens, backup codes, full email addresses, cookies, or query strings, and
+    Sentry is configured not to receive request bodies, query strings, cookies, IP addresses, or
+    user identifiers. Retention: access logs are kept for <strong>one year (365 days)</strong>
+    and then deleted automatically (Art. 8(1) of the Standards for Securing the Safety of
+    Personal Information), and we review them at least once a month. Sentry deletes events under
+    its own retention policy.
   </dd>
 </dl>
 <p class="doc-note">
@@ -171,7 +177,7 @@
       <li><strong>Country, time, method</strong>: the United States and other countries where Google runs servers / when you use the feature / HTTPS network transfer</li>
       <li><strong>Recipient and contact</strong>: Google LLC (published channel: <a href="https://policies.google.com/privacy" rel="noopener" target="_blank">policies.google.com/privacy</a>)</li>
       <li><strong>Purpose and retention</strong>: sign-in and subscription validity / per Google's retention policy</li>
-      <li><strong>How to refuse, and the effect</strong>: <strong>Sign-in</strong> &mdash; if you never link a Google account, or unlink it, there is no transfer; you can still solve the puzzle, and only continuing the same records across devices stops working. <strong>Subscription verification</strong> is separate from linking: even without a linked account, buying the ad-free subscription on Google Play sends that purchase token to Google for verification. To refuse that transfer, do not buy the subscription; refusing only means you cannot remove the ads.</li>
+      <li><strong>How to refuse, and the effect</strong>: <strong>Sign-in</strong> &mdash; if you never link a Google account, there is no transfer; you can still solve the puzzle, and only continuing the same records across devices stops working. There is no way to unlink a linked account, so if you no longer want the transfer, delete your account (see “Your rights” below). <strong>Subscription verification</strong> is separate from linking: even without a linked account, buying the ad-free subscription on Google Play sends that purchase token to Google for verification. To refuse that transfer, do not buy the subscription; refusing only means you cannot remove the ads.</li>
     </ul>
   </dd>
 
@@ -243,13 +249,16 @@
     <strong>Method</strong>: database rows are deleted immediately and cannot be recovered from
     the service; the encrypted Apple refresh token is destroyed as soon as revocation finishes,
     or after at most 7 days if revocation keeps failing. Backups are deleted as whole
-    compressed dump files after 14 days — the dump files themselves are not encrypted and are
-    kept only in an access-restricted folder on the server. We hold no printed personal data.
+    compressed, encrypted dump files after 14 days &mdash; we store only
+    <strong>public-key encrypted dumps</strong> and the key needed to decrypt them is not kept
+    on the server, so reading the server folder does not reveal the contents of a dump. We hold
+    no printed personal data.
   </li>
   <li>
     <strong>Access and error logs</strong>: Sentry deletes them under its own retention policy,
-    and our server logs are not collected into separate storage, so there is no separate
-    destruction step for them.
+    and access logs for the personal-data processing system are deleted automatically once their
+    one-year retention period has passed (access log files are rotated and compressed daily and
+    then deleted on the same schedule).
   </li>
 </ul>
 
@@ -285,8 +294,9 @@
   <li>Encryption in transit: every web and app request travels over HTTPS only.</li>
   <li>Encryption at rest: sensitive values such as the Apple refresh token are stored encrypted.</li>
   <li>Access control: operator pages are limited to an allow-list of operator accounts, and state-changing requests are protected with a CSRF token.</li>
-  <li>Log minimisation: our server logs and error reports do not record identifying values such as emails or tokens. Keeping access logs for the statutory period will be in place before launch.</li>
-  <li>Backups: taken daily and kept for 14 days, with restore rehearsals.</li>
+  <li>Log minimisation: our server logs and error reports do not record identifying values such as full email addresses or tokens (operator emails appear masked only).</li>
+  <li>Access log retention and review: access logs for the personal-data processing system are <strong>kept for one year</strong> and then deleted automatically, and we <strong>review them at least monthly</strong>. Each record carries a hash chain so tampering is detectable (Art. 8 of the Standards for Securing the Safety of Personal Information).</li>
+  <li>Backups: taken daily and kept for 14 days, with restore rehearsals. Dumps are stored encrypted with a public key, and the decryption key is not kept on the server.</li>
 </ul>
 
 <h2 id="automatic-collection">10. Automatic collection — cookies, advertising IDs, analytics SDKs</h2>

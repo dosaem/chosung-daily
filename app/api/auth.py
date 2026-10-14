@@ -2,6 +2,7 @@ from functools import wraps
 
 from flask import g, request
 
+from app.access_log import remember_actor
 from app.errors import UnauthorizedError
 from app.services.guest_service import get_guest_by_token
 
@@ -24,6 +25,9 @@ def with_guest(view):
             raise UnauthorizedError("유효하지 않은 토큰입니다.")
 
         g.guest = guest
+        # 접속기록의 행위자. 계정 삭제는 이 게스트 행을 지우기 때문에 응답
+        # 시점에는 누구였는지 알 수 없다 — 통과시킨 자리에서 적어 둔다.
+        remember_actor(f"guest.{guest.id}")
         return view(*args, **kwargs)
 
     return wrapper

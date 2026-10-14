@@ -1,3 +1,4 @@
+from app.models.access_log import AccessLog
 from app.models.account import Account
 from app.models.app_setting import AppSetting
 from app.models.apple_revocation_retry import AppleRevocationRetry
@@ -19,6 +20,7 @@ from app.models.subscription import Subscription
 from app.models.word import Word
 
 __all__ = [
+    "AccessLog",
     "Account",
     "AppSetting",
     "AppleRevocationRetry",
