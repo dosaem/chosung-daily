@@ -223,6 +223,15 @@ DB `chosung_daily_test_t27` / `_migrations` 는 이 티켓 전용으로 새로 �
 ```
 $ uv run ruff check .
 All checks passed!
+
+$ TEST_DATABASE_URL=… (chosung_daily_test_t27) \
+  TEST_REDIS_URL=… (redis DB 15) \
+  TEST_MIGRATION_DATABASE_URL=… (chosung_daily_test_t27_migrations) \
+  uv run pytest -q
+1257 passed in 879.68s (0:14:39)                   # exit 0
+# 1110 → 1257 은 main 의 티켓 16 병합이 더한 테스트다(이 티켓은 백엔드 0건).
+# 전용 DB·Redis DB 15 만 썼고 공용 테스트 DB 는 건드리지 않았다.
+# 접속 문자열의 인증 값은 이 문서에 옮기지 않는다.
 ```
 
 ### 6.5 마이그레이션
@@ -290,3 +299,165 @@ $ git log --oneline main..HEAD
 
 (리베이스 뒤에 27-5 와 이 문서 수정이 더 들어갔다. 최신 해시는
 `git log --oneline main..HEAD` 로 본다.)
+
+## 수정 라운드 1
+
+리뷰 라운드 1(`review/impl-review-27.md`, 판정 FAIL — MAJOR 2 / MINOR 2)의 결함
+4건을 전부 고쳤다. 각 결함은 **리뷰의 재현 입력을 먼저 실패하는 테스트로 고정한
+뒤**(아래 "재현(red)" 출력) 원인을 고쳤다. 리뷰 파일은 고치지 않았다.
+수정 커밋: `수정 27-6: 플레이 결과 뒤 순위·기록 갱신, 로딩/스크롤 적응성 결함`.
+
+### D-27-1 (MAJOR) — 정답 제출 뒤 내 순위를 갱신할 수 없음
+
+- **원인:** 오늘이 끝났다는 사실이 다른 탭의 데이터로 전달되지 않는다.
+  `leaderboardProvider` 는 최초 응답을 보관하고, 재조회 경로는 오류 재시도와 언어
+  변경뿐이었다. 셸(`StatefulShellRoute`)이 세 탭을 다 살려 두므로 탭 재진입은
+  위젯 재빌드일 뿐 provider 재조회가 아니다 — 순위를 먼저 본 사람은 "아직 안
+  풀었어요" 를 앱 재시작까지 본다.
+- **수정:** `TodayPuzzleNotifier.submit` 이 제출 결과로 오늘이 끝나면
+  (`played.status.isFinished`) `_invalidateDayResultReaders()` 로
+  `leaderboardProvider`·`historyProvider` 를 무효화하고 내 기록 숫자를 다시 읽는다
+  (`mobile/lib/puzzle/today_puzzle_controller.dart`). 끝나지 않은 시도 한 줄로는
+  부르지 않는다 — 순위는 푼 사람만 올라간다. 25 의 세대(`_generation`) 구조와
+  제출 중 재조회 보류(`_refreshQueued`)는 건드리지 않았고, 무효화는 제출 응답을
+  상태에 쓴 **뒤** 한 번만 돈다.
+- **증명:** `mobile/test/screens/play_result_refresh_test.dart`
+  "D-27-1: 순위를 먼저 본 뒤 정답을 제출하면 내 순위가 갱신된다" — 실제
+  `ChosungApp`·라우터·탭 탭(tap)으로 리뷰의 입력 순서를 그대로 밟는다.
+
+```
+# 재현(red) — 고치기 전
+$ cd mobile && flutter test --no-pub test/screens/play_result_refresh_test.dart
+Expected: <2>                     # api.fetchTodayLeaderboardLimits.length
+  Actual: <1>
+00:04 +1 -3: Some tests failed.
+
+# 고친 뒤(green)
+00:00 +3: test/screens/play_result_refresh_test.dart: D-27-1: 순위를 먼저 본 뒤 정답을 제출하면 내 순위가 갱신된다
+```
+
+### D-27-2 (MAJOR) — 내 기록의 streak·누적·7일 그리드가 플레이 결과를 반영하지 않음
+
+- **원인:** 두 갈래다. ① `historyProvider` 는 재시도 버튼 외에 무효화 경로가 없다.
+  ② streak 3칸은 `startupStatsProvider`(앱 시작 때 읽은 `/me/stats` snapshot)를
+  읽는다 — **무효화로는 고칠 수 없다.** 다시 빌드하면 같은 시작 snapshot, 즉 플레이
+  전 숫자로 돌아간다. 그래서 제출 후 내 기록을 **처음** 열어도 이전 값이 보였다.
+- **수정:** ① D-27-1 과 같은 경로에서 `historyProvider` 를 무효화한다.
+  ② `mobile/lib/records/my_stats_controller.dart` 를 새로 두었다 — 시작 snapshot 을
+  첫 값으로 쓰고(추가 호출 0회), `refresh()` 가 서버에서 다시 읽는다. 실패하면 보던
+  숫자를 그대로 둔다(OVERRIDES §7 — 숫자 하나로 화면을 오류로 덮지 않는다). 응답
+  경합은 25 와 같은 세대 번호로 끊는다. S4 streak 카드와 S1 `StreakBadge` 가 같이
+  읽는다 — 한쪽만 바꾸면 같은 순간에 두 탭이 다른 streak 을 말한다.
+- **증명:** 같은 파일의 "D-27-2: 내 기록을 먼저 본 뒤 정답을 제출하면 streak·누적·
+  7일이 갱신된다", "D-27-2: 제출 뒤 내 기록을 처음 열어도 갱신된 streak 이 보인다",
+  그리고 `mobile/test/records/my_stats_controller_test.dart`(3개 — 첫 값은 시작
+  snapshot·추가 호출 0회 / refresh 는 다시 읽는다 / refresh 실패 시 보던 숫자 유지).
+
+```
+# 재현(red) — 고치기 전
+Expected: <2>                               # api.fetchMyHistoryDays.length
+  Actual: <1>
+Expected: exactly 2 matching candidates     # "1일"(현재·최고)
+  Actual: _TextWidgetFinder:<Found 0 widgets with text "1일": []>
+
+# 고친 뒤(green)
+00:01 +4: … D-27-2: 내 기록을 먼저 본 뒤 정답을 제출하면 streak·누적·7일이 갱신된다
+00:01 +5: … D-27-2: 제출 뒤 내 기록을 처음 열어도 갱신된 streak 이 보인다
+00:00 +3: test/records/my_stats_controller_test.dart: (3개 통과)
+```
+
+**역방향도 고정했다:** "끝나지 않은 제출은 순위·기록을 다시 읽지 않는다" — 오답 한
+줄에 세 엔드포인트를 다시 읽지 않는다(세 호출 횟수 모두 1).
+
+### D-27-3 (MINOR) — S4 1열↔2열 전환 시 스크롤 위치 소실
+
+- **원인:** 폭 분기가 스크롤 위젯 트리를 교체하는데 위치를 저장할 키가 없어서 새
+  `Scrollable` 이 0 에서 시작한다.
+- **수정:** `_RecordsColumn` 에 `PageStorageKey` 를 받게 했다(1열 / 2열 왼쪽 /
+  2열 오른쪽이 각각 다른 키 — 열의 내용이 달라서 위치를 섞으면 엉뚱한 곳이 열린다).
+  `ScrollPosition` 이 스크롤이 끝날 때 라우트의 `PageStorageBucket` 에 offset 을
+  쓰고, 다시 만들어질 때 그 값을 읽는다.
+- **증명:** `mobile/test/screens/ranking_records_tablet_test.dart`
+  "390 → 1024 → 390 왕복에도 읽던 스크롤 위치가 남는다".
+
+```
+# 재현(red) — 고치기 전 (리뷰의 실제 앱 184.0 → 0.0 과 같은 증상)
+Expected: <126.0>
+  Actual: <0.0>
+
+# 고친 뒤(green)
+00:01 +24: … SCREENS T4 내 기록 390 → 1024 → 390 왕복에도 읽던 스크롤 위치가 남는다
+```
+
+### D-27-4 (MINOR) — S3 로딩 스켈레톤이 짧은 가로 화면에서 overflow
+
+- **원인:** 로딩 Column 이 고정 높이(머리글 + 8줄 × 46dp)를 그대로 쌓고 가용 높이를
+  제한하지 않는다.
+- **수정:** 목록 자리를 `Expanded` + `ListView.builder`
+  (`NeverScrollableScrollPhysics`)로 바꿨다 — 로드가 끝난 `_Board` 와 같은 구조이고,
+  남는 높이만 쓰고 넘는 줄은 그리지 않는다. 기다리는 동안의 자리 표시라 스크롤할
+  것도 없다. 스피너는 그대로 쓰지 않는다(OVERRIDES §7).
+- **증명:** `mobile/test/screens/ranking_tab_test.dart`
+  "로딩 스켈레톤은 짧은 가로 화면(844x390)에서도 넘치지 않는다".
+
+```
+# 재현(red) — 고치기 전 (리뷰와 같은 106 pixels)
+Expected: null
+  Actual: FlutterError:<A RenderFlex overflowed by 106 pixels on the bottom.>
+
+# 고친 뒤(green)
+00:00 +19: … 로딩 스켈레톤은 짧은 가로 화면(844x390)에서도 넘치지 않는다
+```
+
+### 리뷰가 인정하지 않은 주장 — "늦은 응답을 버리는 테스트"
+
+리뷰 "보안·범위·공유 파일" 절의 지적이 맞다. 이전 라운드의 컨트롤러 테스트 5개엔
+쓰기 직렬화(게이트)만 있고 **다시 빌드 후 늦은 응답이 도착하는** 사례가 없었다.
+`mobile/test/settings/puzzle_language_controller_test.dart` 에
+"다시 빌드된 뒤 도착한 늦은 응답은 새 정본을 덮지 않는다" 를 추가했다 — 쓰기를
+게이트로 붙잡은 채 provider 를 무효화하고(정본 재설정) 그 뒤 응답을 도착시켜,
+`change()` 가 `false` 를 주고 언어가 새 정본(ko)으로 남는 것을 본다.
+
+```
+00:00 +4: test/settings/puzzle_language_controller_test.dart: 다시 빌드된 뒤 도착한 늦은 응답은 새 정본을 덮지 않는다
+```
+
+### 공유 파일
+
+`README.md` 의 티켓 27 절 "알려진 제한" 을 고친 동작으로 갱신했다(결과 확정 시
+무효화 경로 + 남은 제한은 "그 사이 올라온 다른 사람 순위" 와 자정 넘김). 그 밖의
+공유 파일(`.env.example`·`docs/`·`.scratch/`·마이그레이션)은 바꾸지 않았다.
+
+### 미수정 MINOR
+
+없다. MINOR 2건(D-27-3·D-27-4) 모두 고쳤다.
+
+### 재검증 (리베이스 후, 실제 실행 출력)
+
+로컬 `main`(45d790c — 티켓 16 병합 포함) 위로 리베이스했다. 충돌 없음, `origin`
+push 없음.
+
+```
+$ git rebase main
+Successfully rebased and updated refs/heads/dosaem/t27-app-leaderboard-records-settings.
+
+$ cd mobile && flutter test
+00:40 +269: All tests passed!          # 259 → 269 (이번 라운드 +10)
+
+$ cd mobile && flutter analyze
+No issues found! (ran in 2.8s)
+
+$ cd mobile && dart format --output=none --set-exit-if-changed lib test
+Formatted 88 files (0 changed) in 0.12 seconds.    # exit 0
+
+$ uv run ruff check .
+All checks passed!
+
+$ cd mobile && flutter build apk --debug            # 코디네이터 메모: JDK 가 고쳐졌다
+Running Gradle task 'assembleDebug'...                             40.9s
+✓ Built build/app/outputs/flutter-apk/app-debug.apk                # exit 0
+# 빌드 뒤 mobile/build(2.4G) 삭제 — 작업 트리 clean
+```
+
+마이그레이션은 이번에도 0건이라(`git diff --name-only main...HEAD -- migrations`
+출력 없음) `flask db heads` 는 해당 없음.
