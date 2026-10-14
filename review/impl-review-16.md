@@ -70,3 +70,65 @@
 결함 합계: BLOCKER 0 / MAJOR 3 / MINOR 0.
 
 판정: FAIL
+
+## 라운드 2
+
+- 검토일: 2026-10-14. 대상 HEAD: `a334ea6`, 로컬 main과의 공통 조상: `0756137`.
+- `git diff main...HEAD` 및 `git log main..HEAD`의 8개 커밋을 확인했다. origin/main은 사용하지 않았다. 수정분은 `git diff 1c0bda6..HEAD`로도 대조했다.
+- 티켓 16, 스펙 §A.15·US 29/45/45a·미정 9/21/22/23, 구현 증거, SCREENS 웹 절 및 OVERRIDES §10을 직접 읽었다. Standards와 Spec을 직접 검토했고 하위 에이전트는 사용하지 않았다.
+- 코디네이터의 재리뷰 지시를 반영했다: 백업 암호화·접속기록 보관의 미구현 상태를 사실대로 고지하고 RELEASE 사람 항목으로 넘긴 것은 그 자체로 결함이 아니다. 법률 적합성의 최종 인증이 아니라 티켓 요구 및 고지와 코드의 일치 여부를 판정한다.
+
+### 티켓 체크박스별 판정
+
+| 체크박스 | 충족 여부 | 직접 확인한 근거 |
+|---|---|---|
+| 조문·정책 → 요구 → 절 id → 테스트 체크리스트 전체 | 충족 | `docs/legal-checklist.md` §1~5에 필수 기재 항목, 국외 이전 5개 수신자, 전자상거래·구독·EULA·해외 사용자 항목이 있다. 파싱 및 양방향 절 매핑 테스트 통과. 의미상의 정확성은 별도 D-16-4 참조. |
+| ko/en 본문 보완·동일 구조/순서/동치·현행 구현과 일치 | 미충족 | 구조·순서 테스트 통과. 백업 14일·Apple 철회 재시도 7일, 백업 비암호화 및 로그 보관 미구현 고지는 코드와 대조했다. 다만 새 Apple 철회 거부 문장이 삭제 후 전송과 충돌한다(D-16-4). |
+| 사업자 정보 설정값만·전화 선택·주소 코드 축약 금지·등록번호 패턴 부재 | 충족 | `app/config.py:130` 부근 사업자 필드는 빈 환경변수 기본값이며 `_business_info`는 strip만 한다. 등록번호 패턴 부재·빈 값/부분 설정 표시 테스트 통과. 실제 사업자 정보 추가는 발견하지 않았다. |
+| 사업자 정보 공통 Jinja 조각·양 문서 재사용·빈 신고번호 미표시 | 충족 | `_business_info.html`에 표시 조건을 모으고 ko/en privacy·terms가 include한다. 테스트가 실제 렌더 응답을 확인한다. 티켓 18의 푸터 소비는 별도 후속 범위다. |
+| 체크리스트 파싱·절 id/순서·핵심 문구·삭제 링크/항목 집합 테스트 | 충족 | 테스트가 빈 표/빈 삭제 항목 집합을 거부하고 실제 페이지의 절·항목을 비교한다. 추가 구독 테스트는 외부 스토어 경계만 대체하며 게스트 인증·서비스·DB를 실제로 통과한다. 철회 문구 회귀의 빈틈은 D-16-4에 적었다. |
+| impeccable 0건·시행일 갱신·README 링크/트리거/16절 | 증거 부족 | 오프라인 정적 detect는 0건이며 README 요구는 충족. 시행일은 작업일과 같은 2026-10-14라 유지가 결함은 아니다. 외부 서비스 호출 금지에 따라 CDN을 포함한 URL 브라우저 검사는 재실행하지 않았다. |
+| RELEASE 16절 사람 확인 및 사용자 확인 결과 3건 | 충족 | `docs/RELEASE.md:564` 이하 사용자 결정 3행·필수 사람 체크박스가 있고 `:605`, `:612`에 로그 보관·백업 암호화 결정이 추가됐다. 이전 라운드의 사용자 결정 확인을 유지한다. |
+| 스펙 미정 9/21/22/23 결과·A.15 변경 금지 | 충족 | diff는 자기 16 결과/수정 행 추가뿐이며 §A.15는 변경하지 않았다. |
+| 필요 시 분할·통지·후속 표시 | 충족 | 해외 사용자와 스토어 구독 고지를 모두 포함하여 조건부 분할 절차는 해당 없음. |
+
+### 이전 결함 판정
+
+| ID | 이전 심각도 | 판정 | 직접 확인한 수정 및 재현 결과 |
+|---|---|---|---|
+| D-16-1 | MAJOR | FIXED | `privacy.ko.html:160`, `:171` 및 en `:174`, `:185`가 구독 검증을 로그인과 분리하고 계정 미연결 상태에서도 구매 식별자가 전송됨을 명시한다. `test_verify_reaches_the_store_without_a_linked_account` 두 스토어 사례가 실제 API 호출 후 Account 0행 및 스토어 경계 호출을 검증하며 통과했다. 원래 지적한 **구독 검증** 누락은 해소됐다. 새로 명시한 철회 범위의 오류는 D-16-4로 구분한다. |
+| D-16-2 | MAJOR | FIXED | ko `:230`·en `:245`가 압축 덤프 및 덤프 자체 비암호화를 동일하게 고지한다. `scripts/backup.sh:63`과 실제 스크립트의 gzip 복원 테스트를 대조했다. 백업 암호화 구현은 요구하지 않는다. |
+| D-16-3 | MAJOR | FIXED | ko `:90`~`:97`, `:235`~`:236`, `:271`과 en 대응 절에서 1년 보유/법정 기간 만료 파기 약속을 제거하고 현행 별도 보관 없음·출시 전 적용 예정으로 구분했다. Gunicorn 기본 accesslog=None과 Dockerfile·compose 설정 및 관련 테스트를 확인했다. RELEASE의 미완료 항목도 존재한다. 실제 NAS 로그 설정은 확인하지 않았다. |
+
+### 새 결함 — Spec
+
+#### D-16-4 — MAJOR — Apple 연결 철회를 이전이 없는 범위에 넣어 실제 철회·재시도 전송과 충돌
+
+- 파일: `web/templates/legal/privacy.ko.html:171`, `web/templates/legal/privacy.en.html:185`.
+- 수정된 거부 방법은 **“로그인·연결 철회” / “Sign-in and revocation”**를 묶어, 계정을 연결하지 않거나 해제하면 이전이 없다고 단정한다. 특히 en의 “the Apple refresh token exists only for a linked account”는 계정 삭제 뒤에도 토큰이 재시도 테이블에 남는 사실과 맞지 않는다.
+- 실제 경로: `app/services/account_deletion_service.py:57`~`:69`는 철회 의무를 저장하고 Account/Guest 삭제를 커밋한 **뒤** Apple 철회 호출을 한다. 실패하면 `AppleRevocationRetry`에 토큰을 남기고 `app/services/apple_revocation_service.py:83`~`:85`, `:125`~`:129`에서 다시 전송한다. 즉 구독을 구매하지 않은 이용자도 이미 연결했던 Apple 계정을 삭제하는 과정과 실패 재시도 중에 refresh token이 전송될 수 있다.
+- 재현 명령(아래와 동일한 전용 테스트 환경): `uv run pytest tests/test_apple_revocation.py::test_ios_linked_account_is_revoked_with_the_app_bundle_id tests/test_apple_revocation.py::test_failed_revoke_still_deletes_the_account_and_records_a_retry tests/test_apple_revocation.py::test_retry_removes_the_row_when_apple_accepts -q`. 이 세 사례를 포함한 파일 전체 18건을 직접 실행해 모두 통과했다. 첫 사례는 삭제 시 HTTP 경계에 전달된 토큰을 검사하고, 두 번째는 계정 삭제 뒤 토큰 보존을, 세 번째는 연결 계정 없이 재시도 행만 있는 상태에서 토큰 재전송을 검사한다. 실제 Apple 호출은 requests.post 대역으로 차단한다.
+- 기대: 처음부터 연결하지 않은 경우, 연결 후 삭제/철회 요청 시 전송, 실패 시 재시도 전송을 구분해 현행 처리와 같은 범위로 거부 효과를 설명해야 한다. 실제: 철회까지 “이전 없음” 범위로 읽히며, 같은 방침의 7일 재시도 고지와도 충돌한다.
+- 테스트 한계: `tests/test_legal_pages.py:464`~`:473`는 “로그인/Sign-in”이 “이전 없음”보다 먼저 나오는지만 검사하므로, 그 범위에 “연결 철회/and revocation”를 추가한 현재 문장도 통과한다. 문구 검사 통과만으로 이 철회 경로의 설명이 정확하다고 볼 수 없다.
+- 영향: 이용자가 삭제/연결 철회를 통해 중단되는 이전의 범위를 잘못 이해한다. 법 해석의 불확실성이 아닌 재현 가능한 문서/처리 불일치이며, 애플리케이션 변경 없이 고지 범위를 바로잡을 수 있다.
+
+### 직접 실행한 검증
+
+- 기존 로컬 DB `chosung_daily_test_t16` 및 Redis DB 4를 `TEST_DATABASE_URL` / `TEST_REDIS_URL`로 지정했다. 접속 성공, 기본 DB 대체 없음, 새 DB 생성 없음. 접속 URL·키·토큰·비밀번호 값은 이 문서에 기록하지 않는다. Sentry DSN을 비워 테스트 중 외부 전송을 비활성화했다.
+- `uv run pytest tests/test_legal_checklist.py tests/test_legal_pages.py tests/test_account_delete_page.py tests/test_subscription_verify.py tests/test_backup_restore.py -q` → **344 passed in 266.06s (0:04:26)**, exit 0.
+- `uv run pytest tests/test_apple_revocation.py -q` → **18 passed in 12.97s**, exit 0. 앞 테스트와 순차 실행하여 DB 정리 경합을 피했다. 간헐 실패가 없어 재실행하지 않았다.
+- `uv run ruff check .` → **All checks passed!**, exit 0.
+- `FLASK_ENV=testing SENTRY_DSN='' uv run flask --app wsgi db heads` → **d7a1f0ca0a29 (head)** 한 줄, exit 0. 이 티켓의 마이그레이션 변경은 없다.
+- `git diff main...HEAD --check` → exit 0.
+- impeccable 0.1.14: privacy/terms ko/en 4개, 삭제 안내 ko/en 2개, 삭제 확인 템플릿 ko/en 2개를 임시 디렉터리에 렌더하고 tokens/legal/account CSS를 복사했다. 임시 HTML에서 외부 CDN link만 제거하고 static 경로를 상대 경로로 바꾼 뒤 `impeccable detect --json <임시 디렉터리>` → **[]**, exit 0. 확인 폼은 합성 값으로 템플릿을 렌더했으며 앱 파일은 수정하지 않았다. URL 브라우저 검사·외부 폰트 레이아웃 검증과 동등하지 않다.
+- 증거 문서의 전체 스위트 1253건 성공 주장을 독립 재실행했다고 주장하지 않는다. 이번 직접 검증 범위는 위 362건이다.
+
+### Standards 및 참고
+
+- 인증·CSRF·DB 모델 변경 없음. 삭제 페이지는 링크 표시 문구만 바뀌었고 관련 인증/CSRF 테스트도 위 스위트에 포함된다. 사업자 값은 기본 Jinja escaping을 통과한다. 이번 diff에서 새 데이터 손상 경로나 운영 시크릿 추가는 발견하지 않았다. 증거의 로컬 테스트 접속값과 테스트 합성 자격증명을 실제 운영 시크릿으로 판정하지 않았으며 이 리뷰에는 복사하지 않았다.
+- README 설계 판단·RELEASE는 자기 16절, `.env.example`과 스펙은 자기 설정/결과 행을 추가한다. 타 티켓 절 덮어쓰기 없음. README 법적 문서 절 수정은 티켓이 명시한 범위다. 앱·테스트·설정·`.scratch/` 파일은 리뷰 중 수정하지 않았다.
+- 전문가 확인 권장: 주소 공개 범위와 통신판매업 해당 여부, 국외 이전 근거·국가 표현, 해외 광고 처리 근거 및 캘리포니아 공유 표현. 이는 이번 결함 수에 포함하지 않으며 출시 전 사람 체크리스트와 후속 SDK/스토어 라벨 대조로 남긴다.
+
+기존 결함 FIXED 3 / REPEAT 0. 현재 결함 합계: BLOCKER 0 / MAJOR 1 / MINOR 0 (신규 D-16-4).
+
+판정: FAIL
