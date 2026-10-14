@@ -110,3 +110,85 @@ restored view: success 학교 [{'guess': '사과', 'feedback': [False, False]}]
 - 프로덕션/NAS/배포/실제 외부 API에 접근하지 않았고 push하지 않았다.
 
 판정: FAIL
+
+## 라운드 2
+
+- 기준: 로컬 `main` = `a5202231359523220cf1b71f917c4cd5bdcf9e52`, 검토 HEAD = `9f41e7e1e077d156befbff69fe18344ba291533c`.
+- `git log main..HEAD`의 7커밋과 `git diff main...HEAD`를 기준으로 티켓, spec §A.11·A.14·US 54/55/58/59, CONTEXT, 구현 증거, SCREENS 및 OVERRIDES를 대조했다. 수정 라운드의 추가 변경은 `git diff 73b7bba..HEAD`로 분리해 확인했다.
+- 이전 결함 **D-23-1 FIXED**. 현재 미해결 결함: **BLOCKER 0 / MAJOR 0 / MINOR 0**, 신규 결함 없음.
+
+### 티켓 체크박스별 판정
+
+| 체크박스 | 충족 여부 | 직접 확인한 근거 |
+|---|---|---|
+| 언어별 오늘부터 30일 배정표·미배정 표시·교체·캐시 무효화·시도 있는 날짜 교체 금지 | **충족** | `app/admin.py:229`, `web/templates/admin/schedule.html`, `puzzle_schedule_service.upcoming_schedule/replace_assignment`. 30일·ko/en·미배정·날짜/언어 검증·실제 캐시 선충전 후 교체 테스트를 실행했다. D-23-1의 양방향 경합도 통과했다. `schedule_puzzles` 직접 호출 대신 같은 서비스 모듈과 `SCHEDULE_DAYS`를 공유하는 조회 함수를 쓰는 차이는 아래 참고. |
+| 05 잔량 서비스 재사용·14일 미만 경고 색 | **충족** | `remaining_days_by_language`와 `LOW_WORD_POOL_THRESHOLD_DAYS`를 재사용한다. 실제 배정 전후 미사용 단어 수와 14일 경계 테스트 통과. `admin-stock-low`는 destructive 테두리와 경고 문구를 함께 사용한다. |
+| 점검 모드/메시지·iOS/Android 최소 버전 저장 후 `/config` 즉시 반영 | **충족** | `app/services/app_config_service.py`가 네 입력을 검증하고 저장한 뒤 캐시를 삭제한다. `test_admin_settings.py`, `test_app_config.py`에서 실제 HTTP/DB/Redis로 캐시 선충전 → 저장 → 즉시 재조회 및 잘못된 입력의 무변경을 확인했다. |
+| Google Books 래퍼·카카오와 같은 시그니처·선택 후 en 추가·자동 가림·선택 키 | **충족** | `search_volumes(query, size=5)`와 `search_google_books(query, size=5)` 확인. `test_google_books.py`와 `test_admin_books.py`는 HTTP provider 경계만 대체하고 요청 인자, 응답 매핑, DB의 en/book_title, 모음 가림, 중복, 길이 제한, CSRF를 검증하며 통과했다. 실제 외부 왕복은 수행하지 않았다. |
+| impeccable detect 0건·README 운영 절 | **증거 부족** | README 운영 절은 직접 확인하여 충족. 라운드 1의 CDN 폰트 제거 조건에서 관찰한 desktop line-length 3건과 원래 폰트 환경의 검증 한계는 남는다. `git diff 73b7bba..HEAD -- web/`가 비어 있어 이번 수정은 UI를 바꾸지 않았음을 확인했다. 이번 라운드에서 detect를 재실행하거나 구현 증거의 0건을 독립 확인한 것으로 주장하지 않는다. |
+
+### 이전 결함 판정
+
+#### D-23-1 — FIXED (이전 심각도 MAJOR)
+
+- 위치: `app/services/puzzle_schedule_service.py:213`, `app/repositories/puzzle_repository.py:18`, `app/repositories/puzzle_repository.py:39`, `app/services/guess_service.py:59`.
+- 재현 명령: 아래와 동일한 테스트 DB/Redis 환경에서 `uv run pytest tests/test_concurrency.py -q` (이번에는 아래 170개 묶음에 포함해 실행).
+- 기존 재현: 교체가 시도 0건을 읽은 뒤 첫 정답 제출이 커밋되거나, 제출이 정답을 읽은 뒤 교체가 커밋되면 둘 다 성공하여 사과의 성공 이력이 학교 정답을 가리켰다.
+- 기대: 제출이 먼저 잠금을 잡으면 교체는 시도 존재로 거부되어야 하고, 교체가 먼저면 옛 정답을 읽은 제출은 시도 없이 `PUZZLE_CHANGED`로 종료되어야 한다.
+- 실제: `test_replacement_that_wins_the_lock_turns_the_submission_away`와 `test_submission_that_wins_the_lock_blocks_the_replacement` 모두 통과. 실제 MySQL 두 세션에서 한쪽만 성공하며, DB 시도와 변경 후 단어 및 복원 보드까지 검사한다.
+- 수정의 핵심: 교체는 퍼즐 행의 `FOR UPDATE`를 얻은 뒤 시도를 센다. 제출은 GuestStats 잠금 뒤 동일 퍼즐과 단어를 `LOCK IN SHARE MODE`로 읽고, 캐시/선행 조회의 정답과 비교한다. 차이가 나면 캐시를 지우고 커밋 전 예외로 종료한다. 단순히 교체에만 잠금을 추가한 수정이 아니다.
+- 테스트의 patch는 실제 조회를 호출한 뒤 Event로 실행 순서를 제어한다. DB 결과나 도메인 판정을 성공 값으로 대체하지 않는다. 다만 3초 대기에 의존하므로 극도로 느린 환경까지 결정론적이라고 단정하지 않는다.
+
+### 직접 실행한 검증
+
+기존 **`chosung_daily_test_t23` / Redis DB 11**을 `TEST_DATABASE_URL` / `TEST_REDIS_URL`로 지정했다. DB URL은 TestingConfig의 로컬 기본 URL에서 database만 바꿔 프로세스 환경에 전달했으며 접속 문자열·인증 값은 기록하지 않는다. 전용 DB 연결이 정상이라 새 DB 생성이나 공용 기본 DB 폴백은 없었다. 테스트 픽스처와 추가 검증의 테이블 생성/정리만 수행했다.
+
+```text
+uv run pytest tests/test_admin_schedule.py tests/test_admin_settings.py \
+  tests/test_admin_books.py tests/test_google_books.py \
+  tests/test_puzzle_schedule_service.py tests/test_app_config.py \
+  tests/test_word_service.py tests/test_admin_css.py tests/test_admin_auth.py \
+  tests/test_csrf.py tests/test_concurrency.py tests/test_guess_flow.py \
+  tests/test_puzzle_api.py tests/test_puzzle_cache.py tests/test_hint_unlock.py \
+  tests/test_leaderboard.py tests/test_redis_failure_fallback.py -q
+170 passed in 85.76s (0:01:25), exit 0
+
+uv run pytest tests/test_puzzle_pin_and_attempts.py -q
+13 passed in 11.84s, exit 0
+
+uv run ruff check .
+All checks passed!, exit 0
+
+FLASK_ENV=testing uv run flask --app wsgi db heads
+d7a1f0ca0a29 (head)
+exit 0, 정확히 1줄
+
+git diff --check main...HEAD
+출력 없음, exit 0
+```
+
+총 **183개 통과**. 실패·간헐 오류가 없어 재시도는 하지 않았다. 전체 996개 재실행으로 표현하지 않는다. 마이그레이션 변경은 없지만 head 1개도 직접 확인했다.
+
+### 제출 잠금 회귀 확인
+
+- 기존 동시성 3개(같은 게스트의 정답 중복 제출, 힌트와 제출, 힌트 중복)가 위 테스트에 포함되어 모두 통과했다.
+- 별도의 `uv run python -` 검증으로 실제 DB의 같은 오늘 퍼즐에 서로 다른 게스트 8명을 만들었다. `_hold_the_puzzle_answer` 대역은 원래 함수를 먼저 실행하고, 잠금 획득 직후 `threading.Barrier(8, timeout=10)`에서 기다리게 했다. 모든 스레드가 잠금을 동시에 가진 상태로 barrier를 통과해야 제출을 계속할 수 있으므로, 단순히 순차 제출 8건이 성공하는 것과 구별된다. 이후 실제 `submit_guess`의 커밋과 DB 상태를 검사했다(레포 파일 생성·수정 없음).
+
+```text
+shared-lock probe: 8/8 reached barrier while holding puzzle locks; 8/8 submitted; 8 attempts; solved_count=1 each; no deadlock
+exit 0
+```
+
+- 이 범위에서는 공유 잠금이 다른 게스트의 제출을 직렬화하지 않았고 데드락도 없었다. 제출은 퍼즐/단어에 공유 잠금을 얻은 뒤 그 행들을 쓰기 잠금으로 승격하지 않으며, 교체는 GuestStats 잠금을 요구하지 않아 두 경로 사이의 역순 잠금 고리는 발견하지 못했다. 이는 운영 부하 전체의 처리량 측정이나 모든 다른 관리 작업과의 데드락 부재 보장은 아니다.
+- `test_puzzle_pin_and_attempts.py`로 어제 퍼즐 ID, 다른 언어 ID, ID 누락의 HTTP 409·시도 미소비 및 한/영 정규화·보드 복원까지 직접 확인했다. 날짜는 기존처럼 `get_today_puzzle_or_404`가 한 번 정하고, 새 잠금 검사는 그 퍼즐 ID를 사용한다.
+
+### 표준·보안·범위 및 참고
+
+- 새 GET/POST에는 운영자 가드, 새 POST에는 CSRF 가드가 적용되어 있다. HTML 자동 escape를 우회하지 않으며, Books 오류 화면은 예외 타입명만 보여 주므로 선택 API 키가 들어갈 수 있는 요청 URL을 노출하지 않는다. 날짜 범위·단어 존재/언어·책 제목/힌트 길이·설정 형식/길이 검증을 확인했다.
+- README API 자기 행 및 `### 23.` 설계 판단, `.env.example`의 `[23]`, RELEASE `### 23.`, spec 미정 항목의 티켓 23 추가를 확인했다. 다른 티켓의 내용을 덮어쓴 변경은 발견하지 못했다. README 운영 절은 티켓이 직접 요구한 범위다. 제출 경로 변경은 D-23-1의 원자성 수정에 필요한 범위다.
+- 변경 내용에서 실제 키·토큰·비밀번호가 새로 기록된 정황은 발견하지 못했다. 테스트 더미와 설정 이름을 운영 시크릿으로 집계하지 않았다.
+- `schedule_puzzles` 자체를 GET에서 호출하지 않는 차이는 남아 있다. README `### 23.`에 설명한 읽기 화면의 부작용 방지와 티켓의 미배정 표시를 함께 고려해 기능 결함으로 집계하지 않았다. 기존 운영자 1040px 폭, 점검 활성화 시 메시지 필수, 중복 배정 허용도 이전 리뷰와 같은 참고 사항이다.
+- 외부 폰트 환경의 detect 0건은 독립 검증되지 않은 잔여 확인 사항이다. 이번 수정과 무관한 이 한계를 신규 기능 결함으로 승격하지 않았다.
+- 애플리케이션·테스트·설정·`.scratch/`는 수정하지 않았다. 하위 에이전트, 프로덕션/NAS, 배포, 실제 외부 API 접근 및 push 없음. 변경 파일은 이 리뷰 보고서 하나다.
+
+판정: PASS
