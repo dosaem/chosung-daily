@@ -52,10 +52,10 @@
                 <action android:name="com.htc.intent.action.QUICKBOOT_POWERON"/>
             </intent-filter>
         </receiver>
-        <!-- AdMob 앱 ID(티켓 31). 유닛 ID 와 달리 --dart-define 으로 못 넘긴다 —
+        <!-- AdMob 앱 ID(티켓 31). 유닛 ID 와 달리 dart-define 으로 못 넘긴다 —
              SDK 가 여기서 읽고, 없으면 앱이 시작하자마자 죽는다. 비밀이 아니라
-             APK 에 그대로 들어가는 공개 식별자다. 지금 값은 **Google 테스트 앱
-             ID** 이고, 실제 ID 는 AdMob 콘솔에서 만든 뒤 바꾼다
+             APK 에 그대로 들어가는 공개 식별자다. 지금 값은 Google 테스트 앱
+             ID 이고, 실제 ID 는 AdMob 콘솔에서 만든 뒤 바꾼다
              (docs/RELEASE.md "### 31.", test/config/admob_native_config_test.dart). -->
         <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"

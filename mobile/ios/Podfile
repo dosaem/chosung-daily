@@ -41,5 +41,20 @@ end
 post_install do |installer|
   installer.pods_project.targets.each do |target|
     flutter_additional_ios_build_settings(target)
+
+    # google_mobile_ads 9.1.0 의 `FLTAd_Internal.h`·`FLTAdPreloader.h` 가
+    # Google-Mobile-Ads-SDK 의 **PrivateHeaders**(`GoogleMobileAds_Beta.h`)를
+    # include 한다. Xcode 의 모듈 검사가 이걸 막아서 iOS 빌드만 깨진다 —
+    # "Include of non-modular header inside framework module", Dart 쪽
+    # analyze·test 는 전부 통과한 채로. SDK 버전을 13.7 로 내려도 같다.
+    # 예외는 **그 플러그인 타깃에만** 둔다 — 앱과 다른 플러그인의 검사는
+    # 그대로 살려 둔다. 플러그인이 고치면 이 블록을 지운다(티켓 31).
+    next unless target.name == 'google_mobile_ads'
+
+    target.build_configurations.each do |config|
+      config.build_settings[
+        'CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'
+      ] = 'YES'
+    end
   end
 end

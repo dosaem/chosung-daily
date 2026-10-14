@@ -2,3 +2,11 @@
 #include "Generated.xcconfig"
 // 구글 로그인 iOS 클라이언트 ID(티켓 29). 없으면 그냥 건너뛴다 — Secrets.xcconfig.example 참고.
 #include? "Secrets.xcconfig"
+
+// google_mobile_ads 9.1.0 의 `FLTAd_Internal.h`·`FLTAdPreloader.h` 가
+// Google-Mobile-Ads-SDK 의 PrivateHeaders(`GoogleMobileAds_Beta.h`)를
+// include 한다. 그 모듈은 **이 타깃이 import 할 때** 검증되므로, Pods 쪽에만
+// 예외를 둬서는 "Include of non-modular header inside framework module" 로
+// iOS 빌드가 깨진다(Dart analyze·test 는 전부 통과한 채로). 플러그인이
+// 고치면 이 줄과 Podfile 의 같은 설정을 지운다(티켓 31).
+CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES=YES

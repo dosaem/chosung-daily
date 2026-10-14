@@ -838,3 +838,49 @@ iOS·Android 각각 한 번씩. 기기 시계를 당기지 말고(예약이 밀�
   Apple HIG 는 각자의 **공식 로그인 버튼 에셋**을 요구한다(애플은 심사 항목).
   콘솔 등록과 함께 `sign_in_with_apple` 의 `SignInWithAppleButton` 과 구글 공식
   에셋으로 교체하고, 교체 뒤 골든(`records_light_390`)을 다시 찍는다.
+### 31. 광고(AdMob) — 출시 전 사람이 해야 하는 일
+
+앱 코드는 다 들어갔다. 남은 것은 **AdMob 콘솔에서 사람이 만들어야 하는 식별자**와
+실기기 확인이다. 지금 레포에 들어 있는 값은 전부 Google 테스트 ID 라서, 바꾸지 않고
+스토어에 올리면 광고가 붙지 않고 AdMob 심사도 통과하지 못한다.
+
+- [ ] **AdMob 앱 2개**(iOS·Android)를 만들고 각 앱 ID 를 네이티브 설정에 넣는다.
+      유닛 ID 와 달리 `--dart-define` 으로 못 넘긴다 — SDK 가 여기서 읽고 없으면
+      앱이 시작하자마자 죽는다.
+      - `mobile/android/app/src/main/AndroidManifest.xml` 의
+        `com.google.android.gms.ads.APPLICATION_ID`
+      - `mobile/ios/Runner/Info.plist` 의 `GADApplicationIdentifier`
+      - 둘 다 `ca-app-pub-<숫자>~<숫자>` 꼴이다(유닛 ID 의 `/` 가 아니다).
+        `mobile/test/config/admob_native_config_test.dart` 가 꼴과 "아직 테스트 ID"
+        를 확인한다 — 실제 ID 로 바꾸면 그 테스트의 마지막 케이스가 실패하므로
+        같이 지운다.
+- [ ] **광고 유닛 6개**(앱마다 배너·전면·보상형)를 만들고 GitHub Actions
+      **Variables** 에 넣는다 — 이름은 위 "34." 의 variables 표
+      (`ADMOB_*_AD_UNIT_ID_ANDROID` / `_IOS`)다. 비워 두면 릴리스 빌드도 테스트
+      유닛으로 떨어진다(빈 유닛 ID 로 요청하면 조용히 안 나와서 원인을 못 찾는다).
+- [ ] **UMP 메시지**를 AdMob 콘솔 → 개인정보 보호 및 메시지에서 만든다. GDPR 메시지와
+      **privacy options(동의 다시 보기) 진입점**을 둘 다 켜야 S4 의 "광고 개인정보
+      설정" 행이 뜬다(앱은 `privacyOptionsRequirementStatus == required` 일 때만
+      그 행을 그린다). 문구·EEA 외 표시 범위는 콘솔에서 정한다(스펙 "미정 항목" 7).
+- [ ] **ads.txt / app-ads.txt** 는 AdMob 이 요구하면 `chosung.dosaem.com` 루트에 올린다.
+- [ ] 개인정보 라벨·Data safety 의 광고 항목은 이미 34 에서 "추적" 으로 신고해 뒀다
+      (`tests/test_app_deploy_workflow.py`). AdMob 앱을 만든 뒤 달라지는 건 없다.
+
+**실기기에서 확인할 것** (시뮬레이터는 광고를 안 돌린다):
+
+- [ ] 첫 실행 iOS: ATT 안내 → 시스템 프롬프트 → (EEA 면) UMP 폼 → 배너. 두 번째
+      실행에서 ATT 프롬프트가 다시 뜨지 않고도 배너가 나오는지.
+- [ ] 배너 높이: 슬롯이 예약한 높이(폭 <728 → 50, ≥728 → 90)와 실제 배너 높이가
+      같은지. **스펙 "미정 항목" 24 의 잠정값이 맞는지 보는 자리다** — 어댑티브
+      높이는 플랫폼 채널로만 나와서 단위 테스트로는 못 재고, 앱은 예약을 넘는
+      크기를 받으면 고정 크기(320×50 / 728×90)로 떨어뜨린다. 넘더라
+      (= 고정 크기로 떨어지더)라도 레이아웃은 안 밀리지만, 값이 다르면 여기 수치와
+      `AdBannerSlot` 의 상수를 같이 고친다.
+- [ ] iPad 회전·Split View: 폭이 바뀌면 배너가 새 폭으로 다시 뜨고 슬롯 높이는
+      그대로인지.
+- [ ] 전면: 퍼즐을 끝내고 결과 시트를 닫으면 1회, 같은 퍼즐에서 "결과 보기" 를 다시
+      눌러도 안 뜨는지. 앱을 껐다 켜고 같은 퍼즐을 열어도 안 뜨는지.
+- [ ] 보상형: 끝까지 보면 힌트가 열리고, 중간에 닫으면 안 열리는지(시도 횟수도
+      안 줄어야 한다).
+- [ ] 구독 구매 뒤(티켓 32·33): 배너 슬롯이 사라지고 전면이 안 뜨며 힌트 버튼
+      레이블이 "힌트 미리 보기" 로 바뀌는지.

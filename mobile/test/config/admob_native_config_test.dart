@@ -32,6 +32,26 @@ void main() {
     expect(RegExp(r'^ca-app-pub-\d+~\d+$').hasMatch(appId!), isTrue);
   });
 
+  // XML 주석 안에서는 `--` 가 금지다. 매니페스트에 넣으면 Dart 쪽은 전부
+  // 통과한 채 `processDebugMainManifest` 가 "Error parsing AndroidManifest.xml"
+  // 로 Android 빌드만 죽는다(이 티켓에서 실제로 한 번 겪었다).
+  test('매니페스트 주석에 XML 이 못 읽는 `--` 가 없다', () {
+    final manifest = File(
+      'android/app/src/main/AndroidManifest.xml',
+    ).readAsStringSync();
+
+    for (final comment in RegExp(
+      '<!--(.*?)-->',
+      dotAll: true,
+    ).allMatches(manifest)) {
+      expect(
+        comment.group(1),
+        isNot(contains('--')),
+        reason: '주석 안의 `--` 는 XML 파서가 거부한다',
+      );
+    }
+  });
+
   // 실제 앱 ID 는 AdMob 콘솔에서 사람이 만든다(`docs/RELEASE.md "### 31."`).
   // 그때까지는 Google 테스트 앱 ID 이고, 바꾸는 걸 잊으면 광고가 안 붙는다 —
   // 이 테스트가 "아직 테스트 ID" 라는 사실을 눈에 보이게 들고 있는다.
