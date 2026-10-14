@@ -461,3 +461,77 @@ Running Gradle task 'assembleDebug'...                             40.9s
 
 마이그레이션은 이번에도 0건이라(`git diff --name-only main...HEAD -- migrations`
 출력 없음) `flask db heads` 는 해당 없음.
+
+## 수정 라운드 2
+
+리뷰 라운드 2(`review/impl-review-27.md` "## 라운드 2")는 기존 4건을 FIXED 로 두고
+신규 **D-27-5(MAJOR) 1건**만 남겼다. BLOCKER·REPEAT 는 없고 MINOR 도 없다.
+결함을 먼저 리뷰의 재현 순서대로 재현해 실패하는 테스트로 고정한 뒤 고쳤다.
+
+### D-27-5 (MAJOR) — 첫 오답 뒤 7일 그리드가 진행 중으로 갱신되지 않음
+
+- **원인:** `TodayPuzzleNotifier` 가 history 무효화를 `played.status.isFinished` 에
+  묶었다. 그런데 7일 그리드가 읽는 값은 오늘 보드의 status 가 아니라 서버
+  `day_result`(`app/services/game_rules.py:34`)고, 그 함수는 시도 0개를 `none`,
+  1~4회 오답을 `in_progress` 로 센다 — 즉 **끝나지 않은 첫 제출도 하루의 분류를
+  바꾼다**. 무효화 조건이 서버 계약보다 좁아서, 기록을 먼저 본 사람은 셸이 탭을
+  살려 두는 동안(= 퍼즐을 끝내거나 앱을 재시작할 때까지) 오늘 칸이 미플레이로
+  남았다. 성공한 최초 조회에는 재시도 버튼도 없어 손으로 되돌릴 방법도 없었다.
+  "7일 칸·누적·streak 도 끝난 뒤에 바뀐다" 고 적은 코드 주석과 README 설명이 그
+  좁은 조건을 정당화하고 있었다 — 누적·streak 은 맞고 7일 칸만 틀렸다.
+- **수정:** 무효화 범위를 **서버가 그 제출로 바꾸는 값**에 맞췄다
+  (`mobile/lib/puzzle/today_puzzle_controller.dart`, `_invalidateDayResultReaders`
+  → `_invalidateGuessReaders(played)`).
+  - 7일 기록(`historyProvider`): 오늘이 끝날 때 **또는** 그 날의 첫 제출일 때
+    (`played.attempts.length == 1`) 버린다 — `미플레이 → 진행 중` 전이가 그
+    한 번뿐이기 때문이다. 두 번째 오답부터는 같은 `in_progress` 라 다시 읽지
+    않는다(제출마다 왕복하지 않는다).
+  - 순위(`leaderboardProvider`)·streak·누적(`myStatsProvider`): 그대로 오늘이
+    끝날 때만. 순위는 푼 사람만 올라가고 streak·누적도 확정된 결과만 센다.
+  증상만 가린 게 아니라 조건 자체를 서버 분류 기준으로 옮겼고, 틀린 주석도 같이
+  고쳤다. 기능 추가나 범위 밖 리팩토링은 없다.
+- **테스트 문제도 같이 고쳤다.** 리뷰가 지적한 대로 기존
+  `mobile/test/screens/play_result_refresh_test.dart` 의 "끝나지 않은 제출은
+  순위·기록을 다시 읽지 않는다" 가 `fetchMyHistoryDays.length == 1` 을 정답으로
+  못 박아 결함을 통과시키고 있었다. 호출 횟수만 보고 화면 상태를 보지 않은 것도
+  문제였다.
+- **증명:** 같은 파일에 리뷰의 재현 순서를 그대로 밟는 회귀를 추가했다 —
+  "D-27-5: 내 기록을 먼저 본 뒤 첫 오답을 내면 오늘 칸이 진행 중으로 바뀐다"
+  (실제 `ChosungApp`·라우터·provider, 서버 경계만 Fake). 미플레이 칸을 한 번 읽고
+  → 오늘 탭 → 4글자 오답 `지하촌역` 1회(남은 기회 4) → 내 기록 복귀에서
+  마지막 `DayCell.result == DayResult.inProgress` 와 `fetchMyHistoryDays.length == 2`
+  를 본다. 잘못된 기대를 담았던 테스트는 "끝나지 않은 제출은 순위·streak 을 다시
+  읽지 않고 7일도 첫 줄에만 반응한다" 로 바꿨다 — 첫 오답 뒤 history 1→2회,
+  **두 번째** 오답 뒤에도 2회, 순위·stats 는 끝까지 1회를 함께 검사한다.
+
+```
+# 재현(red) — 고치기 전, 두 테스트가 같이 실패
+00:03 +3 -2: Some tests failed.
+Expected: DayResult:<DayResult.inProgress>      # D-27-5 재현
+  Actual: DayResult:<DayResult.none>
+Expected: <2>                                   # 첫 오답 뒤 history 재조회
+  Actual: <1>
+
+# 고친 뒤(green)
+00:03 +3: D-27-2: 제출 뒤 내 기록을 처음 열어도 갱신된 streak 이 보인다
+00:04 +4: D-27-5: 내 기록을 먼저 본 뒤 첫 오답을 내면 오늘 칸이 진행 중으로 바뀐다
+00:04 +5: 끝나지 않은 제출은 순위·streak 을 다시 읽지 않고 7일도 첫 줄에만 반응한다
+00:04 +5: All tests passed!
+```
+
+### 리뷰 지적 중 반박한 것
+
+없다. 라운드 2 의 단일 결함과 그 테스트 지적을 모두 받아들였다.
+
+### 미수정 MINOR
+
+없다. 라운드 2 에 MINOR 는 없었다.
+
+### 공유 파일
+
+`README.md` 티켓 27 절의 "오늘 결과가 확정되는 순간 순위·기록 데이터를 버린다"
+문단을 고친 동작으로 다시 썼다 — 무효화 범위를 "서버가 그 제출로 바꾸는 값"으로
+설명하고, 7일 기록만 첫 제출에서도 버리는 이유(서버 `day_result` 가 1~4회 오답을
+`in_progress` 로 센다)를 적었다. 리뷰가 "서버 계약과 다르다" 고 지적한 문장이
+그 문단이다. 그 밖의 공유 파일(`.env.example`·`docs/`·`.scratch/`·마이그레이션)은
+바꾸지 않았다. `review/impl-review-27.md` 는 건드리지 않았다.
