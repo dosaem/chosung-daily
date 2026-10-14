@@ -890,3 +890,225 @@ $ git diff --check main...HEAD
 - 200 + 비 JSON 본문은 실제로 겪은 사례가 아니라 수정 과정에서 드러난 경로다 —
   테스트로만 고정했고 수동 체크리스트에는 넣지 않았다.
 - 미수정 MINOR 없음(리뷰 MINOR 0건).
+
+---
+
+## 수정 라운드 4
+
+`review/impl-review-17.md` "라운드 4" 의 활성 결함 1건(BLOCKER 0 / MAJOR 1 / MINOR 0,
+D-17-5)을 고쳤다. 리뷰어 말이 맞았다 — 리뷰의 재현 명령을 그대로 돌려 리뷰에 적힌
+출력과 **똑같은** 결과를 받고 시작했다(아래 "수정 전"). 미수정 MINOR 는 없다(리뷰
+MINOR 0건). 리뷰 파일은 수정하지 않았다.
+
+- 기준점: 로컬 `main` = `7df7809`("Merge 티켓 14"). 라운드 3 때의 `b8f63cc` 에서
+  main 이 움직였다. 작업 뒤 그 위로 rebase 했고 **충돌 4건을 손으로 풀었다**(아래
+  §"rebase 충돌"). `origin/main` 은 쓰지 않았고 `git push` 도 하지 않았다.
+- 전용 테스트 자원 그대로: `TEST_DATABASE_URL=...chosung_daily_test_t17`,
+  `TEST_REDIS_URL=redis://127.0.0.1:6379/5`,
+  `TEST_MIGRATION_DATABASE_URL=...chosung_daily_test_t17_migrations`. 공용 테스트
+  DB(`chosung_daily_test`)·Redis DB 1 은 건드리지 않았다. 접속 URL 의 자격 증명은
+  적지 않는다.
+- 마이그레이션 없음(스키마 변경 없음). `flask db heads` 는 main 이 가져온 `94a83f12fddb`
+  1줄이다.
+
+### D-17-5 — 중복 언어 PATCH 가 뒤늦게 저장되면 마지막 선택과 서버 선호가 갈린다
+
+#### 재현 (수정 전) — 리뷰의 명령 그대로
+
+리뷰 라운드 4 의 재현 명령(`node --input-type=module`, 파일 변경·외부 호출 없음)을
+그대로 돌렸다. 출력이 리뷰에 적힌 것과 같다:
+
+```text
+after last ko click {"server":"en","commits":["en","ko","en"]} {"language":"ko","id":1}
+after next submit {"language":"en","id":2} new puzzle
+```
+
+화면은 ko/ID 1, 서버 선호는 en 이다. 다음 제출은 409(`new puzzle`)로 되돌아가 마지막
+선택이 취소된다.
+
+#### 원인 — 응답을 버리는 것과 쓰기를 취소하는 것은 다르다
+
+라운드 1~3 이 세운 세대(generation) 규칙은 **늦게 온 응답을 화면에 반영하지 않는다**
+까지만 한다. 그런데 `PATCH /me` 는 조회가 아니라 **쓰기**다 — 응답을 버려도 서버에는
+이미 커밋된다. 수정 전 코드에는 그 쓰기를 한 줄로 묶어주는 것이 없었다:
+
+```js
+async function handleLanguageChange(language) {
+  if (language === state.puzzleLanguage) return;   // ← 칩은 응답이 와야 바뀐다
+  const { stale, ok, body } = await fetchJson(…);  // ← 그래서 동시에 여러 개 날아간다
+  if (stale) return;                               // ← DOM 만 지킨다. 커밋은 그대로
+  …
+}
+```
+
+둘이 겹쳐 두 가지가 같이 일어났다.
+
+1. **중복 PATCH 를 애초에 만든다.** 비교 대상이 `state.puzzleLanguage`(= 응답이 와야
+   바뀌는 칩 상태)라, 같은 칩을 연달아 누르면 "아직 ko 니까 전환이 맞다" 로 보여 똑같은
+   PATCH 가 여러 개 날아간다.
+2. **커밋 순서가 클릭 순서와 달라진다.** 여러 쓰기가 동시에 떠 있으면 서버 적용 순서를
+   클라이언트가 보장하지 못한다. 리뷰의 B→C→A 순서에서는 가장 오래된 A(en)가 마지막에
+   커밋되고, 그 응답은 `stale` 로 통째로 무시돼 화면이 바로잡힐 기회조차 없다.
+
+같은 뿌리에서 반대 방향 손실도 나온다: 쓰기가 도는 중의 **다른** 칩 클릭은 칩이 아직
+안 바뀌어서 "이미 그 언어" 로 보여 **삼켜진다**(요청이 하나도 안 나간다). 이것도 같은
+비교 대상 문제다.
+
+#### 수정 — 쓰기를 직렬화하고, 마지막 선택으로 수렴시킨다
+
+`web/static/app.js`:
+
+- 상태에 `languageWanted`(사용자가 **마지막으로 고른** 언어)와 `languageWriting`
+  (지금 쓰는 중인가)을 둔다. 칩(`puzzleLanguage`)은 서버가 확인해준 언어 그대로다.
+- 비교 대상을 `state.languageWanted ?? state.puzzleLanguage` 로 바꾼다 → 같은 칩 연타는
+  **요청 자체가 한 번**이고, 쓰는 중의 다른 칩 클릭도 삼켜지지 않는다.
+- 쓰기는 `drainLanguageWrites()` 안에서 **한 번에 하나만** 돈다. 쓰기 하나가 끝났을 때
+  그사이 사용자가 또 골랐으면(`languageWanted !== language`) 그 언어로 한 번 더 쓴다.
+  그러면 "클릭 순서 = 커밋 순서" 가 되고, 마지막으로 커밋되는 값은 항상 마지막 선택이다.
+- 중간 언어는 칩에 올리지도, 퍼즐을 재조회하지도 않는다 — 헛된 왕복이고 사용자가 보는
+  퍼즐이 두 번 바뀐다. 칩·재조회는 수렴한 뒤 한 번만 한다.
+- `stale`(409 재조회·백업 코드 전환이 화면을 갈아끼운 경우)과 실패 처리는 라운드 1~3 의
+  규칙을 그대로 둔다. 쓰기를 더 보내지 않고 접는다.
+- **"진행 중엔 칩 비활성화" 대신 직렬화를 골랐다.** 비활성화는 코드가 더 짧지만 느린
+  왕복(Slow 3G) 동안 칩이 안 눌리고, 그 사이의 클릭은 그냥 사라진다 — 티켓이 요구하는
+  것은 "마지막 선택이 유지된다" 이고, 비활성화는 "마지막 선택" 을 애초에 받지 못한다.
+  직렬화는 클릭을 다 받고 마지막 하나로 수렴시키며, 비활성화 상태를 그리는 DOM·토큰
+  변경(티켓 18 범위)도 건드리지 않는다. 추가된 상태는 변수 둘뿐이다.
+- 앞선 라운드의 `fetchJson` 경계(본문까지 읽은 뒤 세대 확인)는 그대로다. 이번 수정은
+  그 위에 "쓰기는 하나씩" 을 더한 것이고, **증상을 가린 것이 아니라** 쓰기와 조회를
+  같은 규칙으로 다루려 한 데서 온 원인을 고친 것이다.
+
+#### 증명 — 재현을 실패하는 테스트로 고정한 뒤 고쳤다
+
+새 시나리오 `tests/js/concurrent_language_writes.mjs` + `tests/test_web_js.py` 의 5개
+테스트다. 대역의 fetch 가 앞선 시나리오들과 달리 **지속하는 서버 선호**(`preference`)와
+**적용 순서**(`commits`)를 들고, today·제출이 그 선호를 보고 답한다 — 리뷰가 지적한
+"기존 회귀 테스트의 한계"(PATCH 가 요청 언어를 그대로 돌려주기만 해서 갈림이 안 보인다)를
+이 변수 하나가 메운다.
+
+수정 전(테스트만 먼저 올린 상태), 대조군만 통과하고 4개가 실패한다:
+
+```text
+$ uv run pytest tests/test_web_js.py -q
+FAILED tests/test_web_js.py::test_the_last_language_choice_wins_on_the_server_even_if_an_earlier_write_commits_last
+FAILED tests/test_web_js.py::test_the_next_submit_after_concurrent_language_writes_is_not_rejected
+FAILED tests/test_web_js.py::test_a_click_while_a_language_write_is_in_flight_is_not_swallowed
+FAILED tests/test_web_js.py::test_repeated_clicks_on_the_same_chip_write_once
+4 failed, 23 passed in 0.40s
+
+# 실패 내용 (발췌)
+>       assert submit["puzzleLanguage"] == "ko"
+E       AssertionError: assert 'en' == 'ko'
+>       assert after["commits"] == ["en"]
+E       AssertionError: assert ['en', 'en', 'en'] == ['en']
+```
+
+수정 후 전부 통과한다:
+
+```text
+$ uv run pytest tests/test_web_js.py -q
+27 passed in 0.24s                      # exit 0 (node 설치돼 있어 skip 없음)
+```
+
+리뷰의 재현 명령도 더 이상 갈라지지 않는다(수정 후, exit 0):
+
+```text
+after last ko click {"server":"ko","commits":["en","ko"]} {"language":"ko","id":1}
+after next submit {"language":"ko","id":1}
+```
+
+`commits` 가 `["en","ko"]` 다 — 중복 PATCH 하나가 사라지고, 남은 두 쓰기는 클릭 순서대로
+커밋되어 마지막 선택(ko)이 서버 선호로 남는다. 다음 제출은 409 가 아니라 그 퍼즐에
+들어간다(안내 문구 없음).
+
+테스트가 고정하는 것:
+
+| 테스트 | 무엇을 막는가 |
+|---|---|
+| `…last_language_choice_wins_on_the_server…` | 화면 ko / 서버 en 갈림. `commits[-1]` 이 마지막 선택이어야 한다 |
+| `…next_submit_after_concurrent_language_writes_is_not_rejected` | 갈림이 남으면 다음 제출이 409 로 선택을 취소한다 |
+| `…click_while_a_language_write_is_in_flight_is_not_swallowed` | 쓰는 중의 다른 칩 클릭이 요청 없이 사라지는 것 |
+| `…repeated_clicks_on_the_same_chip_write_once` | 중복 PATCH 자체 |
+| `…plain_switch_still_writes_and_renders_once` | 대조군 — 겹치지 않는 평범한 전환의 회귀 |
+
+기존 경합 테스트 22개(D-17-1·2·3·4)도 그대로 통과한다. 특히 "칩 연타 때 먼저 보낸
+today 응답"(`late_today`)과 "PATCH 가 도는 사이 409 재조회"(`late_patch`,
+`late_patch_body`)가 수정 후에도 통과하는 것이, 쓰기 직렬화가 세대 규칙을 깨지 않았다는
+증거다.
+
+### 리뷰어 지적 중 틀렸다고 본 것
+
+없다. D-17-5 는 그대로 재현됐고, 지적한 위치(`:230` 의 동시 허용, `:237` 의 `stale`)와
+원인("조회 응답의 폐기와 쓰기 요청의 취소는 다르다")이 정확했다. 서버가 요청 값을 단순
+대입·커밋한다는 근거(`app/services/guest_service.py`)와 다음 제출이 현재 선호의 퍼즐과
+ID 를 비교한다는 근거(`app/services/guess_service.py`)도 코드에서 확인했다.
+
+### rebase 충돌 — 티켓 14 가 같은 번들을 건드렸다
+
+로컬 `main` 이 `b8f63cc`("Merge 티켓 24") → `7df7809`("Merge 티켓 14") 로 움직였고,
+티켓 14 가 `web/static/app.js`·`tests/test_web.py`·`app/web.py` 를 함께 건드려 충돌이
+났다. **양쪽 의도를 다 살렸다** — 티켓 14 의 계정 삭제 정리와 티켓 17 의 문구 사전·
+서버 보드 복원 중 어느 쪽도 버리지 않았다.
+
+| 파일 | 어떻게 풀었나 |
+|---|---|
+| `app/web.py` | 같은 함수를 양쪽이 다른 이름으로 들고 있었다(14 `_requested_ui_language` / 17 `_ui_language`, 본문 동일). main 의 이름으로 통일하고 17 이 더한 중복 정의를 뺐다. `index()` 의 UI 언어 렌더는 17 그대로다. |
+| `web/static/app.js` | 17 의 번들을 바탕으로 14 의 `safeStorageRemove`·`guestTokenIsGone`·`discardDeletedAccountState` 와 `init()` 첫 줄을 되살렸다. 14 가 인라인으로 돌던 옛 보드 키 정리 루프는 17 의 `clearStoredHistory()` 로 합쳤다(같은 접두사 `chosung_history_`, 중복 제거). |
+| `app/utils/ui_strings.py` | 14 의 삭제 안내가 하드코딩 한국어였다. 17 의 요구("기존 문구를 사전으로 옮긴다")대로 `account_deleted` 키를 ko/en 양쪽에 넣고 `t("account_deleted")` 로 바꿨다 — 그대로 두면 영어 UI 에 한국어가 나오는 D-17-2 와 같은 결함이 다시 생긴다. `test_bundle_only_uses_keys_that_exist`·`test_both_languages_have_the_same_keys` 가 이걸 지킨다. |
+| `tests/test_web.py` | 양쪽 테스트를 모두 남겼다. 14 의 삭제 신호 테스트 4개(번들 문자열 1 + Node 실행 3)와 17 의 렌더·번들 테스트 전부. 다만 14 의 `test_static_js_sends_puzzle_id_with_a_guess` 는 17 의 `test_js_sends_puzzle_id_with_a_guess` 가 **같은 두 assertion** 을 들고 있어 중복이라 뺐다. 모듈 docstring 은 두 쪽 설명을 합쳤다. |
+| `tests/fixtures/js/deleted_state_harness.mjs` | 14 의 Node 대역이 17 의 번들을 못 띄웠다 — 번들이 로드 시점에 `#ui-strings` JSON 과 `document.documentElement.lang` 을 읽는다. 대역에 둘을 심고(사전은 파이썬의 진짜 `UI_STRINGS["ko"]` 를 argv 로 받는다), `localStorage` 대역이 실제 Storage 처럼 **열거 가능한 자기 키**도 노출하게 했다(`Object.keys(localStorage)` — 17 의 `clearStoredHistory` 가 쓰는 방식이고 브라우저도 그렇다). 시나리오·단정은 14 그대로다. |
+
+충돌 해결로 동작이 바뀐 곳은 삭제 안내 문구가 사전을 타게 된 것 하나뿐이고, 티켓 14 의
+3개 실행 테스트(`token-is-dead` / `token-is-alive` / `probe-unreachable`)가 그대로
+통과한다.
+
+### 검증 출력
+
+로컬 `main`(`7df7809`) 위로 rebase 한 뒤 전부 다시 돌렸다.
+
+```text
+$ git rebase main                      # main = 7df7809 "Merge 티켓 14", 16 커밋
+Successfully rebased and updated refs/heads/dosaem/t17-web-play-flow-i18n.
+                                        # 충돌 4건은 위 표대로 손으로 풀었다
+
+$ uv run pytest -q
+859 passed in 778.11s (0:12:58)         # exit 0
+                                        # 라운드 3 의 797 에서 늘어난 62건 중 5건이
+                                        # 이번 라운드의 D-17-5 테스트다. 나머지는
+                                        # main 이 가져온 티켓 14 의 테스트고
+                                        # (`git diff b8f63cc main -- tests` 에
+                                        # 새 test 함수 54개, parametrize 로 더 늘어난다),
+                                        # 중복 1건은 rebase 때 뺐다(아래 충돌 표).
+                                        # `uv run pytest --collect-only -q` = 859.
+
+$ uv run pytest tests/test_web.py tests/test_web_js.py tests/test_ui_strings.py \
+    tests/test_ui_language.py tests/test_token_css.py -q
+139 passed in 28.19s                    # exit 0
+
+$ uv run ruff check .
+All checks passed!                      # exit 0
+
+$ uv run flask db heads
+94a83f12fddb (head)                     # 1줄, exit 0 (17 은 마이그레이션 없음)
+
+$ git diff --check main...HEAD
+                                        # 출력 없음, exit 0
+```
+
+`git status` 는 clean 이고 브랜치는 로컬 `main`(`7df7809`) 바로 위에 있다.
+`origin/main` 은 쓰지 않았고 `git push` 도 하지 않았다.
+
+### 남은 것 / 이 라운드가 못 한 것
+
+- **브라우저 재확인은 안 했다.** 수정은 `web/static/app.js` 의 요청 순서뿐이고
+  CSS·마크업·DOM 구조를 건드리지 않아서 `impeccable detect` 를 다시 돌리지 않았다
+  (라이트 0건 주장은 그대로다). 다크 OS 중간 상태도 그대로 티켓 18 범위다(§6).
+- node 대역의 "서버 선호" 는 **클라이언트가 보낸 순서대로 대입하는** 서버를 모델링한
+  것이다. 실제 MySQL 트랜잭션·네트워크 재정렬을 돌린 결과가 아니다. 다만 쓰기를 하나씩
+  보내므로 서버 쪽 재정렬 여지 자체가 없어지는 것이 이번 수정의 요지다.
+- 같은 게스트가 **두 기기/두 탭**에서 동시에 언어를 바꾸는 경우는 이 수정 범위가 아니다
+  (한 문서 안의 직렬화다). 그 경우는 늦게 쓴 쪽이 이기고, 각 탭은 다음 조회에서 서버
+  선호를 따라간다 — 티켓 17 의 요구는 "한 화면에서 마지막 선택이 유지된다" 다.
+- 실제 브라우저·네트워크에서의 칩 연타는 README "웹 수동 체크리스트" 에 11번으로
+  추가했다(마지막 선택이 남고 새 탭도 그 언어를 연다). 9번(제출 중 전환)은 그대로다.
+- 미수정 MINOR 없음(리뷰 MINOR 0건).
