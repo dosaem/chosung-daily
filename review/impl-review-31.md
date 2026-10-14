@@ -77,3 +77,66 @@
 - SDK `canRequestAds` 직접 확인, 개인정보 선택 변경 후 상태 반영, 실제 어댑티브 높이와 네이티브 광고 렌더링은 Fake/골든만으로 입증되지 않는다. 구현 증거의 자체 audit 점수와 실기기 검증을 구별해야 한다.
 
 판정: FAIL
+
+## 라운드 2
+
+### 범위와 결론
+
+- 기준은 로컬 `main` `8ddc8fdb03dddd9cfd7fb44ba14cf394d8bec7ab`, 검토 HEAD는 `c4d2da37317641dba18fe0f6aa9a97a826b599d9`이다. `git log main..HEAD` 9개 커밋과 `git diff main...HEAD`, 이전 리뷰 이후 수정 diff를 직접 확인했다.
+- 티켓 체크박스, 스펙 §A.5·§B.21·§B.23/관련 US, SCREENS S1/S2/S4/T0/T1, OVERRIDES §5~7, `e1_home`/`e7_home_dark` HTML과 라이트·다크 390 및 태블릿 1024 골든을 대조했다.
+- 이전 결함 3건의 원래 재현 경로는 FIXED다. 신규 **BLOCKER 0 / MAJOR 1 / MINOR 0**, REPEAT 0이다. 신규 D-31-4는 코드 흐름으로 확인했으며, 테스트 파일을 추가·수정하거나 외부 서비스를 호출하지 않았다.
+
+### 티켓 체크박스별 판정
+
+| 체크박스 | 판정 | 직접 확인한 근거 |
+|---|---|---|
+| ApiClient hint-unlock, Dio + Fake | 충족 | `mobile/lib/api/dio_api_client.dart:89`는 기존 인증 옵션으로 puzzle_id를 전송한다. `dio_api_client_test.dart`에서 HTTP 메서드·경로·요청 본문·인증 헤더·409 예외를 검사하며 전체 실행에서 통과했다. |
+| 광고 게이트 순수 함수·UMP 4종·구독자·오류/재시작·entitlement Provider | 충족 | `ad_gate.dart`의 입력/출력, 초기 null 권한, ATT와 UMP 분리, `ad_gate_test.dart`·`ad_consent_test.dart`·`entitlement_test.dart`를 확인했다. 갱신 타이머는 티켓 33 소유다. |
+| UMP update → 폼 → SDK canRequestAds → initialize, ATT 뒤 실행, 광고 ID | 증거 부족 | update/폼/ATT 순서와 ID define/디버그 테스트 ID 배선은 있다. 여전히 `google_ad_service.dart:28`은 SDK `canRequestAds()`를 읽지 않고 ConsentStatus를 반환하며 `ad_gate.dart:30`이 허용값을 계산한다. Fake 기반 테스트는 실제 SDK 값과 이 계산의 일치를 증명하지 않는다. 라운드 1과 같이 실제 오노출을 확인하지 못했으므로 별도 결함으로 승격하지 않았다. |
+| 배너 예약·실패·구독자 제거·태블릿 폭 재요청, 전면 퍼즐당 1회 | 충족 | 실제 셸을 쓰는 `banner_slot_gate_test.dart`가 슬롯 제거·실패 후 높이·rail 제외 폭·회전 시 재요청 1회와 dispose를 검사한다. `result_interstitial_test.dart`의 A→B→A→B와 저장 목록 계산 테스트가 D-31-1을 보완한다. 전면 시트 닫힘/첫 제출/구독자 테스트도 통과했다. 실기기 어댑티브 높이 실측은 여전히 별도 검증 한계다. |
+| 보상형 완료→힌트, 구독자 무광고, 409, 로드 실패 안내/비활성 | 미충족 | 정상 경로·중도 닫힘·광고 실패·409와 실패 후 구독 전환은 테스트에서 통과한다. 그러나 힌트 요청 중 제출하면 성공한 힌트를 버리는 D-31-4가 남는다. |
+| S4 required 조건부 개인정보 설정 → 폼 | 충족 | `records_tab.dart:316`의 조건과 서비스 호출, `records_ad_privacy_test.dart`의 required/비required/구독자/탭 호출 검증을 확인했다. 실제 UMP 선택 변경 결과까지 검증한 것은 아니다. |
+| 서비스 인터페이스/no-op·위젯 테스트·native audit·목업 비교 | 증거 부족 | 인터페이스와 no-op, 실제 화면/컨트롤러를 사용하는 위젯 테스트, 골든은 확인했다. 구현 증거의 audit 표는 소스·위젯 평가이고 실제 광고 렌더링 및 어댑티브 높이 측정은 미실시다. 전체 테스트 통과도 D-31-4의 부재를 증명하지 않는다. |
+
+### 이전 결함 재판정
+
+| ID / 이전 심각도 | 판정 | 근거와 재현 결과 |
+|---|---|---|
+| D-31-1 / MAJOR | FIXED | `interstitial_store.dart:23,44`가 최대 4개 ID 목록을 저장하고 `result_interstitial.dart:32`가 포함 여부를 확인한다. A→B→A→B에서는 2회만 요청한다는 테스트와 `nextShownPuzzleIds`의 두 언어 보존·중복·용량 테스트가 통과했다. 플랫폼 저장의 실제 재시작 검증은 하지 않았지만, 운영 저장소가 동일 순수 함수를 호출하는 배선도 확인했다. |
+| D-31-2 / MAJOR | FIXED | `today_puzzle_controller.dart:101,128,154`의 `_submitDone` 완료와 대기 루프가 원래의 **제출 먼저 → 힌트 나중** 경합을 직렬화한다. 추가된 성공/힌트 실패 두 테스트는 제출 응답 전 hint-unlock 미전송, 시도 1행·남은 기회·힌트·submitting 해제를 실제 컨트롤러 상태로 검사하며 통과했다. 반대 순서는 원래 재현과 구분하여 신규 D-31-4로 기록한다. |
+| D-31-3 / MAJOR | FIXED | `today_tab.dart:319`에서 광고 실패 기록을 광고가 필요한 경우에만 적용한다. 같은 화면에서 unavailable → entitlement true 전환 테스트가 안내 제거·버튼 활성·광고 재호출 없음·API 호출과 힌트 표시까지 검사하며 통과했다. |
+
+### 신규 결함
+
+#### D-31-4 — MAJOR — 힌트 응답 대기 중 제출하면 성공한 힌트가 폐기되고 광고를 다시 요구한다
+
+- 위치: `mobile/lib/puzzle/today_puzzle_controller.dart:99`, `mobile/lib/puzzle/today_puzzle_controller.dart:154`, `mobile/lib/puzzle/today_puzzle_controller.dart:165`; UI 진입과 후속 동작은 `mobile/lib/screens/today_tab.dart:197,287,301`.
+- 요구: 광고 완료 후 힌트를 열고(US 4), 한 번 열린 힌트에 광고를 다시 요구하지 않아야 한다(US 5a). 구독자도 성공한 hint-unlock 결과가 표시되어야 한다(US 32).
+- 재현 입력: 힌트가 없는 진행 중 퍼즐에서 보상형을 완료하거나 구독자 힌트 버튼을 누른다 → hint-unlock의 성공 응답 전달을 지연한다 → 여전히 활성인 답 입력/제출 버튼으로 유효한 답을 제출한다 → 제출 요청만 네트워크 오류로 끝낸다 → 앞서 성공한 hint-unlock 응답을 전달한다. 요청별 지연·실패는 독립적으로 발생할 수 있으며, 서버 성공 후 응답 전달 지연도 이 순서를 만든다.
+- 기존 Fake로 구성 가능한 정확한 순서: `api.unlockHintGate = Completer<void>()`, `api.submitGuessError = NetworkApiException(...)` 설정 → `final opening = notifier.unlockHint()` → `await notifier.submit('지하촌역')` → `api.unlockHintGate!.complete()` → `await opening`과 `TodayPuzzleReady.puzzle.hint` 확인. 이는 재현 절차이며 이번 리뷰에서 새 테스트를 실행했다는 주장은 아니다.
+- 기대: 제출 실패와 무관하게 성공한 힌트가 현재 같은 퍼즐에 남아야 한다. 입력을 직렬화하거나 최신 보드에 힌트를 병합/재조회해서 광고 없이 복구해야 한다.
+- 실제 코드 경로: 힌트가 세대 N으로 출발하지만 힌트 진행 잠금은 `_HintSlot._busy`에만 있어 답 제출을 막지 않는다. submit은 세대를 N+1로 올린다. 제출 실패는 힌트가 없던 `puzzle` 스냅샷에 notice만 붙이고, 힌트 성공 응답은 168행 `_canCommit(N)`에서 false로 버려진다. `unlockHint()`는 false, 화면 hint는 null이며 UI는 “힌트를 열지 못했어요”를 표시한다. 비구독자가 다시 힌트 버튼을 누르면 `_preview()`가 보상형부터 재생한 뒤에야 서버의 이미 열림 409를 받아 재조회한다.
+- 추가로 네트워크 실패 없이도, 먼저 발송한 힌트 요청이 서버에 늦게 도착해 제출이 먼저 처리되면 hint 없는 제출 응답이 남고 뒤의 힌트 성공이 같은 이유로 폐기된다. 서버 `guess_service.py:88,101`은 그 제출 처리 시점의 잠금 해제 상태만 응답하므로 클라이언트 발송 순서를 보장하지 않는다.
+- 테스트 공백: 수정된 두 경합 테스트는 모두 `submit()`부터 시작한다. `_submitDone`은 이미 진행 중인 제출만 기다리므로 **unlockHint → submit** 순서는 보호하지 않는다. 세대 번호로 오래된 응답을 버리는 것만으로는 같은 퍼즐의 서로 다른 변경(시도/힌트)을 보존할 수 없다.
+
+### 직접 실행한 검증
+
+| 명령 | 결과 |
+|---|---|
+| 루트 `uv run ruff check .` | `All checks passed!`, exit 0 |
+| `cd mobile && flutter analyze` | `No issues found!`, exit 0 |
+| `cd mobile && flutter test --reporter expanded` | `00:21 +465: All tests passed!`, exit 0 |
+| `cd mobile && dart format --output=none --set-exit-if-changed .` | `Formatted 146 files (0 changed)`, exit 0 |
+| 지정 전용 자원으로 `uv run pytest -q` | `1403 passed in 1922.34s (0:32:02)`, exit 0; 재실행 없이 통과 |
+| `git diff --check main...HEAD` | exit 0 |
+
+백엔드 실행은 `TEST_DATABASE_URL`의 로컬 DB를 `chosung_daily_test_t31`, `TEST_REDIS_URL`을 `redis://127.0.0.1:6379/5`, `TEST_MIGRATION_DATABASE_URL`의 DB를 기존 `chosung_daily_test_t31_migrations`로 지정했다. 인증 값은 기록하지 않는다. 신규 DB를 생성하지 않았고 기본 DB로 전환하지 않았다. `app/`, `web/`, `tests/`, `migrations/`, `.env.example` diff는 비어 있다. 마이그레이션 변경이 없으므로 조건부 `flask db heads`는 해당하지 않는다.
+
+### 보안·범위·공유 파일 및 참고
+
+- hint-unlock은 기존 인증 옵션을 재사용한다. 서버 인증/CSRF 우회, 서버 행 삭제나 시도 중복 기록, 실제 비밀 값 커밋은 발견하지 못했다. D-31-4는 서버의 힌트 성공 상태를 클라이언트가 놓치는 결함이다.
+- README/RELEASE는 `### 31.`만 추가했고 스펙도 자기 번호의 미정 항목만 덧붙였다. 기존 다른 티켓 행을 바꾸지 않았다. AdMob 식별자는 Google 테스트용 공개 ID이며 키·토큰·비밀번호가 아니다.
+- 라이트·다크 390 및 태블릿 1024 골든을 직접 열어 HintCard 레이블·슬롯·rail/2열을 확인했다. 빈 슬롯 캡션, 기존 전폭 버튼 등 취향 차이는 결함으로 세지 않는다.
+- 실제 SDK `canRequestAds`, UMP 재선택 후 상태 반영, 배너 실측·네이티브 광고 렌더링에 관한 기존 한계는 해결되지 않았다. 실기기·외부 광고·스토어·프로덕션은 호출하지 않았으며 네이티브 빌드 성공 주장도 이번 라운드에서 재검증하지 않았다.
+
+판정: FAIL
