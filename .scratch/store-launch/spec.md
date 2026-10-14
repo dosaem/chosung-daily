@@ -294,6 +294,7 @@ chosung.dosaem.com 은 "하루 한 문제 초성 맞추기"가 돌아가는 Flas
 12. **확정(티켓 04)**: `GET /puzzles/today` 의 `attempts[].feedback` 는 정답 행도 포함해 **항상 `length` 길이로 채워 보낸다**(정답 행은 전부 `true`). 피드백은 저장하지 않고 `Attempt.guess` 와 정답을 다시 비교해 만든다 — 비교 규칙이 제출·조회 두 곳에 두 벌로 생기지 않게. 제출 응답(`POST guesses`)은 현행대로 정답일 때 `feedback: null` 이다. 근거는 README "04. 시도 이력을 서버가 돌려주는 이유".
 
 - (티켓 10 반영) 미정 17 확정: 앱 애플 로그인은 설정값 `APPLE_APP_BUNDLE_ID` 하나만 추가하고 서명 키(`APPLE_TEAM_ID`·`APPLE_KEY_ID`·`APPLE_PRIVATE_KEY`)는 웹과 공유한다(Sign in with Apple 키 하나가 App ID 와 그 Services ID 를 모두 서명). client_secret 생성은 `apple_client_secret(app, client_id)` 로 인자화해 웹은 Services ID, 앱은 번들 ID 로 서명한다 — §A.13 자동 갱신(티켓 11)은 이 **두 client 의 secret 을 모두** 대상으로 해야 한다.
+- (티켓 24 반영) 미정 24 확정: expanded 2열 세부 폭은 **T1 600+320(합 ≤920)**, **T4 480+480**, iPad Split View 최소 폭(약 320dp)은 compact 로 떨어뜨린다 — 판정은 기기 종류가 아니라 `MediaQuery` 현재 폭(`AppBreakpoint`), 근거는 README "24. 태블릿 대응". 추가로 **배너 슬롯 예약 높이는 폭 <728 → 50 / ≥728 → 90 의 잠정값**이다(어댑티브 배너 상한 90dp, 728×90 태블릿 표준). 광고 SDK 가 아직 없어 실측이 불가능해서 **티켓 31 이 `getCurrentOrientationAnchoredAdaptiveBannerAdSize` 실제 값으로 대체·검증한다**(코디네이터 확정 2026-10-14).
 
 ## Further Notes
 
