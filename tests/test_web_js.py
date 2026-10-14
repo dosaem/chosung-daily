@@ -191,3 +191,84 @@ def test_a_language_patch_that_resolves_after_a_refetch_is_dropped(stale_generat
     assert after["chips"] == {"ko": "true", "en": "false"}
     # 접지 않으면 재조회가 한 번 더 돌아 사용자가 보던 퍼즐이 또 바뀐다.
     assert after["refetchesAfterReload"] == 0
+
+
+# --- D-17-4: 본문 수신 대기 중의 상태 폐기 -------------------------------------
+
+
+@pytest.fixture(scope="module")
+def stale_body() -> dict:
+    return run_scenario("stale_response_body.mjs", "ko")
+
+
+def test_a_today_body_that_arrives_after_a_switch_does_not_replace_the_new_puzzle(stale_body):
+    """`await fetch()` 는 헤더까지다 — 본문을 읽는 사이에 전환됐으면 그 본문은 버린다."""
+    after = stale_body["late_today_body"]
+
+    assert after["puzzleId"] == 2
+    assert after["puzzleLanguage"] == "en"
+    assert after["chips"] == {"ko": "false", "en": "true"}
+
+
+def test_the_same_holds_in_the_other_direction(stale_body):
+    """en→ko 로 돌아오는 순서에서도 늦게 온 en 본문이 ko 화면을 덮지 않는다."""
+    after = stale_body["late_today_body_reverse"]
+
+    assert after["puzzleId"] == 1
+    assert after["puzzleLanguage"] == "ko"
+    assert after["chips"] == {"ko": "true", "en": "false"}
+
+
+def test_a_leaderboard_body_that_arrives_after_a_switch_is_discarded(stale_body):
+    """전 언어 순위가 새 언어 화면에 다시 뜨면 안 된다."""
+    after = stale_body["late_leaderboard_body"]
+
+    assert after["entryRows"] == 0
+    assert after["myRank"] == UI_STRINGS["ko"]["my_rank_unsolved"]
+
+
+def test_a_today_stats_body_that_arrives_after_a_switch_is_discarded(stale_body):
+    """전 언어의 시도 분포도 마찬가지다."""
+    assert stale_body["late_today_stats_body"]["statsText"] == UI_STRINGS["ko"]["stats_empty"]
+
+
+def test_a_language_patch_body_that_arrives_after_a_refetch_is_dropped(stale_body):
+    """PATCH 본문을 읽는 사이 409 재조회가 화면을 갈아끼웠으면 그 전환은 접는다."""
+    after = stale_body["late_patch_body"]
+
+    assert after["puzzleLanguage"] == "ko"
+    assert after["chips"] == {"ko": "true", "en": "false"}
+    # 접지 않으면 재조회가 한 번 더 돌아 사용자가 보던 퍼즐이 또 바뀐다.
+    assert after["refetchesAfterReload"] == 0
+
+
+def test_a_stats_body_that_arrives_after_a_switch_keeps_the_guest_scoped_summary(stale_body):
+    """칩은 지난 선호를 따라가지 않지만, 게스트의 연속 기록은 그대로 갱신한다."""
+    after = stale_body["late_stats_body"]
+    expected = UI_STRINGS["ko"]["streak_summary"].format(current=3, max=7, solved=12)
+
+    assert after["chips"] == {"ko": "false", "en": "true"}
+    assert after["streak"] == expected
+
+
+def test_a_late_body_without_a_switch_is_still_applied(stale_body):
+    """대조군 — 전환이 없으면 늦게 온 본문도 평소처럼 반영된다."""
+    after = stale_body["fresh_leaderboard_body"]
+
+    assert after["entryRows"] == 1
+    assert after["myRank"] != UI_STRINGS["ko"]["my_rank_unsolved"]
+
+
+def test_a_submit_body_that_arrives_after_a_switch_does_not_touch_the_new_board(stale_body):
+    """제출까지 여섯 요청 전부 같은 경계를 쓴다 — 늦게 온 제출 본문도 버린다."""
+    after = stale_body["late_submit_body"]
+
+    assert after["puzzleId"] == 2
+    assert after["attempts"] == []
+    assert after["boardRows"] == 0
+    assert after["attemptsLeft"] == 5
+
+
+def test_a_200_with_an_unparsable_body_falls_back_to_the_load_failure_message(stale_body):
+    """본문을 한 곳에서 읽으니 파싱 실패도 던지지 않고 안내로 눕는다."""
+    assert stale_body["unparsable_body"]["message"] == UI_STRINGS["ko"]["puzzle_load_failed"]

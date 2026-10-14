@@ -74,6 +74,26 @@ function sinceGeneration() {
   return () => state.generation !== generation;
 }
 
+/** 요청을 보내고, **본문까지 다 읽은 뒤** 세대를 확인해 돌려준다.
+ *
+ * `await fetch()` 가 끝난 시점은 헤더까지다 — 본문 읽기(`res.json()`)는 또 하나의
+ * 비동기 경계라, 그 사이에 상태가 폐기되면 fetch 직후에 통과한 검사는 이미
+ * 무효다. 그런데도 본문이 다 오면 검사 없이 화면에 반영했다
+ * (review/impl-review-17.md D-17-4). 그래서 세대 검사는 **상태에 반영하기 직전**
+ * 인 여기 한 곳에서만 하고, 부른 쪽은 `stale` 만 보면 된다.
+ *
+ * @returns {Promise<{stale: boolean, ok: boolean, body: object}>}
+ */
+async function fetchJson(url, options) {
+  const isStale = sinceGeneration();
+  const res = await fetch(url, options);
+  // 본문이 JSON 이 아닌 경우(프록시가 끼워넣은 502 HTML 등)는 던지지 않고 실패로
+  // 눕힌다 — 200 이어도 읽을 수 없는 본문은 자료가 아니라 오류다. 부른 쪽은
+  // `ok` 와 `code` 로 판단하니 파싱 실패 하나로 화면이 멈추진 않는다.
+  const body = await res.json().catch(() => null);
+  return { stale: isStale(), ok: res.ok && body !== null, body: body ?? {} };
+}
+
 function authHeaders() {
   return { Authorization: `Bearer ${state.token}` };
 }
@@ -142,30 +162,30 @@ async function ensureToken() {
 }
 
 async function loadToday() {
-  const isStale = sinceGeneration();
-  const res = await fetch(`${API_BASE}/puzzles/today`, { headers: authHeaders() });
   // 칩을 연달아 누르면 재조회가 두 번 날아간다 — 먼저 보낸 쪽이 늦게 도착해
   // 나중 언어의 퍼즐을 덮어쓰지 않게, 폐기 이전 세대의 응답은 없던 일로 한다.
-  if (isStale()) return null;
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
+  const { stale, ok, body } = await fetchJson(`${API_BASE}/puzzles/today`, {
+    headers: authHeaders(),
+  });
+  if (stale) return null;
+  if (!ok) {
     showMessage(errorText(body, "puzzle_load_failed"));
     return null;
   }
-  return res.json();
+  return body;
 }
 
 async function loadStats() {
-  const isStale = sinceGeneration();
   const streakEl = document.getElementById("streak");
-  const res = await fetch(`${API_BASE}/me/stats`, { headers: authHeaders() });
-  if (!res.ok) {
+  const { stale, ok, body: stats } = await fetchJson(`${API_BASE}/me/stats`, {
+    headers: authHeaders(),
+  });
+  if (!ok) {
     // 게임 자체엔 영향 없는 보조 정보라 #message로 크게 띄우진 않지만, 조용히
     // 묵혀서 "기록이 0일인가?"로 헷갈리게 두지도 않는다.
     streakEl.textContent = t("streak_load_failed");
     return;
   }
-  const stats = await res.json();
   // 연속 기록·연결 계정은 퍼즐이 아니라 게스트의 것이라 전환과 무관하게 최신이다.
   streakEl.textContent = t("streak_summary", {
     current: stats.current_streak,
@@ -178,7 +198,7 @@ async function loadStats() {
   // 클릭이 "이미 그 언어"로 보여 무시된다(review/impl-review-17.md D-17-3).
   // 퍼즐이 없는 날(자정 전환 직후)에도 칩은 내 선호 언어를 가리켜야 하므로,
   // 퍼즐 유무가 아니라 세대로 판단한다.
-  if (!isStale()) renderLanguageChips(stats.puzzle_language);
+  if (!stale) renderLanguageChips(stats.puzzle_language);
 }
 
 // 로그인 버튼은 provider 연결 전까지만 보여준다 — 연결된 뒤엔 어떤 계정으로
@@ -216,22 +236,20 @@ function renderLanguageChips(language) {
 async function handleLanguageChange(language) {
   if (language === state.puzzleLanguage) return;
 
-  const isStale = sinceGeneration();
-  const res = await fetch(`${API_BASE}/me`, {
+  const { stale, ok, body } = await fetchJson(`${API_BASE}/me`, {
     method: "PATCH",
     headers: jsonHeaders(),
     body: JSON.stringify({ puzzle_language: language }),
   });
   // PATCH 가 도는 사이 409 재조회나 백업 코드 전환이 화면을 갈아끼웠을 수 있다.
   // 그 위에 이 전환을 마저 얹으면 사용자가 보고 있는 퍼즐이 한 번 더 바뀐다.
-  if (isStale()) return;
-  if (!res.ok) {
+  if (stale) return;
+  if (!ok) {
     showMessage(t("puzzle_language_failed"));
     return;
   }
 
-  const data = await res.json();
-  renderLanguageChips(data.puzzle_language);
+  renderLanguageChips(body.puzzle_language);
   await reloadPuzzle();
 }
 
@@ -457,15 +475,13 @@ async function submitGuess(input, raw) {
   // 그 사이 보드는 서버 이력으로 복원됐다 — ID 만 보면 복원된 그 시도를 한 번 더
   // 그려서 같은 행이 두 번 보인다(review/impl-review-17.md D-17-1 REPEAT).
   const requestedPuzzleId = state.puzzleId;
-  const isStale = sinceGeneration();
-  const res = await fetch(`${API_BASE}/puzzles/today/guesses`, {
+  const { stale, ok, body: data } = await fetchJson(`${API_BASE}/puzzles/today/guesses`, {
     method: "POST",
     headers: jsonHeaders(),
     body: JSON.stringify({ puzzle_id: requestedPuzzleId, guess }),
   });
-  const data = await res.json();
 
-  if (isStale() || state.puzzleId !== requestedPuzzleId) return;
+  if (stale || state.puzzleId !== requestedPuzzleId) return;
 
   if (data.code === "PUZZLE_CHANGED") {
     // 자정이 지났거나 다른 기기에서 언어를 바꿨다. 시도는 소비되지 않았으니
@@ -476,7 +492,7 @@ async function submitGuess(input, raw) {
     return;
   }
 
-  if (!res.ok) {
+  if (!ok) {
     showMessage(errorText(data, "generic_error"));
     return;
   }
@@ -515,19 +531,18 @@ function formatSeconds(totalSeconds) {
 async function loadLeaderboard() {
   const message = document.getElementById("leaderboard-message");
   // 통계·리더보드는 "내가 안 고른 언어"도 볼 수 있는 엔드포인트라 언어를 명시한다.
-  const isStale = sinceGeneration();
-  const res = await fetch(
+  const { stale, ok, body } = await fetchJson(
     `${API_BASE}/puzzles/today/leaderboard?language=${state.puzzleLanguage}`,
     { headers: authHeaders() }
   );
   // 요청에 박아 보낸 언어가 지금 화면의 언어가 아니면, 이 순위표는 남의 퍼즐 것이다.
-  if (isStale()) return;
-  if (!res.ok) {
+  if (stale) return;
+  if (!ok) {
     message.textContent = t("leaderboard_load_failed");
     return;
   }
 
-  renderLeaderboard(await res.json());
+  renderLeaderboard(body);
 }
 
 function renderLeaderboard(data) {
@@ -565,14 +580,14 @@ function renderLeaderboard(data) {
 }
 
 async function loadTodayStats() {
-  const isStale = sinceGeneration();
-  const res = await fetch(`${API_BASE}/puzzles/today/stats?language=${state.puzzleLanguage}`, {
-    headers: authHeaders(),
-  });
-  if (isStale()) return;
-  if (!res.ok) return;
+  const { stale, ok, body } = await fetchJson(
+    `${API_BASE}/puzzles/today/stats?language=${state.puzzleLanguage}`,
+    { headers: authHeaders() }
+  );
+  if (stale) return;
+  if (!ok) return;
 
-  renderTodayStats(await res.json());
+  renderTodayStats(body);
 }
 
 function renderTodayStats(stats) {

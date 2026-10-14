@@ -164,6 +164,38 @@ export function okResponse(body) {
   return { ok: true, status: 200, json: async () => body };
 }
 
+/** 헤더는 바로 주고 **본문은 내가 보낼 때** 도착하는 실제 `Response`.
+ *
+ * `okResponse` 의 json 은 즉시 끝나서 "헤더는 받았지만 본문은 아직" 인 창을 만들
+ * 수 없다 — `await fetch()` 와 `res.json()` 사이의 그 창에서 상태가 폐기되는 것이
+ * D-17-4 다(review/impl-review-17.md). 브라우저와 같은 경계를 쓰려고 대역을 직접
+ * 짜지 않고 node 의 실제 `Response` + `ReadableStream` 을 쓴다.
+ *
+ * @param {object} body 나중에 도착할 JSON 본문
+ * @param {object} [options]
+ * @param {number} [options.status] HTTP 상태 코드
+ * @returns {{response: Response, send: function(): void}}
+ */
+export function heldBodyResponse(body, { status = 200 } = {}) {
+  let controller;
+  const stream = new ReadableStream({
+    start(streamController) {
+      controller = streamController;
+    },
+  });
+  const response = new Response(stream, {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+  return {
+    response,
+    send() {
+      controller.enqueue(new TextEncoder().encode(JSON.stringify(body)));
+      controller.close();
+    },
+  };
+}
+
 /** 오류 응답 대역. 서버는 code + 한국어 message 를 준다(app/errors.py). */
 export function errorResponse(status, body) {
   return { ok: false, status, json: async () => body };
