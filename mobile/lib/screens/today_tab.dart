@@ -9,8 +9,8 @@ import 'package:chosung/layout/reading_width.dart';
 import 'package:chosung/puzzle/guess_rules.dart';
 import 'package:chosung/puzzle/today_puzzle_controller.dart';
 import 'package:chosung/puzzle/today_puzzle_state.dart';
+import 'package:chosung/records/my_stats_controller.dart';
 import 'package:chosung/routing/app_routes.dart';
-import 'package:chosung/startup/startup_controller.dart';
 import 'package:chosung/theme/app_colors.dart';
 import 'package:chosung/widgets/guess_input.dart';
 import 'package:chosung/widgets/hint_card.dart';
@@ -255,7 +255,7 @@ class _Column extends StatelessWidget {
 class _TopBar extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final stats = ref.watch(startupStatsProvider);
+    final stats = ref.watch(myStatsProvider).value;
 
     return Row(
       children: [

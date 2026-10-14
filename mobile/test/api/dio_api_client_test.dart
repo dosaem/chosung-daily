@@ -391,4 +391,104 @@ void main() {
       );
     });
   });
+
+  group('순위·기록 엔드포인트', () {
+    test('GET /puzzles/today/leaderboard 는 limit 을 붙여 Bearer 로 부른다', () async {
+      final adapter = _RecordingAdapter(
+        (_) => _json({
+          'date': '2026-10-13',
+          'language': 'ko',
+          'entries': [
+            {
+              'rank': 1,
+              'display': '게스트 #a3f1',
+              'attempts': 1,
+              'seconds': 41,
+              'is_me': true,
+            },
+          ],
+          'me': {'rank': 1, 'attempts': 1, 'seconds': 41},
+        }, 200),
+      );
+      final client = _clientWith(adapter, token: 'guest-token');
+
+      final board = await client.fetchTodayLeaderboard();
+
+      expect(board.entries.single.display, '게스트 #a3f1');
+      expect(board.me?.rank, 1);
+      expect(adapter.requests.single.path, '/puzzles/today/leaderboard');
+      expect(adapter.requests.single.method, 'GET');
+      // 언어는 보내지 않는다 — 서버가 게스트 선호 언어로 고른다(S3 칩은 표시 전용).
+      expect(adapter.requests.single.queryParameters, {'limit': 20});
+      expect(
+        adapter.requests.single.headers['Authorization'],
+        'Bearer guest-token',
+      );
+    });
+
+    test('그 언어의 오늘 퍼즐이 없으면 NoPuzzleTodayApiException', () async {
+      final adapter = _RecordingAdapter(
+        (_) => _json({
+          'code': 'NO_PUZZLE_TODAY',
+          'message': '오늘 퍼즐이 아직 없습니다.',
+        }, 404),
+      );
+      final client = _clientWith(adapter, token: 'guest-token');
+
+      await expectLater(
+        client.fetchTodayLeaderboard(),
+        throwsA(isA<NoPuzzleTodayApiException>()),
+      );
+    });
+
+    test('GET /me/history 는 days 를 붙이고 날짜 목록을 돌려준다', () async {
+      final adapter = _RecordingAdapter(
+        (_) => ResponseBody.fromString(
+          jsonEncode([
+            {
+              'date': '2026-10-12',
+              'results': {'ko': 'success', 'en': 'none'},
+            },
+            {
+              'date': '2026-10-13',
+              'results': {'ko': 'in_progress', 'en': 'fail'},
+            },
+          ]),
+          200,
+          headers: {
+            Headers.contentTypeHeader: [Headers.jsonContentType],
+          },
+        ),
+      );
+      final client = _clientWith(adapter, token: 'guest-token');
+
+      final history = await client.fetchMyHistory();
+
+      expect(history.length, 2);
+      expect(history.first.date, DateTime(2026, 10, 12));
+      expect(history.first.results[PuzzleLanguage.ko], DayResult.success);
+      expect(history.last.results[PuzzleLanguage.en], DayResult.fail);
+      expect(adapter.requests.single.path, '/me/history');
+      expect(adapter.requests.single.queryParameters, {'days': 7});
+      expect(
+        adapter.requests.single.headers['Authorization'],
+        'Bearer guest-token',
+      );
+    });
+
+    test('토큰이 없으면 두 호출 다 서버까지 가지 않는다', () async {
+      final adapter = _RecordingAdapter((_) => _json(const {}, 200));
+      final client = _clientWith(adapter);
+
+      await expectLater(
+        client.fetchTodayLeaderboard(),
+        throwsA(isA<UnauthorizedApiException>()),
+      );
+      await expectLater(
+        client.fetchMyHistory(),
+        throwsA(isA<UnauthorizedApiException>()),
+      );
+      expect(adapter.requests, isEmpty);
+    });
+  });
 }

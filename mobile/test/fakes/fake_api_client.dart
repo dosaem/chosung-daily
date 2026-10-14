@@ -101,6 +101,54 @@ TodayStats fakeTodayStats({
   byAttempt: byAttempt,
 );
 
+LeaderboardEntry fakeLeaderboardEntry({
+  required int rank,
+  String? display,
+  int attempts = 1,
+  int seconds = 41,
+  bool isMe = false,
+}) => LeaderboardEntry(
+  rank: rank,
+  display: display ?? '게스트 #${rank.toRadixString(16).padLeft(4, '0')}',
+  attempts: attempts,
+  seconds: seconds,
+  isMe: isMe,
+);
+
+Leaderboard fakeLeaderboard({
+  DateTime? date,
+  PuzzleLanguage language = PuzzleLanguage.ko,
+  List<LeaderboardEntry>? entries,
+  MyRank? me,
+}) => Leaderboard(
+  date: date ?? DateTime(2026, 10, 13),
+  language: language,
+  entries: entries ?? const [],
+  me: me,
+);
+
+/// 서버와 같은 순서(오래된 날짜부터)로 7일을 만든다. [results] 는 그 순서대로
+/// 날짜 하나씩 받고, 모자라면 미플레이로 채운다.
+List<HistoryDay> fakeHistory({
+  DateTime? lastDate,
+  int days = 7,
+  List<Map<PuzzleLanguage, DayResult>> results = const [],
+}) {
+  final last = lastDate ?? DateTime(2026, 10, 13);
+  return [
+    for (var offset = days - 1; offset >= 0; offset--)
+      HistoryDay(
+        date: last.subtract(Duration(days: offset)),
+        results:
+            results.elementAtOrNull(days - 1 - offset) ??
+            {
+              for (final language in PuzzleLanguage.values)
+                language: DayResult.none,
+            },
+      ),
+  ];
+}
+
 /// 테스트용 [ApiClient]. 서버가 돌려줄 값을 그대로 들고 있고, 호출 횟수와
 /// 보낸 인자를 기록한다. 응답을 바꾸려면 필드를 다시 넣으면 된다.
 class FakeApiClient implements ApiClient {
@@ -110,18 +158,24 @@ class FakeApiClient implements ApiClient {
     TodayPuzzle? puzzle,
     GuessResult? guessResult,
     TodayStats? todayStats,
+    Leaderboard? leaderboard,
+    List<HistoryDay>? history,
     this.nextGuestToken = 'fake-guest-token',
   }) : config = config ?? fakeAppConfig(),
        stats = stats ?? fakeMyStats(),
        puzzle = puzzle ?? fakeTodayPuzzle(),
        guessResult = guessResult ?? fakeGuessResult(),
-       todayStats = todayStats ?? fakeTodayStats();
+       todayStats = todayStats ?? fakeTodayStats(),
+       leaderboard = leaderboard ?? fakeLeaderboard(),
+       history = history ?? fakeHistory();
 
   AppConfig config;
   MyStats stats;
   TodayPuzzle puzzle;
   GuessResult guessResult;
   TodayStats todayStats;
+  Leaderboard leaderboard;
+  List<HistoryDay> history;
   String nextGuestToken;
 
   /// 넣어두면 그 호출이 이 예외를 던진다.
@@ -131,6 +185,9 @@ class FakeApiClient implements ApiClient {
   Exception? fetchTodayPuzzleError;
   Exception? submitGuessError;
   Exception? fetchTodayStatsError;
+  Exception? fetchTodayLeaderboardError;
+  Exception? fetchMyHistoryError;
+  Exception? updatePuzzleLanguageError;
 
   /// 넣어두면 이 Completer 가 끝날 때까지 오늘 퍼즐 응답을 붙잡는다 —
   /// "로딩 중(스켈레톤)" 화면을 그 상태로 세워두고 보는 데 쓴다.
@@ -143,6 +200,9 @@ class FakeApiClient implements ApiClient {
   /// 분포 응답도 붙잡을 수 있다 — 결과 시트의 통계 스켈레톤을 세워 두는 데 쓴다.
   Completer<void>? fetchTodayStatsGate;
 
+  /// 퍼즐 언어 변경 응답을 붙잡는다 — "바꾸는 중" 상태를 세워두고 본다.
+  Completer<void>? updatePuzzleLanguageGate;
+
   final List<PuzzleLanguage> createGuestLanguages = [];
   int fetchConfigCalls = 0;
   int fetchMyStatsCalls = 0;
@@ -152,6 +212,8 @@ class FakeApiClient implements ApiClient {
   /// `fetchTodayStats` 가 받은 언어들 — 시트가 "지금 선호 언어" 가 아니라
   /// 그린 퍼즐의 언어로 묻는지 보려고 기록한다.
   final List<PuzzleLanguage> fetchTodayStatsLanguages = [];
+  final List<int> fetchTodayLeaderboardLimits = [];
+  final List<int> fetchMyHistoryDays = [];
 
   /// 제출로 보낸 (puzzle_id, guess) 를 순서대로 기록한다 — `puzzle_id` 동봉은
   /// 409 흐름의 전제라 테스트가 직접 본다.
@@ -219,6 +281,22 @@ class FakeApiClient implements ApiClient {
     PuzzleLanguage puzzleLanguage,
   ) async {
     updatedPuzzleLanguages.add(puzzleLanguage);
+    if (updatePuzzleLanguageGate case final gate?) await gate.future;
+    if (updatePuzzleLanguageError case final error?) throw error;
     return puzzleLanguage;
+  }
+
+  @override
+  Future<Leaderboard> fetchTodayLeaderboard({int limit = 20}) async {
+    fetchTodayLeaderboardLimits.add(limit);
+    if (fetchTodayLeaderboardError case final error?) throw error;
+    return leaderboard;
+  }
+
+  @override
+  Future<List<HistoryDay>> fetchMyHistory({int days = 7}) async {
+    fetchMyHistoryDays.add(days);
+    if (fetchMyHistoryError case final error?) throw error;
+    return history;
   }
 }

@@ -402,3 +402,139 @@ class TodayStats {
       date.month == puzzle.date.month &&
       date.day == puzzle.date.day;
 }
+
+/// 리더보드 한 줄. `display` 는 서버가 만든 익명 이름("게스트 #a3f1")이다 —
+/// 이메일도 게스트 ID 도 내려오지 않는다(README "07. 리더보드 익명 표시").
+@immutable
+class LeaderboardEntry {
+  const LeaderboardEntry({
+    required this.rank,
+    required this.display,
+    required this.attempts,
+    required this.seconds,
+    required this.isMe,
+  });
+
+  factory LeaderboardEntry.fromJson(Map<String, dynamic> json) =>
+      LeaderboardEntry(
+        rank: json['rank'] as int,
+        display: json['display'] as String,
+        attempts: json['attempts'] as int,
+        seconds: json['seconds'] as int,
+        isMe: json['is_me'] as bool,
+      );
+
+  final int rank;
+  final String display;
+  final int attempts;
+
+  /// 퍼즐을 연 순간부터 정답까지 걸린 시간(초).
+  final int seconds;
+  final bool isMe;
+}
+
+/// 내 순위. `entries` 밖(21위 이하)이어도 서버가 ZRANK 로 따로 보내준다
+/// (README "07. 내 순위는 페이지가 아니라 ZRANK 로 따로 읽는다").
+@immutable
+class MyRank {
+  const MyRank({
+    required this.rank,
+    required this.attempts,
+    required this.seconds,
+  });
+
+  factory MyRank.fromJson(Map<String, dynamic> json) => MyRank(
+    rank: json['rank'] as int,
+    attempts: json['attempts'] as int,
+    seconds: json['seconds'] as int,
+  );
+
+  final int rank;
+  final int attempts;
+  final int seconds;
+}
+
+/// `GET /api/v1/puzzles/today/leaderboard` 응답.
+@immutable
+class Leaderboard {
+  const Leaderboard({
+    required this.date,
+    required this.language,
+    required this.entries,
+    this.me,
+  });
+
+  factory Leaderboard.fromJson(Map<String, dynamic> json) {
+    final me = json['me'] as Map<String, dynamic>?;
+    return Leaderboard(
+      // 서버가 KST 로 계산한 퍼즐 날짜다.
+      date: DateTime.parse(json['date'] as String),
+      language:
+          PuzzleLanguage.fromWire(json['language'] as String?) ??
+          PuzzleLanguage.ko,
+      entries: (json['entries'] as List<dynamic>)
+          .map(
+            (entry) => LeaderboardEntry.fromJson(entry as Map<String, dynamic>),
+          )
+          .toList(growable: false),
+      me: me == null ? null : MyRank.fromJson(me),
+    );
+  }
+
+  final DateTime date;
+  final PuzzleLanguage language;
+  final List<LeaderboardEntry> entries;
+
+  /// 아직 못 풀었으면 null.
+  final MyRank? me;
+
+  /// 상위 목록에 내 행이 없는가 — 그러면 S3 가 `me` 를 목록 하단에 고정한다.
+  bool get isMeOutsideEntries =>
+      me != null && !entries.any((entry) => entry.isMe);
+}
+
+/// 지난 하루의 결과. `GET /puzzles/today` 의 status 와 값이 겹치지만 한 칸이
+/// 다르다 — 지난 날의 시도 0개는 `in_progress` 가 아니라 [none] 이다
+/// (README "07. 최근 7일 기록").
+enum DayResult {
+  success('success'),
+  fail('fail'),
+  inProgress('in_progress'),
+  none('none')
+  ;
+
+  const DayResult(this.wire);
+
+  final String wire;
+
+  /// 모르는 값은 미플레이로 떨어뜨린다 — 서버가 결과 종류를 늘려도 그리드는
+  /// 칠하지 않은 칸으로 비워 두는 쪽이 틀린 색을 칠하는 것보다 낫다.
+  static DayResult fromWire(String? value) {
+    for (final result in DayResult.values) {
+      if (result.wire == value) return result;
+    }
+    return none;
+  }
+}
+
+/// `GET /api/v1/me/history?days=` 의 하루. 서버가 빠진 날 없이 오래된 날짜부터
+/// 채워서 보낸다 — 앱은 날짜 계산을 다시 하지 않는다.
+@immutable
+class HistoryDay {
+  const HistoryDay({required this.date, required this.results});
+
+  factory HistoryDay.fromJson(Map<String, dynamic> json) {
+    final results = json['results'] as Map<String, dynamic>;
+    return HistoryDay(
+      date: DateTime.parse(json['date'] as String),
+      results: {
+        // 앱이 아는 언어만 남긴다 — 서버가 먼저 언어를 늘려도 그릴 칸이 없다.
+        for (final language in PuzzleLanguage.values)
+          language: DayResult.fromWire(results[language.wire] as String?),
+      },
+    );
+  }
+
+  final DateTime date;
+  final Map<PuzzleLanguage, DayResult> results;
+}

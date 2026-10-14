@@ -90,5 +90,50 @@
     "puzzle": "{mask} ({length} letters)",
     "success": "{used}/{max} solved",
     "fail": "{used}/{max} failed"
+  },
+  "language": {
+    "ko": "Korean",
+    "en": "English"
+  },
+  "ranking": {
+    "my_rank": "My rank",
+    "not_played": "Not solved yet",
+    "empty": "Nobody has solved it yet. Be the first",
+    "me": "You",
+    "attempts": "{count} tries",
+    "column_rank": "Rank",
+    "column_name": "Name",
+    "column_attempts": "Tries",
+    "column_time": "Time",
+    "row_semantics": "Rank {rank}, {name}, {attempts}, time {time}",
+    "error_title": "Couldn't load the ranking",
+    "error_body": "Check your connection and try again.",
+    "retry": "Try again"
+  },
+  "records": {
+    "recent_days": "Last 7 days",
+    "settings": "Settings",
+    "puzzle_language": "Puzzle language",
+    "language_change_failed": "Couldn't change the language. Try again",
+    "daily_notification": "Daily reminder",
+    "reminder": "Nudge if unsolved",
+    "ad_privacy": "Ad privacy settings",
+    "how_to": "How to play",
+    "privacy": "Privacy policy",
+    "terms": "Terms of service",
+    "licenses": "Open source licenses",
+    "version": "Version",
+    "account": "Account",
+    "subscription": "Subscription",
+    "backup_code": "Restore from another device",
+    "delete_account": "Delete account",
+    "slot_pending": "Coming soon",
+    "history_error": "Couldn't load your recent days",
+    "retry": "Try again",
+    "day_semantics": "{date} {result}",
+    "result_success": "solved",
+    "result_fail": "failed",
+    "result_in_progress": "in progress",
+    "result_none": "not played"
   }
 }

@@ -368,4 +368,80 @@ void main() {
       );
     });
   });
+
+  group('Leaderboard.fromJson', () {
+    test('서버 응답(/api/v1/puzzles/today/leaderboard)을 그대로 읽는다', () {
+      final board = Leaderboard.fromJson(
+        jsonDecode('''
+        {
+          "date": "2026-10-13",
+          "language": "ko",
+          "entries": [
+            {"rank": 1, "display": "게스트 #a3f1", "attempts": 1,
+             "seconds": 41, "is_me": false},
+            {"rank": 2, "display": "게스트 #7b20", "attempts": 2,
+             "seconds": 221, "is_me": true}
+          ],
+          "me": {"rank": 2, "attempts": 2, "seconds": 221}
+        }
+        ''')
+            as Map<String, dynamic>,
+      );
+
+      expect(board.date, DateTime(2026, 10, 13));
+      expect(board.language, PuzzleLanguage.ko);
+      expect(board.entries.first.rank, 1);
+      expect(board.entries.first.display, '게스트 #a3f1');
+      expect(board.entries.first.attempts, 1);
+      expect(board.entries.first.seconds, 41);
+      expect(board.entries.first.isMe, isFalse);
+      expect(board.entries.last.isMe, isTrue);
+      expect(board.me?.rank, 2);
+      expect(board.me?.attempts, 2);
+      expect(board.me?.seconds, 221);
+    });
+
+    test('아직 아무도 못 풀었으면 entries 는 비고 me 는 null 이다', () {
+      final board = Leaderboard.fromJson(
+        jsonDecode('''
+        {"date": "2026-10-13", "language": "en", "entries": [], "me": null}
+        ''')
+            as Map<String, dynamic>,
+      );
+
+      expect(board.entries, isEmpty);
+      expect(board.me, isNull);
+      expect(board.language, PuzzleLanguage.en);
+    });
+  });
+
+  group('HistoryDay.fromJson', () {
+    test('하루의 언어별 결과를 읽는다', () {
+      final day = HistoryDay.fromJson(
+        jsonDecode('''
+        {"date": "2026-10-12", "results": {"ko": "success", "en": "none"}}
+        ''')
+            as Map<String, dynamic>,
+      );
+
+      expect(day.date, DateTime(2026, 10, 12));
+      expect(day.results[PuzzleLanguage.ko], DayResult.success);
+      expect(day.results[PuzzleLanguage.en], DayResult.none);
+    });
+
+    test('서버가 먼저 늘린 언어·결과는 버리거나 미플레이로 떨어뜨린다', () {
+      final day = HistoryDay.fromJson(
+        jsonDecode('''
+        {"date": "2026-10-12",
+         "results": {"ko": "surrendered", "en": "in_progress", "ja": "fail"}}
+        ''')
+            as Map<String, dynamic>,
+      );
+
+      // 모르는 언어는 그릴 칸이 없고, 모르는 결과는 색칠하지 않는다.
+      expect(day.results.keys, [PuzzleLanguage.ko, PuzzleLanguage.en]);
+      expect(day.results[PuzzleLanguage.ko], DayResult.none);
+      expect(day.results[PuzzleLanguage.en], DayResult.inProgress);
+    });
+  });
 }

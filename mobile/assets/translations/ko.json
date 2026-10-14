@@ -90,5 +90,50 @@
     "puzzle": "{mask} ({length}글자)",
     "success": "{used}/{max} 성공",
     "fail": "{used}/{max} 실패"
+  },
+  "language": {
+    "ko": "한국어",
+    "en": "영어"
+  },
+  "ranking": {
+    "my_rank": "내 순위",
+    "not_played": "아직 안 풀었어요",
+    "empty": "아직 아무도 못 풀었어요. 첫 번째가 되어보세요",
+    "me": "나",
+    "attempts": "{count}회",
+    "column_rank": "순위",
+    "column_name": "이름",
+    "column_attempts": "시도",
+    "column_time": "시간",
+    "row_semantics": "{rank}위 {name}, 시도 {attempts}, 걸린 시간 {time}",
+    "error_title": "순위를 불러오지 못했어요",
+    "error_body": "네트워크를 확인하고 다시 시도해주세요.",
+    "retry": "다시 시도"
+  },
+  "records": {
+    "recent_days": "최근 7일",
+    "settings": "설정",
+    "puzzle_language": "퍼즐 언어",
+    "language_change_failed": "언어를 바꾸지 못했어요. 다시 시도해주세요",
+    "daily_notification": "일일 알림",
+    "reminder": "리마인더",
+    "ad_privacy": "광고 개인정보 설정",
+    "how_to": "하는 법",
+    "privacy": "개인정보처리방침",
+    "terms": "이용약관",
+    "licenses": "오픈소스 라이선스",
+    "version": "버전",
+    "account": "계정",
+    "subscription": "구독",
+    "backup_code": "다른 기기 기록 불러오기",
+    "delete_account": "계정 삭제",
+    "slot_pending": "준비 중",
+    "history_error": "최근 기록을 불러오지 못했어요",
+    "retry": "다시 시도",
+    "day_semantics": "{date} {result}",
+    "result_success": "성공",
+    "result_fail": "실패",
+    "result_in_progress": "진행 중",
+    "result_none": "미플레이"
   }
 }
