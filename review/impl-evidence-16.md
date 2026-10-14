@@ -181,26 +181,40 @@ d7a1f0ca0a29 (head)
 $ git rebase main
 Successfully rebased and updated refs/heads/dosaem/t16-legal-compliance-checklist.
 
-$ git log --oneline main..HEAD
-ce2d8db docs(16): 체크리스트 링크·사람 확인 항목·미정 9·21·22·23 결과 기록
-06ac4ea feat(16): 방침·약관을 법 필수 기재사항으로 보완하고 사업자 정보를 조각으로 분리 (green)
-d991d99 test(16): 법 기준 체크리스트와 조문→절→테스트 묶음 (red)
-(이 문서 커밋 전 기준 3개)
+$ git log --oneline main..HEAD   # 이 문서 커밋 전
+74dbcd4 fix(16): 구현하지 않은 보호조치 고지를 실제 처리에 맞게 고침 (green)
+22ae240 test(16): 고지와 실제 처리 불일치 3건을 재현하는 테스트 (red)
+1c0bda6 review(16): 법적 고지와 실제 처리 불일치 3건 보고
+b195048 docs(16): 구현 증거 — 체크박스별 테스트 표, 992 passed, detect 0건
+3ab9cf9 docs(16): 체크리스트 링크·사람 확인 항목·미정 9·21·22·23 결과 기록
+a468eb1 feat(16): 방침·약관을 법 필수 기재사항으로 보완하고 사업자 정보를 조각으로 분리 (green)
+e6218d6 test(16): 법 기준 체크리스트와 조문→절→테스트 묶음 (red)
+(이 문서 커밋 전 기준 7개 — 라운드 1 의 5개 + test/fix 2개)
 
 $ git status --short
 (빈 출력 — clean)
 ```
 
-로컬 `main` 은 `4d83feb`(티켓 13 머지)였다. 내 브랜치 베이스는 `7df7809`(티켓 14 머지)였고 `main` 이
-그 위에 13 을 머지해 둔 상태라 rebase 로 끌어올렸다. `origin` 으로는 아무것도 push 하지 않았다.
+`impeccable detect` 0건 재확인(문구를 바꾼 `/privacy` 두 언어 + 안 바꾼 `/terms` 두 언어).
+`FLASK_ENV=testing uv run flask --app wsgi run --port 5116` 으로 띄우고 0.1.14 바이너리로 돌렸다:
 
-## 7. 하지 않은 것 / 남은 것
+```
+$ impeccable detect "http://127.0.0.1:5116/privacy?lang=ko"   → (출력 없음) exit=0
+$ impeccable detect "http://127.0.0.1:5116/privacy?lang=en"   → (출력 없음) exit=0
+$ impeccable detect "http://127.0.0.1:5116/terms?lang=ko"     → (출력 없음) exit=0
+$ impeccable detect "http://127.0.0.1:5116/terms?lang=en"     → (출력 없음) exit=0
+$ impeccable detect --json "http://127.0.0.1:5116/privacy?lang=ko"   → []  exit=0
+$ impeccable detect --json "http://127.0.0.1:5116/privacy?lang=en"   → []  exit=0
+$ impeccable detect web/static/legal.css                       → (출력 없음) exit=0
+```
 
-- **법률 자문이 아니다.** 조문 매핑은 워커가 조문 텍스트를 읽고 한 것이고, 통신판매업 신고 대상 여부·
-  축약 주소 표시의 적법성·보호책임자 지정·전문가 검토는 `docs/RELEASE.md` "### 16." 의 사람 체크박스다
-- 사업자 정보 **값**은 레포에 없다. 사람이 NAS 의 `business-info.md` 에서 prod `.env` 로 옮긴다
-- `/privacy`·`/terms` 를 실제 브라우저에서 눌러 본 건 `impeccable detect`(헤드리스 브라우저)까지다 —
-  스토어 심사자 눈으로 본 레이아웃 확인은 RELEASE 체크박스에 남겼다
-- 티켓 18(메인 푸터)·32(Paywall 고지)·35(스토어 라벨)·36(RELEASE 통합)이 이 산출물을 참조한다:
-  푸터는 `legal/_business_info.html` 을 include 만 하면 되고(컨텍스트로 `ui_language`·`business_info`·
-  `contact_email` 필요), Paywall 고지 문구는 약관 `#subscription` 절을 따른다
+문장을 늘리면서 ko 본문 줄표가 6 → 8개가 됐지만(라운드 1 에서 20개가 `em-dash-overuse` advisory 를
+냈던 지점) 이번엔 0건이다. `LEGAL_EFFECTIVE_DATE` 는 그대로 **2026-10-14** 다 — 수정일이 같은 날이라
+올릴 날짜가 없다(숨기지 않고 적는다).
+
+### 하지 않은 것 (이 라운드)
+
+- `scripts/backup.sh`·`Dockerfile`·`docker-compose.prod.yml`·앱 코드 변경 없음. 백업 덤프 암호화와
+  접속기록 보관은 **출시 전 사람 결정 항목**으로만 남겼다
+- `review/impl-review-16.md` 는 고치지 않았다. 프로덕션 접근·`git push`·실제 외부 서비스 호출·NAS
+  접근 없음. 하위 워커·서브에이전트 띄우지 않았다
