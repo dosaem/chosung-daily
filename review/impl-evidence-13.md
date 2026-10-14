@@ -222,3 +222,179 @@ $ <ENV> PYTHONPATH=. uv run python <scratch>/stats_shape.py
 - **Google `revoked` 라벨**은 여전히 못 붙인다(미정 1·14, 티켓 12 결정 유지).
   환불은 "만료일 전 EXPIRED" 로 관측되고 판정표에서 같은 칸이라 권한 결과는 같다.
 - 실패·skip·건너뛴 명령 없음. 위 2.1·2.2 출력이 그대로 그 증거다.
+
+## 수정 라운드 1
+
+- 날짜: 2026-10-14
+- 기준: `review/impl-review-13.md` "티켓 13 최종 리뷰 — 라운드 1"(판정 FAIL,
+  BLOCKER 0 · MAJOR 1 · MINOR 1). 리뷰 파일은 고치지 않았다.
+- 로컬 `main` = `1e764da`("Merge 티켓 15") 위로 rebase 했다. 작업 중에 main 이
+  두 번 움직여서(티켓 22 머지 `148715b` → 티켓 15 머지 `1e764da`) 두 번 rebase
+  했고, 두 번 다 충돌이 없었다. 아래 재실행 수치는 **마지막 rebase 뒤**의 것이다.
+  `origin/main` 은 쓰지 않았다. 전용 테스트 자원(위 2절의 DB·Redis 15)과
+  외부 호출 0건·시크릿 미기록 조건은 그대로다.
+- 수정 커밋: `fix(13): 겹친 재조회가 확인된 철회를 덮지 않도록 쓰기 직전 행 잠금`
+  (`README.md`, `app/repositories/subscription_repository.py`,
+  `app/services/subscription_recheck.py`, `tests/test_subscription_recheck.py`).
+  결함 수정 범위 밖의 리팩토링·기능 추가는 없다.
+
+### D-13-1 (MAJOR) — 늦은 재조회 응답이 확인된 철회를 덮어 권한을 복구함
+
+**재현(수정 전).** 리뷰가 적은 절차를 그대로 돌렸다 — 전용 테스트 DB 에서
+독립 app context 두 개(= 독립 DB 세션 두 개), A 는 `status 1`(active) 응답을
+받기 직전 보류하고 그 사이에 B 가 `status 5`(revoked) 로 재조회·커밋한다.
+
+```
+$ <ENV> PYTHONPATH=. uv run python repro_d13_1.py   # 수정 전
+B newer response: revoked False
+A delayed response: active True
+Final stored state: active
+```
+
+**원인.** `recheck()` 가 스토어 응답을 받으면 **조회 중에 그 행이 바뀌었는지
+보지 않고** `status`·`expires_at`·`grace_expires_at`·`last_verified_at` 을
+무조건 덮어썼다. 재조회는 "읽고(TTL 판정) → 외부 호출(최대 3초) → 쓰기" 라서
+그 사이가 비는데, 행 잠금도 버전·조회 순서 검증도 없었다. 그래서 먼저 출발한
+조회가 늦게 도착하면 이미 저장된 철회를 되돌리고, `last_verified_at` 까지
+현재로 올려서 다음 TTL(1시간)까지 잘못된 권한이 남았다. 겹치는 조합은
+`/me/stats` 두 요청, `/me/stats` 와 Beat, 둘 다 같은 `recheck()` 를 지난다.
+
+**수정.** 쓰기 직전에 행을 잠그고 다시 읽어 **조회 전에 본 값과 비교**한다.
+
+- `app/repositories/subscription_repository.py` — `lock_and_refresh(subscription)`
+  추가. `db.session.refresh(..., with_for_update=True)` = `SELECT ... FOR UPDATE`.
+  InnoDB 의 잠금 읽기는 REPEATABLE READ 스냅샷이 아니라 최신 커밋을 보므로,
+  잠금을 받은 뒤 읽으면 그 사이의 커밋이 그대로 보인다
+  (`guest_stats_repository.lock_for_guest` 와 같은 규칙).
+- `app/services/subscription_recheck.py` — `_row_state()` 로 조회 전 상태
+  (상태·만료·유예·확인 시각·실패 카운터)를 들고 있다가, 쓰기 직전
+  `_superseded()` 가 잠그고 다시 읽어 다르면 **우리 응답을 버리고 커밋만 한다**
+  (잠금을 바로 놓고, 행은 이미 최신 값으로 채워져 있어 호출부의 권한 판정이
+  최신 상태를 본다). 성공·실패·결제 대기 세 경로 모두에 둔다 — 실패 경로가
+  그대로면 그 사이에 성공한 조회가 0 으로 돌린 카운터를 되돌린다.
+- 조회 **앞**에 잠그지 않은 이유: 외부 호출이 끝날 때까지 행을 들고 있으면 같은
+  구독의 다른 요청이 전부 최대 3초를 기다린다. 비교 기준을 시각이 아니라 "값이
+  바뀌었나" 로 둔 이유: MySQL `DATETIME` 은 소수점 초를 버려서(위 4절 12번)
+  같은 초 안에서 겹치면 시각 비교가 뒤집힌다.
+
+**증명.**
+
+```
+$ <ENV> PYTHONPATH=. uv run python repro_d13_1.py   # 수정 후
+B newer response: revoked False
+A delayed response: revoked False
+Final stored state: revoked
+```
+
+재현을 고정한 테스트(`tests/test_subscription_recheck.py`, "겹친 재조회" 절):
+
+| 테스트 | 무엇을 못 박나 |
+|---|---|
+| `test_a_delayed_store_response_does_not_revive_a_confirmed_revocation` | A 의 스토어 경계 안에서 B(독립 세션)가 철회를 저장하면, A 의 늦은 active 응답이 버려지고 `entitlement.active is False` · 저장 상태 `revoked` |
+| `test_a_delayed_failure_does_not_count_against_a_fresh_success` | 같은 겹침에서 A 의 실패가 B 가 리셋한 `recheck_failures`(0)를 건드리지 않음 |
+
+```
+$ <ENV> uv run pytest tests/test_subscription_recheck.py -q -k delayed   # 수정 전
+FAILED tests/test_subscription_recheck.py::test_a_delayed_store_response_does_not_revive_a_confirmed_revocation
+  assert entitlement.active is False
+  AssertionError: assert True is False
+FAILED tests/test_subscription_recheck.py::test_a_delayed_failure_does_not_count_against_a_fresh_success
+  assert row.recheck_failures == 0
+  AssertionError: assert 3 == 0
+2 failed, 28 deselected in 3.18s
+
+$ <ENV> uv run pytest tests/test_subscription_recheck.py -q                # 수정 후
+30 passed in 28.85s
+```
+
+**남는 순서 하나(의도).** 두 조회가 **동시에 떠 있고** A(active, 더 오래된
+사실)가 B(revoked)보다 먼저 쓰는 순서에서는, B 가 자기 응답을 버린다 — 둘 중
+어느 응답이 더 최신인지 서버가 알 방법이 없기 때문이다(Play 응답에는 비교할
+시각이 없다). 이때 철회는 "되돌려지는" 게 아니라 **다음 재조회(≤1시간, 또는
+Beat 03:30)로 밀린다** — 스펙 §A.8 이 폴링에 허용한 반영 지연 안이고, 불확실할
+때 돈 낸 구독자 쪽으로 기울이는 이 모듈의 기존 규칙(실패 시 저장값 유지)과도
+같은 방향이다. 리뷰가 지적한 "이미 저장된 철회가 오래된 응답에 덮이는" 경우는
+어느 순서에서도 없어졌다: 마지막에 쓰는 쪽은 항상 그 직전 값을 잠금 아래에서
+다시 읽은 쪽이다.
+
+### D-13-2 (MINOR) — 공유 README API 표의 기존 행을 직접 수정함
+
+**원인.** 티켓 공통 규칙(공유 절은 자기 행만 **절 끝에** 덧붙이기)을 API 표에
+적용하지 않고, 기존 `/api/v1/me/stats` 행에 `entitlement` 설명을 끼워 넣어
+기존 행을 치환했다. 같은 행을 건드리는 병렬 티켓과 충돌한다.
+
+**수정.** 기존 행을 원문 그대로 복원하고, 티켓 13 행을 표 **끝**(티켓 06 의
+`hint-unlock` 행 다음)에 덧붙였다. Beat 스케줄 표 03:30 행과 수동 트리거 한
+줄은 이미 각 절 끝에 붙여 둔 상태라 그대로다. 겹친 재조회 규칙은 내 소유 절인
+README `### 13.` 안에 한 항목으로 적었다.
+
+```
+$ git diff main...HEAD -- README.md | grep '^[-+]| GET | `/api/v1/me/stats'
++| GET | `/api/v1/me/stats` | (티켓 13) 위 응답에 `entitlement {active, until, status, source, next_check_at}` 추가 — …
+
+$ git diff main...HEAD -- README.md | grep -c '^-| '
+0
+```
+
+기존 행 삭제(`-`)가 0 줄이다 = append-only. `rebase` 로 티켓 22 가 더한 README
+`### 22.` 절과도 충돌 없이 합쳐졌다.
+
+### 미수정 MINOR
+
+없다. 리뷰의 MINOR 1건(D-13-2)은 위에서 고쳤다. 리뷰어 지적이 틀렸다고 판단해
+그대로 둔 항목도 없다.
+
+### 재실행 (로컬 main `1e764da` 위 rebase 후)
+
+전용 테스트 자원은 그대로다(DB `chosung_daily_test_t13`, 마이그레이션 DB
+`chosung_daily_test_t13_migrations`, Redis DB 15). 같은 MySQL 을 다른 워커
+두 곳(t15·t17)이 동시에 쓰고 있어서 벽시계 시간만 길어졌다 — 실패·skip 은 없다.
+
+```
+$ <ENV> uv run pytest -q
+........................................................................ [  8%]
+........................................................................ [ 17%]
+........................................................................ [ 26%]
+........................................................................ [ 35%]
+........................................................................ [ 44%]
+........................................................................ [ 53%]
+........................................................................ [ 62%]
+........................................................................ [ 71%]
+........................................................................ [ 80%]
+........................................................................ [ 89%]
+........................................................................ [ 98%]
+...............                                                          [100%]
+807 passed in 628.48s (0:10:28)
+```
+
+내 쪽에서 늘어난 건 **2개**(위 D-13-1 재현 테스트)다. 첫 rebase(`148715b`,
+티켓 22) 위에서는 `746 passed → 748 passed in 1357.82s`, 두 번째 rebase
+(`1e764da`, 티켓 15 머지로 그 티켓의 테스트가 main 에 들어옴) 위에서는 위
+**807 passed** 다. 두 실행 모두 실패·skip 0, 종료 코드 0.
+
+```
+$ uv run ruff check .
+All checks passed!
+
+$ FLASK_APP=wsgi.py uv run flask db heads
+d7a1f0ca0a29 (head)
+
+$ git diff --check main...HEAD      # 출력 없음, 종료 코드 0
+$ git status --short                # 출력 없음 (clean)
+```
+
+마이그레이션은 이 라운드에서 건드리지 않았다 — 추가·삭제 없고 `down_revision`
+체인도 그대로다(`dae1b5af0cf7` → `d7a1f0ca0a29`). 티켓 22 머지는 마이그레이션을
+더하지 않아서 rebase 후에도 heads 는 1개다.
+
+`FOR UPDATE` 가 실제로 나가는지도 SQL 로 확인했다(`before_cursor_execute` 로 문장
+기록, 전용 테스트 DB):
+
+```
+SELECT subscription.id, …, subscription.recheck_failures, subscription.created_at
+  FROM subscription WHERE subscription.id = %(pk_1)s FOR UPDATE
+```
+
+이 라운드에서도 Apple·Google·Slack 실제 호출 0건, 프로덕션 접근·`git push` 없음,
+시크릿 값은 파일·로그·이 문서에 남기지 않았다(설정 이름만). 재현·확인 스크립트는
+세션 scratchpad 에 뒀고 레포에 커밋하지 않았다 — 레포에 남는 재현은 위 테스트 2개다.
