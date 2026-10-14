@@ -99,3 +99,74 @@ puts "app=#{app}, dependency=#{required}, compatible=#{app.supports?(required)}"
 - 앱 코드·테스트·설정·.scratch는 수정하지 않았다. 변경 산출물은 이 리뷰 문서 하나다.
 
 판정: FAIL
+
+## 라운드 2
+
+- 검토 기준: 로컬 `main` = `bf287f6735b07eb0f8a596195bf368ebe31ccd1a`, 구현 HEAD = `b68582fd047815a56921d59cc5b3463b1836b0f6`. `git diff main...HEAD` 179파일, `git log main..HEAD` 12커밋을 기준으로 검토했다. origin/main은 사용하지 않았다.
+- 티켓 22, spec §B.18–22·C.31, SCREENS 탭 구조·S7, OVERRIDES 및 구현 증거의 수정 라운드를 소스·테스트·빌드 결과와 대조했다. 별도 BASELINE 파일은 현재 worktree의 `.scratch`에서 찾지 못했으므로 해당 문서를 독립적으로 확인했다고 주장하지 않는다.
+- 이전 결함 **D-22-1 / D-22-2 / D-22-3 모두 FIXED**. REPEAT 0건, 새 결함 0건. 현재 남은 결함은 **BLOCKER 0 / MAJOR 0 / MINOR 0**이다.
+
+### 체크박스별 확인
+
+| 티켓 체크박스 | 판정 | 직접 확인한 근거 |
+|---|---|---|
+| Flutter 루트 mobile/, CI working-directory | 충족 | Flutter 프로젝트가 mobile/에 있고 flutter-ci.yml의 defaults.run.working-directory가 mobile이다. Flask app/ 변경 없음. |
+| 필수 패키지·식별자·ko/en 앱 이름, Hive/freezed 없음 | 충족 | pubspec/lock에 요구 패키지 존재. Android applicationId와 생성된 iOS 번들의 식별자 com.dosaem.chosung 확인. iOS 빌드 성공 및 한국어 이름 번들 포함 확인. Hive/freezed 없음. |
+| Firebase gitignore·example·부재 시 초기화 스킵·analyze/test | 충족 | 실제 설정 파일 두 개가 없는 상태에서 analyze/test와 양 플랫폼 빌드 통과. git check-ignore 적용, example 자리표시자, Gradle 조건부 적용과 초기화 실패 처리 확인. 네이티브 런타임 실행은 검증 범위 밖이다. |
+| ApiClient 3메서드·Dio·Fake·API_BASE_URL·예외 골격 | 충족 | createGuest/fetchConfig/fetchMyStats만 정의. 서버 응답과 모델, JSON 본문·인증 헤더·예외 테스트 대조. 동일 클라이언트의 토큰 교체 전후 요청 헤더 검증도 추가되어 통과. |
+| secure storage·en 게스트·401 재발급·전역 Provider | 충족 | SecureGuestTokenStore와 전역 guestTokenProvider 확인. 복원/발급/영어/401 후 1회 재발급/두 번째 401 전파 테스트 통과. 기기 언어 Provider는 PlatformDispatcher.locale을 읽는다. |
+| OVERRIDES 테마·Pretendard·Lucide·그림자 없음·600px | 충족 | AppColors 라이트/다크 값과 OVERRIDES 대조, 번들 폰트·OFL·Lucide·투명 그림자 및 600px 래퍼 확인. 시스템 다크 모드·테마·폭 위젯 테스트 통과. |
+| S7 점검/업데이트/정상 분기와 위젯 테스트 | 충족 | Fake config로 세 화면과 스토어 버튼 호출 검증. 초기화 후 startLocale=null인 앱 트리도 HomeShell에 진입해 D-22-1 경로가 해소됨. |
+| 3탭 뼈대·탭 아래 배너 슬롯 | 충족 | HomeShell의 StatefulShellRoute 3탭, NavigationBar 아래 AdBannerSlot, SafeArea 및 50px 예약 높이 확인. 탭 전환·슬롯 테스트 통과. |
+| ubuntu-latest CI·analyze 0건·audit.native 기록 | 충족 | CI analyze/test 잡 존재, 직접 analyze 0건. audit.native 15/20 기록 존재하며 토큰·접근성·레이아웃 테스트와 대조. 실기기 시각 검수 완료를 뜻하지 않는다. |
+| README 상태 흐름·SDK 선택·테스트 경계 문단 | 충족 | README ### 22.에 세 문단 존재. 국제화 초기화와 iOS 15.0 의존성 근거도 현재 구현과 일치한다. |
+
+### 이전 결함 재판정
+
+#### D-22-1 — FIXED (이전 BLOCKER)
+
+- 위치: `mobile/lib/main.dart:10`, `mobile/lib/main.dart:24`, `mobile/lib/l10n/localization_bootstrap.dart:8`.
+- 재현/확인: mobile/에서 `flutter test --no-pub` 실행. `test/l10n/localization_bootstrap_test.dart`의 실제 국제화 초기화 후 startLocale 없는 생성 경로와 초기화 순서 테스트, `test/app_startup_branch_test.dart:256`의 locale=null 홈 진입 테스트를 직접 확인했다.
+- 기대: 기기 언어 초기화 후 앱 트리가 생성되어 LateInitializationError 없이 홈 진입. 실제: 위 테스트 모두 통과하며 main은 bootstrapChosungApp을 호출하고 Firebase → initializeLocalization → runApp 순서를 await한다.
+- 초기화를 호출하지 않는 라운드 1의 단독 위젯 스니펫은 수정된 main의 실행 경로가 아니다. 이번 판정은 실제 초기화 함수와 강제 언어 없는 앱 트리를 검증한 결과다. 저장소만 플랫폼 경계에서 대체하며 국제화 초기화 자체를 전부 mock으로 우회하지 않는다.
+
+#### D-22-2 — FIXED (이전 MAJOR)
+
+- 위치: `mobile/ios/Podfile:4`, `mobile/ios/Runner.xcodeproj/project.pbxproj:362` (동일 설정 :489, :540), `mobile/ios/Flutter/AppFrameworkInfo.plist:24`.
+- 재현/확인: 설정 세 곳을 직접 읽고, mobile/ 복사본에서 `flutter build ios --no-codesign --debug --no-pub` 실행. 원본 설정 변경을 피하려고 `/tmp/t22-review-mobile`에서 CocoaPods/Xcode를 실행했다.
+- 기대: Firebase iOS 15.0 요구치를 만족해 pod install과 Xcode 빌드 성공. 실제: pod install 2.5초, Xcode 69.7초, exit 0으로 Runner.app 생성. 생성 번들의 MinimumOSVersion도 15.0이다.
+- 새 설정 테스트는 파일 값 일치와 설치된 podspec 요구치를 검사한다. 이번에는 그 정적 테스트뿐 아니라 실제 네이티브 빌드로도 확인했다.
+
+#### D-22-3 — FIXED (이전 MINOR)
+
+- 위치: `mobile/ios/Runner.xcodeproj/project.pbxproj:13`, `:59`, `:223`, `:300`; `mobile/ios/Runner/ko.lproj/InfoPlist.strings:3`.
+- 재현/확인: 위 iOS 빌드 후 `plutil -p /tmp/t22-review-mobile/build/ios/iphoneos/Runner.app/ko.lproj/InfoPlist.strings` 실행.
+- 기대: 한국어 이름 리소스가 Runner 번들에 포함됨. 실제: 파일 존재, CFBundleDisplayName과 CFBundleName 모두 "오늘의 초성". PBXFileReference → PBXVariantGroup → PBXBuildFile → Resources 연결과 knownRegions의 ko도 확인했다.
+- 한국어 기기의 홈 화면을 직접 캡처한 것은 아니지만, 이전 결함인 번들 리소스 누락은 실제 산출물에서 해소됐다.
+
+### 직접 실행한 검증
+
+| 명령 / 검사 | 결과 |
+|---|---|
+| mobile/ `flutter analyze` | exit 0, No issues found (3.4초) |
+| mobile/ `dart format --output=none --set-exit-if-changed .` | exit 0, 47 files / 0 changed; 비수정 모드 사용 |
+| mobile/ `flutter test --no-pub` | exit 0, 87 passed |
+| 루트 `uv run ruff check .` | exit 0, All checks passed |
+| mobile/ `JAVA_HOME=/opt/homebrew/opt/openjdk@17 flutter build apk --debug --no-pub` | exit 0, APK 생성 (13.1초) |
+| mobile/ 복사본 `flutter build ios --no-codesign --debug --no-pub` | exit 0, Runner.app 생성, 한국어 리소스 및 iOS 15.0 확인 |
+| `plutil -lint mobile/ios/Runner.xcodeproj/project.pbxproj` | OK |
+| 전용 테스트 자원으로 `uv run pytest -q` | exit 0, 684 passed in 552.41s (9분 12초); 실패·skip 0건 |
+| `uv run flask db heads` | `dae1b5af0cf7 (head)` 1줄. 이 티켓의 새 마이그레이션은 없음 |
+| `git diff --check` | exit 0 |
+
+백엔드 테스트는 `TEST_DATABASE_URL`에 로컬 기존 `chosung_daily_test_t22`, `TEST_REDIS_URL`에 로컬 Redis DB 10, `TEST_MIGRATION_DATABASE_URL`에 기존 `chosung_daily_test_t22_migrations`를 지정했다. 접속 정보 값은 문서에 기록하지 않는다. DB 생성이나 공용 DB fallback은 하지 않았다.
+
+### 보안·범위·검증 한계
+
+- 추적 Firebase 파일은 example만 있으며 실제 설정 두 개는 부재·ignore 대상이다. 추적 파일에서 실제 설정 파일·서명 키·keystore·key.properties는 발견하지 못했다. 토큰 저장은 secure storage이고 요청 시 전역 Provider 값을 읽는다. 서버 인증·CSRF·DB 쓰기 구현 변경은 없으며 새 데이터 손상 경로는 발견하지 못했다.
+- 공유 파일의 README 설계 판단과 RELEASE는 자기 번호 ### 22. 절만 추가/수정했다. README API 표, .env.example, 스펙 미정 항목 변경은 없다. 기술 스택 한 줄과 PRODUCT Platform 메모는 라운드 1에서 이미 확인한 범위이며 다른 티켓 행/절을 덮어쓰지 않았다.
+- API·저장소·플랫폼 버전·스토어 실행 경계를 대체한 테스트는 분기와 상태 변경을 실제 코드로 검증한다. 네이티브 Firebase 초기화 실패 처리, Keychain/Keystore 저장, 기기 언어 변경 후 재실행은 실제 기기에서 확인하지 않았다. 빌드 성공을 실제 앱 실행 성공으로 확대 해석하지 않는다.
+- 실기기 설치·시뮬레이터 캡처 및 audit.native의 시각 검수는 수행하지 않았다. 후속 티켓 32·34 범위라는 기존 한계를 유지한다. 네이티브 빌드 미실행이라는 이전 한계는 이번 검증으로 해소했다.
+- 프로덕션·NAS·배포·외부 서비스 계정·push에 접근하지 않았다. 원본 애플리케이션·테스트·설정·.scratch는 수정하지 않았고, 리뷰 문서만 변경한다.
+
+판정: PASS
