@@ -838,3 +838,67 @@ iOS·Android 각각 한 번씩. 기기 시계를 당기지 말고(예약이 밀�
   Apple HIG 는 각자의 **공식 로그인 버튼 에셋**을 요구한다(애플은 심사 항목).
   콘솔 등록과 함께 `sign_in_with_apple` 의 `SignInWithAppleButton` 과 구글 공식
   에셋으로 교체하고, 교체 뒤 골든(`records_light_390`)을 다시 찍는다.
+### 35. 스토어 자산·메타데이터 — 출시 전 사람이 할 일
+
+아이콘·스플래시·스크린샷·스토어 텍스트·심사 노트는 레포에 있고, **업로드는 수동
+디스패치 워크플로**가 한다. 아래는 에이전트가 대신할 수 없는 것들이다.
+
+#### 업로드 순서 (D3)
+
+```sh
+# 1) 스크린샷을 다시 찍어야 할 때만 (레포에 커밋된 PNG 를 덮어쓴다)
+./scripts/store_screenshots.sh both
+
+# 2) App Store: 메타데이터 + 스크린샷 (바이너리 제외)
+gh workflow run appstore-metadata.yml -f app_version=1.0.0
+
+# 3) App Store: 가격·연령등급·개인정보 라벨·심사 노트·빌드 첨부·제출
+gh workflow run asc-submit.yml -f dry_run=true     # 먼저 제출 직전까지
+gh workflow run asc-submit.yml -f build_number=<n> # 확인 후 진짜 제출
+
+# 4) Play: 메타데이터·이미지·스크린샷은 fastlane supply 가 AAB 와 같이 올린다
+cd mobile/android && bundle exec fastlane release
+```
+
+스크린샷 스크립트는 iOS 시뮬레이터(6.9"/6.5"/iPad 13")와 Android 에뮬레이터를 쓴다.
+없는 iOS 기기는 `xcrun simctl create` 로 **스크립트가 만든다**. Android 는 AVD 가
+있어야 하고(`ANDROID_AVD`, 기본 `Medium_Phone_API_36.1`), 없으면 그 단계만 건너뛴다.
+
+#### GitHub Actions secrets (34 의 표에 더해서)
+
+| 이름 | 쓰는 곳 | 값 |
+|---|---|---|
+| `ASC_REVIEW_CONTACT_FIRST_NAME` | `asc-submit.yml` | 심사 연락처 이름. **비워 두면 그 필드를 보내지 않고 ASC 콘솔 값을 유지한다** |
+| `ASC_REVIEW_CONTACT_LAST_NAME` | 〃 | 심사 연락처 성 |
+| `ASC_REVIEW_CONTACT_PHONE` | 〃 | 심사 연락처 전화번호. 레포에 적지 않는다 |
+| `ASC_REVIEW_CONTACT_EMAIL` | 〃 | 심사 연락처 이메일 |
+
+#### 체크박스
+
+- [ ] **ASC 앱 이름**: "Hidden Vowels" 가 이미 쓰이고 있으면 **"Hidden Vowels: Daily Word"**
+      로 바꾼다(스펙 미정 4). 바꾸면 `mobile/ios/fastlane/metadata/en-US/name.txt`,
+      `mobile/android/fastlane/metadata/android/en-US/title.txt`,
+      `tests/test_store_metadata.py` 의 `APP_NAMES` 세 곳을 같이 고친다.
+- [ ] **Sandbox 테스터**: ASC 에서 테스터를 만들고, 심사 노트의
+      `<SANDBOX_TESTER_EMAIL>`·`<SANDBOX_TESTER_PASSWORD>` 자리에 들어갈 값을
+      **ASC 콘솔의 App Review Information 에 직접** 넣는다(레포에는 넣지 않는다).
+      레포의 노트는 "콘솔에 넣어 둔 계정을 쓰라" 고 안내한다.
+- [ ] **심사 연락처 secret 4개**를 넣는다. 안 넣으면 콘솔 값이 그대로 쓰인다.
+- [ ] **Play 데이터 보안 설문**을 `docs/play-data-safety.md` 대로 콘솔에 입력하고,
+      "미리보기" 요약이 그 문서의 표와 같은지 비교한다.
+- [ ] **ASC 개인정보 라벨**: `asc-submit.yml` 이 iris API 로 시도하지만 팀 키는
+      401 이 날 수 있다. 로그에 `privacy labels: SKIPPED` 가 보이면 콘솔에서
+      `mobile/ios/fastlane/app_privacy_details.json` 대로 직접 넣는다.
+- [ ] **콘텐츠 권리**: 워크플로가 `DOES_NOT_USE_THIRD_PARTY_CONTENT` 로 선언한다.
+      단어 풀에 책 제목(카카오·Google Books 검색 결과)이 들어가는데 제목 자체는
+      사실 표기라는 판단이다 — 제출 전에 한 번 확인한다.
+- [ ] **방침 "수집 항목" 에 앱 사용 이벤트(Firebase) 추가 여부**: 지금 방침은 그
+      전송을 `privacy#overseas` 에만 적고 3절 항목 목록에는 두지 않았다. 스토어
+      라벨에는 신고한다(실제로 보내므로). 개보법 §30①3("처리하는 개인정보의 항목")
+      기준으로 3절에도 한 줄 넣을지는 법적 문서 쪽 결정이라 여기 남긴다 —
+      근거와 영향 범위는 `docs/legal-checklist.md` "스토어 라벨 > 차이 3번".
+- [ ] **iPad 스크린샷**: `mobile/ios/fastlane/screenshots/{ko,en-US}/ipad13_*.png`
+      5장씩이 있는지 확인한다. iPad 지원 앱이 iPad 스크린샷 없이 제출하면 심사가
+      막힌다(BASELINE 1.0.0 반려 원인).
+- [ ] **Play 폰 스크린샷**: 에뮬레이터가 없어 비어 있으면 Play 스토어 등록이
+      막힌다. AVD 를 만들고 `./scripts/store_screenshots.sh both` 를 다시 돌린다.

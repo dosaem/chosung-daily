@@ -334,6 +334,8 @@ Analytics 로 보려면 이벤트가 먼저 필요하다**: 미정 20 이 확정
 `notification_open(kind)`)를 먼저 정해야 한다.
 
 
+- (티켓 35 반영) **미정 25 해소 확인 + 새 확인 항목 1건.** 30px 확인 결과 가운데 칸을 `#A8A29E` 로 한 단계 어둡게 했다(`#D6D3D1` 은 배경 `#FAFAF9` 와 1.43:1 이라 30px 에서 칸이 사라진다 → 2.41:1, 양끝 brand 3.41:1). 근거는 OVERRIDES §8·README "35." 이고 앱의 `tile-wrong` 토큰은 그대로다. **새 항목**: 스토어 라벨 1:1 대조에서 "앱 사용 이벤트"(Firebase)가 방침 `privacy#collection` 항목 목록에 없고 `#overseas` 에만 있는 걸 찾았다 — 스토어 두 곳에는 신고하고(실제로 전송한다), 방침 3절에 한 줄을 넣을지는 법적 문서 범위라 `docs/RELEASE.md` "### 35." 의 사람 확인 항목 + `docs/legal-checklist.md` "스토어 라벨 > 차이 3번" 에 남겼다.
+
 ## Further Notes
 
 - 운영자 계정은 정확히 두 개: `dosaem90@gmail.com`, `hsseo@dosaem.com`.

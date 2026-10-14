@@ -1228,6 +1228,9 @@ Firebase 설정 파일(`google-services.json`, `GoogleService-Info.plist`)은 �
 Podfile·Xcode 세 구성·`AppFrameworkInfo.plist` 가 같은 값이어야 한다. 폰트는 Pretendard 정적 3종(400/600/700)을 번들한다.
 가변 폰트 한 파일이 더 작지만, Flutter 는 `fontWeight` 로 **에셋을 고르는** 방식이라
 정적 쪽이 `TextStyle` 마다 `fontVariations` 를 쓰지 않아도 된다.
+앱 아이콘은 "ㅊ" 대신 **글자 없는 타일 3칸**이다(OVERRIDES §8) — 스토어는 앱당
+아이콘이 하나뿐이라 영문 스토어에도 같은 그림이 나가는데 "ㅊ" 은 영어 사용자에게
+뜻이 없다. 자세한 건 아래 "35." 절.
 
 **테스트 경계.** 가짜로 바꾸는 건 **서버 경계(`ApiClient`)와 secure storage 두
 곳뿐**이고, 나머지(Riverpod provider 그래프, `go_router`, 테마, 위젯)는 실제
@@ -2018,6 +2021,67 @@ picker 와 같은 모양이라 설정 안에서 조작이 한 가지로 보이�
 가 여는 화면이다: iOS 는 `app-settings:` 스킴으로 열리지만 Android 의 앱 알림 설정은
 URL 이 아니라 인텐트라 `url_launcher` 로는 못 연다. **7.x 로 고정**했다 — 8·9.x 는 Swift
 Package Manager 전용이고 이 프로젝트의 iOS 는 CocoaPods 다.
+### 35. 스토어 자산 — 글자 없는 아이콘, 장면을 코드로 둔 스크린샷, 라벨 1:1 대조
+
+**아이콘은 SVG 한 장이 정본이고, PNG 는 거기서 만든다.** 원본은
+`mobile/assets/icon/app_icon.svg`(OVERRIDES §8 의 좌표 그대로: 120 뷰박스, 배경
+`#FAFAF9`, 타일 30×34 `rx=7` 을 x=12/46/80·y=43)이고,
+`mobile/tool/make_app_icon.py` 가 그 `<rect>` 들을 **읽어서** 1024 아이콘·adaptive
+전경·Play 등록 자산·30px 확인용 래스터를 그린다. 좌표를 파이썬에 다시 적지 않는
+이유는 둘이 갈라지면 아무도 모르기 때문이다 — 지금은 SVG 를 고치고 스크립트를 다시
+돌리지 않으면 `mobile/test/store/app_icon_test.dart` 가 "원본과 래스터가 다르다" 로
+깨진다. rasterizer(cairosvg 등)를 의존성에 넣지 않은 것도 같은 이유의 반대쪽이다:
+도형이 사각형 네 개뿐이라 직접 그리는 쪽이 설치 없이 결과가 고정된다.
+
+**"ㅊ" 을 버린 이유.** 스토어는 앱당 아이콘 하나다(언어별로 다른 아이콘을 낼 수
+없다). 영문 스토어 이름은 "Hidden Vowels" 인데 아이콘만 한글 자음이면 영어 사용자
+에게는 읽을 수 없는 기호다. 그래서 **가린 칸 하나가 끼어 있는 타일 3칸**이라는,
+게임 규칙을 그대로 보여주면서 언어가 없는 모양으로 갔다(사용자 확정 2026-10-14,
+OVERRIDES §8·스펙 미정 25).
+
+**가운데 칸만 한 단계 어둡게.** OVERRIDES §8 의 원래 값은 `tile-wrong` 라이트
+`#D6D3D1` 인데, 배경 `#FAFAF9` 와의 대비가 **1.43:1** 이라 30px 로 줄이면 가운데
+칸이 배경에 녹아 "타일 2칸" 으로 보인다. 한 단계 어두운 `#A8A29E` 로 바꿔
+**2.41:1** 로 올렸다(양끝 brand `#EA580C` 는 **3.41:1**). 한 단계 더 어두운
+`#78716C`(4.59:1)로 가지 않은 이유는 **그 값이 brand 보다 무겁기 때문**이다 —
+가려진 칸이 제일 진해지면 "한 칸이 가려졌다" 가 아니라 "가운데 칸이 주인공" 이
+되어 마크의 뜻이 뒤집힌다. 숫자는 WCAG 2.x 상대 휘도 대비비이고,
+`app_icon_test.dart` 가 **실제 30×30 래스터의 픽셀**로 다시 재서 brand > 가운데 >
+배경 순서와 하한(3:1 / 2:1)을 지킨다. 아이콘은 WCAG 1.4.11 의 적용 대상이 아니지만
+(로고·브랜드 마크는 제외), "세 칸이 구분되는가" 를 눈대중으로 적지 않으려고 같은
+자를 썼다. **앱 안의 `tile-wrong` 토큰은 `#D6D3D1` 그대로다** — 보드 타일은 28pt+
+글자가 대비를 만들고, 바꾸면 목업·골든이 전부 틀어진다.
+
+**스크린샷은 "장면" 을 코드로 두고 테스트와 공유한다.**
+`mobile/integration_test/store_screenshot_scenes.dart` 가 5장(홈·결과·순위·내
+기록·언어 선택)의 위젯 트리를 만들고, 시뮬레이터에서 찍는
+`store_screenshots_test.dart` 와 CI 가 도는 `test/store/store_screenshot_scenes_test.dart`
+가 **같은 정의**를 쓴다. `flutter drive` 는 시뮬레이터가 있어야 돌아서 CI(ubuntu)가
+못 돌리는데, 장면이 따로 떨어져 있으면 "장면이 비었다 / 태블릿인데 폰 레이아웃이다"
+를 스크린샷을 찍으러 가기 전에 잡는다. 태블릿 조건은 티켓의 불합격 기준 그대로다 —
+폭 ≥600 에서 `NavigationRail` 이 없으면(= 폰 레이아웃을 가운데 띄운 그림이면)
+단언이 먼저 깨져서 **그 그림이 파일로 남지 않는다**. 라이트 모드는 `themeMode` 와
+`darkTheme` 양쪽을 라이트로 고정해 강제한다(OVERRIDES §8). 데이터는 `FakeApiClient`
+하나뿐이라 서버 없이 결정적이고, 배너 슬롯은 넣지 않았다(구독자에게는 사라지는
+영역이고 스토어 그림에 빈 회색 띠를 넣을 이유가 없다).
+
+**스토어 라벨은 세 곳이 한 벌이어야 해서 테스트로 묶었다.** 같은 사실을 방침
+(`privacy#collection`·`#overseas`)·ASC 개인정보 라벨(`app_privacy_details.json`)·Play
+데이터 보안(`docs/play-data-safety.md`) 세 곳에 적는다. 1:1 대조에서 차이 3건이
+나왔고(애플 refresh token 과 접속기록이 ASC 라벨에 없었다 — 각각
+`OTHER_DATA_TYPES`·`OTHER_DIAGNOSTIC_DATA` 로 더했다; "앱 사용 이벤트" 는 방침
+`#collection` 목록에 없고 `#overseas` 에만 있어 사람 확인 항목으로 남겼다),
+대조표와 근거는 `docs/legal-checklist.md` "스토어 라벨" 절,
+`tests/test_store_labels.py` 가 세 곳이 갈라지면 깨진다. 접속기록만 `LINKED` 인
+이유는 행위자와 원격 IP 가 남기 때문이다 — Sentry 는 요청 본문·IP·식별자를 아예
+보내지 않아서 `NOT_LINKED` 다.
+
+**심사 연락처는 레포에 적지 않는다.** BASELINE 의 `asc-submit.yml` 은 이름·전화
+번호·이메일을 워크플로에 박아 뒀는데, 공개 레포라 secret(`ASC_REVIEW_CONTACT_*`)
+으로 옮기고 **비어 있으면 그 필드를 보내지 않는다** — 빈 문자열로 PATCH 하면 ASC
+콘솔에 사람이 넣어 둔 값이 지워진다. Sandbox 테스터 계정도 같은 이유로 심사 노트에
+플레이스홀더만 두고, `demo_user.txt`·`demo_password.txt` 는 만들지 않았다(파일이
+있으면 deliver 가 그 값으로 콘솔을 덮어쓴다).
 
 ## 웹 수동 체크리스트
 
