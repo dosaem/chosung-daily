@@ -191,8 +191,15 @@ String providerDisplayName(String provider) => switch (provider) {
 /// 브랜드 마크가 없어 가장 가까운 선 아이콘으로 가른다 — 둘을 같은 아이콘으로
 /// 두면 어느 계정이 붙었는지 아이콘이 말해 주지 못한다. 모르는 provider 는
 /// [providerDisplayName] 과 같은 이유로 공통 아이콘으로 떨어진다.
+/// 연결됨 줄의 provider 아이콘.
+///
+/// Apple 은 Lucide 의 `apple` 이 그 회사를 가리키는 마크라 그대로 쓴다.
+/// Google 은 Lucide 에 대응하는 마크가 없다 — 한때 `chrome` 을 썼지만 그건
+/// **브라우저** 브랜드라 구글 계정 표시로 쓰면 다른 제품을 가리키는 것으로
+/// 읽힌다(브랜드 오용). 공식 'G' 로고 에셋은 콘솔 등록과 함께 들어오므로
+/// (`docs/RELEASE.md` "### 29.") 그때까지는 중립 아이콘으로 두고, provider 는
+/// 바로 옆 "Google · …" 텍스트 라벨이 가린다.
 IconData providerIcon(String provider) => switch (provider) {
-  'google' => LucideIcons.chrome,
   'apple' => LucideIcons.apple,
   _ => LucideIcons.userCheck,
 };

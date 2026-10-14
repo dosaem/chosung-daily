@@ -175,10 +175,11 @@ void main() {
       expect(find.byKey(accountLinkGoogleKey), findsNothing);
     });
 
-    testWidgets('연결됨 아이콘은 Google 이면 chrome 이다', (tester) async {
-      // D-29-3: 티켓 체크박스 3·SCREENS S4 는 "provider 아이콘" 을 요구한다 —
-      // provider 와 무관한 공통 아이콘이면 두 계정이 똑같이 보인다. Lucide 에
-      // 브랜드 마크가 없어 chrome/apple 로 가른다(README 설계 판단 29).
+    testWidgets('연결됨 Google 은 중립 아이콘과 텍스트 라벨로 가른다', (tester) async {
+      // D-29-3: 티켓 체크박스 3·SCREENS S4 는 provider 를 알아볼 수 있기를
+      // 요구한다. Apple 은 Lucide 의 apple 마크로 가르고, Google 은 대응하는
+      // 마크가 없어 중립 아이콘 + "Google" 텍스트 라벨로 가른다 — 브라우저
+      // 브랜드인 chrome 을 쓰면 다른 제품으로 읽힌다(README 설계 판단 29).
       await _pump(
         tester,
         startup: fakeMyStats(
@@ -189,8 +190,11 @@ void main() {
         ),
       );
 
-      expect(find.byIcon(LucideIcons.chrome), findsOneWidget);
+      expect(find.byIcon(LucideIcons.userCheck), findsOneWidget);
       expect(find.byIcon(LucideIcons.apple), findsNothing);
+      // 브라우저 브랜드 마크를 구글 계정 자리에 두지 않는다.
+      expect(find.byIcon(LucideIcons.chrome), findsNothing);
+      expect(find.text('Google · hs***@gmail.com 연결됨'), findsOneWidget);
     });
 
     testWidgets('연결됨 아이콘은 Apple 이면 apple 이다', (tester) async {
@@ -202,7 +206,7 @@ void main() {
       );
 
       expect(find.byIcon(LucideIcons.apple), findsOneWidget);
-      expect(find.byIcon(LucideIcons.chrome), findsNothing);
+      expect(find.byIcon(LucideIcons.userCheck), findsNothing);
     });
 
     testWidgets('모르는 provider 면 공통 아이콘으로 떨어진다', (tester) async {
