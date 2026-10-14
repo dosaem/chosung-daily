@@ -199,3 +199,70 @@
 라운드 3 잔여 결함 합계: BLOCKER 0 / MAJOR 1 / MINOR 0. 이전 결함 FIXED 4 / REPEAT 0, 신규 D-29-5 1건.
 
 판정: FAIL
+
+## 라운드 4
+
+- 기준: 로컬 `main` = `b11f011`, 구현 `HEAD` = `e9dbd89`. `git diff main...HEAD`와 `git log main..HEAD`를 직접 확인했다. `origin/main`은 사용하지 않았다.
+- 대조 문서: 티켓 29의 체크박스 8개, 스펙 §A.2·A.6·A.7·B.21 및 US 18·18a·19·20·21·22, CONTEXT, SCREENS S2·S4·T2·T4, 디자인 MASTER/OVERRIDES(OVERRIDES 우선), 구현 증거 및 이전 리뷰 3개 라운드.
+- 리뷰 문서만 수정했다. 독립 재현 하네스는 `/tmp`에 만들었고 실제 AccountNotifier·TodayPuzzleNotifier·TodayTab을 사용했다. API·저장소만 기존 Fake로 대체했다. 프로덕션·외부 OAuth 서비스 접근, 실제 계정 입력, 새 DB 생성은 하지 않았다.
+
+### 체크박스별 충족 여부
+
+| # | 티켓 요구 | 판정 | 직접 확인한 근거 |
+|---|---|---|---|
+| 1 | ApiClient token-exchange·DELETE /me(Dio + Fake) | 충족 | `dio_api_client.dart:145` 이하와 Dio 테스트에서 HTTP method/path/Bearer/body, Apple authorization_code, 본문 없는 204를 검증한다. |
+| 2 | Google 7.x authenticate·플랫폼별 ID·Apple code·토큰 교체·홈/기록 재조회·로컬 폐기 | 미충족 | SDK 호출, Info.plist의 GIDClientID/URL scheme, dart-define, entitlements, 토큰 저장·stats 채택은 확인했다. 그러나 전환 전의 최초 홈 조회가 늦게 끝나면 새 계정의 정상 보드가 사라지는 D-29-6이 있다. |
+| 3 | 플랫폼별 AccountCard·연결 표시·마스킹·전환 안내·오류 문구 | 충족 | iOS 2개/Android Google만 노출, Google 중립 아이콘+이름 및 Apple 분기, 마스킹, 두 오류 문구와 전환 안내를 실제 위젯 테스트로 확인했다. D-29-3의 기존 코디네이터 수용 기준 보정을 유지한다. |
+| 4 | 백업 코드 Bearer GET /me/stats·200 교체/폐기/재조회·401 문구·Provider 교체 | 미충족 | 별도 엔드포인트 없이 코드 확인 응답의 stats를 채택하고 secure storage/guestTokenProvider를 교체한다. 401 시 기존 토큰 보존과 문구는 통과한다. 최초 홈 조회와 겹치는 전환에서 D-29-6이 재현된다. |
+| 5 | 첫 완료 후 연결 안내 1회·로컬 플래그 | 충족 | `result_sheet.dart:93` 이하와 테스트에서 미연결/미노출 조건, 영속 플래그, 닫기, 내 기록 이동, 기연결/기노출 생략을 검증한다. |
+| 6 | destructive 삭제 확인·구독 별도 해지 문구·DELETE·로컬 정리·새 게스트·온보딩 유지 | 미충족 | 정상 삭제·발급 실패 재시도·복원한 다른 계정의 실제 DELETE, perAccount 플래그 삭제와 기기 플래그 보존은 통과한다. 다만 새 게스트 채택도 동일 `_adopt`를 사용하므로 최초 홈 조회가 겹치면 D-29-6 경합을 공유한다. |
+| 7 | 폭 744 adaptive sheet/dialog·S4 열 유지 | 충족 | 두 진입점 모두 showAdaptiveSheet 사용. 744 Dialog/폭 제한 위젯 테스트와 1024 골든 통과. AccountCard는 T4 왼쪽 열을 유지한다. |
+| 8 | 지정 위젯 테스트·audit.native·목업 대조 | 미충족 | 저장소의 Flutter 537개는 통과했고 390/744/1024 및 플랫폼별 위젯·골든을 확인했다. 그러나 최초 A 조회 → B 보드 완료 → A 조회 완료 순서를 검증하지 않아 D-29-6을 놓친다. 수동 audit 범위는 아래에 명시했다. |
+
+### 이전 결함 재판정
+
+| ID | 이전 심각도 | 판정 | 직접 확인한 근거 |
+|---|---|---|---|
+| D-29-1 | MAJOR | FIXED | `MyStatsNotifier.adopt/discard`가 기존 신원을 비우고 백업 확인 stats를 채택한다. 소셜 전환 뒤 stats 실패 시 옛 이메일·streak가 사라지고 오류가 표시되는 컨트롤러/위젯 테스트 통과. |
+| D-29-2 | MAJOR | FIXED | 삭제 완료 토큰을 기억하고 같은 토큰의 재시도는 새 게스트 발급부터 시작한다. 삭제 후 발급 실패 → 네트워크 복구 테스트에서 DELETE 1회/발급 2회와 로컬 플래그·stats 폐기를 검증한다. |
+| D-29-3 | MINOR | FIXED | 이전 라운드에 기록된 코디네이터의 명시적 보정(Google 중립 아이콘+텍스트 허용)을 적용했다. userCheck+Google 라벨, chrome 부재, Apple 분기 위젯 테스트 및 연결됨 골든 확인. |
+| D-29-4 | MAJOR | FIXED | `_deletedToken`과 현재 토큰을 비교한다. A 삭제/발급 실패 → B 백업 복원 → B 삭제에서 DELETE 2회를 컨트롤러와 실제 RecordsTab 테스트로 확인했다. |
+| D-29-5 | MAJOR | FIXED | `_adopt`가 홈을 invalidate하는 대신 `discardTodayPuzzle`로 비운다. B 홈 응답을 지연한 상태에서 옛 PuzzleBoard/GuessInput 부재, 제출 API 0회, B 보드 도착 후 제출 재개를 테스트한다. 토큰 세대 가드도 추가됐다. 원래의 '전환 후 홈 재조회 중 옛 보드에서 새 계정에 제출' 재현은 해결됐으며, 최초 조회 완료 순서의 새 문제는 아래 D-29-6으로 구분한다. |
+
+### 신규 결함
+
+#### D-29-6 — MAJOR — 늦은 최초 조회가 이미 로드된 새 계정 보드를 지워 홈이 스켈레톤에 머묾
+
+- 위치: `mobile/lib/puzzle/today_puzzle_controller.dart:72`. 관련: 같은 파일 `:57`의 `build()` 반환 Future, `:96`의 `discard()`, `mobile/lib/account/account_controller.dart:158`의 전환 후 보드 폐기, `mobile/lib/screens/today_tab.dart:120`의 스켈레톤 분기.
+- 재현 입력: A 계정으로 앱을 열고 최초 `GET /puzzles/today` 응답을 지연시킨다 → 홈 조회가 아직 진행 중인 채 내 기록 탭에서 B의 유효한 백업 코드로 전환한다 → B의 stats와 홈 조회는 먼저 200으로 완료시켜 B 보드가 표시되게 한다 → 마지막으로 A의 최초 홈 조회 응답을 완료한다. 셸이 탭을 유지하므로 내 기록으로 이동해도 최초 홈 조회는 계속 살아 있다(`app_router.dart:64`). 소셜 전환과 삭제 후 새 게스트도 같은 `_adopt` 경로다.
+- 기대: 계정 경계를 넘은 A 응답은 현재 상태에 아무 영향도 주지 않아야 한다. 이미 받은 B 보드·입력창을 유지하고 플레이할 수 있어야 한다.
+- 실제: B 보드가 한 번 정상 표시된 뒤 A 응답이 도착하면 `todayPuzzleProvider`가 `AsyncData(null)`로 바뀐다. 실제 TodayTab에서 PuzzleBoard는 1개에서 0개로 사라지고 스켈레톤만 남는다. 진행 중인 새 조회도 오류/재시도 버튼도 없어 탭 왕복만으로는 복구되지 않는다. 앱 포그라운드 복귀 등의 별도 refresh가 필요하다.
+- 원인: `_load()`는 계정이 바뀐 응답에 `null`을 반환한다. 그러나 최초 `build()`가 반환한 Future는 `_commitLoad`의 `_generation` 검사를 거치지 않고 Riverpod이 직접 상태에 쓴다. `discard()`는 새 조회와 상태 교체를 수행하지만 기존 build Future를 무효화하지 않아, '옛 응답을 무시'하려던 null이 '현재 B 보드를 지우기'로 반영된다.
+- 영향: 계정 전환·복원 직후 핵심 플레이 화면이 멈춘다. 서버 요청 실패나 실기기 OAuth가 없어도 로컬 가짜 API의 응답 순서만으로 재현된다. 옛 계정의 답을 새 계정에 쓰는 D-29-5와는 증상·발생 조건이 달라 새 ID를 부여했다.
+- 직접 검증(컨트롤러): `cd mobile && flutter test /tmp/t29_r4_probe_test.dart --plain-name 'pending initial A load cannot clear completed B board' --reporter expanded` → **1 failed**, `Expected: TodayPuzzleReady, Actual: null`. B 전환 후 TodayPuzzleReady 확인은 통과하고 A 응답 완료 후 동일 단언이 실패한다.
+- 직접 검증(화면): `cd mobile && flutter test /tmp/t29_r4_widget_probe_test.dart --reporter expanded` → **1 failed**, `Expected: exactly one matching candidate, Actual: Found 0 widgets with type PuzzleBoard`. B 보드 1개 확인 후 A 응답을 완료하고 다시 pump한 마지막 단언에서 실패했다.
+- 경로 확장 검증: `cd mobile && flutter test /tmp/t29_r4_paths_probe_test.dart --reporter expanded` → **2 failed**. 백업 복원 대신 실제 `link(AccountProvider.google)` 또는 `deleteAccount()`를 호출해도 새 보드 존재 확인은 통과하고 A 최초 응답 완료 후 null이 되는 마지막 단언이 실패했다. 따라서 체크박스 2·4·6에 같은 결함을 반영했다.
+- 하네스 재구성: `mobile/test/account/account_controller_test.dart`의 `_container`와 `mobile/test/screens/today_tab_test.dart`의 `_pumpToday`를 `/tmp`에 복사하고 상대 import를 절대 경로로 바꾼다. FakeApiClient의 `statsByToken`에 합성 B 코드를 등록하고, `fetchTodayPuzzleGate = Completer<void>()`를 설정한 뒤 최초 provider 조회/화면 pump를 시작한다. Fake의 gate 필드만 null로 바꿔 **이후 B 조회는 즉시 완료**되게 하고 실제 `restoreWithBackupCode`를 호출한다. 이벤트 루프 처리 후 B 보드 존재를 확인하고, 보관한 A gate를 complete한 뒤 보드 존재를 다시 단언한다. 실제 코드·계정·외부 서비스는 필요 없다.
+- 기존 테스트 공백: 새 '첫 조회 중 계정이 바뀌면 그 응답은 보드가 되지 않는다' 테스트는 토큰만 직접 교체하고 A 응답이 null인 것을 기대한다. 실제 `_adopt`가 B 보드를 먼저 로드한 뒤 A가 완료되는 경우를 검증하지 않아, 이 null 덮어쓰기 회귀를 잡지 못한다. 정상 전환 테스트와 D-29-5 지연 테스트는 A 최초 조회가 이미 끝난 상태에서 시작한다.
+
+### 직접 실행한 검증
+
+- `cd mobile && flutter test`: **537 passed**, 약 48초, 종료 코드 0. `/tmp/t29-r4-flutter.log`.
+- `flutter analyze`(저장소 루트에서 mobile 포함 분석): **No issues found**, 종료 코드 0. `/tmp/t29-r4-analyze.log`.
+- `cd mobile && dart format --output=none --set-exit-if-changed .`: **153 files, 0 changed**, 종료 코드 0.
+- `uv run ruff check .`: **All checks passed**, 종료 코드 0.
+- `git diff --check main...HEAD`: 오류 없음.
+- D-29-6 독립 컨트롤러·실제 TodayTab 하네스: 각각 **1 failed**, 소셜 연결/삭제 경로 확장 하네스 **2 failed**. 모두 같은 결함의 기대 동작 단언 실패이며 저장소 테스트·앱 코드 변경 없음.
+- `TEST_DATABASE_URL`·`TEST_REDIS_URL`·`TEST_MIGRATION_DATABASE_URL`을 지정한 `uv run pytest -q`: **1412 passed in 1284.55s (0:21:24)**, 종료 코드 0. 기존 `chosung_daily_test_t29`, Redis DB 3, `chosung_daily_test_t29_migrations`를 재사용했다. 새 DB 생성·기본 DB 폴백·간헐 실패·재실행은 없었다. 접속 형식은 구현 증거와 `.env.example`를 따랐으며 자격 증명은 기록하지 않는다. `/tmp/t29-r4-pytest.log`.
+- `git diff --name-only main...HEAD -- migrations`: 빈 출력. 이 티켓에 마이그레이션 변경이 없어 조건부 `flask db heads` 확인 대상이 아니다.
+
+### 보안·범위·디자인 및 참고
+
+- Dio의 현재 Bearer 적용, 백업 코드 검증 전 저장 금지·공백 거부, INVALID_ID_TOKEN의 일반 게스트 401과 분리, Apple authorization_code 동봉을 확인했다. 백엔드·웹·CSRF·마이그레이션 변경 없음. 인증 우회·추가 서버 엔드포인트·실제 OAuth 비밀값 신규 기록을 찾지 못했다. 구현 증거의 로컬 개발 DB 접속 문자열은 본 문서에 옮기지 않았다.
+- README 설계 판단과 RELEASE는 자기 `### 29.` 절을 추가하고 다른 티켓 절을 바꾸지 않았다. `.env.example`·스펙 변경 없음. 티켓 30 통합의 nullable 홈 상태 시그니처 조정·S4 계정/알림 공존·골든 갱신은 필요한 통합 범위다.
+- `e4_records.png`, `records_linked_390.png`, `records_tablet_1024.png`를 직접 열어 계정 줄·마스킹·헤어라인·T4 양쪽 열과 티켓 30 알림 행의 공존을 대조했다. 색·타이포·간격은 OVERRIDES 우선으로 검토했다. 시트/삭제 확인의 제목 semantics, 오류 문구, 플랫폼별 버튼 및 744 폭 적응성도 소스와 테스트로 확인했다.
+- `audit.native`는 독립 CLI 실행 결과가 아닌 수동 접근성/성능/테마/플랫폼/적응성 점검이다. 실기기 VoiceOver/TalkBack·실제 OAuth 왕복·서명한 iOS 빌드·스토어 제출은 검증하지 않았다. 공식 로그인 버튼 에셋/콘솔 등록은 이전 라운드에서 승인된 RELEASE 사람 확인 항목이며 이번에 별도 결함으로 재분류하지 않았다.
+
+라운드 4 잔여 결함 합계: BLOCKER 0 / MAJOR 1 / MINOR 0. 이전 결함 FIXED 5 / REPEAT 0, 신규 D-29-6 1건.
+
+판정: FAIL
