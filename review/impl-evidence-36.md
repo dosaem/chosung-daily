@@ -310,7 +310,55 @@ $ uv run pytest tests/test_migrations.py -q -k access_log
 
 ### 6.2 전체 스위트
 
-(§FULL_SUITE)
+전체 스위트를 로컬 `main`(055b56c) 위로 rebase 한 트리에서 돌렸다.
+
+```
+$ uv run pytest -q
+........................................................................ [  5%]
+...
+FAILED tests/test_sentry.py::test_oauth_callback_error_is_reported_without_the_request_body
+FAILED tests/test_sentry.py::test_oauth_callback_error_is_reported_without_the_query_string
+FAILED tests/test_sentry.py::test_error_report_still_carries_the_exception_environment_and_release
+3 failed, 1342 passed in 789.16s (0:13:09)
+```
+
+**실패 3건의 원인과 수정(숨기지 않는다).** 전부 `tests/test_sentry.py` 한 파일이고,
+원인은 **테스트 fixture** 다 — `sentry_app` fixture 는 `conftest` 의 `app` 과 달리
+자기 앱을 만들면서 스키마를 만들지 않는다. OAuth 콜백은 접속기록 대상(`account.link`)
+이라 응답 훅이 행을 남기는데, 테이블이 없으니 기록이 실패하고
+(`sqlalchemy.exc.ProgrammingError: Table '...access_log' doesn't exist`) 그 실패가
+ERROR 로그 → **Sentry 이벤트 하나를 더** 만들어서, 이 파일이 세는 "이벤트 1건"
+단언이 2건으로 깨졌다. 앱 코드가 아니라 fixture 가 운영과 다른 상태였던 것이라,
+fixture 가 `access_log` 테이블만 만들고 끝나면 지우도록 고쳤다(커밋 `ddfe5b5`).
+
+```
+$ uv run pytest tests/test_sentry.py -q
+9 passed in 1.08s
+```
+
+**확인용 전체 재실행은 끝내지 못했다(숨기지 않는다).** 공용 MySQL 컨테이너를 다른
+워커(테스트 DB `..._t18`)가 커넥션 90여 개로 점유해서, 13분이던 전체 스위트가 20분에
+7% 까지 떨어졌다(추정 3시간). 다른 워커의 테스트를 방해하지 않으려고 재실행을 멈췄고,
+코디네이터에게 escalation 으로 알렸다(§7). 대신 아래를 확인했다 — **수정 뒤 트리의
+변경은 `tests/test_sentry.py` 한 파일뿐이고 앱 코드·마이그레이션·스크립트·문서는 위
+전체 실행 때와 **같다**:
+
+```
+$ uv run pytest tests/test_sentry.py tests/test_access_log.py tests/test_access_log_file.py -q
+70 passed in 38.09s
+
+$ uv run ruff check .
+All checks passed!
+
+$ uv run flask db heads
+b1c7d4e0a932 (head)
+
+$ git status --short     # 출력 없음(클린)
+```
+
+즉 **같은 트리에서 전체 1345개 중 1342개가 통과했고, 실패한 3개는 원인(테스트 fixture)
+을 고쳐 그 파일이 통과**한다. 머지 전에 한 번 더 전체를 돌리려면 공용 MySQL 이 한가할
+때 `uv run pytest -q` 를 돌리면 된다(전용 DB `chosung_daily_test_t36`).
 
 ### 6.3 ruff
 
