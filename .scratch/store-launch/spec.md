@@ -296,6 +296,8 @@ chosung.dosaem.com 은 "하루 한 문제 초성 맞추기"가 돌아가는 Flas
 - (티켓 10 반영) 미정 17 확정: 앱 애플 로그인은 설정값 `APPLE_APP_BUNDLE_ID` 하나만 추가하고 서명 키(`APPLE_TEAM_ID`·`APPLE_KEY_ID`·`APPLE_PRIVATE_KEY`)는 웹과 공유한다(Sign in with Apple 키 하나가 App ID 와 그 Services ID 를 모두 서명). client_secret 생성은 `apple_client_secret(app, client_id)` 로 인자화해 웹은 Services ID, 앱은 번들 ID 로 서명한다 — §A.13 자동 갱신(티켓 11)은 이 **두 client 의 secret 을 모두** 대상으로 해야 한다.
 - (티켓 24 반영) 미정 24 확정: expanded 2열 세부 폭은 **T1 600+320(합 ≤920)**, **T4 480+480**, iPad Split View 최소 폭(약 320dp)은 compact 로 떨어뜨린다 — 판정은 기기 종류가 아니라 `MediaQuery` 현재 폭(`AppBreakpoint`), 근거는 README "24. 태블릿 대응". 추가로 **배너 슬롯 예약 높이는 폭 <728 → 50 / ≥728 → 90 의 잠정값**이다(어댑티브 배너 상한 90dp, 728×90 태블릿 표준). 광고 SDK 가 아직 없어 실측이 불가능해서 **티켓 31 이 `getCurrentOrientationAnchoredAdaptiveBannerAdSize` 실제 값으로 대체·검증한다**(코디네이터 확정 2026-10-14).
 
+- (티켓 13 반영) 미정 18 확정: 만료 ±24h 구간의 재조회에 **5분 상한**을 둔다. 무상한이면 포그라운드 앱이 `/me/stats` 를 부르는 만큼 스토어 API 를 때린다 — 갱신 반영이 최대 5분 늦는 대신(그 구간은 24h 유예가 권한을 유지해 주므로 광고가 켜지지 않는다) 호출 수를 묶었다. `next_check_at` 은 그대로 `last_verified_at + 1h` 이고, 5분은 서버 안쪽 상한이라 응답에 싣지 않는다. 미정 19 반영: 서버 재조회 조건은 `now >= last_verified_at + 간격`(경계 포함)이고 순수 함수 `is_recheck_due` 의 경계 테스트가 "정확히 그 시각" 과 "1초 전" 을 둘 다 못 박았다(`tests/test_entitlement.py`). 미정 15 반영: `docs/adr/0003-*.md` 의 재조회 문구를 §A.8 기준(1h TTL + ±24h 5분 상한)으로 갱신했다. `.scratch/store-launch/adr/` 사본은 계획 당시 원본이라 그대로 뒀다.
+
 ## Further Notes
 
 - 운영자 계정은 정확히 두 개: `dosaem90@gmail.com`, `hsseo@dosaem.com`.

@@ -241,6 +241,53 @@ def test_apple_returns_the_facts_without_interpreting_them(app_store_configured,
     assert result.transaction["originalTransactionId"] == STORE_KEY
 
 
+def test_apple_status_lookup_needs_no_receipt(app_store_configured, apple_calls):
+    """재조회(티켓 13)는 영수증 없이 `originalTransactionId` 만으로 상태를 읽는다 —
+    Beat 는 앱이 올린 JWS 를 들고 있지 않다."""
+    result = app_store.fetch_subscription_status(
+        STORE_KEY, SubscriptionEnvironment.PRODUCTION
+    )
+
+    assert apple_calls["environments"] == [Environment.PRODUCTION]
+    assert result.store_key == STORE_KEY
+    assert result.raw_status == 1
+    # 검증한 건 상태 조회가 돌려준 최신 거래뿐이다(올라온 영수증이 없다).
+    assert apple_calls["state"]["verified"] == [LATEST_TRANSACTION_JWS]
+
+
+def test_apple_status_lookup_keeps_the_stored_environment(app_store_configured, apple_calls):
+    """Sandbox 구매는 계속 Sandbox 에 물어본다(심사용 구독이 그렇다)."""
+    app_store.fetch_subscription_status(STORE_KEY, SubscriptionEnvironment.SANDBOX)
+
+    assert apple_calls["environments"] == [Environment.SANDBOX]
+
+
+def test_apple_status_lookup_without_transaction_info_is_a_store_outage(
+    app_store_configured, apple_calls, monkeypatch
+):
+    """상태는 왔는데 거래 정보가 없으면 만료일을 모른다 — 저장값을 덮지 않도록
+    503 으로 올린다(재조회 실패로 처리돼 저장값이 유지된다)."""
+    monkeypatch.setattr(
+        app_store,
+        "_fetch_status",
+        lambda *_args: (1, None, {}, SubscriptionEnvironment.PRODUCTION),
+    )
+
+    with pytest.raises(StoreUnavailableError):
+        app_store.fetch_subscription_status(STORE_KEY, SubscriptionEnvironment.PRODUCTION)
+
+
+def test_apple_status_lookup_falls_back_to_sandbox_once(app_store_configured, apple_calls):
+    apple_calls["fail_with"][Environment.PRODUCTION] = APIException(404, 4040010)
+
+    result = app_store.fetch_subscription_status(
+        STORE_KEY, SubscriptionEnvironment.PRODUCTION
+    )
+
+    assert apple_calls["environments"] == [Environment.PRODUCTION, Environment.SANDBOX]
+    assert result.environment is SubscriptionEnvironment.SANDBOX
+
+
 def test_apple_missing_settings_is_a_store_outage(app, apple_calls):
     """키를 아직 안 넣은 서버는 영수증을 탓하지 않고 503 을 준다."""
     app.config.update(APP_STORE_BUNDLE_ID="", APP_STORE_ISSUER_ID="")
