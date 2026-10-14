@@ -1,0 +1,5 @@
+# 인증서·프로파일 저장소. 레포 접근 권한은 사람이 준다(docs/RELEASE.md "34.").
+git_url("https://github.com/dosaem/match-certs.git")
+storage_mode("git")
+type("appstore")
+team_id("J8QUD7B666")

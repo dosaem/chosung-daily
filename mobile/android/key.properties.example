@@ -1,0 +1,9 @@
+# 업로드 키 설정. 실제 `key.properties` 와 `.jks` 는 커밋하지 않는다(android/.gitignore).
+# 이 파일이 없으면 release 빌드도 디버그 키로 서명한다(app/build.gradle.kts) —
+# 그래서 keystore 가 없는 로컬·새 클론에서도 `flutter build apk --release` 가 돈다.
+# 스토어에 올라가는 빌드는 워크플로가 secret 으로 이 파일을 만들어 쓴다
+# (.github/workflows/flutter.yml, 키 목록은 docs/RELEASE.md "34.").
+storeFile=upload-keystore.jks
+storePassword=<업로드 keystore 비밀번호>
+keyAlias=upload
+keyPassword=<업로드 키 비밀번호>

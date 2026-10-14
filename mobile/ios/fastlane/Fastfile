@@ -1,0 +1,70 @@
+# 사람이 맥에서 손으로 올릴 때 쓰는 lane 들. 자동 배포(develop·main 푸시)는
+# .github/workflows/flutter.yml 이 match + xcrun altool 로 한다.
+default_platform(:ios)
+
+APP_IDENTIFIER = "com.dosaem.chosung"
+TEAM_ID = "J8QUD7B666"
+
+# Flutter 루트는 fastlane 기준 한 단계 위(mobile/)다. 서명은 Xcode 쪽에서
+# match 프로파일로 하므로 Flutter 빌드는 --no-codesign 으로 돌린다.
+def build_flutter_ios(clean:)
+  Dir.chdir("..") do
+    if clean
+      sh("flutter clean")
+      sh("flutter pub get")
+    end
+    sh("flutter build ios --release --no-codesign")
+  end
+end
+
+def archive_ipa
+  sigh(
+    api_key_path: "fastlane/api_key.json",
+    app_identifier: APP_IDENTIFIER,
+    readonly: true
+  )
+
+  build_app(
+    workspace: "Runner.xcworkspace",
+    scheme: "Runner",
+    export_method: "app-store",
+    export_options: {
+      signingStyle: "manual",
+      teamID: TEAM_ID,
+      provisioningProfiles: {
+        APP_IDENTIFIER => "match AppStore #{APP_IDENTIFIER}"
+      }
+    },
+    output_directory: "./build",
+    output_name: "chosung.ipa"
+  )
+end
+
+platform :ios do
+  desc "TestFlight 에 올린다"
+  lane :beta do |options|
+    build_flutter_ios(clean: options[:clean])
+    archive_ipa
+
+    upload_to_testflight(
+      api_key_path: "fastlane/api_key.json",
+      skip_waiting_for_build_processing: true,
+      changelog: options[:changelog] || "Internal test build"
+    )
+  end
+
+  desc "App Store 에 올린다 (심사 제출은 사람)"
+  lane :release do |options|
+    build_flutter_ios(clean: options[:clean])
+    archive_ipa
+
+    # 메타데이터·스크린샷은 fastlane/metadata/ (티켓 35) 에서 올라간다.
+    upload_to_app_store(
+      api_key_path: "fastlane/api_key.json",
+      overwrite_screenshots: true,
+      submit_for_review: false,
+      precheck_include_in_app_purchases: false,
+      force: true
+    )
+  end
+end

@@ -1,0 +1,49 @@
+# 사람이 맥에서 손으로 올릴 때 쓰는 lane 들. 자동 배포(main 푸시)는
+# .github/workflows/flutter.yml 이 r0adkll/upload-google-play 로 한다.
+default_platform(:android)
+
+# Flutter 루트는 fastlane 기준 두 단계 위(mobile/)다.
+def build_appbundle(clean:)
+  Dir.chdir("../..") do
+    if clean
+      sh("flutter clean")
+      sh("flutter pub get")
+    end
+    # debugSymbolLevel=FULL 의 스트립 오탐으로 flutter tool 이 exit 1 을 주지만
+    # AAB 는 정상 생성된다 — 파일이 생겼는지로 성공을 판정한다
+    # (워크플로의 AAB 스텝과 같은 이유, .github/workflows/flutter.yml).
+    sh("flutter build appbundle --release || echo 'flutter exited nonzero (known strip false-positive with debugSymbolLevel=FULL)'")
+    UI.user_error!("AAB was not produced") unless File.exist?("build/app/outputs/bundle/release/app-release.aab")
+  end
+end
+
+platform :android do
+  desc "Play 내부 테스트 트랙에 올린다 (초안)"
+  lane :beta do |options|
+    build_appbundle(clean: options[:clean])
+
+    upload_to_play_store(
+      track: "internal",
+      aab: "../build/app/outputs/bundle/release/app-release.aab",
+      json_key: "fastlane/google-play-key.json",
+      skip_upload_metadata: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true,
+      release_status: "draft"
+    )
+  end
+
+  desc "Play 프로덕션에 올린다 (초안 — 출시 버튼은 사람)"
+  lane :release do |options|
+    build_appbundle(clean: options[:clean])
+
+    # 메타데이터·스크린샷은 fastlane/metadata/ (티켓 35) 에서 올라간다.
+    upload_to_play_store(
+      track: "production",
+      aab: "../build/app/outputs/bundle/release/app-release.aab",
+      json_key: "fastlane/google-play-key.json",
+      sync_image_upload: true,
+      release_status: "draft"
+    )
+  end
+end

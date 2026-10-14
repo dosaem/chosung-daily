@@ -1,5 +1,5 @@
 /// 빌드 때 주입하는 값들. `--dart-define=API_BASE_URL=https://...` 형태로 넘기고
-/// (티켓 32 의 워크플로), 안 넘기면 로컬 개발 기본값을 쓴다.
+/// (`.github/workflows/flutter.yml`), 안 넘기면 로컬 개발 기본값을 쓴다.
 abstract final class AppEnv {
   /// 로컬 개발 기본값은 Android 에뮬레이터에서 호스트를 가리키는 주소다.
   /// iOS 시뮬레이터·실기기는 `--dart-define` 으로 덮는다.

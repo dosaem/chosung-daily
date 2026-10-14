@@ -1,0 +1,5 @@
+# Play 서비스 계정 키는 커밋하지 않는다(android/.gitignore). 워크플로는 이 파일을
+# 쓰지 않고 r0adkll/upload-google-play 액션에 secret 을 바로 넘긴다 — fastlane 은
+# 사람이 손으로 올릴 때(docs/RELEASE.md "34.")만 쓴다.
+json_key_file("fastlane/google-play-key.json")
+package_name("com.dosaem.chosung")
