@@ -162,25 +162,49 @@ function clearStoredHistory() {
   }
 }
 
+/** `state.token` 을 채운다. 없으면 게스트를 발급받는다.
+ *
+ * 던지지 않고 **성공 여부를 돌려준다**. 예전에는 발급 실패가 예외로 `init()` 을
+ * 통째로 끊었는데, 그러면 그 뒤에 있던 `bindEvents()`·`renderOffline()` 이 아예
+ * 안 돌아서 첫 방문자는 스켈레톤에 갇혔다 — 배너도, 재시도 버튼도, `online`
+ * 이벤트도 없었다(review/impl-review-18.md D-18-1). 조회 실패와 같은 인라인
+ * 카드로 눕히면 같은 재시도 버튼 하나로 발급부터 다시 시작할 수 있다.
+ *
+ * @returns {Promise<boolean>} 토큰이 준비됐으면 true.
+ */
 async function ensureToken() {
+  if (state.token !== null) return true;
+
   const existing = safeStorageGet(TOKEN_KEY);
-  if (existing) return existing;
+  if (existing) {
+    state.token = existing;
+    return true;
+  }
 
   // 새 게스트의 퍼즐 언어 기본값은 기기 언어다(CONTEXT.md "퍼즐 언어"). 서버가
   // 이미 고른 UI 언어를 그대로 쓴다 — 지원 언어가 ko/en 으로 같다.
-  const res = await fetch(`${API_BASE}/guests`, {
+  const { ok, offline, body } = await fetchJson(`${API_BASE}/guests`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ puzzle_language: document.documentElement.lang }),
   });
-  if (!res.ok) {
-    showMessage(t("guest_issue_failed"));
-    throw new Error("failed to issue guest token");
+  if (offline) {
+    renderOffline(true);
+    showPuzzleState(t("network_error"));
+    return false;
+  }
+  // 요청이 나갔다는 건 연결이 돌아왔다는 뜻이다 — 응답이 오류여도 배너는 내린다.
+  renderOffline(false);
+  if (!ok) {
+    showPuzzleState(t("guest_issue_failed"));
+    return false;
   }
 
-  const data = await res.json();
-  safeStorageSet(TOKEN_KEY, data.token);
-  return data.token;
+  state.token = body.token;
+  safeStorageSet(TOKEN_KEY, body.token);
+  // 응답을 기다릴 필요 없음 — 로그인 버튼 누르기 전까지만 심어지면 된다.
+  syncSession();
+  return true;
 }
 
 async function loadToday() {
@@ -660,10 +684,19 @@ async function submitGuess(input, raw) {
 
   if (stale || state.puzzleId !== requestedPuzzleId) return;
 
-  // 제출이 아예 못 나갔다 — 기회는 소비되지 않았으니 "오류" 가 아니라 "다시" 다.
+  // 제출이 아예 못 나갔다 — "오류" 가 아니라 "다시" 다.
+  //
+  // 안내만 `#message` 에 띄우면 복구할 길이 없다: `renderOffline(true)` 가 입력과
+  // 제출 버튼을 잠그는데, `navigator.onLine` 이 계속 true 인 일시적 실패(DNS·연결
+  // 끊김)에서는 `online` 이벤트가 영영 안 온다. 유일한 재시도 버튼은 숨어 있는
+  // `#puzzle-state` 안이라, 사용자는 새로고침 말고는 빠져나올 수 없었다
+  // (review/impl-review-18.md D-18-2). 그래서 조회 실패와 **같은** 인라인 카드로
+  // 눕힌다 — 재시도가 서버에서 오늘 퍼즐과 시도 이력을 다시 받으므로, fetch 가
+  // 죽은 사이에 제출이 실제로 서버에 닿았는지까지 화면이 서버와 다시 맞는다.
   if (offline) {
     renderOffline(true);
-    showMessage(t("network_error"));
+    showMessage("");
+    showPuzzleState(t("network_error"));
     return;
   }
 
@@ -899,16 +932,16 @@ async function syncSession() {
 }
 
 /** 인라인 카드의 재시도 버튼. 오류든 "퍼즐 없음" 이든 하는 일은 같다 —
- *  지금의 "오늘 내 퍼즐" 을 다시 받아온다. */
+ *  첫 화면을 처음부터 다시 받아온다(게스트 발급이 실패했으면 발급부터). */
 async function handleRetry() {
-  await reloadPuzzle();
+  await restart();
 }
 
-/** 연결이 돌아왔다. 배너를 내리고, 못 받았던 퍼즐을 알아서 다시 받는다 —
+/** 연결이 돌아왔다. 배너를 내리고, 못 받았던 것들을 알아서 다시 받는다 —
  *  재시도 버튼을 누르게 만들지 않는다. */
 async function handleOnline() {
   renderOffline(false);
-  await reloadPuzzle();
+  await restart();
 }
 
 function handleOffline() {
@@ -1014,16 +1047,22 @@ function bindEvents() {
   window.addEventListener("offline", handleOffline);
 }
 
-async function init() {
-  await discardDeletedAccountState(); // 삭제가 확인되면 옛 토큰을 먼저 버린다
-  applyLoginTokenFromUrl();
-  clearStoredHistory();
-  state.token = await ensureToken();
-  syncSession(); // 응답을 기다릴 필요 없음 — 로그인 버튼 누르기 전까지만 심어지면 된다.
+/** 첫 화면 한 벌: 게스트 발급 → 통계 → 오늘 퍼즐 → 순위·오늘 통계.
+ *
+ * `init()` 과 재시도 버튼·`online` 이벤트가 **같은** 함수를 쓴다. 발급이 실패한
+ * 첫 방문도 복구는 똑같이 "처음부터 다시" 라서, 재시도 경로를 퍼즐 재조회
+ * (`reloadPuzzle`)에만 걸어두면 토큰이 없는 화면은 영영 못 빠져나온다
+ * (review/impl-review-18.md D-18-1).
+ *
+ * 어느 단계가 실패하든 그 단계가 인라인 상태 카드를 띄우고 멈춘다 — 카드의
+ * 재시도 버튼이 다시 여기로 들어온다.
+ */
+async function restart() {
+  // 다시 받는 동안은 로딩 상태다. 들고 있던 플레이 상태도 같이 버린다 —
+  // 끊겼던 사이에 다른 기기에서 푼 시도가 서버에 있을 수 있다.
+  discardLocalPlayState();
 
-  bindEvents();
-  // 비행기 모드로 들어온 방문자는 첫 요청이 실패하기 전에 이유를 알아야 한다.
-  renderOffline(!navigator.onLine);
+  if (!(await ensureToken())) return;
   loadStats();
 
   const puzzle = await loadToday();
@@ -1032,6 +1071,20 @@ async function init() {
   applyPuzzle(puzzle);
   loadLeaderboard();
   loadTodayStats();
+}
+
+async function init() {
+  // 재시도 버튼과 `online`/`offline` 은 **첫 요청보다 먼저** 살아 있어야 한다 —
+  // 뒤에 두면 게스트 발급이 실패한 첫 방문에서 복구 수단이 하나도 없다(D-18-1).
+  bindEvents();
+  // 비행기 모드로 들어온 방문자는 첫 요청이 실패하기 전에 이유를 알아야 한다.
+  renderOffline(!navigator.onLine);
+
+  await discardDeletedAccountState(); // 삭제가 확인되면 옛 토큰을 먼저 버린다
+  applyLoginTokenFromUrl();
+  clearStoredHistory();
+
+  await restart();
 }
 
 init();

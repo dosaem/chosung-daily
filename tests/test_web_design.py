@@ -66,6 +66,22 @@ def test_card_width_comes_from_the_shared_token(style: str):
     assert "420px" not in style
 
 
+def test_the_header_lets_the_streak_drop_to_its_own_line(style: str):
+    """D-18-3: 320px 영어 화면에서 머리말이 카드 밖으로 넘치면 안 된다(OVERRIDES §10).
+
+    제목의 최소 단어 폭과 줄바꿈 금지(`white-space: nowrap`)인 스트릭이 한 flex
+    행에 고정되면, 320px 에서 내용이 카드를 ~49px 넘기고 가로 스크롤이 생긴다.
+    `flex-wrap: wrap` 하나로 스트릭이 아랫줄로 내려간다 — 실제 측정은
+    `review/impl-evidence-18.md` "수정 라운드 1" 에 있다.
+    """
+    block = style.split(".header {")[1].split("}", maxsplit=1)[0]
+
+    assert "flex-wrap: wrap" in block
+    # 스트릭은 그대로 한 덩이다 — 줄바꿈을 허용하면 `· best 0 ·` 가 아무데서나 쪼개진다.
+    streak = style.split(".streak {")[1].split("}", maxsplit=1)[0]
+    assert "white-space: nowrap" in streak
+
+
 @pytest.mark.parametrize(
     ("selector", "token"),
     [

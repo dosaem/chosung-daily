@@ -79,11 +79,17 @@ body:lang(en) {
 
 /* --- 머리말 · 섹션 내비 ---------------------------------------------------- */
 
+/* 제목과 스트릭이 한 줄에 다 안 들어가면 스트릭이 아랫줄로 내려간다.
+ * `wrap` 이 없으면 줄바꿈 금지인 스트릭(`white-space: nowrap`)과 제목의 최소 단어
+ * 폭이 한 행에 고정돼, 320px 영어 화면에서 내용이 카드 밖으로 ~49px 넘치고 가로
+ * 스크롤이 생긴다 — OVERRIDES §10 의 "모든 폭에서 카드 안" 위반이다
+ * (review/impl-review-18.md D-18-3). */
 .header {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: baseline;
-  gap: var(--space-3);
+  gap: var(--space-1) var(--space-3);
   margin-bottom: var(--space-4);
 }
 

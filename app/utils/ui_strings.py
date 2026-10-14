@@ -51,7 +51,7 @@ UI_STRINGS: dict[str, dict[str, str]] = {
         "hint": "힌트: {hint}",
         "guess_placeholder": "정답을 입력하세요",
         "submit": "제출",
-        "guest_issue_failed": "게스트 발급에 실패했어요. 새로고침해서 다시 시도해주세요.",
+        "guest_issue_failed": "게스트 발급에 실패했어요. 잠시 뒤 다시 시도해주세요.",
         "puzzle_load_failed": "오늘의 퍼즐을 불러오지 못했어요.",
         "puzzle_changed": "새 퍼즐이 있어요",
         # 계정 삭제(티켓 14)가 /?deleted=1 로 돌려보낸 뒤, 옛 토큰을 버리고 띄우는 안내.
@@ -138,7 +138,7 @@ UI_STRINGS: dict[str, dict[str, str]] = {
         "hint": "Hint: {hint}",
         "guess_placeholder": "Type your answer",
         "submit": "Submit",
-        "guest_issue_failed": "Couldn't start a guest session. Please reload and try again.",
+        "guest_issue_failed": "Couldn't start a guest session. Please try again in a moment.",
         "puzzle_load_failed": "Couldn't load today's puzzle.",
         "puzzle_changed": "There's a new puzzle",
         "account_deleted": "Your account and records were deleted. Starting fresh.",

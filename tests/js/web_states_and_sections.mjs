@@ -53,6 +53,27 @@ const UNREACHABLE = async () => {
   throw new TypeError("Failed to fetch");
 };
 
+const STATS = {
+  current_streak: 0,
+  max_streak: 0,
+  solved_count: 0,
+  linked_account: null,
+  puzzle_language: "ko",
+};
+
+/** 게스트 발급까지 포함한 서버 대역. `init()` 을 처음부터 돌리는 시나리오가 쓴다 —
+ *  `fetchFor` 는 토큰이 이미 있다고 보고 `/guests` 를 빈 응답으로 돌려준다. */
+function serverFor(today) {
+  return async (url) => {
+    if (url.includes("/guests")) return okResponse({ token: "issued-token" });
+    if (url.includes("/me/stats")) return okResponse(STATS);
+    if (url.includes("/puzzles/today/leaderboard")) return okResponse(EMPTY_LEADERBOARD);
+    if (url.includes("/puzzles/today/stats")) return okResponse(EMPTY_STATS);
+    if (url.includes("/puzzles/today")) return today();
+    return okResponse({});
+  };
+}
+
 function snapshot(app) {
   const hidden = (id) => app.el(id).classList.contains("hidden");
   return {
@@ -197,6 +218,107 @@ function app_seconds(iso) {
   await app.run("reloadPuzzle()");
   results.share_text = app.run("buildShareText()");
   results.share_result = snapshot(app);
+}
+
+// --- D-18-1: 첫 방문의 게스트 발급이 실패해도 스켈레톤에 갇히지 않는다 -------
+//
+// 예전에는 `ensureToken()` 의 예외가 `init()` 을 끊어서, 그 뒤에 있던
+// `bindEvents()`·`renderOffline()` 이 아예 안 돌았다 — 배너도 재시도 버튼도
+// `online` 이벤트도 없는 스켈레톤이 영구 상태였다(review/impl-review-18.md D-18-1).
+// 핸들러를 손으로 붙이지 않고 **`init()` 을 그대로** 돌려서 그 순서를 본다.
+{
+  const app = loadApp({ strings, lang });
+  app.context.navigator.onLine = false;
+  app.setFetch(UNREACHABLE);
+  let threw = null;
+  try {
+    await app.run("init()");
+  } catch (error) {
+    threw = String(error);
+  }
+  results.first_visit_offline = {
+    threw,
+    ...snapshot(app),
+    retryHandlers: (app.el("puzzle-state-retry").listeners.click ?? []).length,
+  };
+
+  // 같은 재시도 버튼 하나로 **발급부터** 다시 시작한다.
+  app.context.navigator.onLine = true;
+  app.setFetch(serverFor(() => okResponse(PUZZLE)));
+  await app.el("puzzle-state-retry").listeners.click[0]();
+  results.first_visit_offline_after_retry = {
+    ...snapshot(app),
+    token: app.run("state.token"),
+    stored: app.context.localStorage.getItem("chosung_token"),
+    streak: app.el("streak").textContent,
+  };
+}
+
+// --- D-18-1: 연결이 돌아오면 발급도 알아서 다시 한다 -------------------------
+{
+  const app = loadApp({ strings, lang });
+  app.context.navigator.onLine = false;
+  app.setFetch(UNREACHABLE);
+  await app.run("init()");
+
+  app.setFetch(serverFor(() => okResponse(PUZZLE)));
+  await app.emitWindow("online");
+  results.first_visit_online_recovery = { ...snapshot(app), token: app.run("state.token") };
+}
+
+// --- D-18-1: 5xx 발급 실패도 같은 인라인 카드다 ------------------------------
+{
+  const app = loadApp({ strings, lang });
+  app.setFetch(async (url) =>
+    url.includes("/guests")
+      ? errorResponse(500, { code: "INTERNAL_ERROR", message: "서버 오류" })
+      : okResponse({})
+  );
+  await app.run("init()");
+  results.first_visit_server_error = {
+    ...snapshot(app),
+    retryHandlers: (app.el("puzzle-state-retry").listeners.click ?? []).length,
+  };
+}
+
+// --- D-18-2: 제출이 못 나갔을 때 재시도 경로가 보인다 ------------------------
+//
+// `navigator.onLine` 은 계속 true 다(일시적 DNS·연결 실패) — `online` 이벤트가
+// 영영 안 오므로, 입력만 잠그고 안내만 띄우면 새로고침 말고는 빠져나올 수 없었다
+// (review/impl-review-18.md D-18-2).
+{
+  const app = loadApp({ strings, lang });
+  app.context.localStorage.setItem("chosung_token", "stored-token");
+  app.setFetch(serverFor(() => okResponse(PUZZLE)));
+  await app.run("init()");
+
+  app.el("guess-input").value = "사과";
+  app.setFetch(async (url) => {
+    if (url.includes("/guesses")) throw new TypeError("Failed to fetch");
+    return serverFor(() => okResponse(PUZZLE))(url);
+  });
+  await app.el("guess-form").listeners.submit[0]({ preventDefault() {} });
+  results.submit_unreachable = {
+    ...snapshot(app),
+    online: app.context.navigator.onLine,
+    message: app.el("message").textContent,
+  };
+
+  // fetch 가 죽은 사이에 제출이 서버에 **닿았을 수도** 있다 — 재시도는 그 이력까지
+  // 서버에서 다시 받아와야 화면이 서버와 맞는다.
+  const CONSUMED = {
+    ...PUZZLE,
+    attempts: [{ guess: "사과", feedback: [true, false] }],
+    attempts_left: 4,
+  };
+  app.setFetch(serverFor(() => okResponse(CONSUMED)));
+  await app.el("puzzle-state-retry").listeners.click[0]();
+  results.submit_unreachable_after_retry = {
+    ...snapshot(app),
+    attempts: app.run("state.attempts"),
+    boardRows: app.el("board").children.length,
+    attemptsLeft: app.run("state.attemptsLeft"),
+  };
 }
 
 console.log(JSON.stringify(results));

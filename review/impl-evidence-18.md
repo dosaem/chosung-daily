@@ -234,3 +234,206 @@ wrote .scratch/store-launch/design/web-shots/home-dark.png (50220 bytes)
   실제 왕복은 README "웹 수동 체크리스트" 12~20 행으로 남겼다.
 - **출시 전 사람이 채울 값**: `docs/RELEASE.md` "### 18."(`STORE_URL_IOS`/
   `STORE_URL_ANDROID`/`APP_STORE_ID`, 공식 배지 아트워크, 공유 링크 도메인 확인).
+
+## 수정 라운드 1 — 최종 리뷰(`review/impl-review-18.md` 라운드 1) 결함 수정
+
+- 기준: 로컬 `main` = `055b56c`. `git merge-base --is-ancestor main HEAD` 가 참이라 rebase 는
+  no-op 였다(새 커밋 없음, 충돌 없음). `origin/main` 은 쓰지 않았다.
+- 전용 테스트 자원 그대로: `chosung_daily_test_t18` / Redis DB 6. 공용 테스트 DB·Redis DB 1 은
+  건드리지 않았다. 마이그레이션 없음(`git diff --name-only main..HEAD -- migrations` 비어 있음),
+  `flask db heads` = `d7a1f0ca0a29 (head)` 1줄.
+- `review/impl-review-18.md` 는 고치지 않았다.
+- 각 결함은 **리뷰의 재현 방법 그대로 먼저 재현**하고(아래 출력), 그 재현을 실패하는 테스트로
+  고정한 뒤 고쳤다. 증상이 아니라 원인을 적었다.
+
+### D-18-1 (MAJOR) — 최초 게스트 발급 실패가 새 오류 UI 전체를 건너뛴다
+
+**재현.** 기존 node 대역(`tests/js/harness.mjs`)으로 `navigator.onLine=false` + 모든 fetch reject
+상태에서 `init()` 을 그대로 돌렸다. 애플리케이션 함수는 하나도 mock 하지 않았다.
+
+```
+D-18-1 { "rejected": "TypeError: Failed to fetch",
+         "skeletonShown": true, "bannerShown": false,
+         "retryCardShown": false, "retryListeners": 0 }
+```
+
+리뷰가 적은 네 값과 같다.
+
+**원인.** 증상은 "스켈레톤 고착" 이지만 원인은 두 가지가 겹친 것이다.
+
+1. `ensureToken()` 이 발급 실패를 `throw` 로 올렸다.
+2. `init()` 이 그 호출을 `bindEvents()`·`renderOffline()` **앞**에 두었다.
+
+그래서 예외 하나가 나머지 초기화를 통째로 건너뛴다 — 배너도, 재시도 핸들러도,
+`online`/`offline` 이벤트 등록도 없다. 게다가 유일한 재시도 경로인 `handleRetry` 가
+퍼즐 조회 전용 `reloadPuzzle()` 을 불렀으므로, 버튼이 붙어 있었더라도 **토큰이 없는 화면은
+발급을 다시 시도할 수 없었다**.
+
+**수정** (`web/static/app.js`)
+
+1. `ensureToken()` 이 던지지 않고 `boolean` 을 돌려준다. 실패는 조회 실패와 **같은** 인라인
+   상태 카드(`showPuzzleState`)로 눕히고, 요청이 아예 못 나간 경우에만 배너를 같이 올린다.
+   `fetch` 직접 호출을 `fetchJson` 으로 바꿔 "못 나감(offline)" 과 "나갔지만 실패(!ok)" 를
+   구분한다. 성공하면 `state.token` 과 `syncSession()` 까지 여기서 맡는다.
+2. `init()` 이 **`bindEvents()` → `renderOffline()` 을 맨 앞**에 둔다. 첫 요청보다 복구 수단이
+   먼저 살아 있어야 한다.
+3. 첫 화면 한 벌(발급 → 통계 → 퍼즐 → 순위·오늘 통계)을 `restart()` 하나로 묶고,
+   `handleRetry`·`handleOnline` 이 `reloadPuzzle()` 대신 이것을 부른다. 퍼즐 재조회 전용인
+   `reloadPuzzle()`(언어 전환·409 PUZZLE_CHANGED 경로)은 그대로 뒀다.
+4. 카드에 재시도 버튼이 생겼으니 `guest_issue_failed` 문구에서 "새로고침해서" 를 뺐다
+   (`app/utils/ui_strings.py`, ko/en).
+
+**증명.** `tests/js/web_states_and_sections.mjs` 에 `init()` 을 그대로 돌리는 시나리오를 넣고
+`tests/test_web_js.py` 가 판정한다.
+
+| 테스트 | 확인하는 값 |
+|---|---|
+| `test_a_first_visit_whose_guest_issue_cannot_leave_does_not_stay_on_the_skeleton` | `threw=None`, 스켈레톤 걷힘, 배너 보임, 카드 보임, 재시도 핸들러 1개 |
+| `test_the_retry_button_issues_the_guest_token_the_first_visit_never_got` | 재시도 한 번에 `state.token`·localStorage = `issued-token`, 퍼즐·폼 보임, 배너 내려감, 입력 잠금 해제, 못 받았던 통계(`연속 0일 · 최고 0일 · 누적 0문제`)까지 따라옴 |
+| `test_coming_back_online_also_retries_the_guest_issue` | `online` 이벤트도 발급부터 이어감 |
+| `test_a_guest_issue_that_fails_with_5xx_also_offers_a_retry` | HTTP 5xx 발급 실패도 같은 카드 + 재시도(요청은 나갔으므로 배너는 없다) |
+
+수정 전 코드에 이 테스트를 붙이면 첫 번째가 `threw != None` 으로 실패한다.
+
+### D-18-2 (MAJOR) — 제출 요청 실패 뒤 입력을 잠그지만 재시도 경로를 표시하지 않는다
+
+**재현.** `navigator.onLine=true` 를 유지한 채 `POST /puzzles/today/guesses` 만 reject:
+
+```
+D-18-2 { "online": true, "inputDisabled": true, "bannerShown": true,
+         "puzzleStateShown": false,
+         "message": "연결이 불안정해요. 다시 시도해주세요.",
+         "inputValueKept": "사과" }
+```
+
+리뷰의 네 값(`online=true`, `disabled=true`, `bannerVisible=true`, `retryVisible=false`)과 같다.
+
+**원인.** `submitGuess()` 의 `offline` 분기가 `renderOffline(true)` 로 입력·제출을 잠그면서
+안내는 `#message` 에만 남겼다. 복구 수단 두 개가 모두 닿지 않는다 — `online` 이벤트는
+`navigator.onLine` 이 계속 true 라 오지 않고, 재시도 버튼은 숨어 있는 `#puzzle-state` 안에 있다.
+**"잠그는 쪽" 과 "푸는 쪽" 이 서로 다른 화면 상태에 걸려 있던 것**이 원인이다.
+
+**수정.** 같은 분기에서 조회 실패와 **같은** 인라인 카드(`showPuzzleState(t("network_error"))`)를
+띄운다. 재시도 버튼이 보이고, 그 재시도는 `restart()` → 서버의 오늘 퍼즐·시도 이력을 다시
+받는다. fetch 가 죽은 사이에 제출이 실제로 서버에 **닿았을 수도** 있으므로, 화면을 로컬에서
+되살리지 않고 서버 상태와 다시 맞추는 쪽을 골랐다(리뷰의 "복구 과정은 서버 상태와 다시 맞아야
+한다"). 같은 문장을 두 군데 띄우지 않게 `#message` 는 비운다.
+
+**증명** (`tests/test_web_js.py`)
+
+- `test_a_submit_that_cannot_leave_shows_a_retry_not_just_a_locked_input`
+  → `online=True`, `inputDisabled=True`, 배너 보임, **카드 보임**, `#message` 비어 있음
+- `test_the_retry_after_a_failed_submit_resyncs_with_the_server`
+  → 서버가 그 시도를 받아둔 상태로 재시도하면 `attempts=[{"guess":"사과","feedback":[True,False]}]`,
+    `boardRows=1`, `attemptsLeft=4`, 퍼즐·폼 복귀, 입력 잠금 해제
+
+수정 전 코드에서는 첫 번째가 `stateHidden=True` 로 실패한다.
+
+### D-18-3 (MINOR) — 320px 영어 화면의 머리말이 카드와 뷰포트를 벗어난다
+
+**재현.** 현재 템플릿을 실제 Flask 로 렌더하고 현재 두 CSS 를 인라인한 로컬 스냅샷을 헤드리스
+Chrome 155.0.8059.41 의 CDP 로 320×844 에서 측정했다. 외부 폰트 CDN 은 제거해 선언된 시스템
+fallback 으로 렌더했다(리뷰와 같은 조건).
+
+```
+수정 전 320px /en: innerWidth=369 docScrollWidth=369 cardRight=320 streakRight=369.09375
+```
+
+리뷰의 `scrollWidth=369`·스트릭 오른쪽 끝 `369.09375` 와 같다. 360px 에서도 같은 값으로 넘친다.
+
+**원인.** `.header` 가 `flex-wrap` 없는 한 줄 flex 라, 줄바꿈 금지(`white-space: nowrap`)인
+`.streak` 와 제목의 최소 단어 폭이 한 행에 고정된다. flex 는 그 둘의 min-content 합이 컨테이너를
+넘어도 줄을 바꾸지 않고 그대로 넘긴다.
+
+**수정** (`web/static/style.css`): `.header` 에 `flex-wrap: wrap`, 줄이 나뉘었을 때 위아래가
+붙지 않게 `gap` 을 `var(--space-1) var(--space-3)` 로 나눴다. `.streak` 의 nowrap 은 그대로 둔다 —
+풀면 `· best 0 ·` 가 아무데서나 쪼개진다.
+
+```
+수정 후 320px /en  "0-day streak · best 0 · 0 solved"      → docScrollWidth=320  streakRight=249.28
+수정 후 320px /ko  "연속 365일 · 최고 365일 · 누적 1200문제"  → docScrollWidth=320  streakRight=276.27
+수정 후 320px /en  "365-day streak · best 365 · 365 solved" → docScrollWidth=320  streakRight=304.09
+360 / 390px 도 모두 docScrollWidth == innerWidth (넘침 0)
+```
+
+`impeccable detect`(로컬 `0.1.14`)를 수정 후 스냅샷에 다시 돌렸다 — ko/en 기본 뷰포트와
+`--viewport 320x844` ko/en 모두 exit 0·출력 없음. 320px 머리말 렌더는
+`.scratch/store-launch/design/web-shots/header-320-en-{light,dark}.png` 에 남겼다.
+
+**증명.** `tests/test_web_design.py::test_the_header_lets_the_streak_drop_to_its_own_line` —
+`.header` 에 `flex-wrap: wrap` 이 있고 `.streak` 의 nowrap 이 유지되는지를 본다. 레포에 브라우저
+러너가 없어서(스펙 "미정 항목" 5) 픽셀 측정 자체는 테스트로 고정하지 못했고, 위 CDP 수치와
+detect 출력이 근거다.
+
+**남은 한계(솔직히).** 4자리가 섞인 극단값(`1000-day streak · best 1000 · 2000 solved`)은 320px
+에서 여전히 ~9px 넘친다(`docScrollWidth=329`). 현실적 상한인 3자리까지는 16px 여유로 들어간다.
+세그먼트별 줄바꿈은 마크업 변경이 필요해 이번 수정 범위에서 뺐다.
+
+### 추가 1건 (코디네이터 지시) — 테스트 픽스처의 MySQL 유휴 연결 누적
+
+**원인.** `tests/conftest.py` 의 function-scope `app` 픽스처는 테스트마다 `create_app()` →
+새 엔진 → 새 커넥션 풀을 만드는데, teardown 이 `db.session.remove()`·`db.drop_all()` 만 하고
+풀을 닫지 않았다. 버려진 엔진의 풀은 GC 로 닫히지 않으므로 연결이 **프로세스가 끝날 때까지**
+MySQL 에 `Sleep` 으로 남는다.
+
+**수정.** teardown 끝에 `db.engine.dispose()` 한 줄. 동작 테스트는 바꾸지 않았고, `app.js` 의
+비동기 구조(`fetchJson`·세대·`languageWanted`)도 건드리지 않았다.
+
+**측정.** `information_schema.PROCESSLIST` 를 매 테스트 teardown 후 읽는 **읽기 전용** pytest
+플러그인으로 쟀다. 관측 엔진은 `NullPool` 이라 측정 자체가 유휴 연결을 남기지 않고, 관측용
+Query 연결 1개는 뺐다. 플러그인은 레포에 넣지 않고 스크래치패드에서 `-p` 로 붙였다.
+
+| 대상 | 테스트 수 | 실행 중 최대 Sleep | 세션 종료 직후 |
+|---|---:|---:|---:|
+| 수정 전 — `test_web`+`test_guest_api`+`test_guess_flow`+`test_leaderboard` | 43 | **28** | 21 |
+| 수정 후 — 같은 집합 | 43 | **1** | 0 |
+| 수정 후 — **전체 스위트** | 1301 | **3** | 0 |
+
+요청한 "일정 수준(예: 10 이하)" 을 전체 스위트에서 만족한다.
+
+**같은 시각 다른 워커와의 대조(우연히 잡힌 직접 증거).** 이 전체 스위트가 도는 동안 수정 전
+conftest 를 쓰는 다른 워크트리(t36)의 스위트가 병렬로 돌고 있었다. 같은 MySQL 을 1초 간격으로
+세 번 찍은 값:
+
+```
+17:29:04  t36 Sleep=38  t36 Query=1   t18 Sleep=0  t18 Query=2
+17:30:11  t36 Sleep=77  t36 Query=1   t18 Sleep=0  t18 Query=2
+17:32:43  t36 Sleep=69  t36 Query=1   t18 Sleep=0  t18 Query=2
+```
+
+같은 부하에서 수정 전 워크트리는 70~80개를 들고 있고 수정한 쪽은 0개다.
+
+**정정 1건.** 지시문의 `max_connections=151` 은 이 MySQL 에서는 **500** 이다
+(`SHOW VARIABLES LIKE 'max_connections'` → `500`, 관측 시점 `Threads_connected=85`). 누수 자체와
+수정은 그대로 유효하지만, 지금 당장 고갈 직전이었다고는 말하지 않는다.
+
+**속도.** 같은 43개 집합을 번갈아 4회씩 쟀다 — 있음 33.5 / 32.9 / 36.7 / 27.1s, 없음
+26.6 / 29.7 / 24.6 / 37.6s 로 분포가 겹친다. `Engine.dispose()` 자체에 든 시간은 38회 합계
+**0.03s** 였다(호출을 감싸 측정). 의미 있는 회귀로 보지 않는다.
+
+### 미수정 MINOR · 리뷰에 동의하지 않은 항목
+
+없다. 리뷰의 세 결함을 모두 고쳤다. 리뷰 "참고" 의 세 항목(텍스트형 스토어 배지, 글자 수별 타일
+크기, 사람이 해야 할 iOS Safari 왕복)은 결함 판정이 아니라 범위 밖 기록이라 그대로 뒀다.
+
+### 전체 검증
+
+```
+$ uv run pytest -q            # TEST_DATABASE_URL=...chosung_daily_test_t18, TEST_REDIS_URL=...6
+1301 passed in 1034.61s (0:17:14)
+[conn-probe] db=chosung_daily_test_t18 tests=1301 max_sleep=3 last_sleep=1 after_session=0
+
+$ uv run ruff check .
+All checks passed!
+```
+
+- 1294 → 1301: 이번 라운드가 더한 테스트 7개(JS 동작 6 + CSS 계약 1).
+- `git diff --check main..HEAD` → exit 0. 작업 트리 clean, 로컬 `main`(`055b56c`) 위.
+- 프로덕션 접근·배포·`git push`·외부 서비스 호출 없음. 시크릿 값은 이 문서에 없다.
+- 이번 라운드에서 바꾼 파일: `web/static/app.js`, `web/static/style.css`,
+  `app/utils/ui_strings.py`, `tests/conftest.py`, `tests/fixtures/js/deleted_state_harness.mjs`,
+  `tests/js/web_states_and_sections.mjs`, `tests/test_web_js.py`, `tests/test_web_design.py`,
+  `review/impl-evidence-18.md`, `.scratch/store-launch/design/web-shots/header-320-en-*.png`.
+- `tests/fixtures/js/deleted_state_harness.mjs` 는 `ensureToken()` 의 반환 계약이 토큰 → boolean
+  으로 바뀌어 발급된 토큰을 `state.token` 에서 읽도록 두 줄 고쳤다. D-14-1 테스트 3개가 보는
+  내용은 그대로다.

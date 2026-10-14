@@ -481,3 +481,94 @@ def test_the_share_text_ends_with_the_web_link(web_states):
     # 그리드와 링크가 한 줄에 붙지 않게 빈 줄을 둔다.
     assert lines[-2] == ""
     assert web_states["share_result"]["resultHidden"] is False
+
+
+# --- 수정 라운드 1: 최종 리뷰 D-18-1 · D-18-2 --------------------------------
+
+
+def test_a_first_visit_whose_guest_issue_cannot_leave_does_not_stay_on_the_skeleton(web_states):
+    """D-18-1: 첫 방문의 게스트 발급이 못 나가도 오류 카드·배너·재시도가 떠야 한다.
+
+    예전에는 `ensureToken()` 이 던져서 `init()` 이 거기서 끊겼다 — 뒤에 있던
+    `bindEvents()`·`renderOffline()` 이 아예 안 돌아, 배너도 재시도 버튼도
+    `online` 이벤트도 없는 스켈레톤이 영구 상태였다. 이 시나리오는 핸들러를
+    손으로 붙이지 않고 `init()` 을 그대로 돌린다.
+    """
+    first = web_states["first_visit_offline"]
+
+    assert first["threw"] is None, "init() 이 예외로 끊기면 안 된다"
+    assert first["skeletonHidden"] is True
+    assert first["stateHidden"] is False
+    assert first["stateText"] == UI_STRINGS["ko"]["network_error"]
+    assert first["bannerHidden"] is False
+    assert first["retryHandlers"] == 1
+
+
+def test_the_retry_button_issues_the_guest_token_the_first_visit_never_got(web_states):
+    """D-18-1: 같은 재시도 버튼 하나로 **발급부터** 다시 시작한다."""
+    after = web_states["first_visit_offline_after_retry"]
+
+    assert after["token"] == "issued-token"
+    assert after["stored"] == "issued-token"
+    assert (after["puzzleHidden"], after["formHidden"], after["stateHidden"]) == (
+        False,
+        False,
+        True,
+    )
+    assert after["bannerHidden"] is True
+    assert after["inputDisabled"] is False
+    # 발급이 실패해 못 받았던 통계도 같이 따라온다.
+    assert after["streak"] == UI_STRINGS["ko"]["streak_summary"].format(
+        current=0, max=0, solved=0
+    )
+
+
+def test_coming_back_online_also_retries_the_guest_issue(web_states):
+    """D-18-1: 재시도 버튼을 누르게 만들지 않는다 — `online` 이벤트도 발급부터 잇는다."""
+    after = web_states["first_visit_online_recovery"]
+
+    assert after["token"] == "issued-token"
+    assert after["puzzleHidden"] is False
+    assert after["bannerHidden"] is True
+
+
+def test_a_guest_issue_that_fails_with_5xx_also_offers_a_retry(web_states):
+    """D-18-1: 요청이 나갔지만 서버가 실패한 경우도 같은 인라인 카드다(배너는 없다)."""
+    after = web_states["first_visit_server_error"]
+
+    assert after["stateHidden"] is False
+    assert after["stateText"] == UI_STRINGS["ko"]["guest_issue_failed"]
+    assert after["bannerHidden"] is True
+    assert after["retryHandlers"] == 1
+
+
+def test_a_submit_that_cannot_leave_shows_a_retry_not_just_a_locked_input(web_states):
+    """D-18-2: 제출이 못 나가면 입력이 잠기는데, 재시도 경로가 없으면 갇힌다.
+
+    `navigator.onLine` 이 계속 true 인 일시적 실패에서는 `online` 이벤트가 영영
+    안 온다 — 숨어 있는 `#puzzle-state` 안의 재시도 버튼이 유일한 탈출구였다.
+    """
+    after = web_states["submit_unreachable"]
+
+    assert after["online"] is True
+    assert after["inputDisabled"] is True
+    assert after["bannerHidden"] is False
+    # 안내만 `#message` 에 남기지 않고, 재시도 버튼이 있는 카드를 띄운다.
+    assert after["stateHidden"] is False
+    assert after["stateText"] == UI_STRINGS["ko"]["network_error"]
+    assert after["message"] == "", "같은 문장을 두 군데 띄우지 않는다"
+
+
+def test_the_retry_after_a_failed_submit_resyncs_with_the_server(web_states):
+    """D-18-2: fetch 가 죽은 사이에 제출이 닿았을 수도 있다 — 서버 이력으로 다시 맞춘다."""
+    after = web_states["submit_unreachable_after_retry"]
+
+    assert after["attempts"] == [{"guess": "사과", "feedback": [True, False]}]
+    assert after["boardRows"] == 1
+    assert after["attemptsLeft"] == 4
+    assert (after["puzzleHidden"], after["formHidden"], after["stateHidden"]) == (
+        False,
+        False,
+        True,
+    )
+    assert after["inputDisabled"] is False
