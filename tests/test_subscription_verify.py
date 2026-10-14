@@ -24,6 +24,7 @@ from app.clients import app_store, play
 from app.errors import StoreUnavailableError
 from app.extensions import db
 from app.models import (
+    Account,
     Guest,
     Subscription,
     SubscriptionEnvironment,
@@ -610,3 +611,57 @@ def test_the_same_receipt_arriving_twice_at_once_still_makes_one_row(
 
     assert outcomes == [True, True]
     assert len(rows()) == 1
+
+
+# --- 수정 라운드 1 · D-16-1 -------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        ("google", "purchase-token-1", "play_active.json"),
+        ("apple", "apple-receipt-jws", "apple_active.json"),
+    ],
+    ids=["google", "apple"],
+)
+def test_verify_reaches_the_store_without_a_linked_account(
+    client, guest_headers, store_config, monkeypatch, case
+):
+    """계정을 연결하지 않은 게스트의 구독 검증도 구매 식별자를 스토어로 보낸다.
+
+    `/privacy` 의 국외 이전 절이 Google·Apple 행에서 "계정을 연결하지 않으면 이전이
+    없다" 고 적으면 이 호출 때문에 거짓이 된다(D-16-1). 고지 쪽은
+    `tests/test_legal_pages.py` 가 보고, 여기서는 **고지가 설명해야 하는 실제 호출**을
+    기록으로 고정한다. 외부 경계(스토어 래퍼)만 바꿔 끼우고 뷰·서비스는 실제 코드다.
+    """
+    store, receipt, fixture = case
+    sent = []
+
+    def record(argument):
+        sent.append(argument)
+        return load(fixture) if store == "google" else _apple_subscription(fixture)
+
+    monkeypatch.setattr(
+        play if store == "google" else app_store, "fetch_subscription", record
+    )
+
+    response = post_verify(client, guest_headers, store, receipt)
+
+    assert response.status_code == 200
+    # 연결된 계정이 하나도 없는데 구매 식별자가 스토어로 나갔다.
+    assert db.session.query(Account).count() == 0
+    assert sent == [receipt]
+
+
+def _apple_subscription(fixture: str) -> app_store.AppleSubscription:
+    item = load(fixture)
+    transaction = item["signedTransactionInfo"]
+    return app_store.AppleSubscription(
+        store_key=transaction["originalTransactionId"],
+        product_id=transaction["productId"],
+        bundle_id=transaction["bundleId"],
+        environment=SubscriptionEnvironment(transaction.get("environment", "Production")),
+        raw_status=item["status"],
+        transaction=transaction,
+        renewal_info=item["signedRenewalInfo"],
+    )

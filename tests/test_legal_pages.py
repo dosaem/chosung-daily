@@ -411,3 +411,64 @@ def test_business_info_values_are_not_hardcoded():
         "LEGAL_PRIVACY_OFFICER",
     ]:
         assert f'{name} = os.environ.get("{name}", "")' in config_py
+
+
+# --- 수정 라운드 1 · D-16-1: 스토어 행의 거부 방법이 실제 호출과 맞는다 -----
+#
+# 구독 검증은 계정 연결과 무관하게 스토어로 나간다
+# (`tests/test_subscription_verify.py::test_verify_reaches_the_store_without_a_linked_account`).
+# 그래서 Google·Apple 행의 "거부 방법·효과" 는 로그인과 구독 검증을 갈라서 적어야 하고,
+# "계정을 연결하지 않으면 이전이 없다" 로 뭉쳐 쓰면 안 된다.
+
+STORE_ROW_PREFIXES = ["Google (", "Apple ("]
+
+# 각 행이 갈라서 적어야 하는 것: 거부 수단의 범위(로그인) / 구독 검증은 별개 / 계정
+# 연결과 무관하게 전송된다는 사실 / 그 전송을 거부하는 유일한 방법.
+STORE_ROW_PHRASES = {
+    "ko": ["로그인", "구독 검증", "계정을 연결하지 않아도", "구독을 구매하지 않"],
+    "en": [
+        "sign-in",
+        "subscription verification",
+        "even without a linked account",
+        "do not buy the subscription",
+    ],
+}
+
+
+def _overseas_rows(client, lang: str) -> dict[str, str]:
+    """국외 이전 절의 `<dt>받는 자</dt><dd>…</dd>` 를 받는 자별로 떼어낸다."""
+    section = _international_transfer_section(client, lang)
+    rows = re.findall(r"<dt>(.+?)</dt>\s*<dd>(.+?)</dd>", section, re.DOTALL)
+    assert rows, "국외 이전 절에 받는 자 행이 없다"
+    return {term.strip(): body for term, body in rows}
+
+
+def _store_row(client, lang: str, prefix: str) -> str:
+    rows = _overseas_rows(client, lang)
+    matched = [body for term, body in rows.items() if term.startswith(prefix)]
+    assert len(matched) == 1, f"{prefix!r} 행을 하나만 찾아야 한다: {sorted(rows)}"
+    return matched[0]
+
+
+@pytest.mark.parametrize("prefix", STORE_ROW_PREFIXES)
+@pytest.mark.parametrize("lang", ["ko", "en"])
+def test_store_rows_separate_sign_in_from_subscription_verification(client, lang, prefix):
+    row = _store_row(client, lang, prefix).lower()
+
+    for phrase in STORE_ROW_PHRASES[lang]:
+        assert phrase.lower() in row, f"{prefix} {lang} 행에 없는 문구: {phrase}"
+
+
+@pytest.mark.parametrize("prefix", STORE_ROW_PREFIXES)
+@pytest.mark.parametrize("lang", ["ko", "en"])
+def test_store_rows_do_not_claim_unlinking_stops_every_transfer(client, lang, prefix):
+    """거부 수단을 범위 없이 단정하는 옛 문구가 돌아오는 것을 막는다."""
+    row = _store_row(client, lang, prefix)
+    refusal = row[row.index("거부 방법" if lang == "ko" else "How to refuse") :]
+
+    # 거부 효과를 적은 문장이 "로그인" / "sign-in" 범위를 먼저 밝혀야 한다.
+    scope = "로그인" if lang == "ko" else "Sign-in"
+    no_transfer = "이전이 없" if lang == "ko" else "there is no transfer"
+    assert refusal.index(scope) < refusal.index(no_transfer), (
+        f"{prefix} {lang}: 범위를 밝히지 않은 '이전이 없다' 단정"
+    )

@@ -13,6 +13,7 @@ import re
 from pathlib import Path
 
 import pytest
+from gunicorn.config import Config as GunicornConfig
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CHECKLIST_PATH = REPO_ROOT / "docs" / "legal-checklist.md"
@@ -284,3 +285,78 @@ def test_repo_has_no_business_registration_number():
                 offenders.append((path.relative_to(REPO_ROOT).as_posix(), found))
 
     assert not offenders, f"사업자등록번호 패턴이 들어 있다: {offenders}"
+
+
+# --- 수정 라운드 1 · D-16-2: 백업 보호 조치가 실제 백업 방식과 같다 ---------
+
+
+def test_the_backup_script_only_compresses_the_dump():
+    """재현 고정: 백업은 gzip 압축만 한다 — 암호화 단계가 없다.
+
+    방침이 "암호화된 덤프" 를 보장하면 이 스크립트 때문에 거짓이 된다(D-16-2).
+    암호화를 **구현하라는** 테스트가 아니라, 고지가 따라가야 하는 현행 방식을 못 박는다.
+    """
+    script = (REPO_ROOT / "scripts" / "backup.sh").read_text(encoding="utf-8")
+
+    assert "| gzip -c" in script
+    assert not re.search(r"\b(openssl|gpg|age)\b|--encrypt", script)
+
+
+BACKUP_WORDING = {
+    "ko": {"required": ["압축된 덤프", "암호화하지는 않"], "forbidden": ["암호화된 덤프"]},
+    "en": {
+        "required": ["compressed dump", "are not encrypted"],
+        "forbidden": ["encrypted dump"],
+    },
+}
+
+
+@pytest.mark.parametrize("language", ["ko", "en"])
+def test_destruction_section_describes_the_real_backup_protection(client, language):
+    section = _section(_page(client, "privacy", language), "destruction").lower()
+    wording = BACKUP_WORDING[language]
+
+    for phrase in wording["required"]:
+        assert phrase.lower() in section, f"{language} 파기 절에 없는 문구: {phrase}"
+    for phrase in wording["forbidden"]:
+        assert phrase.lower() not in section, f"{language} 파기 절의 과장 문구: {phrase}"
+
+
+# --- 수정 라운드 1 · D-16-3: 서버 로그 보유 기간이 구현에 근거한다 ---------
+
+
+def test_the_production_entrypoint_has_no_access_log():
+    """재현 고정: 운영 실행 경로에 요청 접근 로그 설정이 없다(D-16-3).
+
+    Gunicorn 기본값이 "접근 로그 없음" 이고 Dockerfile·compose 가 그 기본값을
+    덮어쓰지 않는다. 그래서 방침이 "접속기록을 1년 이상 보관한다" 고 적으면 근거가 없다.
+    """
+    assert GunicornConfig().accesslog is None
+
+    for name in ("Dockerfile", "docker-compose.prod.yml"):
+        text = (REPO_ROOT / name).read_text(encoding="utf-8")
+        assert "accesslog" not in text, name
+        assert "access-logfile" not in text, name
+
+
+LOG_RETENTION_WORDING = {
+    "ko": {
+        "required": ["따로 모아 보관하지 않", "출시 전"],
+        "forbidden": ["1년 이상 보관", "법령이 정한 기간이 지나면 삭제"],
+    },
+    "en": {
+        "required": ["not collected into separate storage", "before launch"],
+        "forbidden": ["at least a year", "once the period required by law has passed"],
+    },
+}
+
+
+@pytest.mark.parametrize("language", ["ko", "en"])
+def test_privacy_does_not_promise_unimplemented_log_retention(client, language):
+    page = _page(client, "privacy", language).lower()
+    wording = LOG_RETENTION_WORDING[language]
+
+    for phrase in wording["required"]:
+        assert phrase.lower() in page, f"{language} 방침에 없는 문구: {phrase}"
+    for phrase in wording["forbidden"]:
+        assert phrase.lower() not in page, f"{language} 방침의 근거 없는 보유 약속: {phrase}"
