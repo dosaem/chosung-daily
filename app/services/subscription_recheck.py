@@ -25,6 +25,7 @@ from app.repositories.subscription_repository import (
     find_by_guest,
     find_expiring,
     find_with_repeated_failures,
+    lock_and_refresh,
 )
 from app.schemas.subscription import EntitlementResponse
 from app.services.entitlement import (
@@ -75,7 +76,17 @@ def recheck(subscription: Subscription) -> bool:
     실패하면 저장값을 그대로 두고 `recheck_failures` 만 올린다 —
     `last_verified_at` 을 올리지 않으므로 다음 호출이 바로 다시 시도한다.
     스토어 장애로 돈 낸 구독자의 광고를 켜지 않는 쪽을 택한 것이다.
+
+    **겹친 재조회**: 스토어에 묻는 동안(최대 3초) 같은 행을 다른 경로가 갱신할
+    수 있다 — `/me/stats` 두 요청, `/me/stats` 와 Beat. 조회 전에 본 값을 들고
+    있다가 쓰기 직전에 행을 잠그고 다시 읽어, 그 사이에 바뀌었으면 **우리
+    응답을 버린다**(`_superseded`). 안 그러면 먼저 출발했지만 늦게 도착한 active
+    응답이 이미 확인된 철회를 덮어 광고 제거 권한을 되살린다(스펙 §A.8 "철회가
+    확인되면 그 응답부터 권한 없음"). 잠금을 조회 앞에 걸지 않는 이유는 그러면
+    외부 호출이 끝날 때까지 행을 들고 있어서 같은 구독의 다른 요청이 전부 3초를
+    기다리게 되기 때문이다.
     """
+    observed = _row_state(subscription)
     try:
         normalized = _ask_store(subscription)
     except (StoreUnavailableError, ReceiptInvalidError, ValueError) as exc:
@@ -86,6 +97,8 @@ def recheck(subscription: Subscription) -> bool:
         logger.warning(
             "구독 %s 재조회 실패 (%s) — 저장값 유지", subscription.id, type(exc).__name__
         )
+        if _superseded(subscription, observed):
+            return False
         subscription.recheck_failures += 1
         db.session.commit()
         return False
@@ -94,8 +107,13 @@ def recheck(subscription: Subscription) -> bool:
         # Google 이 "결제가 아직 안 끝난 구매" 라고 답한 경우. 이미 행이 있는
         # 구독에는 나올 일이 없는 답이라 상태를 덮지 않고 실패로 센다.
         logger.warning("구독 %s 재조회가 결제 대기로 돌아옴 — 저장값 유지", subscription.id)
+        if _superseded(subscription, observed):
+            return False
         subscription.recheck_failures += 1
         db.session.commit()
+        return False
+
+    if _superseded(subscription, observed):
         return False
 
     subscription.status = normalized.status
@@ -125,6 +143,42 @@ def recheck_expiring_subscriptions() -> int:
 
     _alert_on_repeated_failures()
     return len(subscriptions)
+
+
+def _row_state(subscription: Subscription) -> tuple:
+    """조회 전에 우리가 보고 출발한 값 — 재조회가 쓰는 컬럼 전부다.
+
+    시각 비교(`last_verified_at` 이 우리 출발 시각보다 뒤인가)로 판정하지 않는
+    이유: MySQL `DATETIME` 은 소수점 초를 버리기 때문에 같은 초 안에서 두
+    재조회가 겹치면 비교가 뒤집힌다. "값이 하나라도 바뀌었나" 는 그 정밀도에
+    기대지 않는다.
+    """
+    return (
+        subscription.status,
+        subscription.expires_at,
+        subscription.grace_expires_at,
+        subscription.last_verified_at,
+        subscription.recheck_failures,
+    )
+
+
+def _superseded(subscription: Subscription, observed: tuple) -> bool:
+    """조회하는 동안 다른 경로가 이 행을 갱신했나. 행을 잠근 채로 확인한다.
+
+    True 면 우리 응답은 이미 지나간 것이라 쓰지 않는다. 호출부가 아무것도 적지
+    않아도 커밋은 해야 한다 — 잠금과 트랜잭션을 그 자리에서 놓고, `subscription`
+    은 이미 최신 값으로 채워져 있어서 호출부(`entitlement_for`)의 권한 판정이
+    최신 상태를 본다.
+    """
+    lock_and_refresh(subscription)
+    if _row_state(subscription) == observed:
+        return False
+
+    logger.info(
+        "구독 %s 재조회 응답이 더 최신 갱신에 밀렸다 — 저장값 유지", subscription.id
+    )
+    db.session.commit()
+    return True
 
 
 def _ask_store(subscription: Subscription) -> NormalizedSubscription:

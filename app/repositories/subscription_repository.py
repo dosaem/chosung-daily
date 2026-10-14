@@ -35,6 +35,20 @@ def find_expiring(
     )
 
 
+def lock_and_refresh(subscription: Subscription) -> Subscription:
+    """구독 행을 SELECT ... FOR UPDATE 로 다시 읽어 최신 커밋 값으로 채운다.
+
+    스토어 조회처럼 **잠금을 들고 있을 수 없는 구간**(최대 3초 외부 호출) 뒤에
+    쓰기 직전에 부른다: 잠금을 받은 뒤 읽으므로 그 사이에 다른 요청·Beat 가
+    커밋한 값이 보이고(InnoDB 의 잠금 읽기는 REPEATABLE READ 스냅샷이 아니라
+    최신 커밋을 본다), 그 값과 비교해서 오래된 응답을 버릴 수 있다. 잠금은
+    호출한 쪽이 커밋할 때 풀린다(`guest_stats_repository.lock_for_guest` 와 같은
+    규칙).
+    """
+    db.session.refresh(subscription, with_for_update=True)
+    return subscription
+
+
 def find_with_repeated_failures(at_least: int) -> list[Subscription]:
     return (
         db.session.query(Subscription)

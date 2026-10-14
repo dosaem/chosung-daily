@@ -101,28 +101,32 @@ def make_subscription(app, guest):
     return _make
 
 
+def apple_response(fixture: str, store_key: str, environment) -> app_store.AppleSubscription:
+    """응답 모양 fixture 하나를 래퍼가 돌려주는 값으로 옮긴다."""
+    item = load(fixture)
+    transaction = item["signedTransactionInfo"]
+    return app_store.AppleSubscription(
+        store_key=store_key,
+        product_id=transaction["productId"],
+        bundle_id=transaction["bundleId"],
+        environment=environment,
+        raw_status=item["status"],
+        transaction=transaction,
+        renewal_info=item["signedRenewalInfo"],
+    )
+
+
 @pytest.fixture
 def apple_store(monkeypatch, store_config):
     """Apple 상태 조회를 fixture 로 바꿔 끼우고 호출 횟수를 기록한다."""
     calls = []
 
     def use(fixture: str = "apple_active.json", *, error: Exception | None = None):
-        item = load(fixture)
-        transaction = item["signedTransactionInfo"]
-
         def fetch(store_key, environment):
             calls.append((store_key, environment))
             if error is not None:
                 raise error
-            return app_store.AppleSubscription(
-                store_key=store_key,
-                product_id=transaction["productId"],
-                bundle_id=transaction["bundleId"],
-                environment=environment,
-                raw_status=item["status"],
-                transaction=transaction,
-                renewal_info=item["signedRenewalInfo"],
-            )
+            return apple_response(fixture, store_key, environment)
 
         monkeypatch.setattr(app_store, "fetch_subscription_status", fetch)
         return calls
@@ -538,3 +542,87 @@ def test_resending_the_receipt_two_days_after_expiry_takes_effect_at_once(
 
     assert entitlement.active is True
     assert len(db.session.query(Subscription).all()) == 1
+
+
+# --- 겹친 재조회 (수정 라운드 1, D-13-1) ---------------------------------
+
+
+def _recheck_in_another_session(app, subscription_id: int) -> SubscriptionStatus:
+    """독립 app context(= 독립 DB 세션)로 같은 구독의 재조회를 끝까지 돌린다.
+
+    Flask-SQLAlchemy 의 세션은 app context 에 묶여 있어서, context 를 새로 열면
+    실제 두 번째 요청처럼 별도 커넥션·트랜잭션이 된다 — 같은 세션으로 흉내 내면
+    identity map 이 행을 공유해서 겹침 자체가 사라진다.
+    """
+    with app.app_context():
+        row = db.session.get(Subscription, subscription_id)
+        assert subscription_recheck.recheck(row) is True
+        status = row.status
+        db.session.remove()
+    return status
+
+
+def test_a_delayed_store_response_does_not_revive_a_confirmed_revocation(
+    app, guest, make_subscription, monkeypatch, store_config
+):
+    """두 재조회가 겹칠 때, 먼저 출발했지만 늦게 도착한 응답으로 이미 확인된
+    철회를 덮으면 안 된다 — 스펙 §A.8 "철회가 확인되면 그 응답부터 권한 없음".
+
+    겹치는 조합은 `/me/stats` 두 개, `/me/stats` 와 Beat, Beat 안의 두 행 모두다
+    (셋 다 `recheck` 하나를 지난다). A 가 스토어에 묻는 동안 B 가 철회를
+    확인·저장했으면 A 의 오래된 active 응답은 버린다. 안 그러면 환불한 구독의
+    광고 제거 권한이 되살아나고, A 가 `last_verified_at` 까지 올려서 다음
+    TTL(1시간)까지 그 상태로 남는다.
+    """
+    subscription = make_subscription(
+        status=SubscriptionStatus.HOLD,
+        expires_in=timedelta(days=2),
+        verified_ago=timedelta(hours=2),
+    )
+    asked = []
+
+    def fetch(store_key, environment):
+        if asked:  # B 의 조회 — 철회를 보고 저장한다.
+            return apple_response("apple_revoked.json", store_key, environment)
+        # A 의 스토어 경계 안 = 아직 응답을 못 받은 구간. 여기서 B 가 끝난다.
+        asked.append(True)
+        assert _recheck_in_another_session(app, subscription.id) is SubscriptionStatus.REVOKED
+        return apple_response("apple_active.json", store_key, environment)
+
+    monkeypatch.setattr(app_store, "fetch_subscription_status", fetch)
+
+    entitlement = subscription_recheck.entitlement_for(guest)
+
+    assert entitlement.active is False
+    assert entitlement.status is SubscriptionStatus.REVOKED
+    assert reload(subscription).status is SubscriptionStatus.REVOKED
+
+
+def test_a_delayed_failure_does_not_count_against_a_fresh_success(
+    app, guest, make_subscription, monkeypatch, store_config
+):
+    """실패 쪽도 같다. A 의 조회가 실패로 돌아왔을 때 B 가 그 사이에 성공해
+    카운터를 0으로 돌려놨으면, A 의 실패는 그 행에 적지 않는다 — 이미 지나간
+    조회의 실패로 운영자 알림 임계를 채우게 된다."""
+    subscription = make_subscription(
+        status=SubscriptionStatus.HOLD,
+        expires_in=timedelta(days=2),
+        verified_ago=timedelta(hours=2),
+        recheck_failures=FAILURE_ALERT_THRESHOLD - 1,
+    )
+    asked = []
+
+    def fetch(store_key, environment):
+        if asked:  # B 의 조회 — 성공해서 카운터를 0 으로 돌린다.
+            return apple_response("apple_revoked.json", store_key, environment)
+        asked.append(True)
+        assert _recheck_in_another_session(app, subscription.id) is SubscriptionStatus.REVOKED
+        raise StoreUnavailableError
+
+    monkeypatch.setattr(app_store, "fetch_subscription_status", fetch)
+
+    subscription_recheck.entitlement_for(guest)
+
+    row = reload(subscription)
+    assert row.recheck_failures == 0
+    assert row.status is SubscriptionStatus.REVOKED

@@ -85,7 +85,7 @@ web/                  # Jinja 템플릿 1장 + vanilla JS
 | POST | `/api/v1/puzzles/today/guesses` | 정답 제출 (`{puzzle_id, guess}`) → 판정/피드백/남은시도/(종료 시)정답, 퍼즐 불일치 409 `PUZZLE_CHANGED` | Bearer |
 | GET | `/api/v1/puzzles/today/stats?language=` | 시도 횟수별 정답자 비율 (언어별, 기본 게스트 선호) | Bearer |
 | GET | `/api/v1/puzzles/today/leaderboard?language=&limit=20` | 랭킹(적은 시도 우선, 같으면 빨리 푼 순, 언어별) → `entries [{rank, display, attempts, seconds, is_me}]` + `me {rank, attempts, seconds} \| null`(21위 밖이어도 내 순위) | Bearer |
-| GET | `/api/v1/me/stats` | 내 퍼즐 언어 · streak · 최대streak · 누적 정답 · `entitlement {active, until, status, source, next_check_at}`(1h TTL 지나면 스토어 재조회, 만료 ±24h 는 5분) | Bearer |
+| GET | `/api/v1/me/stats` | 내 퍼즐 언어 · streak · 최대streak · 누적 정답 | Bearer |
 | GET | `/api/v1/me/history?days=7` | 최근 N일(KST, 상한 31) 퍼즐 언어별 결과 → `[{date, results: {ko, en}}]`, 각 값 `success\|fail\|in_progress\|none` | Bearer |
 | POST | `/api/v1/session/sync` | 이 브라우저=이 게스트를 세션 쿠키에 동기화 (로그인 전 필수) | Bearer |
 | GET | `/api/v1/auth/<provider>/login` | 구글/애플 로그인 시작 (리다이렉트) | 세션 쿠키 |
@@ -104,6 +104,7 @@ web/                  # Jinja 템플릿 1장 + vanilla JS
 | DELETE | `/api/v1/me` | 계정·기록 전체 삭제(한 커밋) → 204, 애플 계정이면 애플 연결도 철회 | Bearer |
 | GET | `/account/delete` | 계정 삭제 확인 페이지 (Jinja, ko/en) — 세션 없으면 안내 + 운영자 메일. Play Data safety 삭제 URL | 세션 쿠키(선택) |
 | POST | `/account/delete` | 확인 폼 제출 → 삭제 후 `/?deleted=1` 리다이렉트, 세션 없음 401 / CSRF 불일치 403 `FORBIDDEN` | 세션 쿠키 + CSRF |
+| GET | `/api/v1/me/stats` | (티켓 13) 위 응답에 `entitlement {active, until, status, source, next_check_at}` 추가 — `active\|grace\|hold` 구독은 `last_verified_at + 1h`(만료 ±24h 안은 5분) 가 지났으면 스토어 재조회 후 응답, `next_check_at = last_verified_at + 1h` | Bearer |
 
 에러 응답은 전부 `{code, message}` + 적절한 HTTP status로 통일 (아래 "에러 응답" 참고).
 
@@ -1367,6 +1368,14 @@ Split View 최소 폭 약 320 은 compact 로 떨어뜨린다). 각 화면의 2�
   **한 건의 Slack 알림으로 묶어** 보낸다(구독마다 보내면 설정이 틀어진 날 같은
   메시지로 채널이 덮인다). 알림에 `store_key` 는 넣지 않는다 — 결제 식별자를
   알림 채널로 복제하는 셈이라, 운영자는 행 ID 로 DB 에서 찾는다.
+- **겹친 재조회는 나중에 적힌 쪽이 이긴다.** 같은 구독을 두 요청이, 또는
+  요청과 Beat 가 동시에 재조회할 수 있다. 스토어 조회는 최대 3초라 그 구간을
+  행 잠금으로 묶으면 같은 구독의 다른 요청이 전부 기다리게 되므로, 잠그지 않고
+  묻고 **쓰기 직전에 행을 `FOR UPDATE` 로 다시 읽어** 조회 전에 본 값과
+  비교한다. 그 사이에 바뀌었으면 우리 응답을 버린다(`last_verified_at` 도 올리지
+  않는다). 안 그러면 먼저 출발했지만 늦게 도착한 `active` 응답이 이미 확인된
+  철회를 덮어서, 환불한 구독의 광고 제거 권한이 다음 TTL 까지 되살아난다(스펙
+  §A.8 "철회가 확인되면 그 응답부터 권한 없음").
 - **재조회는 영수증 없이 돈다.** 구매 때 영수증으로 주인을 확인해 `store_key` 를
   받아 적었으니(§12) 다시 확인할 게 없고, Beat 는 앱이 들고 있는 JWS 를 아예 못
   본다. 그래서 Apple 쪽에 `fetch_subscription_status(store_key, environment)` 를
