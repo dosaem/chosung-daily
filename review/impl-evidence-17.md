@@ -697,3 +697,196 @@ Redis DB 5 만 썼다.
 - node 대역은 **응답 도착 순서**를 만들 뿐 실제 브라우저·네트워크가 아니다. 실제
   Slow 3G 에서의 연타는 README "웹 수동 체크리스트" 9번이 계속 담당한다.
 - 미수정 MINOR 없음(리뷰 MINOR 0건).
+
+---
+
+## 수정 라운드 3
+
+`review/impl-review-17.md` "라운드 3" 의 활성 결함 1건(BLOCKER 0 / MAJOR 1 / MINOR 0,
+D-17-4)을 고쳤다. 리뷰어 말이 맞았다 — 리뷰의 독립 재현 명령을 그대로 돌려 리뷰에
+적힌 출력과 **똑같은** 결과를 받고 시작했다(아래 "수정 전"). 미수정 MINOR 는 없다
+(리뷰 MINOR 0건). 리뷰 파일은 수정하지 않았다.
+
+- 기준점: 로컬 `main` = `b8f63cc`("Merge 티켓 24"). 작업 뒤 그 위로 rebase 했다
+  (13 커밋, 충돌 없음). `origin/main` 은 쓰지 않았고 `git push` 도 하지 않았다.
+- 전용 테스트 자원 그대로: `TEST_DATABASE_URL=...chosung_daily_test_t17`,
+  `TEST_REDIS_URL=redis://127.0.0.1:6379/5`. 공용 테스트 DB·Redis DB 1 은 건드리지
+  않았다. 접속 URL 의 자격 증명은 적지 않는다.
+- 마이그레이션 없음(스키마 변경 없음). 서버 코드 변경 없음 — `web/static/app.js`
+  한 파일과 테스트·README 뿐이다.
+
+### D-17-4 — 응답 본문 대기 중 전환하면 이전 조회가 새 퍼즐·순위·통계를 덮어쓴다
+
+#### 원인 — 세대를 **너무 이른 경계**에서 봤다
+
+라운드 2 가 세운 "비동기 요청은 전부 세대 하나로 거른다" 는 맞는 설계였는데, **그
+검사를 거는 지점**이 틀렸다. `await fetch()` 가 끝난 시점은 **헤더까지**고, 본문
+읽기(`await res.json()`)는 또 하나의 비동기 경계다. 라운드 2 의 코드는 그 사이에서
+세대를 봤다:
+
+```js
+const res = await fetch(url, …);   // ← 헤더 도착
+if (isStale()) return;             // ← 여기서는 아직 최신일 수 있다
+…
+renderLeaderboard(await res.json()); // ← 본문을 기다리는 동안 전환되면 검사는 무효
+```
+
+본문을 기다리는 사이에 언어 칩·409 재조회가 `discardLocalPlayState()` 로 세대를
+올려도, 이미 통과한 `isStale()` 은 다시 묻지 않는다. 그래서 본문이 다 오면 **검사
+없이** 화면에 반영됐다. 제출(`POST .../guesses`)과 `/me/stats` 는 우연히 본문을 먼저
+읽고 검사해서 이 경로에 해당하지 않았다 — 즉 "어느 경계에서 보는가" 가 호출 지점마다
+제각각이었던 것이 진짜 원인이다.
+
+#### 수정 — fetch + 본문 읽기를 한 곳에 묶고, 쓰기 직전에 한 번만 본다
+
+`web/static/app.js` 에 `fetchJson()` 하나를 두고, **본문을 다 읽은 뒤**에 세대를
+확인해 돌려준다. 부른 쪽은 `stale` 만 보면 되니 경계를 다시 틀릴 자리가 없다.
+
+```js
+async function fetchJson(url, options) {
+  const isStale = sinceGeneration();
+  const res = await fetch(url, options);
+  const body = await res.json().catch(() => null);
+  return { stale: isStale(), ok: res.ok && body !== null, body: body ?? {} };
+}
+```
+
+여섯 요청이 전부 이 경로를 쓴다: `GET /puzzles/today`, `PATCH /me`, `GET /me/stats`,
+`GET /puzzles/today/leaderboard`, `GET /puzzles/today/stats`,
+`POST /puzzles/today/guesses`. (`POST /guests`·`POST /session/sync`·백업 코드 검증은
+퍼즐 상태를 쓰지 않거나 페이지를 통째로 새로 고치는 경로라 세대와 무관하다.)
+
+유지한 예외 하나: `loadStats` 의 연속 기록·연결 계정은 퍼즐이 아니라 **게스트**의
+것이라 전환과 무관하게 최신이다 — 전처럼 폐기 여부와 상관없이 갱신하고, 세대로
+거르는 건 칩(`puzzle_language`)뿐이다(D-17-3 의 기준 그대로). 이 구분이 깨지지 않게
+테스트로 고정했다.
+
+곁다리로 생긴 동작 변화 하나: 본문을 한 곳에서 읽게 되면서 200 인데 JSON 이 아닌
+본문(프록시가 끼워넣은 HTML 등)이 **던지지 않고** 불러오기 실패 안내로 눕는다.
+수정 전에는 `SyntaxError` 가 그대로 올라왔다(아래 출력). 이것도 테스트로 고정했다.
+
+#### 증명 — 수정 전(빨강)
+
+리뷰의 독립 재현 명령(`review/impl-review-17.md` "D-17-4 독립 재현 명령")을 그대로
+실행한 결과. 리뷰에 적힌 출력과 같다:
+
+```text
+today {"id":1,"language":"ko"}  empty
+leaderboard {"id":2,"language":"en"} #1old-ko-player empty
+stats {"id":2,"language":"en"}  1:1002:03:04:05:0
+```
+
+같은 순서를 회귀 테스트로 옮겨 수정 전 번들(`HEAD~1`)에 돌린 결과 — 여섯 요청 중
+넷이 빨강이었다:
+
+```text
+late_today_body    {"puzzleId": 1, "puzzleLanguage": "ko", …}            # 기대 2/en
+late_patch_body    {…, "refetchesAfterReload": 1}                        # 기대 0
+late_submit_body   {"puzzleId": 2, "attempts": [], "attemptsLeft": 5}    # 이미 초록
+late_stats_body    {"chips": {"ko":"false","en":"true"}, "streak": "🔥 연속 3일 …"}  # 이미 초록
+```
+
+```text
+# 200 + 비 JSON 본문 (새 시나리오 H) — 수정 전에는 그대로 던졌다
+SyntaxError: Unexpected token '<', "<html>502</html>" is not valid JSON
+    at async reloadPuzzle (app.js:393:18)
+```
+
+pytest 로는 5건 실패였다:
+
+```text
+FAILED tests/test_web_js.py::test_a_today_body_that_arrives_after_a_switch_does_not_replace_the_new_puzzle
+FAILED tests/test_web_js.py::test_the_same_holds_in_the_other_direction
+FAILED tests/test_web_js.py::test_a_leaderboard_body_that_arrives_after_a_switch_is_discarded
+FAILED tests/test_web_js.py::test_a_today_stats_body_that_arrives_after_a_switch_is_discarded
+FAILED tests/test_web_js.py::test_a_language_patch_body_that_arrives_after_a_refetch_is_dropped
+5 failed, 15 passed in 0.22s
+```
+
+#### 증명 — 수정 후(초록)
+
+리뷰의 같은 재현 명령. 세 경로 모두 마지막 선택(en, ID 2)을 유지하고 늦게 온 ko
+본문을 버린다:
+
+```text
+today {"id":2,"language":"en"} "" "empty"
+leaderboard {"id":2,"language":"en"} "" "empty"
+stats {"id":2,"language":"en"} "" "empty"
+```
+
+```text
+$ uv run pytest tests/test_web_js.py tests/test_ui_strings.py -q
+31 passed in 0.24s                      # exit 0
+```
+
+#### 추가한 재현 테스트
+
+`tests/js/stale_response_body.mjs` + `tests/test_web_js.py` 의 8건. 기존
+`stale_state_generation.mjs` 는 **fetch Promise 자체**를 붙잡아서 "헤더는 왔는데 본문은
+아직" 인 창을 못 만든다(리뷰 지적 그대로다). 그래서 대역을 더 짜지 않고 node 의 실제
+`Response` + `ReadableStream` 으로 **본문 도착만** 늦췄다(`harness.mjs` 의
+`heldBodyResponse`).
+
+| 시나리오 | 보류시킨 본문 | 기대 |
+|---|---|---|
+| A `late_today_body` | ko `GET today` | 마지막 선택 en(ID 2) 유지 |
+| B `late_today_body_reverse` | en `GET today` | 반대 방향도 같다 — ko(ID 1) 유지 |
+| C `late_leaderboard_body` | ko 순위 | 전 언어 순위·내 순위가 안 뜬다 |
+| D `late_today_stats_body` | ko 오늘 통계 | 전 언어 분포가 안 뜬다 |
+| E `late_patch_body` | `PATCH /me` | 409 재조회 뒤 그 전환은 접는다(재조회 0회) |
+| F `late_stats_body` | `GET /me/stats` | 칩은 안 따라가고, 게스트의 연속 기록은 갱신 |
+| I `late_submit_body` | 제출 | 새 보드에 이전 퍼즐의 시도가 안 생긴다 |
+| G `fresh_leaderboard_body` | (대조군) 전환 없음 | 늦게 온 본문도 평소처럼 반영 |
+| H `unparsable_body` | 200 + HTML | 던지지 않고 불러오기 실패 안내 |
+
+코디네이터 지시대로 **여섯 요청 전부** "본문 수신 중 전환" 으로 고정했다 — 수정 전
+초록이던 제출(I)·`/me/stats`(F) 도 같은 기준이 유지되는지 보게 포함했다.
+
+### 리뷰어 지적 중 틀렸다고 본 것
+
+없다. 리뷰의 재현 명령을 그대로 돌려 리뷰에 적힌 출력과 같은 결과를 받았고, 지적한
+네 위치(`:140/:146`→`:396`, `:218`→`:224`, `:515`→`:521`, `:563`→`:566`)가 전부 같은
+원인이었다. "제출과 `/me/stats` 는 본문을 읽은 뒤 검사하므로 대상이 아니다" 는 단서도
+실제 실행으로 확인했다(위 수정 전 출력의 I·F).
+
+### 검증 출력
+
+로컬 `main`(`b8f63cc`, "Merge 티켓 24") 위로 rebase 한 뒤 전부 다시 돌렸다.
+
+```text
+$ git rebase main                      # main = b8f63cc "Merge 티켓 24", 13 커밋
+Successfully rebased and updated refs/heads/dosaem/t17-web-play-flow-i18n.
+
+$ uv run pytest -q
+797 passed in 641.75s (0:10:41)        # exit 0
+                                        # 788 → 797 중 9건이 이번 라운드가 더한
+                                        # JS 실행 테스트(새 결함 5 + 제출·게스트
+                                        # 요약·대조군·파싱 실패 4)다.
+
+$ uv run pytest tests/test_web_js.py tests/test_ui_strings.py -q
+31 passed in 0.24s                      # exit 0 (node 설치돼 있어 skip 없음)
+
+$ uv run ruff check .
+All checks passed!                      # exit 0
+
+$ uv run flask db heads
+dae1b5af0cf7 (head)                     # 1줄, exit 0 (17 은 마이그레이션 없음)
+
+$ git diff --check main...HEAD
+                                        # 출력 없음, exit 0
+```
+
+`git status` 는 clean 이고 브랜치는 로컬 `main`(`b8f63cc`) 바로 위에 있다.
+`origin/main` 은 쓰지 않았고 `git push` 도 하지 않았다.
+
+### 남은 것 / 이 라운드가 못 한 것
+
+- **브라우저 재확인은 안 했다.** 수정은 `web/static/app.js` 의 비동기 경계뿐이고
+  CSS·마크업·DOM 구조를 건드리지 않아서 `impeccable detect` 를 다시 돌리지 않았다
+  (라이트 0건 주장은 그대로다). 다크 OS 중간 상태도 그대로 티켓 18 범위다(§6).
+- node 대역은 **응답 도착 순서**(이번엔 본문 도착 시점까지)를 만들 뿐 실제 브라우저·
+  네트워크가 아니다. 실제 Slow 3G 에서의 연타는 README "웹 수동 체크리스트" 9번이
+  계속 담당한다.
+- 200 + 비 JSON 본문은 실제로 겪은 사례가 아니라 수정 과정에서 드러난 경로다 —
+  테스트로만 고정했고 수동 체크리스트에는 넣지 않았다.
+- 미수정 MINOR 없음(리뷰 MINOR 0건).
