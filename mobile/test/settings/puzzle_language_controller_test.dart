@@ -7,6 +7,7 @@ import 'package:chosung/config/provider_retry.dart';
 import 'package:chosung/guest/guest_token_provider.dart';
 import 'package:chosung/guest/guest_token_store.dart';
 import 'package:chosung/puzzle/today_puzzle_controller.dart';
+import 'package:chosung/puzzle/today_puzzle_state.dart';
 import 'package:chosung/ranking/leaderboard_controller.dart';
 import 'package:chosung/settings/puzzle_language_controller.dart';
 import 'package:chosung/startup/startup_controller.dart';
@@ -71,6 +72,32 @@ void main() {
     await container.read(leaderboardProvider.future);
     expect(api.fetchTodayPuzzleCalls, 2);
     expect(api.fetchTodayLeaderboardLimits.length, 2);
+  });
+
+  test('언어를 바꾸면 옛 언어 보드는 새 보드가 오기 전에 사라진다', () async {
+    // 다른 언어의 퍼즐은 "보던 걸 바꿔 끼우는 것" 이 아니라 다른 보드다 —
+    // 무효화만으로는 다시 읽는 동안 옛 보드가 값으로 남는다(스펙 §A.2,
+    // 계정 경계의 D-29-5 와 같은 이유).
+    final api = FakeApiClient();
+    final container = _container(api);
+    expect(
+      await container.read(todayPuzzleProvider.future),
+      isA<TodayPuzzleReady>(),
+    );
+
+    final gate = Completer<void>();
+    api.fetchTodayPuzzleGate = gate;
+    addTearDown(() {
+      if (!gate.isCompleted) gate.complete();
+    });
+
+    await container
+        .read(puzzleLanguageProvider.notifier)
+        .change(
+          PuzzleLanguage.en,
+        );
+
+    expect(container.read(todayPuzzleProvider).value, isNull);
   });
 
   test('같은 언어를 다시 고르면 서버를 부르지 않는다', () async {

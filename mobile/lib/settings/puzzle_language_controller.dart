@@ -80,10 +80,11 @@ class PuzzleLanguageNotifier extends Notifier<PuzzleLanguageSetting> {
       if (!_canCommit(generation)) return false;
       state = PuzzleLanguageSetting(language: applied);
       // 오늘 퍼즐도 리더보드도 언어마다 다른 데이터다. 보던 걸 바꿔 끼우는 게
-      // 아니라 다른 퍼즐을 처음부터 읽는 것이라 스켈레톤부터 다시 간다.
-      ref
-        ..invalidate(todayPuzzleProvider)
-        ..invalidate(leaderboardProvider);
+      // 아니라 다른 퍼즐을 처음부터 읽는 것이라 스켈레톤부터 다시 간다 —
+      // 무효화는 다시 읽는 동안 옛 언어 보드를 값으로 남겨 두므로(계정 경계와
+      // 같은 이유, D-29-5) 보드는 `discard` 로 비운다(스펙 §A.2).
+      discardTodayPuzzle(ref);
+      ref.invalidate(leaderboardProvider);
       return true;
     } on ApiException {
       if (_canCommit(generation)) {

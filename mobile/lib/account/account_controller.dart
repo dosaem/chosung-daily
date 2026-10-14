@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:chosung/account/social_sign_in.dart';
 import 'package:chosung/api/api_client.dart';
 import 'package:chosung/api/api_exception.dart';
@@ -157,11 +155,7 @@ class AccountNotifier extends Notifier<AccountState> {
     // 보드를 값으로 남겨 두고(`copyWithPrevious`), 그 보드에서 누른 제출이 새
     // 계정의 시도를 소비한다(D-29-5, `TodayPuzzleNotifier.discard`). 순위는
     // 계정이 아니라 오늘·언어로 갈리는 공용 데이터라 무효화로 충분하다.
-    // 홈을 아직 아무도 읽지 않았으면 버릴 보드도 없다 — 거기서 `read` 로
-    // 억지로 만들면 보는 사람 없는 조회가 한 번 더 나간다(무효화와 같은 규칙).
-    if (ref.exists(todayPuzzleProvider)) {
-      unawaited(ref.read(todayPuzzleProvider.notifier).discard());
-    }
+    discardTodayPuzzle(ref);
     ref
       ..invalidate(historyProvider)
       ..invalidate(leaderboardProvider);

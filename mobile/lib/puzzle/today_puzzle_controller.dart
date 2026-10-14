@@ -249,6 +249,15 @@ class TodayPuzzleNotifier extends AsyncNotifier<TodayState?> {
   }
 }
 
+/// 계정·언어 경계에서 보던 보드를 버린다([TodayPuzzleNotifier.discard]).
+///
+/// 홈을 아직 아무도 읽지 않았으면 버릴 보드도 없다 — 거기서 `read` 로 억지로
+/// 만들면 보는 사람 없는 조회가 한 번 더 나간다(`ref.invalidate` 와 같은 규칙).
+void discardTodayPuzzle(Ref ref) {
+  if (!ref.exists(todayPuzzleProvider)) return;
+  unawaited(ref.read(todayPuzzleProvider.notifier).discard());
+}
+
 final todayPuzzleProvider =
     AsyncNotifierProvider<TodayPuzzleNotifier, TodayState?>(
       TodayPuzzleNotifier.new,
