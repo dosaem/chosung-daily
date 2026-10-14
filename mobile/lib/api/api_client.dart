@@ -27,9 +27,14 @@ abstract interface class ApiClient {
     required String guess,
   });
 
-  /// `GET /puzzles/today/stats` → 오늘 퍼즐의 시도별 정답자 비율. 결과
-  /// 시트(S2)가 쓴다. 그 언어의 퍼즐이 아직 없으면 [NoPuzzleTodayApiException].
-  Future<TodayStats> fetchTodayStats();
+  /// `GET /puzzles/today/stats?language=` → 그 언어 오늘 퍼즐의 시도별 정답자
+  /// 비율. 결과 시트(S2)가 쓴다. 그 언어의 퍼즐이 아직 없으면
+  /// [NoPuzzleTodayApiException].
+  ///
+  /// [language] 는 필수다 — 생략하면 서버가 **요청 시점의 게스트 선호 언어**로
+  /// 집계를 고르므로, 다른 기기에서 언어를 바꾸면 내가 푼 퍼즐과 다른 언어의
+  /// 분포가 온다(스펙 §A' `GET /puzzles/today/stats?language=`).
+  Future<TodayStats> fetchTodayStats({required PuzzleLanguage language});
 
   /// `PATCH /me` → 바뀐 퍼즐 언어. 설정 화면(티켓 29·30)이 쓴다.
   Future<PuzzleLanguage> updatePuzzleLanguage(PuzzleLanguage puzzleLanguage);

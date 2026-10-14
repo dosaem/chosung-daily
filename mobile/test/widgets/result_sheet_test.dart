@@ -23,15 +23,17 @@ import '../fakes/fake_api_client.dart';
 import '../layout/adaptive_scaffold_test.dart' show setViewSize;
 
 /// 2번째 시도에 맞춘 ko 퍼즐("지하철역").
-TodayPuzzle solvedPuzzle() => fakeTodayPuzzle(
-  attemptsLeft: 3,
-  status: PuzzleStatus.success,
-  answer: '지하철역',
-  attempts: const [
-    PuzzleAttempt(guess: '지하철로', feedback: [true, true, true, false]),
-    PuzzleAttempt(guess: '지하철역', feedback: [true, true, true, true]),
-  ],
-);
+TodayPuzzle solvedPuzzle({PuzzleLanguage language = PuzzleLanguage.ko}) =>
+    fakeTodayPuzzle(
+      language: language,
+      attemptsLeft: 3,
+      status: PuzzleStatus.success,
+      answer: '지하철역',
+      attempts: const [
+        PuzzleAttempt(guess: '지하철로', feedback: [true, true, true, false]),
+        PuzzleAttempt(guess: '지하철역', feedback: [true, true, true, true]),
+      ],
+    );
 
 /// 5번 모두 틀린 퍼즐.
 TodayPuzzle failedPuzzle() => fakeTodayPuzzle(
@@ -286,6 +288,67 @@ void main() {
 
       expect(find.text('아직 아무도 못 풀었어요'), findsOne);
       expect(find.byType(StatBar), findsNothing);
+    });
+
+    testWidgets('조회는 결과 퍼즐의 언어로 못 박는다(D-26-1)', (tester) async {
+      final opened = await openResultSheet(
+        tester,
+        puzzle: solvedPuzzle(language: PuzzleLanguage.en),
+        client: FakeApiClient()
+          ..todayStats = fakeTodayStats(language: PuzzleLanguage.en),
+      );
+
+      // 게스트 선호 언어(서버 기본)가 아니라 시트가 그린 퍼즐의 언어로 묻는다.
+      expect(opened.api.fetchTodayStatsLanguages, [PuzzleLanguage.en]);
+    });
+
+    testWidgets('날짜가 다른 통계는 분포 대신 새 퍼즐 안내다(D-26-1)', (tester) async {
+      // 자정을 넘긴 뒤 '다시 시도' 가 받아오는 응답 — 어제 결과 시트에 오늘
+      // 분포가 붙으면 안 된다.
+      final api = FakeApiClient()
+        ..todayStats = fakeTodayStats(
+          date: DateTime(2026, 10, 14),
+          totalSolved: 10,
+          byAttempt: const {1: 1, 2: 0, 3: 0, 4: 0, 5: 0},
+        );
+
+      await openResultSheet(tester, client: api);
+
+      expect(find.byType(StatBar), findsNothing);
+      expect(find.text('내 결과'), findsNothing);
+      expect(find.text('새 퍼즐이 시작돼 이 결과의 통계는 더 보여줄 수 없어요'), findsOne);
+      // 헤더·공유는 통계와 무관하게 그대로 있다.
+      expect(find.text('정답은 지하철역!'), findsOne);
+    });
+
+    testWidgets('언어가 다른 통계도 분포를 보류한다(D-26-1)', (tester) async {
+      final api = FakeApiClient()
+        ..todayStats = fakeTodayStats(
+          language: PuzzleLanguage.en,
+          totalSolved: 10,
+          byAttempt: const {1: 1, 2: 0, 3: 0, 4: 0, 5: 0},
+        );
+
+      await openResultSheet(tester, client: api);
+
+      expect(find.byType(StatBar), findsNothing);
+      expect(find.text('새 퍼즐이 시작돼 이 결과의 통계는 더 보여줄 수 없어요'), findsOne);
+    });
+
+    testWidgets('날짜가 달라도 아무도 못 풀었다고 하지 않는다(D-26-1)', (tester) async {
+      // `totalSolved == 0` 이 먼저 걸리면 내가 맞춘 퍼즐에 '아직 아무도 못
+      // 풀었어요' 가 붙는다.
+      final api = FakeApiClient()
+        ..todayStats = fakeTodayStats(
+          date: DateTime(2026, 10, 14),
+          totalSolved: 0,
+          byAttempt: const {1: 0, 2: 0, 3: 0, 4: 0, 5: 0},
+        );
+
+      await openResultSheet(tester, client: api);
+
+      expect(find.text('아직 아무도 못 풀었어요'), findsNothing);
+      expect(find.text('새 퍼즐이 시작돼 이 결과의 통계는 더 보여줄 수 없어요'), findsOne);
     });
   });
 

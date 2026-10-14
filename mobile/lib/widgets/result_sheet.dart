@@ -260,8 +260,7 @@ class _StatsSection extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final text = Theme.of(context).textTheme;
-    final colors = AppColors.from(context);
-    final stats = ref.watch(todayStatsProvider);
+    final stats = ref.watch(todayStatsProvider(puzzle.language));
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -275,26 +274,42 @@ class _StatsSection extends ConsumerWidget {
           // 오류가 값보다 먼저다 — 실패해도 이전 값이 같이 남아
           // (`copyWithPrevious`) 멀쩡한 화면처럼 보이는 걸 막는다.
           AsyncValue(hasError: true) => _StatsFailed(
-            onRetry: () => ref.invalidate(todayStatsProvider),
+            onRetry: () => ref.invalidate(todayStatsProvider(puzzle.language)),
           ),
-          AsyncValue(value: final TodayStats stats) =>
-            stats.totalSolved == 0
-                ? Text(
-                    'result.stats_empty'.tr(),
-                    style: text.bodySmall?.copyWith(
-                      color: colors.mutedForeground,
-                    ),
-                  )
-                : StatBar(
-                    byAttempt: stats.byAttempt,
-                    // 못 맞춘 사람은 분포에 자리가 없다 — 강조할 행도 없다.
-                    myAttempt: success ? attemptsUsed(puzzle) : null,
-                  ),
+          // 다른 날·다른 언어의 집계면 분포를 보류한다 — 날짜가 바뀐 뒤의
+          // 재조회가 안 푼 퍼즐의 비율에 내 시도 수를 붙이면 안 된다.
+          AsyncValue(value: final TodayStats stats) when !stats.isFor(puzzle) =>
+            const _StatsNote('result.stats_stale'),
+          // 날짜 대조보다 뒤다 — 다른 날 집계가 0 명이라고 내가 맞춘 퍼즐에
+          // "아직 아무도 못 풀었어요" 를 붙이면 거짓말이 된다.
+          AsyncValue(value: final TodayStats stats)
+              when stats.totalSolved == 0 =>
+            const _StatsNote('result.stats_empty'),
+          AsyncValue(value: final TodayStats stats) => StatBar(
+            byAttempt: stats.byAttempt,
+            // 못 맞춘 사람은 분포에 자리가 없다 — 강조할 행도 없다.
+            myAttempt: success ? attemptsUsed(puzzle) : null,
+          ),
           _ => const _StatsSkeleton(),
         },
       ],
     );
   }
+}
+
+/// 분포 막대 대신 서는 한 줄(빈 집계·날짜 불일치).
+class _StatsNote extends StatelessWidget {
+  const _StatsNote(this.messageKey);
+
+  final String messageKey;
+
+  @override
+  Widget build(BuildContext context) => Text(
+    messageKey.tr(),
+    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+      color: AppColors.from(context).mutedForeground,
+    ),
+  );
 }
 
 class _StatsSkeleton extends StatelessWidget {

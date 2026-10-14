@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:chosung/api/api_models.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../fakes/fake_api_client.dart';
+
 void main() {
   group('AppConfig.fromJson', () {
     test('서버 응답(/api/v1/config)을 그대로 읽는다', () {
@@ -309,6 +311,61 @@ void main() {
       );
 
       expect(stats.byAttempt, {1: 1.0});
+    });
+  });
+
+  group('TodayStats.isFor', () {
+    TodayStats statsOf(DateTime date, PuzzleLanguage language) => TodayStats(
+      date: date,
+      language: language,
+      totalSolved: 1,
+      byAttempt: const {1: 1.0},
+    );
+
+    test('같은 날짜·언어면 그 퍼즐의 집계다', () {
+      final puzzle = fakeTodayPuzzle(date: DateTime(2026, 10, 13));
+
+      expect(
+        statsOf(DateTime(2026, 10, 13), PuzzleLanguage.ko).isFor(puzzle),
+        isTrue,
+      );
+    });
+
+    // 결과 시트를 열어 둔 채 KST 자정을 넘기면 재조회가 다음 날 집계를 받는다.
+    test('날짜가 하루라도 다르면 아니다(D-26-1)', () {
+      final puzzle = fakeTodayPuzzle(date: DateTime(2026, 10, 13));
+
+      expect(
+        statsOf(DateTime(2026, 10, 14), PuzzleLanguage.ko).isFor(puzzle),
+        isFalse,
+      );
+      expect(
+        statsOf(DateTime(2026, 10, 12), PuzzleLanguage.ko).isFor(puzzle),
+        isFalse,
+      );
+    });
+
+    test('언어가 다르면 아니다(D-26-1)', () {
+      // 가짜 퍼즐의 기본 언어는 ko 다.
+      final puzzle = fakeTodayPuzzle(date: DateTime(2026, 10, 13));
+
+      expect(
+        statsOf(DateTime(2026, 10, 13), PuzzleLanguage.en).isFor(puzzle),
+        isFalse,
+      );
+    });
+
+    // 서버는 `YYYY-MM-DD` 만 보내지만, 시각이 섞여 와도 날짜로만 본다.
+    test('시각이 붙어 와도 날짜만 본다', () {
+      final puzzle = fakeTodayPuzzle(date: DateTime(2026, 10, 13));
+
+      expect(
+        statsOf(
+          DateTime(2026, 10, 13, 23, 59),
+          PuzzleLanguage.ko,
+        ).isFor(puzzle),
+        isTrue,
+      );
     });
   });
 }

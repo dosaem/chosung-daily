@@ -149,6 +149,10 @@ class FakeApiClient implements ApiClient {
   int fetchTodayPuzzleCalls = 0;
   int fetchTodayStatsCalls = 0;
 
+  /// `fetchTodayStats` 가 받은 언어들 — 시트가 "지금 선호 언어" 가 아니라
+  /// 그린 퍼즐의 언어로 묻는지 보려고 기록한다.
+  final List<PuzzleLanguage> fetchTodayStatsLanguages = [];
+
   /// 제출로 보낸 (puzzle_id, guess) 를 순서대로 기록한다 — `puzzle_id` 동봉은
   /// 409 흐름의 전제라 테스트가 직접 본다.
   final List<({int puzzleId, String guess})> submittedGuesses = [];
@@ -200,8 +204,11 @@ class FakeApiClient implements ApiClient {
   }
 
   @override
-  Future<TodayStats> fetchTodayStats() async {
+  Future<TodayStats> fetchTodayStats({
+    required PuzzleLanguage language,
+  }) async {
     fetchTodayStatsCalls++;
+    fetchTodayStatsLanguages.add(language);
     if (fetchTodayStatsGate case final gate?) await gate.future;
     if (fetchTodayStatsError case final error?) throw error;
     return todayStats;

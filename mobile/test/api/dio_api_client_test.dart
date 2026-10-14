@@ -361,7 +361,7 @@ void main() {
       );
       final client = _clientWith(adapter, token: 'guest-token');
 
-      final stats = await client.fetchTodayStats();
+      final stats = await client.fetchTodayStats(language: PuzzleLanguage.en);
 
       expect(stats.totalSolved, 100);
       expect(stats.byAttempt[3], 0.4);
@@ -371,9 +371,9 @@ void main() {
         adapter.requests.single.headers['Authorization'],
         'Bearer guest-token',
       );
-      // 언어는 보내지 않는다 — 게스트 선호 언어의 오늘 퍼즐 집계가 결과 시트가
-      // 보여줄 값이다(`?language=` 는 다른 언어를 볼 화면이 생기면 더한다).
-      expect(adapter.requests.single.queryParameters, isEmpty);
+      // 언어를 반드시 보낸다(D-26-1) — 빼면 서버가 요청 시점의 게스트 선호
+      // 언어로 집계를 골라서 내가 푼 퍼즐과 다른 분포가 온다.
+      expect(adapter.requests.single.queryParameters, {'language': 'en'});
     });
 
     test('아직 퍼즐이 없으면 stats 도 전용 예외로 온다', () async {
@@ -386,7 +386,7 @@ void main() {
       final client = _clientWith(adapter, token: 'guest-token');
 
       await expectLater(
-        client.fetchTodayStats(),
+        client.fetchTodayStats(language: PuzzleLanguage.ko),
         throwsA(isA<NoPuzzleTodayApiException>()),
       );
     });

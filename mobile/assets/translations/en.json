@@ -78,6 +78,7 @@
     "stats_mine": "your result",
     "stats_empty": "Nobody has solved it yet",
     "stats_failed": "Couldn't load the stats",
+    "stats_stale": "A new puzzle has started, so these stats are no longer shown",
     "countdown": "Next puzzle in {time}",
     "share": "Share result",
     "show_ranking": "See ranking",

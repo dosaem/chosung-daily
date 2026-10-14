@@ -78,6 +78,7 @@
     "stats_mine": "내 결과",
     "stats_empty": "아직 아무도 못 풀었어요",
     "stats_failed": "통계를 불러오지 못했어요",
+    "stats_stale": "새 퍼즐이 시작돼 이 결과의 통계는 더 보여줄 수 없어요",
     "countdown": "다음 퍼즐까지 {time}",
     "share": "결과 공유",
     "show_ranking": "순위 보기",
