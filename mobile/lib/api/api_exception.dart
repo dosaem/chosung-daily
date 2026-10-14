@@ -33,6 +33,25 @@ class NetworkApiException extends ApiException {
   const NetworkApiException({required super.code, required super.message});
 }
 
+/// 오늘 그 언어의 퍼즐이 아직 배정되지 않았다(자정 전환 직후). 화면은 빈
+/// 화면·에러가 아니라 "곧 새 퍼즐" 카운트다운 카드를 보여준다(OVERRIDES §7).
+class NoPuzzleTodayApiException extends ApiException {
+  const NoPuzzleTodayApiException({
+    required super.code,
+    required super.message,
+  });
+}
+
+/// 보고 있던 퍼즐이 "지금의 오늘 × 현재 언어" 와 다르다. 시도는 소비되지
+/// 않았고(README "04. `puzzle_id` 고정과 409 `PUZZLE_CHANGED`") 할 일은
+/// `GET /puzzles/today` 재조회 하나뿐이다.
+class PuzzleChangedApiException extends ApiException {
+  const PuzzleChangedApiException({
+    required super.code,
+    required super.message,
+  });
+}
+
 /// 위 어디에도 안 맞는 응답. 화면은 "알 수 없는 오류 + 재시도" 로 다룬다.
 class UnknownApiException extends ApiException {
   const UnknownApiException({required super.code, required super.message});
@@ -49,6 +68,8 @@ const Map<
 _exceptionsByCode = {
   'UNAUTHORIZED': UnauthorizedApiException.new,
   'VALIDATION_ERROR': ValidationApiException.new,
+  'NO_PUZZLE_TODAY': NoPuzzleTodayApiException.new,
+  'PUZZLE_CHANGED': PuzzleChangedApiException.new,
 };
 
 /// `code` 를 모를 때(본문이 JSON 이 아닌 경우 포함) HTTP status 로 떨어뜨린다.

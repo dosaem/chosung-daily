@@ -59,6 +59,47 @@ class DioApiClient implements ApiClient {
     return MyStats.fromJson(body);
   }
 
+  @override
+  Future<TodayPuzzle> fetchTodayPuzzle() async {
+    final body = await _send<Map<String, dynamic>>(
+      () => _dio.get<Map<String, dynamic>>(
+        '/puzzles/today',
+        options: _authorized(),
+      ),
+    );
+    return TodayPuzzle.fromJson(body);
+  }
+
+  @override
+  Future<GuessResult> submitGuess({
+    required int puzzleId,
+    required String guess,
+  }) async {
+    final body = await _send<Map<String, dynamic>>(
+      () => _dio.post<Map<String, dynamic>>(
+        '/puzzles/today/guesses',
+        data: {'puzzle_id': puzzleId, 'guess': guess},
+        options: _authorized(),
+      ),
+    );
+    return GuessResult.fromJson(body);
+  }
+
+  @override
+  Future<PuzzleLanguage> updatePuzzleLanguage(
+    PuzzleLanguage puzzleLanguage,
+  ) async {
+    final body = await _send<Map<String, dynamic>>(
+      () => _dio.patch<Map<String, dynamic>>(
+        '/me',
+        data: {'puzzle_language': puzzleLanguage.wire},
+        options: _authorized(),
+      ),
+    );
+    return PuzzleLanguage.fromWire(body['puzzle_language'] as String?) ??
+        puzzleLanguage;
+  }
+
   /// Bearer 가 필요한 호출은 토큰이 없으면 서버까지 가지 않고 401 과 같은
   /// 예외를 낸다 — 호출부가 "토큰 없음" 과 "토큰 만료" 를 따로 다룰 이유가 없다.
   Options _authorized() {

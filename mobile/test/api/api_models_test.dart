@@ -119,4 +119,151 @@ void main() {
       expect(PuzzleLanguage.forDeviceLanguage('ja'), PuzzleLanguage.ko);
     });
   });
+
+  group('TodayPuzzle.fromJson', () {
+    test('ko 퍼즐 응답을 그대로 읽는다', () {
+      final puzzle = TodayPuzzle.fromJson(
+        jsonDecode('''
+        {
+          "puzzle_id": 42,
+          "date": "2026-10-13",
+          "language": "ko",
+          "mask": [
+            {"t": "r", "c": "\u3148"},
+            {"t": "r", "c": "\u314e"},
+            {"t": "h", "c": ""}
+          ],
+          "chosung": "\u3148\u314e_",
+          "length": 3,
+          "category": "general",
+          "attempts_left": 4,
+          "attempts": [
+            {"guess": "\uc9c0\ud558\ucabd", "feedback": [true, true, false]}
+          ],
+          "status": "in_progress",
+          "hint_unlocked": false,
+          "hint": null,
+          "answer": null
+        }
+        ''')
+            as Map<String, dynamic>,
+      );
+
+      expect(puzzle.puzzleId, 42);
+      expect(puzzle.date, DateTime(2026, 10, 13));
+      expect(puzzle.language, PuzzleLanguage.ko);
+      expect(puzzle.length, 3);
+      expect(puzzle.category, WordCategory.general);
+      expect(puzzle.attemptsLeft, 4);
+      expect(puzzle.status, PuzzleStatus.inProgress);
+      expect(puzzle.hintUnlocked, isFalse);
+      expect(puzzle.hint, isNull);
+      expect(puzzle.answer, isNull);
+      expect(puzzle.mask.map((tile) => tile.type), [
+        MaskTileType.revealed,
+        MaskTileType.revealed,
+        MaskTileType.hidden,
+      ]);
+      expect(puzzle.mask.first.char, '\u3148');
+      expect(puzzle.attempts.single.guess, '\uc9c0\ud558\ucabd');
+      expect(puzzle.attempts.single.feedback, [true, true, false]);
+    });
+
+    test('en 퍼즐의 구분자 타일(`s`)과 끝난 퍼즐의 정답을 읽는다', () {
+      final puzzle = TodayPuzzle.fromJson(
+        jsonDecode('''
+        {
+          "puzzle_id": 7,
+          "date": "2026-10-14",
+          "language": "en",
+          "mask": [
+            {"t": "r", "c": "H"},
+            {"t": "s", "c": " "},
+            {"t": "h", "c": ""}
+          ],
+          "chosung": "H _",
+          "length": 2,
+          "category": "book_title",
+          "attempts_left": 0,
+          "attempts": [
+            {"guess": "HO", "feedback": [true, true]}
+          ],
+          "status": "success",
+          "hint_unlocked": true,
+          "hint": "\ucc45 \uc81c\ubaa9",
+          "answer": "H O"
+        }
+        ''')
+            as Map<String, dynamic>,
+      );
+
+      expect(puzzle.category, WordCategory.bookTitle);
+      expect(puzzle.status, PuzzleStatus.success);
+      expect(puzzle.status.isFinished, isTrue);
+      expect(puzzle.mask[1].type, MaskTileType.separator);
+      // 구분자는 글자 수에 안 들어간다 — 타일 3개짜리 mask 의 length 는 2다.
+      expect(puzzle.length, 2);
+      expect(puzzle.separatorCount, 1);
+      expect(puzzle.hintUnlocked, isTrue);
+      expect(puzzle.answer, 'H O');
+    });
+
+    // 서버가 앱보다 먼저 타일 종류·카테고리를 늘릴 수 있다. 모르는 타일을 글자로
+    // 그리면 정답이 새어나갈 수 있으므로 빈 타일로 떨어뜨린다.
+    test('모르는 타일 종류는 빈 타일, 모르는 카테고리는 일반 단어로 읽는다', () {
+      final puzzle = TodayPuzzle.fromJson(
+        jsonDecode('''
+        {
+          "puzzle_id": 1,
+          "date": "2026-10-13",
+          "language": "ko",
+          "mask": [{"t": "x", "c": "\uc9c0"}],
+          "chosung": "_",
+          "length": 1,
+          "category": "poem",
+          "attempts_left": 5,
+          "attempts": [],
+          "status": "in_progress",
+          "hint_unlocked": false
+        }
+        ''')
+            as Map<String, dynamic>,
+      );
+
+      expect(puzzle.mask.single.type, MaskTileType.hidden);
+      expect(puzzle.category, WordCategory.general);
+      expect(puzzle.attempts, isEmpty);
+    });
+  });
+
+  group('GuessResult.fromJson', () {
+    test('오답은 글자별 피드백이 온다', () {
+      final result = GuessResult.fromJson(
+        jsonDecode(
+              '{"is_correct": false, "feedback": [true, false], '
+              '"attempts_left": 3, "hint": null, "answer": null}',
+            )
+            as Map<String, dynamic>,
+      );
+
+      expect(result.isCorrect, isFalse);
+      expect(result.feedback, [true, false]);
+      expect(result.attemptsLeft, 3);
+    });
+
+    // 정답이면 서버는 feedback 을 null 로 준다(README "04. 시도 이력…").
+    test('정답은 feedback 이 null 이고 정답 문자열이 온다', () {
+      final result = GuessResult.fromJson(
+        jsonDecode(
+              '{"is_correct": true, "feedback": null, "attempts_left": 3, '
+              '"hint": null, "answer": "\uc9c0\ud558\ucca0\uc5ed"}',
+            )
+            as Map<String, dynamic>,
+      );
+
+      expect(result.isCorrect, isTrue);
+      expect(result.feedback, isNull);
+      expect(result.answer, '\uc9c0\ud558\ucca0\uc5ed');
+    });
+  });
 }
