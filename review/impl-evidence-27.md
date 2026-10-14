@@ -9,7 +9,7 @@
 
 S3 를 익명 리더보드 + 내 순위(21위 밖 하단 고정)로, S4 를 streak 3칸 + 7일 그리드 +
 설정 리스트(퍼즐 언어·법적 문서·라이선스·버전)로 채우고 28~32 가 채울 자리 8개를
-키로 고정했다. 앱 테스트 257개 통과(이 티켓이 더한 건 55개, 골든 4장 포함),
+키로 고정했다. 앱 테스트 259개 통과(이 티켓이 더한 건 57개, 골든 4장 포함),
 백엔드 1110개 통과, `flutter analyze` 0건 · `dart format` 변경 없음 · `ruff` 통과.
 
 ## 1. 티켓 체크박스 ↔ 증거
@@ -18,8 +18,9 @@ S3 를 익명 리더보드 + 내 순위(21위 밖 하단 고정)로, S4 를 stre
 |---|---|---|
 | ApiClient 에 `GET /puzzles/today/leaderboard`, `GET /me/history` 추가(Dio + Fake) | `test/api/dio_api_client_test.dart` "순위·기록 엔드포인트" 4개(경로·쿼리·Bearer·404 `NO_PUZZLE_TODAY`·토큰 없음), `test/api/api_models_test.dart` `Leaderboard.fromJson`·`HistoryDay.fromJson` 4개, `test/fakes/fake_api_client.dart` 확장 | §3.1 |
 | S3: 언어 칩 표시 전용 · `entries` 리스트(내 행 강조) · 21위 밖 `me` 하단 고정 · 빈 상태 문구 | `test/screens/ranking_tab_test.dart` 11개("정상", "내 행은 강조된다", "21위 밖이면 내 행을 목록 하단에 고정한다", "상위 목록에 내 행이 있으면 하단 고정 행은 없다", "빈 리더보드…", "오늘 퍼즐이 아직 없으면 오류가 아니라 빈 상태다" 등) | §3.2 |
-| S4: StreakBadge 3칸 · 7일 그리드(4종) · 설정 리스트(퍼즐 언어 → `PATCH /me` 후 홈 재조회, 법적 문서 웹 링크, 라이선스, 버전) · 자리 8개에 담당 번호 주석 | `test/screens/records_tab_test.dart` 10개, `test/records/history_grid_test.dart` 4개, `test/settings/puzzle_language_controller_test.dart` 4개, `test/settings/legal_links_test.dart` 3개 | §3.3 |
+| S4: StreakBadge 3칸 · 7일 그리드(4종) · 설정 리스트(퍼즐 언어 → `PATCH /me` 후 홈 재조회, 법적 문서 웹 링크, 라이선스, 버전) · 자리 8개에 담당 번호 주석 | `test/screens/records_tab_test.dart` 10개, `test/records/history_grid_test.dart` 4개, `test/settings/puzzle_language_controller_test.dart` 5개, `test/settings/legal_links_test.dart` 3개 | §3.3 |
 | 위젯 테스트: 리더보드 `me` 행 · 빈 상태 · 7일 그리드 · 퍼즐 언어 변경 후 재조회 | 위 네 묶음 중 "21위 밖…", "빈 리더보드…", "7일 그리드는…", "퍼즐 언어를 바꾸면 PATCH /me 뒤 홈을 다시 읽는다" | §3.2·§3.3 |
+| 퍼즐 언어 쓰기 직렬화·늦은 응답 버리기(코디네이터 메모) | `test/settings/puzzle_language_controller_test.dart` "바꾸는 중에는 다음 요청을 받지 않는다", `test/screens/records_tab_test.dart` "바꾸는 동안 퍼즐 언어 행은 다시 눌리지 않는다" | §3.3 |
 | 태블릿 T3·T4(폭 390/744/1024, 설정 자리의 열 고정) | `test/screens/ranking_records_tablet_test.dart` 7개 | §3.4 |
 | `audit.native`(태블릿 폭 포함) 통과 · 목업 `e3_leaderboard`·`e4_records` 대비 기록 | §4 체크리스트, §5 골든 4장 | §4·§5 |
 
@@ -76,7 +77,7 @@ S3 를 익명 리더보드 + 내 순위(21위 밖 하단 고정)로, S4 를 stre
 "아직 안 풀었어요" / 빈 상태 문구(OVERRIDES §7) / 퍼즐 없음도 빈 상태 / 스켈레톤
 (스피너 0개) / 오류 카드 + 재시도가 실제로 다시 읽는다 / 오프라인 배너 / en UI.
 
-### 3.3 S4 내 기록 — `test/screens/records_tab_test.dart` (10개) + 순수 함수·컨트롤러 (11개)
+### 3.3 S4 내 기록 — `test/screens/records_tab_test.dart` (11개) + 순수 함수·컨트롤러 (12개)
 
 - streak 3칸(현재 12일 · 최고 30일 · 누적 41문제).
 - 7일 그리드 7칸이 `success/fail/success/none/success/fail/inProgress` 로 칠해진다
@@ -88,6 +89,9 @@ S3 를 익명 리더보드 + 내 순위(21위 밖 하단 고정)로, S4 를 stre
 - **퍼즐 언어 변경**: 행 → 피커 → "영어" → `PATCH /me` 1회 + 오늘 퍼즐 재조회
   (`fetchTodayPuzzleCalls` 1 → 2). 컨트롤러 테스트가 리더보드 재조회까지 본다.
 - 변경 실패(네트워크)면 행 아래 빨간 한 줄이 남고 값은 그대로.
+- **쓰기 직렬화**: 응답을 `Completer` 로 잡아 두면 그 동안 행이 비활성이고
+  (`onTap == null`) 두 번째 요청은 서버로 나가지 않는다. 세대 번호로 늦게 온
+  응답을 버린다(티켓 25 `TodayPuzzleNotifier` 와 같은 방식).
 - 법적 문서는 `…/privacy?lang=ko`·`…/terms?lang=ko` 로 연다(가짜 launcher 가 받은
   URL 을 그대로 확인). `legal_links_test` 3개가 URL 조립을 단위로 고정.
 - 오픈소스 라이선스 → `LicensePage` 가 열린다.
@@ -171,20 +175,20 @@ Pretendard·Lucide 를 실제로 불러와 찍는다.
 
 ```
 $ cd mobile && flutter test
-00:12 +257: All tests passed!
+00:16 +259: All tests passed!
 ```
 
-이 티켓이 더한 테스트 55개(파일별로 따로 돌린 결과):
+이 티켓이 더한 테스트 57개(파일별로 따로 돌린 결과):
 
 ```
 test/api/api_models_test.dart                   -> +16 (기존 12 + 4)
 test/api/dio_api_client_test.dart               -> +20 (기존 16 + 4)
 test/records/history_grid_test.dart             -> +4
 test/settings/legal_links_test.dart             -> +3
-test/settings/puzzle_language_controller_test.dart -> +4
+test/settings/puzzle_language_controller_test.dart -> +5
 test/ranking/leaderboard_controller_test.dart   -> +4
 test/screens/ranking_tab_test.dart              -> +11
-test/screens/records_tab_test.dart              -> +10
+test/screens/records_tab_test.dart              -> +11
 test/screens/ranking_records_tablet_test.dart   -> +7
 test/golden/ranking_records_golden_test.dart    -> +4
 ```
@@ -225,12 +229,34 @@ All checks passed!
 
 `migrations/` 변경 0건이라 `flask db heads` 는 해당 없음(이 티켓은 앱 전용).
 
-### 6.6 안 한 것
+### 6.6 네이티브 빌드 (코디네이터 메모 요청)
 
-- **네이티브 빌드(APK/iOS)를 돌리지 않았다.** 이 티켓은 Dart 코드·에셋만 바꿨고
-  (플러그인·Gradle·Podfile·권한 변경 0건) 디스크 여유가 수 GB 뿐이라 빌드 산출물을
-  새로 만들지 않는 쪽을 골랐다. 25·34 가 같은 설정으로 APK·iOS 디버그 빌드를
-  통과시킨 상태 그대로다.
+```
+$ cd mobile && flutter build ios --no-codesign --debug
+Running pod install...                                              4.5s
+Running Xcode build...
+Xcode build done.                                           59.7s
+✓ Built build/ios/iphoneos/Runner.app          # exit 0
+
+$ cd mobile && flutter build apk --debug
+The operation couldn't be completed. Unable to locate a Java Runtime.
+Gradle task assembleDebug failed with exit code 1                    # exit 1
+```
+
+**Android 빌드는 이 머신에서 못 돌린다 — 코드 문제가 아니다.**
+`flutter doctor` 가 `[!] Android toolchain … ✗ Could not determine java version`,
+`/usr/libexec/java_home` 가 "Unable to locate a Java Runtime" 를 준다(JDK 가 설치돼
+있지 않다). 이 티켓은 Dart 코드·번역 JSON 만 바꿨고 Gradle·Podfile·플러그인·권한은
+0건이라 Android 쪽에 새로 깨질 거리가 없고, iOS 빌드가 같은 Dart 코드를 실제로
+컴파일해 통과했다. 코디네이터에게도 보고한다.
+
+빌드 뒤 `mobile/build`(572M)와 `mobile/ios/Pods`(68M)를 지웠고, `pod install` 이
+건드린 `ios/Runner.xcodeproj/project.pbxproj`·`Runner.xcworkspace/contents.xcworkspacedata`
+는 원래대로 되돌리고 생성된 `ios/Podfile.lock` 도 지웠다(레포가 추적하지 않는 파일들
+— 작업 트리는 clean 이다).
+
+### 6.7 안 한 것
+
 - **실기기·시뮬레이터 확인, 스크린 리더 실제 낭독 확인**은 하지 않았다(티켓 35·36).
 - `impeccable detect` 는 웹 전용이라 이 티켓에선 돌리지 않았다(§4).
 
@@ -246,19 +272,21 @@ All checks passed!
 $ git rebase main
 Successfully rebased and updated refs/heads/dosaem/t27-app-leaderboard-records-settings.
 
-$ git log --oneline main..HEAD
-d8e4eb5 구현 27-4: 태블릿 T3·T4 테스트·골든 4장·README 설계 판단·구현 증거
-f7d8b3c 구현 27-3: S4 내 기록 — streak 3칸·7일 그리드·설정 리스트와 28~32 의 자리
-b66a0a2 구현 27-2: S3 순위 — 익명 리더보드·내 순위·21위 밖 하단 고정
-16b7070 구현 27-1: ApiClient 에 리더보드·최근 기록 추가
-
 $ cd mobile && flutter test
-00:35 +257: All tests passed!
+00:16 +259: All tests passed!
 
 $ cd mobile && flutter analyze
 Analyzing mobile...
-No issues found! (ran in 4.2s)
+No issues found! (ran in 3.9s)
+
+$ git status --short     # (출력 없음 — 작업 트리 clean)
+$ git log --oneline main..HEAD
+수정 27-5: 퍼즐 언어 쓰기 직렬화 + 늦은 응답 버리기
+구현 27-4: 태블릿 T3·T4 테스트·골든 4장·README 설계 판단·구현 증거
+구현 27-3: S4 내 기록 — streak 3칸·7일 그리드·설정 리스트와 28~32 의 자리
+구현 27-2: S3 순위 — 익명 리더보드·내 순위·21위 밖 하단 고정
+구현 27-1: ApiClient 에 리더보드·최근 기록 추가
 ```
 
-(증거 문서를 고친 뒤 마지막 커밋에 합쳤으므로 위 해시는 그 커밋 이전 값이다 —
-`git log main..HEAD` 로 최신 해시를 확인한다.)
+(리베이스 뒤에 27-5 와 이 문서 수정이 더 들어갔다. 최신 해시는
+`git log --oneline main..HEAD` 로 본다.)
