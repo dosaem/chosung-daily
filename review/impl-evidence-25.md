@@ -7,7 +7,7 @@
 
 S1 오늘 탭을 서버 이력으로 그리는 보드 + 제출 + 글자별 피드백 + 409 새로고침 +
 상태 6종(로딩·정상·오류·오프라인·퍼즐 없음·완료)으로 채웠고, SCREENS T1 의 태블릿
-2열까지 넣었다. 앱 테스트 187개 통과(이 티켓이 더한 건 67개), 백엔드 743개 통과,
+2열까지 넣었다. 앱 테스트 187개 통과(이 티켓이 더한 건 67개), 백엔드 800개 통과,
 `flutter analyze`·`dart format`·`ruff` 무이슈, APK·iOS 디버그 빌드 성공.
 
 ## 1. 티켓 체크박스 ↔ 증거
@@ -104,7 +104,7 @@ S1 오늘 탭을 서버 이력으로 그리는 보드 + 제출 + 글자별 피�
 
 | # | 축 | 24 | 25 | 핵심 소견 |
 |---|---|---|---|---|
-| 1 | Accessibility | 3 | **4** | 타일마다 "글자 + 맞음/아님" 레이블(색만으로 구분하지 않는다, US 3), 시도 행에 "시도 N" 컨테이너, `StreakBadge` 가 "연속 기록 7일" 로 읽힌다(24 가 남긴 P3 해소), 스켈레톤은 `ExcludeSemantics`(24 의 P3 해소). 터치 타깃 48(타일·버튼·입력). 글자 1.3배 테스트 통과 |
+| 1 | Accessibility | 3 | **4** | 타일마다 "글자 + 맞음/아님" 레이블(색만으로 구분하지 않는다, US 3), 시도 행에 "시도 N" 컨테이너, `StreakBadge` 가 "연속 기록 7일" 로 읽힌다(24 가 남긴 P3 해소), 스켈레톤은 `ExcludeSemantics`(24 의 P3 해소). 터치 타깃은 제출·힌트 버튼·입력이 48 이상(테마 `_minTouchTarget`). 타일은 누르는 요소가 아니라 해당 없음. 글자 1.3배 테스트 통과 |
 | 2 | Performance | 3 | 3 | 보드는 최대 6행 × 8칸이라 가상화가 필요 없다. 제출이 왕복 1회(응답으로 한 행 반영). 재조회는 스켈레톤으로 되돌리지 않아 트리를 다시 세우지 않는다 |
 | 3 | Appearance & Theming | 4 | 4 | 새 위젯 전부 `AppColors` 토큰만 쓴다. raw hex 는 여전히 `app_colors.dart` 한 파일뿐. 라이트·다크 골든 2장으로 두 모드를 같이 본다 |
 | 4 | Platform Conformance | 3 | 3 | Material 기본 컨트롤(`TextField`·`FilledButton`·`OutlinedButton`), 시스템 back·edge-swipe 를 건드리지 않는다. 한글 IME 는 `maxLength` 기본 enforcement(조합 중 자르지 않음)로 끊기지 않는다. 아이콘 Lucide 는 OVERRIDES §8 의 의도된 이탈(22 부터) |
@@ -188,8 +188,10 @@ Xcode build done.                                           69.8s
 건드린 `ios/Runner.xcodeproj/project.pbxproj`·`contents.xcworkspacedata`·
 `Podfile.lock` 은 되돌렸다(이 티켓의 변경이 아니다).
 
-백엔드는 코드를 안 건드렸지만 한 번 돌려 확인했다(전용 자원: DB
-`chosung_daily_test_t25`, Redis 13, 마이그레이션 DB `chosung_daily_test_t25_migrations`).
+위 네 명령은 **로컬 `main`(티켓 14 머지, `7df7809`) 위로 rebase 한 뒤** 다시 돌린
+결과다(rebase 충돌 없음). 백엔드는 코드를 안 건드렸지만 rebase 로 base 가 바뀌어
+한 번 더 돌렸다(전용 자원: DB `chosung_daily_test_t25`, Redis 13, 마이그레이션 DB
+`chosung_daily_test_t25_migrations`).
 
 ```
 $ uv run ruff check .
@@ -197,7 +199,7 @@ All checks passed!
 
 $ TEST_DATABASE_URL=...chosung_daily_test_t25 TEST_REDIS_URL=redis://127.0.0.1:6379/13 \
   TEST_MIGRATION_DATABASE_URL=...chosung_daily_test_t25_migrations uv run pytest -q
-743 passed in 542.67s (0:09:02)
+800 passed in 623.10s (0:10:23)
 ```
 
 ## 7. 숨기지 않는 것
