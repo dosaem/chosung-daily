@@ -31,6 +31,7 @@ from app.schemas.subscription import EntitlementResponse
 from app.services.entitlement import (
     RECHECKABLE_STATUSES,
     build_entitlement,
+    is_entitled,
     is_recheck_due,
 )
 from app.services.operator_alert_service import notify_operator
@@ -79,12 +80,14 @@ def recheck(subscription: Subscription) -> bool:
 
     **겹친 재조회**: 스토어에 묻는 동안(최대 3초) 같은 행을 다른 경로가 갱신할
     수 있다 — `/me/stats` 두 요청, `/me/stats` 와 Beat. 조회 전에 본 값을 들고
-    있다가 쓰기 직전에 행을 잠그고 다시 읽어, 그 사이에 바뀌었으면 **우리
-    응답을 버린다**(`_superseded`). 안 그러면 먼저 출발했지만 늦게 도착한 active
-    응답이 이미 확인된 철회를 덮어 광고 제거 권한을 되살린다(스펙 §A.8 "철회가
-    확인되면 그 응답부터 권한 없음"). 잠금을 조회 앞에 걸지 않는 이유는 그러면
-    외부 호출이 끝날 때까지 행을 들고 있어서 같은 구독의 다른 요청이 전부 3초를
-    기다리게 되기 때문이다.
+    있다가 쓰기 직전에 행을 잠그고 다시 읽어, 그 사이에 바뀌었는지 본다
+    (`_changed_while_asking`). 바뀌었을 때 버리는 응답은 **권한을 되살리는** 쪽
+    하나다(`_restores_entitlement`) — 늦게 도착한 active 응답이 이미 확인된
+    철회를 덮으면 광고 제거 권한이 되살아난다. 권한을 줄이거나 그대로 두는
+    응답은 겹침과 무관하게 적는다: 스펙 §A.8 "철회가 확인되면 그 응답부터 권한
+    없음", US 30c "환불을 확인하는 즉시 권한이 사라진다" 다. 잠금을 조회 앞에
+    걸지 않는 이유는 그러면 외부 호출이 끝날 때까지 행을 들고 있어서 같은
+    구독의 다른 요청이 전부 3초를 기다리게 되기 때문이다.
     """
     observed = _row_state(subscription)
     try:
@@ -97,23 +100,23 @@ def recheck(subscription: Subscription) -> bool:
         logger.warning(
             "구독 %s 재조회 실패 (%s) — 저장값 유지", subscription.id, type(exc).__name__
         )
-        if _superseded(subscription, observed):
-            return False
-        subscription.recheck_failures += 1
-        db.session.commit()
-        return False
+        return _count_failure(subscription, observed)
 
     if normalized.status is None:
         # Google 이 "결제가 아직 안 끝난 구매" 라고 답한 경우. 이미 행이 있는
         # 구독에는 나올 일이 없는 답이라 상태를 덮지 않고 실패로 센다.
         logger.warning("구독 %s 재조회가 결제 대기로 돌아옴 — 저장값 유지", subscription.id)
-        if _superseded(subscription, observed):
-            return False
-        subscription.recheck_failures += 1
-        db.session.commit()
-        return False
+        return _count_failure(subscription, observed)
 
-    if _superseded(subscription, observed):
+    # 왼쪽이 행을 잠그고 최신 값으로 채운다 — `_restores_entitlement` 가 보는
+    # `subscription` 이 "지금 저장된 값" 인 건 이 순서 덕분이다.
+    if _changed_while_asking(subscription, observed) and _restores_entitlement(
+        subscription, normalized
+    ):
+        logger.info(
+            "구독 %s 재조회 응답이 더 최신 갱신에 밀렸다 — 저장값 유지", subscription.id
+        )
+        db.session.commit()
         return False
 
     subscription.status = normalized.status
@@ -162,23 +165,61 @@ def _row_state(subscription: Subscription) -> tuple:
     )
 
 
-def _superseded(subscription: Subscription, observed: tuple) -> bool:
+def _changed_while_asking(subscription: Subscription, observed: tuple) -> bool:
     """조회하는 동안 다른 경로가 이 행을 갱신했나. 행을 잠근 채로 확인한다.
 
-    True 면 우리 응답은 이미 지나간 것이라 쓰지 않는다. 호출부가 아무것도 적지
-    않아도 커밋은 해야 한다 — 잠금과 트랜잭션을 그 자리에서 놓고, `subscription`
-    은 이미 최신 값으로 채워져 있어서 호출부(`entitlement_for`)의 권한 판정이
-    최신 상태를 본다.
+    부르고 나면 `subscription` 은 최신 커밋 값으로 채워져 있다 — 응답을 쓰지
+    않고 끝내도 호출부(`entitlement_for`)의 권한 판정이 최신 상태를 본다.
+    돌려준 뒤에는 어느 경로든 커밋해야 잠금이 풀린다.
     """
     lock_and_refresh(subscription)
-    if _row_state(subscription) == observed:
-        return False
+    return _row_state(subscription) != observed
 
-    logger.info(
-        "구독 %s 재조회 응답이 더 최신 갱신에 밀렸다 — 저장값 유지", subscription.id
+
+def _restores_entitlement(
+    subscription: Subscription, normalized: NormalizedSubscription
+) -> bool:
+    """우리 응답이 지금 저장된 "권한 없음" 을 "권한 있음" 으로 되돌리나.
+
+    판정은 §A.8 판정표 그대로(`entitlement.is_entitled`) 두 상태의 권한을
+    비교하는 것이다: **새 응답의 권한 ≤ 저장된 권한이면 적고**, 늘리는 쪽이면
+    버린다. 겹친 두 조회 중 어느 응답이 스토어의 더 최신 사실인지 서버는 알 수
+    없기 때문에(스토어 응답에는 비교할 시각이 없다) 방향으로 가른다.
+
+    - 늘리는 쪽(버린다, D-13-1): 늦게 도착한 active 가 이미 확인된 철회를 덮으면
+      환불한 구독의 광고 제거 권한이 되살아난다. 복구가 사실이면 다음
+      재조회(≤1시간)나 앱의 영수증 재전송(§A.8 (b))이 같은 권한을 돌려준다.
+    - 줄이는 쪽(적는다, D-13-3): 스토어가 **성공으로** 알려준 철회·보류·만료다.
+      스펙 §A.8 "철회가 확인되면 그 응답부터 권한 없음", US 30c "확인하는 즉시
+      권한이 사라진다". 못 물어본 시간에 허용된 1시간 지연을 이미 받아 둔 철회를
+      버리는 데 쓸 수는 없고, 실패 시 저장값 유지와 성공 응답 폐기는 다르다.
+    - 둘 다 권한 있음(적는다): 갱신끼리 겹친 경우다. 우리 만료일이 더 이르면
+      `until` 이 잠깐 과거로 돌아가지만 권한 자체는 유지되고, 그 구간은 ±24h
+      5분 TTL 이 바로 다시 물어봐 고친다.
+    """
+    now = utcnow()
+    return is_entitled(
+        normalized.status, normalized.expires_at, normalized.grace_expires_at, now
+    ) and not is_entitled(
+        subscription.status, subscription.expires_at, subscription.grace_expires_at, now
     )
+
+
+def _count_failure(subscription: Subscription, observed: tuple) -> bool:
+    """실패를 행에 센다 — `last_verified_at` 은 올리지 않아 다음 호출이 다시 쏜다.
+
+    그 사이 다른 경로가 갱신했으면 세지 않는다: 이미 지나간 조회의 실패로
+    운영자 알림 임계(`FAILURE_ALERT_THRESHOLD`)를 채우게 된다. 어느 쪽이든
+    커밋해서 잠금을 놓고, "저장 안 함"(False)을 돌려준다.
+    """
+    if _changed_while_asking(subscription, observed):
+        logger.info(
+            "구독 %s 재조회 실패가 더 최신 갱신에 밀렸다 — 카운터 유지", subscription.id
+        )
+    else:
+        subscription.recheck_failures += 1
     db.session.commit()
-    return True
+    return False
 
 
 def _ask_store(subscription: Subscription) -> NormalizedSubscription:

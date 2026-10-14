@@ -626,3 +626,42 @@ def test_a_delayed_failure_does_not_count_against_a_fresh_success(
     row = reload(subscription)
     assert row.recheck_failures == 0
     assert row.status is SubscriptionStatus.REVOKED
+
+
+# --- 겹친 재조회 (수정 라운드 2, D-13-3) ---------------------------------
+
+
+def test_a_confirmed_revocation_is_not_discarded_by_an_earlier_active_write(
+    app, guest, make_subscription, monkeypatch, store_config
+):
+    """반대 순서. A 가 스토어에서 **철회를 실제로 받아 왔으면**, 그 사이 B 가
+    active 를 먼저 커밋했더라도 A 의 응답부터 권한이 없어야 한다 — 스펙 §A.8
+    "철회가 확인되면 그 응답부터 권한 없음".
+
+    겹침 때문에 저장값이 바뀌었다는 사실은 "우리 응답이 오래됐다" 의 증거가
+    못 된다. 그 사실로 버릴 수 있는 건 **권한을 되살리는** 응답뿐이고(D-13-1),
+    성공으로 받은 철회를 버리면 1시간 TTL 동안 환불된 구독의 광고 제거 권한이
+    유지된다.
+    """
+    subscription = make_subscription(
+        status=SubscriptionStatus.ACTIVE,
+        expires_in=timedelta(days=20),
+        verified_ago=timedelta(hours=2),
+    )
+    asked = []
+
+    def fetch(store_key, environment):
+        if asked:  # B 의 조회 — active 를 먼저 저장한다.
+            return apple_response("apple_active.json", store_key, environment)
+        # A 의 스토어 경계 안. 여기서 B 가 끝나고, 그 뒤 A 가 철회를 받는다.
+        asked.append(True)
+        assert _recheck_in_another_session(app, subscription.id) is SubscriptionStatus.ACTIVE
+        return apple_response("apple_revoked.json", store_key, environment)
+
+    monkeypatch.setattr(app_store, "fetch_subscription_status", fetch)
+
+    entitlement = subscription_recheck.entitlement_for(guest)
+
+    assert entitlement.active is False
+    assert entitlement.status is SubscriptionStatus.REVOKED
+    assert reload(subscription).status is SubscriptionStatus.REVOKED
