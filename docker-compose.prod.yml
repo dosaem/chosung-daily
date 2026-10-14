@@ -63,6 +63,11 @@ services:
     # prod 8089 / develop 8090 — 포트는 env 파일의 APP_PORT로 갈린다.
     ports:
       - "127.0.0.1:${APP_PORT}:5000"
+    # Gunicorn 접근 로그(접속기록, 고시 제8조)를 호스트 폴더에 쌓는다 — 덤프와
+    # 같은 이유로 named volume 이 아니다(컨테이너가 날아가도 보관 기간 동안
+    # 남아야 한다). 회전·만료 삭제는 backup 컨테이너가 같은 폴더를 보고 한다.
+    volumes:
+      - ${LOG_DIR:-./logs}:/logs
     depends_on:
       mysql:
         condition: service_healthy
@@ -99,7 +104,8 @@ services:
       redis:
         condition: service_healthy
 
-  # 매일 04:00 KST mysqldump → gzip, ${BACKUP_DIR} 에 14일 보존, 실패하면 Slack.
+  # 매일 04:00 KST mysqldump → gzip → 공개키 암호화, ${BACKUP_DIR} 에 14일 보존,
+  # 이어서 접근 로그 회전·만료 삭제(티켓 36). 실패하면 Slack.
   # mysql 과 같은 이미지를 쓴다 — mysqldump·gzip·curl·find 가 전부 들어 있고
   # NAS 가 이미 당겨 둔 이미지라 추가로 받을 게 없다 (README "설계 판단" §21).
   backup:
@@ -113,6 +119,7 @@ services:
       MYSQL_DATABASE: chosung_daily
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      ACCESS_LOG_RETENTION_DAYS: ${ACCESS_LOG_RETENTION_DAYS:-365}
     entrypoint: ["/bin/bash", "/scripts/backup-cron.sh"]
     # 덤프는 named volume 이 아니라 호스트(NAS) 폴더에 둔다 — 컨테이너·볼륨이
     # 날아가도 DSM 파일 탐색기로 꺼낼 수 있어야 백업이다. 이 컨테이너는 root 로
@@ -120,6 +127,8 @@ services:
     volumes:
       - ./scripts:/scripts:ro
       - ${BACKUP_DIR:-./backups}:/backups
+      # 접근 로그 파일 회전·만료 삭제를 이 컨테이너의 cron 이 같이 한다(티켓 36).
+      - ${LOG_DIR:-./logs}:/logs
     depends_on:
       mysql:
         condition: service_healthy

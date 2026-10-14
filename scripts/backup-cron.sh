@@ -38,4 +38,8 @@ while true; do
   # backup.sh 가 실패해도(Slack 알림은 거기서 쏜다) 루프는 계속 돈다 —
   # 하루 실패가 다음 날 백업까지 멈추게 하지 않는다.
   "$here/backup.sh" || echo "[backup-cron] backup.sh failed, continuing"
+  # 접근 로그 회전도 이 루프가 같이 한다 — 하루 한 번 도는 컨테이너가 이미
+  # 있어서 새 컨테이너를 만들지 않았다(티켓 36). 한쪽 실패가 다른 쪽을 막지 않게
+  # 백업 뒤에 따로 부른다.
+  "$here/rotate-access-log.sh" || echo "[backup-cron] rotate-access-log.sh failed, continuing"
 done

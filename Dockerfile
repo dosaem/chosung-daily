@@ -15,4 +15,6 @@ COPY . .
 
 EXPOSE 5000
 
-CMD ["uv", "run", "gunicorn", "-b", "0.0.0.0:5000", "wsgi:app"]
+# 접근 로그 설정은 gunicorn.conf.py 에 있다 — exec 형식 CMD 는 셸을 안 거쳐서
+# `--access-logfile ${LOG_DIR}/...` 의 env 치환이 안 된다(티켓 36).
+CMD ["uv", "run", "gunicorn", "-c", "gunicorn.conf.py", "-b", "0.0.0.0:5000", "wsgi:app"]
