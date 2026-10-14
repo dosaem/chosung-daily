@@ -88,6 +88,9 @@ class _ResultSheetState extends ConsumerState<ResultSheet> {
     );
 
     await ref.read(shareTextProvider)(text);
+    // 공유 시트가 떠 있는 동안 결과 시트가 사라졌으면(뒤로 가기) 버려진 ref 를
+    // 다시 읽지 않는다.
+    if (!mounted) return;
     await ref.read(analyticsServiceProvider).log(shareEvent);
   }
 

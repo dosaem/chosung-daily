@@ -42,7 +42,9 @@ class _StatRow extends StatelessWidget {
     required this.isMine,
   });
 
-  /// 회차 라벨("3회")과 비율("40%") 칸 폭. 숫자가 흔들리지 않게 고정한다.
+  /// 회차 라벨("3회")과 비율("40%") 칸 폭. 숫자가 흔들리지 않게 고정하되,
+  /// 글자 크기를 키운 기기에서는 같은 비율로 넓힌다 — 고정 폭이면 거기서만
+  /// 글자가 잘린다(잘림은 레이아웃 오류를 내지 않아 테스트로도 안 보인다).
   static const _labelWidth = 32.0;
   static const _percentWidth = 44.0;
 
@@ -53,6 +55,7 @@ class _StatRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = AppColors.from(context);
+    final textScaler = MediaQuery.textScalerOf(context);
     final percent = (ratio * 100).round();
     final style = Theme.of(context).textTheme.bodySmall?.copyWith(
       color: isMine ? colors.foreground : colors.mutedForeground,
@@ -71,7 +74,7 @@ class _StatRow extends StatelessWidget {
         child: Row(
           children: [
             SizedBox(
-              width: _labelWidth,
+              width: textScaler.scale(_labelWidth),
               child: Text(
                 'result.stats_attempt'.tr(namedArgs: {'count': '$attempt'}),
                 textAlign: TextAlign.right,
@@ -99,7 +102,7 @@ class _StatRow extends StatelessWidget {
             ),
             const SizedBox(width: 8),
             SizedBox(
-              width: _percentWidth,
+              width: textScaler.scale(_percentWidth),
               child: Text(
                 'result.stats_percent'.tr(namedArgs: {'percent': '$percent'}),
                 textAlign: TextAlign.right,
