@@ -272,38 +272,32 @@ class _HintSlotState extends ConsumerState<_HintSlot> {
   /// 광고를 띄우거나 힌트를 여는 중. 두 번 누르면 광고가 두 번 뜬다.
   bool _busy = false;
 
-  String? _notice;
+  /// 보상 없이 끝난 마지막 보상형 광고(못 띄움 / 중간에 닫음). 안내 문구와
+  /// 버튼 잠금을 **여기서 파생**시킨다 — 문구와 잠금 플래그를 따로 들고 있으면
+  /// 광고가 더 이상 필요 없어졌을 때 한쪽만 지우게 된다.
+  RewardedOutcome? _adFailure;
 
-  /// 광고를 한 번 못 띄웠으면 이 퍼즐에서는 버튼을 끈다 — 누를 때마다 다시
-  /// 로드해 보면 매번 몇 초를 기다린 끝에 같은 실패를 본다.
-  bool _adUnavailable = false;
+  /// 광고는 통과했지만 서버가 힌트를 열어주지 못했다.
+  bool _unlockFailed = false;
 
   Future<void> _preview() async {
     setState(() {
       _busy = true;
-      _notice = null;
+      _adFailure = null;
+      _unlockFailed = false;
     });
     try {
       if (ref.read(adGateProvider).hintPreviewNeedsAd) {
         final outcome = await ref.read(adServiceProvider).showRewarded();
         if (outcome != RewardedOutcome.earned) {
-          // 광고를 **못 띄운** 경우에만 버튼을 끈다. 중간에 닫은 건 다시
-          // 누르면 되는 일이라 안내만 남기고 버튼은 살려 둔다.
-          if (mounted) {
-            setState(() {
-              _adUnavailable = outcome == RewardedOutcome.unavailable;
-              _notice = _adUnavailable
-                  ? 'hint.ad_unavailable'.tr()
-                  : 'hint.ad_not_finished'.tr();
-            });
-          }
+          if (mounted) setState(() => _adFailure = outcome);
           return;
         }
       }
 
       final opened = await ref.read(todayPuzzleProvider.notifier).unlockHint();
       if (!opened && mounted) {
-        setState(() => _notice = 'hint.unlock_failed'.tr());
+        setState(() => _unlockFailed = true);
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -313,12 +307,30 @@ class _HintSlotState extends ConsumerState<_HintSlot> {
   @override
   Widget build(BuildContext context) {
     final gate = ref.watch(adGateProvider);
-    final blocked = !gate.canPreviewHint || _adUnavailable;
+    // 광고가 보상 없이 끝났다는 기록은 **광고가 필요한 동안만** 유효하다. 그
+    // 사이 구독 권한이 켜지면(티켓 32 구매·33 갱신이 같은 provider 를 쓴다)
+    // 광고 없이 바로 열어야 하는데(US 32), 기록을 그대로 적용하면 같은 퍼즐을
+    // 떠날 때까지 구독 혜택을 못 쓴다.
+    final adFailure = gate.hintPreviewNeedsAd ? _adFailure : null;
+    // 광고를 **못 띄운** 경우에만 버튼을 끈다 — 누를 때마다 다시 로드해 보면
+    // 매번 몇 초를 기다린 끝에 같은 실패를 본다. 중간에 닫은 건 다시 누르면
+    // 되는 일이라 안내만 남기고 버튼은 살려 둔다.
+    final blocked =
+        !gate.canPreviewHint || adFailure == RewardedOutcome.unavailable;
+    final notice = switch (adFailure) {
+      RewardedOutcome.unavailable => 'hint.ad_unavailable',
+      RewardedOutcome.dismissed => 'hint.ad_not_finished',
+      _ when _unlockFailed => 'hint.unlock_failed',
+      // 동의·ATT 때문에 이번 세션에 광고가 없는 경우. 눌러도 할 수 있는 게
+      // 없으니 비활성 버튼 옆에 이유를 남긴다.
+      _ when blocked => 'hint.ad_unavailable',
+      _ => null,
+    };
 
     return HintCard(
       hint: widget.puzzle.hint,
       needsAd: gate.hintPreviewNeedsAd,
-      notice: _notice ?? (blocked ? 'hint.ad_unavailable'.tr() : null),
+      notice: notice?.tr(),
       onPreview: blocked || _busy || widget.puzzle.status.isFinished
           ? null
           : () => unawaited(_preview()),

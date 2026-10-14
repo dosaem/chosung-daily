@@ -70,7 +70,7 @@ void main() {
 
     expect(await interstitial.showAfterResultSheet(puzzleId: 41), isTrue);
     expect(ads.interstitialShowCalls, 1);
-    expect(store.puzzleId, 41);
+    expect(store.shown, {41});
   });
 
   test('같은 퍼즐에서 시트를 다시 열어도 두 번 띄우지 않는다', () async {
@@ -113,7 +113,7 @@ void main() {
     )..markSubmitted()).showAfterResultSheet(puzzleId: 42);
 
     expect(shown, isTrue);
-    expect(store.puzzleId, 42);
+    expect(store.shown, {41, 42});
   });
 
   test('구독자는 전면 광고가 없다 (US 26)', () async {
@@ -128,7 +128,7 @@ void main() {
 
     expect(shown, isFalse);
     expect(ads.interstitialShowCalls, 0);
-    expect(store.puzzleId, isNull);
+    expect(store.shown, isEmpty);
   });
 
   test('동의가 없으면 전면 광고도 없다', () async {
@@ -148,6 +148,27 @@ void main() {
     expect(ads.interstitialShowCalls, 0);
   });
 
+  // 리뷰 r1 D-31-1: 오늘 퍼즐은 언어마다 따로다. 설정에서 언어를 바꾸면 다른
+  // 퍼즐이 "오늘" 이 되고 되돌릴 수도 있는데, 기억하는 퍼즐이 하나면 왕복할
+  // 때마다 같은 퍼즐에서 다시 뜬다.
+  test('언어를 왕복해도 퍼즐마다 1회다', () async {
+    final ads = FakeAdService();
+    final store = InMemoryInterstitialStore();
+    final container = _container(ads: ads, store: store);
+    await container.read(adConsentProvider.future);
+    final interstitial = container.read(resultInterstitialProvider)
+      ..markSubmitted();
+
+    // 한국어 퍼즐 41 → 영어 퍼즐 42 를 각각 끝냈다.
+    expect(await interstitial.showAfterResultSheet(puzzleId: 41), isTrue);
+    expect(await interstitial.showAfterResultSheet(puzzleId: 42), isTrue);
+
+    // 한국어로 돌아와 41 의 "결과 보기" 를 다시 열었다.
+    expect(await interstitial.showAfterResultSheet(puzzleId: 41), isFalse);
+    expect(await interstitial.showAfterResultSheet(puzzleId: 42), isFalse);
+    expect(ads.interstitialShowCalls, 2);
+  });
+
   // 로드 실패를 "띄웠다" 로 기록하면 그 퍼즐의 기회를 날린다.
   test('광고가 뜨지 않으면 퍼즐 플래그를 남기지 않는다', () async {
     final ads = FakeAdService(interstitialShows: false);
@@ -161,6 +182,6 @@ void main() {
 
     expect(shown, isFalse);
     expect(ads.interstitialShowCalls, 1);
-    expect(store.puzzleId, isNull);
+    expect(store.shown, isEmpty);
   });
 }

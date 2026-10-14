@@ -36,6 +36,11 @@ class TodayPuzzleNotifier extends AsyncNotifier<TodayState?> {
   /// 값과 지금 계정을 비교해서 남의 계정에 쓰지 않는다(D-29-5).
   int _accountEpoch = 0;
 
+  /// 제출이 끝나면(성공·실패 모두) 완료되는 future. 힌트 요청이 이걸 기다린다 —
+  /// 미루는 게 아니라 **줄을 세우는** 것이라 [_refreshQueued] 와 달리 호출을
+  /// 버리지 않는다(힌트를 눌렀는데 아무 일도 안 일어나면 안 된다).
+  Completer<void>? _submitDone;
+
   ApiClient get _api => ref.read(apiClientProvider);
 
   AccountEpochNotifier get _account => ref.read(accountEpochProvider.notifier);
@@ -145,6 +150,7 @@ class TodayPuzzleNotifier extends AsyncNotifier<TodayState?> {
 
     final generation = ++_generation;
     _submitting = true;
+    final submitDone = _submitDone = Completer<void>();
     state = AsyncData(TodayPuzzleReady(puzzle: puzzle, submitting: true));
 
     try {
@@ -181,6 +187,8 @@ class TodayPuzzleNotifier extends AsyncNotifier<TodayState?> {
       return false;
     } finally {
       _submitting = false;
+      _submitDone = null;
+      submitDone.complete();
       if (_refreshQueued) {
         _refreshQueued = false;
         // 제출 중 미뤄둔 복귀 재조회. 제출 결과를 쓴 뒤에 돌리므로 서버 보드가
@@ -198,6 +206,16 @@ class TodayPuzzleNotifier extends AsyncNotifier<TodayState?> {
   /// 재조회한 보드에 `hint` 가 채워져 오고(US 5a), 끝난 퍼즐·바뀐 퍼즐은
   /// 보드 자체를 새로 읽어야 한다.
   Future<bool> unlockHint() async {
+    // 제출 응답을 기다리는 중이면 그 결과가 보드에 올라간 뒤에 보낸다. 끼어들면
+    // 세대 번호가 바뀌어 먼저 떠난 제출 응답이 폐기되고(소비된 시도와 남은
+    // 기회가 화면에서 사라진다) `submitting: true` 도 그대로 남아 입력이 잠긴
+    // 채로 끝난다. 버튼을 잠그는 대신 줄을 세우는 이유: 힌트는 시도·순위를
+    // 건드리지 않으므로(US 5) 제출 중에도 누를 수 있는 게 맞다.
+    for (var pending = _submitDone; pending != null; pending = _submitDone) {
+      await pending.future;
+      if (!ref.mounted) return false;
+    }
+
     final current = state.value;
     if (current is! TodayPuzzleReady) return false;
 

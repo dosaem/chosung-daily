@@ -279,6 +279,71 @@ void main() {
       expect(api.fetchTodayPuzzleCalls, 2);
     });
 
+    // 리뷰 r1 D-31-2: 힌트 미리 보기는 제출 잠금과 무관하게 눌릴 수 있는
+    // 버튼이다. 제출 응답을 기다리는 사이에 끼어들면 그 응답이 폐기돼 소비된
+    // 시도가 보드에서 사라진다.
+    test('제출을 기다리는 동안 힌트를 열어도 쌓인 행과 힌트가 모두 남는다', () async {
+      final api = FakeApiClient(puzzle: fakeTodayPuzzle(puzzleId: 41));
+      final container = _container(api);
+      await container.read(todayPuzzleProvider.future);
+
+      final gate = Completer<void>();
+      api.submitGuessGate = gate;
+      final submitting = container
+          .read(todayPuzzleProvider.notifier)
+          .submit('지하촌역');
+
+      // 제출 대기 중의 힌트 탭. 서버에 보내기 전에 제출 결과를 기다려야 한다.
+      final unlocking = container
+          .read(todayPuzzleProvider.notifier)
+          .unlockHint();
+      await pumpEventQueue();
+      expect(api.unlockedHintPuzzleIds, isEmpty, reason: '제출 응답 전에는 보내지 않는다');
+
+      gate.complete();
+      expect(await submitting, isTrue);
+      expect(await unlocking, isTrue);
+
+      final state = _ready(container.read(todayPuzzleProvider).requireValue);
+      expect(state.puzzle.attempts.length, 1, reason: '소비된 시도가 사라지면 안 된다');
+      expect(state.puzzle.attemptsLeft, 4);
+      expect(state.puzzle.hint, '서울에 가장 많다');
+      expect(state.submitting, isFalse);
+      expect(api.unlockedHintPuzzleIds, [41]);
+    });
+
+    test('제출 대기 중 힌트가 실패해도 제출 결과와 잠금 해제가 남는다', () async {
+      final api = FakeApiClient(puzzle: fakeTodayPuzzle(puzzleId: 41))
+        ..unlockHintError = const NetworkApiException(
+          code: networkErrorCode,
+          message: 'offline',
+        );
+      final container = _container(api);
+      await container.read(todayPuzzleProvider.future);
+
+      final gate = Completer<void>();
+      api.submitGuessGate = gate;
+      final submitting = container
+          .read(todayPuzzleProvider.notifier)
+          .submit('지하촌역');
+      final unlocking = container
+          .read(todayPuzzleProvider.notifier)
+          .unlockHint();
+
+      gate.complete();
+      expect(await submitting, isTrue);
+      expect(await unlocking, isFalse);
+
+      final state = _ready(container.read(todayPuzzleProvider).requireValue);
+      expect(state.puzzle.attempts.length, 1);
+      expect(state.puzzle.hint, isNull);
+      expect(
+        state.submitting,
+        isFalse,
+        reason: '입력이 잠긴 채 남으면 재시작 전까지 못 푼다',
+      );
+    });
+
     test('제출 전에 떠난 조회가 늦게 도착해도 쌓인 행을 지우지 않는다', () async {
       final api = FakeApiClient(puzzle: fakeTodayPuzzle(puzzleId: 7));
       final container = _container(api);

@@ -180,6 +180,33 @@ void main() {
       expect(find.text('서울에 가장 많다'), findsOne);
     });
 
+    // 리뷰 r1 D-31-3: 광고를 못 띄워 버튼을 끈 뒤 구독 권한이 생길 수 있다
+    // (티켓 32 구매·33 갱신이 같은 provider 를 쓴다). 그때는 광고가 필요하지
+    // 않으니 "광고를 못 불러왔다" 기록도 더는 적용되지 않아야 한다(US 32).
+    testWidgets('광고 실패 뒤 구독 권한이 생기면 바로 열 수 있다', (tester) async {
+      final api = FakeApiClient()..hintUnlockResponse = '서울에 가장 많다';
+      final ads = FakeAdService(rewarded: RewardedOutcome.unavailable);
+
+      await pumpToday(tester, api: api, ads: ads);
+      await tapAndSettle(tester, previewButton());
+      expect(previewEnabled(tester), isFalse);
+
+      ProviderScope.containerOf(
+        tester.element(find.byType(HintCard)),
+      ).read(entitlementProvider.notifier).update(active: true);
+      await tester.pumpAndSettle();
+
+      expect(find.text('힌트 미리 보기'), findsOne);
+      expect(find.text('지금은 광고를 불러올 수 없어요'), findsNothing);
+      expect(previewEnabled(tester), isTrue);
+
+      await tapAndSettle(tester, previewButton());
+
+      expect(ads.rewardedShowCalls, 1, reason: '구독자는 광고를 다시 요청하지 않는다');
+      expect(api.unlockedHintPuzzleIds, [1]);
+      expect(find.text('서울에 가장 많다'), findsOne);
+    });
+
     testWidgets('광고를 띄울 수 없는 세션이면 처음부터 비활성이다', (tester) async {
       final api = FakeApiClient();
       final ads = FakeAdService();
@@ -262,7 +289,7 @@ void main() {
       await dismissSheet(tester);
 
       expect(ads.interstitialShowCalls, 1);
-      expect(store.puzzleId, 1);
+      expect(store.shown, {1});
     });
 
     testWidgets('구독자는 뜨지 않는다', (tester) async {

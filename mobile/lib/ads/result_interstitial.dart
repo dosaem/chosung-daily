@@ -29,7 +29,7 @@ class ResultInterstitial {
     if (!_ref.read(adGateProvider).canLoadAds) return false;
 
     final store = _ref.read(interstitialStoreProvider);
-    if (await store.lastShownPuzzleId() == puzzleId) return false;
+    if (await store.hasShown(puzzleId)) return false;
 
     final shown = await _ref.read(adServiceProvider).showInterstitial();
     if (shown) await store.markShown(puzzleId);
