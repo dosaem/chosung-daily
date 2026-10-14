@@ -1,0 +1,335 @@
+name: ASC Submit
+
+# App Store 심사 제출 자동화 — 메타데이터·가격·개인정보 라벨·연령등급·심사정보·
+# 빌드 첨부·제출을 한 번에 한다. 바이너리는 flutter.yml 이 이미 TestFlight 에
+# 올려 둔 것을 **번호로 골라 첨부**한다(여기서 빌드하지 않는다).
+#
+# 사용: gh workflow run asc-submit.yml [-f build_number=3] [-f dry_run=true]
+#
+# BASELINE(~/Code/BuildUrPalace/.github/workflows/asc-submit.yml)을 복사해
+# 식별자(`com.dosaem.chosung`)·경로(`mobile/ios`)·심사 연락처를 바꿨다. 연락처는
+# BASELINE 이 워크플로에 적어 둔 값을 **secret 으로 옮겼다** — 레포에 전화번호를
+# 커밋하지 않는다(docs/RELEASE.md "35.").
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_number:
+        description: '첨부할 TestFlight 빌드 번호 (비우면 최신 VALID 빌드)'
+        required: false
+        default: ''
+      app_version:
+        description: '제출할 버전 (pubspec.yaml 의 version 과 같아야 한다)'
+        required: false
+        default: '1.0.0'
+      dry_run:
+        description: 'true 면 제출 직전까지만 (reviewSubmission 생성 안 함)'
+        required: false
+        default: 'false'
+
+jobs:
+  submit:
+    runs-on: self-hosted
+    defaults:
+      run:
+        working-directory: mobile/ios
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create App Store Connect API key file
+        env:
+          API_KEY_JSON: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+        run: |
+          if [ -z "$API_KEY_JSON" ]; then
+            echo "::error::APP_STORE_CONNECT_API_KEY secret 이 없다 (docs/RELEASE.md '34.' D2)"
+            exit 1
+          fi
+          echo "$API_KEY_JSON" > fastlane/api_key.json
+
+      - name: Verify fastlane
+        run: |
+          if ! command -v fastlane &> /dev/null; then
+            brew install fastlane
+          fi
+          fastlane --version
+
+      - name: Upload metadata + categories + price (deliver)
+        env:
+          APP_VERSION: ${{ github.event.inputs.app_version || '1.0.0' }}
+        run: |
+          fastlane deliver \
+            --api_key_path fastlane/api_key.json \
+            --app_identifier com.dosaem.chosung \
+            --app_version "$APP_VERSION" \
+            --skip_binary_upload \
+            --skip_screenshots \
+            --precheck_include_in_app_purchases false \
+            --force
+
+      - name: Age rating, review details, build attach, submit
+        env:
+          BUILD_NUMBER: ${{ github.event.inputs.build_number }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+          # 심사 연락처. 비어 있으면 그 필드는 건드리지 않는다 — ASC 콘솔에
+          # 사람이 넣어 둔 값을 빈 문자열로 덮어쓰지 않으려고.
+          REVIEW_CONTACT_FIRST_NAME: ${{ secrets.ASC_REVIEW_CONTACT_FIRST_NAME }}
+          REVIEW_CONTACT_LAST_NAME: ${{ secrets.ASC_REVIEW_CONTACT_LAST_NAME }}
+          REVIEW_CONTACT_PHONE: ${{ secrets.ASC_REVIEW_CONTACT_PHONE }}
+          REVIEW_CONTACT_EMAIL: ${{ secrets.ASC_REVIEW_CONTACT_EMAIL }}
+        run: |
+          python3 - <<'PYEOF'
+          import base64, json, os, subprocess, sys, tempfile, time, urllib.error, urllib.request
+
+          d = json.load(open('fastlane/api_key.json'))
+          BUNDLE_ID = 'com.dosaem.chosung'
+          BUILD_NUMBER = os.environ.get('BUILD_NUMBER', '').strip()
+          DRY_RUN = os.environ.get('DRY_RUN', 'false').lower() == 'true'
+
+          def b64(obj):
+              return base64.urlsafe_b64encode(json.dumps(obj, separators=(',', ':')).encode()).rstrip(b'=')
+
+          def der_to_raw(der):
+              assert der[0] == 0x30
+              idx = 2
+              assert der[idx] == 0x02; idx += 1
+              rlen = der[idx]; idx += 1
+              r = der[idx:idx+rlen].lstrip(b'\x00'); idx += rlen
+              assert der[idx] == 0x02; idx += 1
+              slen = der[idx]; idx += 1
+              s = der[idx:idx+slen].lstrip(b'\x00')
+              return r.rjust(32, b'\x00') + s.rjust(32, b'\x00')
+
+          def token():
+              now = int(time.time())
+              si = b64({'alg': 'ES256', 'kid': d['key_id'], 'typ': 'JWT'}) + b'.' + \
+                  b64({'iss': d['issuer_id'], 'iat': now, 'exp': now + 900, 'aud': 'appstoreconnect-v1'})
+              with tempfile.NamedTemporaryFile('w', suffix='.p8', delete=False) as f:
+                  f.write(d['key']); kp = f.name
+              sig = subprocess.run(['openssl', 'dgst', '-sha256', '-sign', kp],
+                                   input=si, capture_output=True).stdout
+              os.unlink(kp)
+              return (si + b'.' + base64.urlsafe_b64encode(der_to_raw(sig)).rstrip(b'=')).decode()
+
+          TOKEN = token()
+          BASE = 'https://api.appstoreconnect.apple.com'
+
+          def api(method, path, body=None, ok=()):
+              req = urllib.request.Request(
+                  BASE + path,
+                  data=json.dumps(body).encode() if body else None,
+                  headers={'Authorization': f'Bearer {TOKEN}', 'Content-Type': 'application/json'},
+                  method=method)
+              try:
+                  resp = urllib.request.urlopen(req)
+                  raw = resp.read()
+                  return json.loads(raw) if raw else {}
+              except urllib.error.HTTPError as e:
+                  detail = e.read().decode()
+                  print(f'{method} {path} -> HTTP {e.code}: {detail[:600]}', file=sys.stderr)
+                  if e.code in ok:
+                      return None
+                  raise
+
+          # 앱/버전
+          app_id = api('GET', f'/v1/apps?filter[bundleId]={BUNDLE_ID}')['data'][0]['id']
+          vers = api('GET', f'/v1/apps/{app_id}/appStoreVersions?filter[appStoreState]=PREPARE_FOR_SUBMISSION,DEVELOPER_REJECTED,REJECTED,METADATA_REJECTED&limit=1')
+          if not vers['data']:
+              vers = api('GET', f'/v1/apps/{app_id}/appStoreVersions?limit=1')
+          ver = vers['data'][0]
+          ver_id = ver['id']
+          print('version:', ver['attributes']['versionString'], ver['attributes']['appStoreState'], ver_id)
+
+          # 제출/반려 이력
+          subs = api('GET', f'/v1/reviewSubmissions?filter[app]={app_id}&limit=10', ok=(400,))
+          if subs:
+              for srec in subs.get('data', []):
+                  a = srec['attributes']
+                  print('  submission:', a.get('state'), a.get('submittedDate'), srec['id'])
+
+          # 1) 콘텐츠 권리 선언 — 단어(책 제목)는 사실 표기이고 서드파티 콘텐츠를
+          #    앱에 담지 않는다. 출시 전 사람 확인 항목(docs/RELEASE.md "35.").
+          api('PATCH', f'/v1/apps/{app_id}', {
+              'data': {'type': 'apps', 'id': app_id,
+                       'attributes': {'contentRightsDeclaration': 'DOES_NOT_USE_THIRD_PARTY_CONTENT'}}})
+          print('content rights: OK')
+
+          # 1.5) 가격: 무료 (광고 제거 구독은 앱 내 구입이라 앱 가격은 0 이다)
+          pts = api('GET', f'/v1/apps/{app_id}/appPricePoints?filter[territory]=USA&limit=200')
+          free_pt = next(p['id'] for p in pts['data'] if float(p['attributes']['customerPrice']) == 0.0)
+          api('POST', '/v1/appPriceSchedules', {
+              'data': {'type': 'appPriceSchedules', 'relationships': {
+                  'app': {'data': {'type': 'apps', 'id': app_id}},
+                  'baseTerritory': {'data': {'type': 'territories', 'id': 'USA'}},
+                  'manualPrices': {'data': [{'type': 'appPrices', 'id': '${price-free}'}]}}},
+              'included': [{'id': '${price-free}', 'type': 'appPrices',
+                            'attributes': {'startDate': None},
+                            'relationships': {'appPricePoint': {'data': {'type': 'appPricePoints', 'id': free_pt}}}}]})
+          print('price: FREE OK')
+
+          # 1.7) 개인정보 라벨 — iris 는 팀 키를 지원하지 않아 401 이 날 수 있다.
+          #      실패하면 건너뛰고(ASC UI 값 유지) 사람이 콘솔에서 넣는다
+          #      (docs/RELEASE.md "34." 의 ASC 개인정보 라벨 항목).
+          IRIS = 'https://appstoreconnect.apple.com/iris'
+          def iris(method, path, body=None):
+              req = urllib.request.Request(
+                  IRIS + path,
+                  data=json.dumps(body).encode() if body else None,
+                  headers={'Authorization': f'Bearer {TOKEN}', 'Content-Type': 'application/json'},
+                  method=method)
+              try:
+                  resp = urllib.request.urlopen(req)
+                  raw = resp.read()
+                  return json.loads(raw) if raw else {}
+              except urllib.error.HTTPError as e:
+                  print(f'{method} {path} -> HTTP {e.code}: {e.read().decode()[:400]}', file=sys.stderr)
+                  raise
+
+          try:
+              existing_du = iris('GET', f'/v1/apps/{app_id}/dataUsages?limit=200')
+              for u in existing_du.get('data', []):
+                  iris('DELETE', f"/v1/appDataUsages/{u['id']}")
+              privacy = json.load(open('fastlane/app_privacy_details.json'))
+              count = 0
+              for entry in privacy:
+                  cat = entry['category']
+                  for prot in entry['data_protections']:
+                      if prot == 'DATA_NOT_COLLECTED':
+                          iris('POST', '/v1/appDataUsages', {'data': {'type': 'appDataUsages', 'relationships': {
+                              'app': {'data': {'type': 'apps', 'id': app_id}},
+                              'dataProtection': {'data': {'type': 'appDataUsageDataProtections', 'id': prot}}}}})
+                          count += 1
+                          continue
+                      for purpose in entry.get('purposes', []):
+                          iris('POST', '/v1/appDataUsages', {'data': {'type': 'appDataUsages', 'relationships': {
+                              'app': {'data': {'type': 'apps', 'id': app_id}},
+                              'category': {'data': {'type': 'appDataUsageCategories', 'id': cat}},
+                              'dataProtection': {'data': {'type': 'appDataUsageDataProtections', 'id': prot}},
+                              'purpose': {'data': {'type': 'appDataUsagePurposes', 'id': purpose}}}}})
+                          count += 1
+              ps = iris('GET', f'/v1/apps/{app_id}/dataUsagePublishState')
+              ps_id = ps['data']['id']
+              iris('PATCH', f'/v1/appDataUsagesPublishState/{ps_id}',
+                   {'data': {'type': 'appDataUsagesPublishState', 'id': ps_id, 'attributes': {'published': True}}})
+              print(f'privacy labels: {count} usages, PUBLISHED')
+          except Exception as e:
+              print(f'privacy labels: SKIPPED (iris auth 미지원 — ASC UI 값 유지): {type(e).__name__}')
+
+          # 2) 연령 등급 4+ — 폭력·성적 표현·도박이 없는 단어 게임이다. appInfos
+          #    경유(구 appStoreVersions 경로는 404), 실패해도 기존 값을 유지한다.
+          try:
+              infos = api('GET', f'/v1/apps/{app_id}/appInfos?limit=5')
+              info_id = infos['data'][0]['id']
+              ar = api('GET', f'/v1/appInfos/{info_id}/ageRatingDeclaration')
+              ar_id = ar['data']['id']
+              NONE_FIELDS = ['alcoholTobaccoOrDrugUseOrReferences', 'contests', 'gamblingSimulated',
+                             'horrorOrFearThemes', 'matureOrSuggestiveThemes', 'medicalOrTreatmentInformation',
+                             'profanityOrCrudeHumor', 'sexualContentGraphicAndNudity', 'sexualContentOrNudity',
+                             'violenceCartoonOrFantasy', 'violenceRealistic', 'violenceRealisticProlongedGraphicOrSadistic']
+              attrs = {f: 'NONE' for f in NONE_FIELDS}
+              attrs.update({'gambling': False, 'unrestrictedWebAccess': False, 'kidsAgeBand': None})
+              api('PATCH', f'/v1/ageRatingDeclarations/{ar_id}',
+                  {'data': {'type': 'ageRatingDeclarations', 'id': ar_id, 'attributes': attrs}})
+              print('age rating: OK (4+)')
+          except Exception as e:
+              print(f'age rating: SKIPPED ({type(e).__name__}) — 기존 값 유지')
+
+          # 3) 심사 연락처·심사 노트. 노트는 레포 파일이 정본이고(계정 정보는
+          #    플레이스홀더), 연락처는 secret 이다 — 빈 secret 은 보내지 않는다.
+          rd = api('GET', f'/v1/appStoreVersions/{ver_id}/appStoreReviewDetail', ok=(404,))
+          notes = open('fastlane/metadata/review_information/notes.txt').read()[:4000]
+          review_attrs = {'demoAccountRequired': False, 'notes': notes}
+          contacts = {
+              'contactFirstName': os.environ.get('REVIEW_CONTACT_FIRST_NAME', '').strip(),
+              'contactLastName': os.environ.get('REVIEW_CONTACT_LAST_NAME', '').strip(),
+              'contactPhone': os.environ.get('REVIEW_CONTACT_PHONE', '').strip(),
+              'contactEmail': os.environ.get('REVIEW_CONTACT_EMAIL', '').strip(),
+          }
+          missing = [name for name, value in contacts.items() if not value]
+          review_attrs.update({name: value for name, value in contacts.items() if value})
+          if missing:
+              print(f'review contact: {", ".join(missing)} secret 이 비어 ASC 콘솔 값을 유지한다')
+          if rd and rd.get('data'):
+              api('PATCH', f"/v1/appStoreReviewDetails/{rd['data']['id']}",
+                  {'data': {'type': 'appStoreReviewDetails', 'id': rd['data']['id'], 'attributes': review_attrs}})
+          else:
+              api('POST', '/v1/appStoreReviewDetails', {
+                  'data': {'type': 'appStoreReviewDetails', 'attributes': review_attrs,
+                           'relationships': {'appStoreVersion': {'data': {'type': 'appStoreVersions', 'id': ver_id}}}}})
+          print('review details: OK')
+
+          # 4) 빌드 첨부
+          builds = api('GET', f'/v1/builds?filter[app]={app_id}&filter[processingState]=VALID&sort=-uploadedDate&limit=20')
+          target = None
+          for b in builds['data']:
+              if b['attributes']['expired']:
+                  continue
+              if not BUILD_NUMBER or b['attributes']['version'] == BUILD_NUMBER:
+                  target = b
+                  break
+          assert target, f'no VALID build found (want={BUILD_NUMBER or "latest"})'
+          api('PATCH', f'/v1/appStoreVersions/{ver_id}/relationships/build',
+              {'data': {'type': 'builds', 'id': target['id']}})
+          print('build attached:', target['attributes']['version'])
+
+          if DRY_RUN:
+              print('DRY RUN — 제출 생략. 모든 준비 완료 상태.')
+              sys.exit(0)
+
+          # 5) 심사 제출 — 미제출 카트는 취소할 수 없고, 카트가 있으면 새로 만들
+          #    수도 없다(동시성 제한). 버전 아이템이 담긴 기존 카트를 찾아 재사용하고,
+          #    없으면 첫 카트에 아이템을 추가한다. UNRESOLVED_ISSUES 는 취소한다.
+          stale = api('GET', f'/v1/reviewSubmissions?filter[app]={app_id}&limit=20', ok=(400,))
+          carts = []
+          for s in (stale or {}).get('data', []):
+              st = s['attributes'].get('state')
+              if st == 'READY_FOR_REVIEW':
+                  carts.append(s['id'])
+              elif st == 'UNRESOLVED_ISSUES':
+                  try:
+                      api('PATCH', f"/v1/reviewSubmissions/{s['id']}",
+                          {'data': {'type': 'reviewSubmissions', 'id': s['id'],
+                                    'attributes': {'canceled': True}}})
+                      print(f"canceled unresolved submission {s['id']}")
+                  except Exception as e:
+                      print(f"cancel failed for {s['id']}: {type(e).__name__} — 계속 진행")
+
+          sub_id = None
+          for cid in carts:
+              items = api('GET', f'/v1/reviewSubmissions/{cid}/items?include=appStoreVersion&limit=10', ok=(400,))
+              vids = [i['id'] for i in (items or {}).get('included', []) if i.get('type') == 'appStoreVersions']
+              print(f'cart {cid}: version items = {vids}')
+              if ver_id in vids:
+                  sub_id = cid
+                  print(f'reusing cart {cid} (version already attached)')
+                  break
+
+          if sub_id is None and carts:
+              sub_id = carts[0]
+              api('POST', '/v1/reviewSubmissionItems', {
+                  'data': {'type': 'reviewSubmissionItems',
+                           'relationships': {
+                               'reviewSubmission': {'data': {'type': 'reviewSubmissions', 'id': sub_id}},
+                               'appStoreVersion': {'data': {'type': 'appStoreVersions', 'id': ver_id}}}}})
+              print(f'added version item to cart {sub_id}')
+
+          if sub_id is None:
+              sub = api('POST', '/v1/reviewSubmissions', {
+                  'data': {'type': 'reviewSubmissions', 'attributes': {'platform': 'IOS'},
+                           'relationships': {'app': {'data': {'type': 'apps', 'id': app_id}}}}})
+              sub_id = sub['data']['id']
+              api('POST', '/v1/reviewSubmissionItems', {
+                  'data': {'type': 'reviewSubmissionItems',
+                           'relationships': {
+                               'reviewSubmission': {'data': {'type': 'reviewSubmissions', 'id': sub_id}},
+                               'appStoreVersion': {'data': {'type': 'appStoreVersions', 'id': ver_id}}}}})
+              print('new submission + item created')
+
+          api('PATCH', f'/v1/reviewSubmissions/{sub_id}',
+              {'data': {'type': 'reviewSubmissions', 'id': sub_id, 'attributes': {'submitted': True}}})
+          print('SUBMITTED FOR REVIEW')
+          PYEOF
+
+      - name: Cleanup key
+        if: always()
+        run: rm -f fastlane/api_key.json

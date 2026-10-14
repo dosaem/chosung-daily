@@ -1,0 +1,70 @@
+APP PURPOSE:
+Hidden Vowels (Korean title: 오늘의 초성) is a daily word game. Exactly one puzzle
+opens per day at midnight Korea time, and every player gets the same word. The
+board shows only the consonants — the leading consonant of each syllable on the
+Korean board, the consonant skeleton with the vowels blanked out on the English
+board — plus the word length. Players have five tries; after each guess, letters
+in the correct position are marked green and the rest grey. A hint unlocks after
+the third wrong guess.
+
+HOW TO REVIEW:
+- No account registration or login is required. On first launch the app asks the
+  server for an anonymous guest token and that token owns the history.
+- Launch the app, finish the four onboarding pages (the first page also picks the
+  puzzle language), then type a guess on the "Today" tab and press Submit.
+- The other two tabs are "Ranking" (today's leaderboard by tries and time; display
+  names are anonymous numbers derived from the guest id, never emails) and
+  "Records" (streaks, the last seven days, settings).
+- Signing in with Google or Apple is optional and only links the existing history
+  to an account so it survives a device change. A backup code does the same
+  without any account.
+
+SUBSCRIPTION TEST (auto-renewable, removes ads):
+- The only in-app purchase is a monthly auto-renewable subscription that removes
+  ads. Everything else in the app is free and no feature is behind the paywall.
+- Open the "Records" tab and tap the subscription card to reach the paywall. The
+  price shown is the localized App Store price (KRW 1,500 in Korea).
+- Please use the Sandbox tester account we entered in App Store Connect >
+  App Information > App Review Information:
+      Sandbox tester Apple ID: <SANDBOX_TESTER_EMAIL>
+      Password:                <SANDBOX_TESTER_PASSWORD>
+  (We do not keep these credentials in the source repository. If the fields are
+  empty, please contact us at the review contact address and we will provide a
+  fresh Sandbox tester.)
+- After a successful Sandbox purchase the ads disappear within one app launch.
+- Cancellation path, as stated in the terms: Settings > Apple Account >
+  Subscriptions. The app never asks for payment details itself.
+
+ACCOUNT DELETION PATH (App Store Review Guideline 5.1.1(v)):
+- In the app: "Records" tab > "Delete account" (red, at the bottom of the
+  settings list) > confirm. This deletes the guest history, the linked account
+  and today's leaderboard entry, and revokes the Apple sign-in connection.
+- On the web, without the app: https://chosung.dosaem.com/account/delete
+- Deletion is immediate in the service. Daily database backups keep a copy for
+  up to 14 days, which the privacy policy states.
+
+EXTERNAL SERVICES:
+- Google AdMob (banner, interstitial, rewarded "preview a hint" ads).
+- Firebase Analytics (four aggregate events: puzzle completed, share, paywall
+  view, subscription start) and Sentry (crash and error reports).
+- Google Sign-In / Sign in with Apple for the optional account link.
+- App Store Server API and Google Play Developer API for subscription receipt
+  verification, called from our server.
+- Our own backend (https://chosung.dosaem.com/api/v1 — a normal public server,
+  no allow-list or VPN needed) for puzzles, guesses, rankings and history. No
+  other third-party API, payment processor or AI service.
+
+REGIONAL DIFFERENCES:
+Content and features are identical in every region. The app is localized in
+Korean and English, and the puzzle language is a separate in-app setting, so an
+English-speaking player can play the Korean board and the other way round. The
+day boundary is midnight Korea time everywhere.
+
+REGULATED INDUSTRY:
+Not applicable. This is a casual word game with no gambling, no health data and
+no financial services.
+
+PRIVACY:
+Privacy policy: https://chosung.dosaem.com/privacy
+Terms (including the subscription terms and the standard Apple EULA link):
+https://chosung.dosaem.com/terms
