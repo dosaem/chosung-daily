@@ -65,3 +65,61 @@
 - 프로덕션/NAS 접근과 실제 Firebase·Apple·Play 호출은 하지 않았다. 실제 서명·배포 리허설은 D0·D2 준비 후 사람 단계로 남는다. 취향·스타일 제안은 결함에 포함하지 않았다.
 
 판정: FAIL
+
+## 라운드 2
+
+- 기준: 로컬 `main` = `a520223`, 구현 HEAD = `8b0b423`. `git diff main...HEAD` 전체와 `git log main..HEAD`의 8개 커밋을 검토했다. `origin/main`은 사용하지 않았다.
+- 티켓 34, 스펙 BASELINE·§B.25·US 66, BASELINE 복사 목록과 Android/iOS Fastfile 원본, 구현 증거의 수정 라운드, 이전 리뷰를 대조했다. UI 변경은 없다.
+- 이전 결함 **D-34-1~3 모두 FIXED**. 새 결함 **D-34-4 MAJOR 1건**. 현재 미해결 합계 **BLOCKER 0 / MAJOR 1 / MINOR 0**.
+
+### 체크박스별 충족 여부
+
+| 티켓 항목 | 판정 | 직접 확인한 근거 |
+|---|---|---|
+| BASELINE 워크플로·fastlane·ExportOptions·Gradle 서명/심볼·키 예제 복사·치환, AAB strip 처리 | **미충족** | 지정 파일, 식별자 `com.dosaem.chosung`, Team, Flutter 3.38.6, `mobile/` 경로 및 Actions의 스트립 검증은 존재한다. Xcode Release 서명 불일치는 수정됐다. 다만 수동 Android lane이 실제 빌드 실패를 삼킨 뒤 이전 AAB를 업로드하는 D-34-4가 남는다. |
+| 개인정보 라벨 재작성 | **충족** | JSON 9개 카테고리를 직접 읽고 `web/templates/legal/privacy.ko.html`의 수집·외부 처리 항목과 대조했다. 게스트·이메일·시도·구독·광고·진단 항목이 대응한다. ASC 제출과 SDK 실측은 사람 검증 범위다. |
+| API_BASE_URL 브랜치 분기, 광고 ID·serverClientId dart-define 전달 | **충족** | Actions main→PROD/그 외→DEV 분기와 플랫폼별 광고 변수 전달을 확인했다. 두 수동 Fastfile도 필수 5개 인자를 환경변수에서 읽어 실제 명령에 전달하고, 하나라도 없으면 빌드 전에 멈춘다. DEV 8090 인스턴스 도메인 등록은 문서의 D3 전제다. |
+| flutter-ci 분리, self-hosted 러너, secrets·match 레포·App Distribution 그룹 문서화 | **충족** | flutter-ci 변경 없음. 배포 잡 3개 모두 self-hosted이고 RELEASE `### 34.` 표에 사용 변수·secret 이름, match 저장소, testers 그룹이 있다. |
+| D0·D2 없는 debug APK 성공, release/IPA 전제와 사람 업로드 체크리스트 | **충족** | Firebase 설정 2개와 key.properties 부재를 확인한 뒤 이번 라운드에서 debug APK 빌드에 성공했다. RELEASE에 D0·D2 및 실제 업로드 사람 단계가 명시돼 있다. |
+
+### 이전 결함 판정
+
+| ID | 이전 심각도 | 판정 | 직접 재검증 |
+|---|---|---|---|
+| D-34-1 | MAJOR | **FIXED** | `mobile/ios/Runner.xcodeproj/project.pbxproj:526`, `:580`의 Release 설정을 확인했다. `xcodebuild -project mobile/ios/Runner.xcodeproj -target Runner -configuration Release -showBuildSettings` 결과는 `CODE_SIGN_IDENTITY = Apple Distribution`, `CODE_SIGN_STYLE = Manual`, `DEVELOPMENT_TEAM = J8QUD7B666`, `PROVISIONING_PROFILE_SPECIFIER = match AppStore com.dosaem.chosung`이다. ExportOptions와 같은 프로파일이다. |
+| D-34-2 | MAJOR | **FIXED** | `mobile/android/fastlane/Fastfile:21`, `mobile/ios/fastlane/Fastfile:21`의 인자 검사·Shellwords 인용·명령 전달을 확인했다. Ruby 하네스로 원본 함수를 평가하는 20개 테스트가 필수 값 전달과 각 값 누락 시 exit 2/빌드 미실행을 검증하며 실제 통과했다. |
+| D-34-3 | MAJOR | **FIXED** | `.github/workflows/flutter.yml:203`의 Firebase trap, `:352`의 P8 trap, `:321`의 match 이전 KEYCHAIN_NAME 전달과 두 always cleanup을 확인했다. 업로드/match 실패를 주입하는 셸 테스트가 통과했다. 문자열 검사에 그친 Android/ASC cleanup은 별도로 임시 파일을 만든 뒤 원본 run 블록을 실행하여 모두 삭제됨과 keychain 삭제 명령 호출을 확인했다. 실제 키·keychain은 사용하지 않았다. |
+
+### 새 결함
+
+#### D-34-4 — MAJOR — 수동 Android 배포가 빌드 실패 후 이전 AAB를 업로드한다
+
+- 위치: `mobile/android/fastlane/Fastfile:45`, `:46`; 업로드 진입점 `:53`, `:55`, `:68`, `:71`.
+- 재현 입력: 이전에 빌드했지만 아직 업로드하지 않은 `mobile/build/app/outputs/bundle/release/app-release.aab`가 있는 상태에서, 소스에 컴파일 오류가 있는 새 버전을 문서의 `fastlane beta`(기본 `clean` 미지정) 또는 `fastlane release`로 실행한다. 필수 dart-define 환경변수 5개는 모두 정상 지정한다.
+- 기대: 이번 빌드가 새 AAB를 만들지 못하면 업로드 전에 실패해야 한다. strip false-positive를 허용하더라도 이번 실행이 생성한 산출물임을 보장해야 한다.
+- 실제: 모든 Flutter 실패를 `|| echo`로 성공 처리하고, 이미 있던 AAB의 존재만 검사한다. 따라서 다른 API 환경·이전 소스·이전 버전의 AAB로 업로드를 진행할 수 있다. `clean`은 선택사항이고 문서의 기본 명령에는 없다.
+- 직접 재현: 임시 `mobile/android/fastlane` 구조와 이전 AAB 더미를 만들고, PATH 앞의 임시 `flutter` 실행파일을 `echo compilation-failed >&2; exit 1`로 구성했다. 원본 Fastfile 전체를 Ruby로 읽어 `platform`/`lane` DSL을 평가하고 `LANES[:beta].call({})`를 실행했다. `sh`는 실제 셸을 실행했고, 외부 업로드 함수만 출력으로 대체했다. **exit 0, `compilation-failed`, `UPLOAD_REACHED: internal`**을 확인했다. AAB를 지운 동일 입력은 **exit 1, `AAB was not produced`**, 업로드 미진입이었다. 산출물 존재 이외의 차이 없이 실패가 업로드로 바뀌었다.
+- 회귀 테스트 공백: `tests/test_app_deploy_workflow.py:662` 부근의 `CAPTURE_RB`는 `File.exist?`를 항상 true로 만들고 `sh`를 실행하지 않는다. dart-define 전달 검증에는 유효하지만, 새 산출물 생성 실패와 이전 산출물 재사용은 검증하지 않는다. 따라서 배포 테스트 102개 통과가 이 실패 경로의 안전성을 증명하지 않는다.
+- 수정 방향: 빌드 전에 대상 AAB를 제거하거나 이번 실행이 새로 만든 파일임을 검증하고, 새 파일의 유효성을 검사한 뒤에만 오탐을 허용한다. 이전 AAB가 있는 상태의 실제 빌드 실패 회귀 사례가 필요하다. 리뷰에서는 코드를 수정하지 않았다.
+
+### 직접 실행한 검증
+
+- `uv run ruff check .`: **All checks passed**.
+- `uv run pytest tests/test_app_deploy_workflow.py -q`: **102 passed in 1.83s**.
+- 전체 `uv run pytest -q`: **1026 passed in 680.92s (0:11:20)**, exit 0. 첫 실행에 통과하여 재실행 없음.
+  - `TEST_DATABASE_URL`로 기존 로컬 `chosung_daily_test_t34`, `TEST_REDIS_URL`로 로컬 Redis DB 8을 지정했다. 마이그레이션 왕복 테스트는 기존 파생 DB `chosung_daily_test_t34_migrations`를 사용했다. 새 DB 생성이나 기본 테스트 DB 폴백 없이 완료했다. 접속 문자열·비밀번호는 기록하지 않는다.
+- `flutter analyze --no-pub` (레포 루트): **No issues found**, exit 0.
+- `flutter test --no-pub` (`mobile/`): **120 passed**, exit 0.
+- D0·D2 파일이 없는 상태에서 `JAVA_HOME=<로컬 JDK 17> flutter build apk --debug --no-pub` (`mobile/`): **exit 0**, `Built build/app/outputs/flutter-apk/app-debug.apk` (Gradle 26.6초).
+- `uv run flask db heads`: **`d7a1f0ca0a29 (head)`** 한 줄. 티켓 자체 마이그레이션 변경 없음.
+- `plutil -lint mobile/ios/Runner.xcodeproj/project.pbxproj`: **OK**. Xcode 유효 Release 설정은 D-34-1 재검증 표 참조.
+- `git diff --check main...HEAD`: 통과. `git check-ignore`로 서명·스토어 인증 파일 제외를 확인했고, `git ls-files`에 실제 jks/keystore/P8/ASC·Play JSON 인증 파일은 없었다.
+
+### 범위·보안·검증 한계
+
+- 공유 파일 `docs/RELEASE.md`는 기존 내용 뒤에 자기 `### 34.`만 추가했다. `.env.example`·스펙·다른 티켓의 공유 절 변경 없음. 애플리케이션 변경은 app_env 주석 교정뿐이며, 이번 리뷰는 리뷰 문서만 수정한다.
+- diff에서 실제 키·토큰·비밀번호 기록은 발견하지 못했다. 키 예제는 자리표시자이고 사용자 지정 secret은 환경변수로 전달한다. 인증·CSRF·데이터 모델 동작을 변경하지 않는다.
+- 정적 계약 테스트와 로컬 실패 주입은 실제 서명·스토어 업로드 성공을 보장하지 않는다. D0·D2 준비 후 사람 리허설이 남는다. 프로덕션/NAS 접근, 실제 Firebase·Apple·Play 호출, 인증 정보 입력, push는 수행하지 않았다.
+- 취향·스타일 제안은 결함에 포함하지 않았다.
+
+판정: FAIL
