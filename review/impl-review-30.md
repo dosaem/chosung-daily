@@ -80,3 +80,78 @@
 - 기존 Flutter 테스트 통과와 별개로 네이티브 delegate 연결, OS에 전달한 시각, 비동기 초기 로드 경합까지 보장되지는 않는다.
 
 판정: FAIL
+
+## 라운드 2
+
+- 기준: 로컬 `main` `8ddc8fd` → 구현 `HEAD` `0686472`. `git diff main...HEAD`, `git log main..HEAD` 전체와 이전 리뷰 이후 수정 diff를 확인했다. `origin/main`은 사용하지 않았다.
+- 티켓 30, 스펙 §A.9·US 35~40·미정 6, 구현 증거의 수정 라운드 1, SCREENS S4/T4, hidden-vowels OVERRIDES와 목업을 대조했다.
+- 이전 결함 **FIXED 3 / REPEAT 0**, 신규 결함 **BLOCKER 0 / MAJOR 0 / MINOR 0**. 아래 FIXED 항목의 MAJOR는 이전 심각도이며 현재 미해결 결함 수에 포함하지 않는다.
+
+### 체크박스별 결과
+
+| 티켓 체크박스 | 결과 | 직접 확인한 근거 |
+|---|---|---|
+| 순수 예약 계획: 고정 ID 일일 반복 1개·7일 1회성·KST 완료 제외·동시각 제외·최대 8개 | 충족 | `notification_plan.dart`의 입력 기반 계획과 `notification_scheduler.dart:69`의 daily 전용 반복 설정을 확인했다. 전체 실행에 포함된 계획 테스트 17건이 KST 경계·7일 보충·상한을 검증한다. |
+| 단위 테스트: 오늘 제외·내일 유지·미주 KST 경계·두 언어 중 하나 완료·롤링·상한·시간대 변경 | 충족 | 실제 순수 함수와 controller를 사용한다. 이번 시간대 회귀 테스트는 provider의 계획뿐 아니라 `scheduler.scheduled`에 새 시각의 예약 전체가 전달됐는지 검증한다. |
+| 여섯 사건 구독·OS diff·Android inexact·exact 권한 제외·로컬 존·28 권한 사용 | 충족 | `notification_controller.dart`의 시작·resume·완료·탭·설정·guestToken 구독과 직렬 sync를 확인했다. pending payload의 UTC 발화 순간을 읽어 비교하므로 동일 ID의 시각 변경도 재예약된다(D-30-1 FIXED). 초기 완료 날짜 읽기 경합도 수정됐다(D-30-3 FIXED). Android manifest 리시버 및 exact 권한 미포함, scheduler의 `inexactAllowWhileIdle`을 확인했다. |
+| cold/warm 알림 탭 → 오늘 탭·최신 퍼즐 재조회 | 충족 | bootstrap의 callback/launch details → controller의 router/refresh 경로와 탭 테스트를 확인했다. iOS delegate 연결을 설치된 plugin native source·Flutter header와 대조하고 AppDelegate를 타입체크했다(D-30-2 FIXED). 실제 기기 cold/warm 실행은 사람 체크리스트로 남는다. |
+| S4 picker·스위치·권한 안내·설정 앱 열기·태블릿 열·폭 744 adaptive sheet·native audit·목업 대비 | 충족 | 화면 테스트 10건과 전체 골든 비교 통과. 390 권한 거부·1024 태블릿 골든을 직접 열어 e4_records 및 T4와 대조했다. 오른쪽 설정 열, 헤어라인, 색 토큰과 최소 터치 높이를 확인했고, 별도 semantics 실행에서 `리마인더` 라벨과 enabled/toggled 상태를 확인했다. 폭 744 picker는 기존 `showAdaptiveSheet`의 Dialog 경로를 검증한다. native audit의 접근성·플랫폼 배선·디자인 토큰·반응형 근거를 직접 점검했으며 실제 OS 발화까지 자동 검증했다고 간주하지 않는다. |
+| iOS·Android 실기기 체크리스트와 README 로컬 알림 선택 근거 | 충족 | RELEASE `### 30.`에 당일 취소·다음 날 유지·cold/warm·권한·재부팅·시간대 변경 체크가 있다. README `### 30.`에 로컬 예약의 이유·한계와 수정한 payload diff·delegate·초기 read 순서가 적혀 있다. 사람의 실기기 실행 자체는 이 티켓의 자동 검증 범위가 아니다. |
+
+### 이전 결함 재판정
+
+#### D-30-1 — FIXED (이전 MAJOR)
+
+- 위치: `mobile/lib/notifications/notification_sync.dart:45`, `mobile/lib/notifications/notification_scheduler.dart:31`, `:54`.
+- 재현: `cd mobile && flutter test --no-pub test/notifications/notification_controller_test.dart test/notifications/notification_diff_test.dart`의 서울 예약 → 뉴욕 변경 → foreground resume 및 같은 ID/다른 발화 순간 테스트.
+- 기대: 겹치는 날짜 ID도 새로운 로컬 20:00으로 OS 예약을 갱신한다. 실제: controller의 예약 호출 목록이 새 계획 전체를 포함하고, diff가 순간이 다르거나 불명인 리마인더를 재예약하는 테스트가 통과했다(전체 Flutter 실행에도 포함).
+- 직접 확인: scheduler가 UTC ISO-8601 payload를 쓰고 읽으며, diff가 `isAtSameMomentAs`로 비교한다. 설치된 `flutter_local_notifications 22.3.2`의 Android `pendingNotificationRequests` 및 iOS 동일 메서드가 payload를 반환하는 코드도 확인했다. fake만 순간을 기억하고 실제 adapter는 잊는 구조가 아니다.
+
+#### D-30-2 — FIXED (이전 MAJOR)
+
+- 위치: `mobile/ios/Runner/AppDelegate.swift:20`.
+- 재현/검증: iOS warm/cold 알림 탭의 OS 응답 전달 경로를 AppDelegate → Flutter application delegate → 설치된 plugin의 `didReceiveNotificationResponse`까지 대조했다. `test/config/ios_scheduled_notifications_test.dart` 2건과 탭 위젯 테스트가 전체 실행에서 통과했다.
+- 기대: notification center delegate가 등록되어 OS 응답이 Dart callback 또는 launch 정보로 연결된다. 실제: launch 메서드 안의 `UNUserNotificationCenter.current().delegate = self`와 `import UserNotifications`를 확인했다. Flutter header의 상속된 protocol 채택과 plugin의 `addApplicationDelegate`, 초기화 여부에 따른 callback/launch 분기까지 확인했다.
+- 독립 검증: `xcrun swiftc -typecheck`로 현재 AppDelegate를 설치된 iOS simulator Flutter framework에 대조하여 종료 코드 0을 확인했다. `/tmp`에 만든 GeneratedPluginRegistrant 대역은 등록 심볼만 제공한다. 따라서 이것은 AppDelegate 타입체크이며 전체 iOS 링크/실기기 탭 테스트를 대신하지 않는다.
+
+#### D-30-3 — FIXED (이전 MAJOR)
+
+- 위치: `mobile/lib/notifications/completed_puzzle_dates.dart:96`.
+- 재현: `cd mobile && flutter test --no-pub test/notifications/completed_puzzle_dates_test.dart`의 시작 read를 Completer로 대기시킨 뒤 `markCompleted(today)` 호출 → 초기 read가 빈 집합을 반환하도록 해제.
+- 기대: 최종 provider와 저장소에 오늘 완료 날짜가 남는다. 실제: 새 회귀 테스트가 두 값을 모두 `{todayKey}`로 확인하며 통과했다(전체 Flutter 실행에도 포함).
+- 직접 확인: `await future`로 초기 build/read 및 정리 write가 끝난 후 현재 집합에 날짜를 더한다. 실제 notifier/provider를 사용하고 저장소 응답 시점만 지연시킨 테스트라 기존 덮어쓰기 순서를 검증한다.
+
+### 신규 결함
+
+없음.
+
+### 범위·보안·공유 파일
+
+- 앱 알림 기능 및 관련 UI·문서·테스트 범위다. `app/`, `web/`, `tests/`, `migrations/` 변경은 없다. 인증·CSRF 서버 경계를 변경하지 않았다.
+- README/RELEASE는 자기 번호 `### 30.`만 추가했고 스펙 미정 절은 자기 티켓 행만 끝에 추가했다. 기존 다른 티켓 절을 덮어쓰지 않았다.
+- diff에서 실제 키·토큰·비밀번호 추가 기록을 발견하지 않았다. 새 payload에는 발화 시각만 담기며 계정 식별자나 인증 정보는 넣지 않는다.
+- 리뷰 작업은 이 파일만 변경한다. DB는 지정된 기존 로컬 테스트 자원을 사용하며 새 DB 생성·프로덕션 접근·배포·push는 하지 않았다.
+
+### 참고
+
+- 30분 단위 picker, 안내 문구의 별도 행, 아이콘 선택은 이번 요구 위반으로 올리지 않는다.
+- 7일 이후 리마인더 중단은 명세가 허용한 한계다. 실기기 발화·재부팅·cold/warm 탭은 RELEASE의 사람 체크리스트에서 확인해야 한다.
+
+### 직접 실행한 검증
+
+| 명령/대상 | 이번 라운드 결과 |
+|---|---|
+| `cd mobile && flutter test` | **464 passed**, 종료 코드 0, 35초. 골든 비교 포함. |
+| `cd mobile && flutter analyze` | **No issues found**, 종료 코드 0. |
+| 수정 회귀 파일 4개 별도 실행 | controller 18 + diff 8 + 완료 날짜 4 + iOS 설정 2 = **32 passed**, 종료 코드 0. |
+| `flutter test --no-pub /tmp/t30-review-semantics_test.dart --reporter expanded` | **1 passed**. 리마인더 switch의 라벨·enabled/toggled 상태 확인. |
+| 실제 scheduler/plugin Dart → method channel payload 왕복 임시 테스트 | **1 passed**, 종료 코드 0. 뉴욕 예약의 UTC payload·zone 전달, pending에서 같은 순간 복구, 손상 payload의 null 처리 확인. OS 경계만 가짜로 했으며 실제 발화 검증은 아니다. 최초 실행의 plugin 미등록 오류는 임시 harness의 `registerWith()` 누락이었고 제품 결함이 아니었다. |
+| iOS AppDelegate simulator Swift 타입체크 | **성공**, 종료 코드 0. 설치된 Flutter framework + `/tmp` GeneratedPluginRegistrant 대역 사용. 전체 iOS 빌드는 미실행. |
+| `uv run ruff check .` | **All checks passed**, 종료 코드 0. |
+| `uv run flask db heads` | `b1c7d4e0a932 (head)` **한 줄**, 종료 코드 0. 마이그레이션 변경 없음. |
+| `git diff --check main...HEAD` 및 리뷰 문서 diff 검사 | 공백 오류 없음. |
+| 백엔드 전체 `uv run pytest -q` | **1403 passed in 1988.04s (0:33:08)**, 종료 코드 0. 지정 전용 DB/Redis로 첫 실행 통과. |
+
+백엔드 실행 시 `TEST_DATABASE_URL`은 기존 로컬 **chosung_daily_test_t30**, `TEST_REDIS_URL`은 로컬 **Redis DB 4**, `TEST_MIGRATION_DATABASE_URL`은 기존 로컬 **chosung_daily_test_t30_migrations**를 지정했다. 자격증명은 기록하지 않는다. 접속 성공으로 기본 DB 대체가 필요하지 않았고, 간헐 실패가 없어 재실행하지 않았다. 앱·테스트·설정·`.scratch/`는 수정하지 않았다.
+
+판정: PASS
