@@ -343,3 +343,200 @@ d48dd69 앱 29: 네이티브 로그인 경계와 계정 컨트롤러 — 토큰 
 `GuestResponse` 는 그 게스트의 토큰이다. 같은 게스트면 토큰도 같다. 응답에
 구분 필드가 없으므로 이게 유일하게 있는 신호다 — 서버에 플래그를 더하는 건
 이 티켓 범위 밖이라(백엔드 무변경) 있는 값으로 읽었다.
+
+---
+
+## 수정 라운드 1
+
+`review/impl-review-29.md` 라운드 1(FAIL, MAJOR 2 / MINOR 1)의 결함 3개를 전부
+고쳤다. 각 결함은 리뷰에 적힌 재현 순서대로 **먼저 실패하는 테스트**로 고정한
+뒤 고쳤다(아래 "빨강 → 초록" 은 그 실제 출력이다). 리뷰 파일은 고치지 않았다.
+
+### D-29-1 (MAJOR) — 전환 후 재조회 실패를 성공 처리하며 이전 계정 정보를 유지
+
+**원인.** 계정이 바뀌는 네 경로가 전부 `AccountNotifier._adopt` →
+`MyStatsNotifier.refresh()` 를 불렀다. `refresh` 는 **플레이 뒤 재조회**용이라
+실패하면 보던 숫자를 그대로 둔다(OVERRIDES §7 — 기록 숫자 하나 때문에 화면을
+오류로 덮지 않는다). 그 정책을 계정 경계가 바뀌는 자리에 그대로 재사용한 것이
+결함이다. 계정이 바뀌면 옛 `/me/stats` 는 "오래된 사본" 이 아니라 **다른
+사람의 값**이라, 토큰은 B 인데 카드는 A 를 보여주고 그 화면에서 누른 삭제가
+B 를 지운다. 백업 코드 경로는 그 위에 더해, 코드 확인으로 **이미 받아 둔 B 의
+`/me/stats`** 를 버리고 다시 읽고 있었다.
+
+**수정.**
+
+- `mobile/lib/records/my_stats_controller.dart`: `discard()` + `adopt(MyStats?)`
+  를 더했다. `adopt` 는 먼저 옛 값을 버리고, `stats` 를 받았으면 그걸 쓰고,
+  없으면 새 토큰으로 읽는다. **읽기가 실패하면 옛 값을 되살리지 않고 예외를
+  올린다** — 부른 쪽이 그 일이 시작된 자리에 실패 문구를 둘 수 있게.
+  `refresh()` 는 손대지 않았다(플레이 경로의 조용한 재조회는 그대로다).
+- `mobile/lib/account/account_controller.dart`: `_adopt(token, {stats})` 가
+  `refresh()` 대신 `adopt(stats)` 를 부른다. `restoreWithBackupCode` 는 확인
+  응답(`fetchMyStatsWithToken`)을 그대로 넘긴다 — 호출이 하나 줄고, 토큰 교체와
+  표시 사이에 빈틈이 없다.
+- **버리는 값은 `AsyncData<MyStats?>(null)` 이다.** 처음엔 `AsyncLoading`/
+  `AsyncError` 로 눕혔는데 테스트가 계속 빨강이었다: Riverpod 3 의
+  `$AsyncClassElement`(`riverpod-3.3.2/lib/src/core/element.dart:67`)가 모든
+  상태 전이에 `AsyncValue.copyWithPrevious` 를 걸어 **직전 값을 새 상태에
+  실어 준다**. 그래서 둘 중 무엇으로 눕혀도 `.value` 로 옛 계정이 되살아난다.
+  이 provider 의 값 타입은 `MyStats?` 고 null 은 원래 "아직 모른다 → 스켈레톤"
+  이라, null 이 정확히 맞는 표현이다. 이 함정은 주석으로 코드에 남겼다.
+
+**증명하는 테스트.** (앞 3개가 새 테스트, 마지막은 기존 테스트의 단언 갱신)
+
+- `test/account/account_controller_test.dart` — "백업 코드 확인 때 받은 새 계정
+  기록을 그대로 쓴다 — 옛 계정이 남지 않는다": A(`a@icloud.com`, streak 99)가
+  떠 있는 상태에서 B 의 코드를 넣고, 토큰 교체 뒤 재조회(`fetchMyStats`)만
+  네트워크 오류로 실패시킨다 → `myStatsProvider` 가 `b@gmail.com` / streak 4.
+- `test/account/account_controller_test.dart` — "구글·애플 연결 전환 뒤 기록을
+  못 읽으면 옛 계정을 버리고 오류로 말한다": 토큰은 `other-device-token` 으로
+  바뀌고 `myStatsProvider.value` 는 null, 오류는 `account.error_network`.
+- `test/screens/records_account_test.dart` — "백업 코드 시트 전환하면 카드가
+  바로 새 계정을 보여준다" / "AccountCard 전환 뒤 기록을 못 읽으면 옛 기록이
+  사라지고 오류가 뜬다": 같은 순서를 실제 화면에서 돌려 "Apple ·
+  a\*\*\*@icloud.com 연결됨" 이 사라지고 "Google · b\*\*\*@gmail.com 연결됨" 이
+  뜨는지, 99일이 사라지고 "네트워크에 연결할 수 없어요" 가 뜨는지 본다.
+- 기존 "백업 코드 200 이면 그 토큰으로 갈아끼우고 다시 읽는다" 의
+  `expect(api.fetchMyStatsCalls, 1)` → `0` 으로 바꾸고, 새 계정 streak(4)을
+  확인하는 단언을 더했다. 재조회를 **일부러 없앤** 것이라 횟수 단언을 남겨
+  두면 수정이 회귀로 보인다.
+
+빨강(수정 전):
+
+```
++7 -1: test/account/account_controller_test.dart: 구글·애플 연결 전환 뒤 기록을 못 읽으면 옛 계정을 버리고 오류로 말한다 [E]
+  Expected: null
+    Actual: <Instance of 'MyStats'>
++9 -2: test/account/account_controller_test.dart: 백업 코드 확인 때 받은 새 계정 기록을 그대로 쓴다 — 옛 계정이 남지 않는다 [E]
+  Expected: 'b@gmail.com'
+    Actual: 'a@icloud.com'
+```
+
+### D-29-2 (MAJOR) — 삭제 성공 후 새 게스트 발급 실패 시 삭제된 토큰에 갇힘
+
+**원인.** 삭제는 "서버 삭제 → 로컬 정리 → 새 게스트 발급" 세 걸음인데, 코드가
+셋을 **전부 성공 아니면 전부 없던 일**인 한 덩어리로 다뤘다. 그런데 `DELETE
+/me` 는 되돌릴 수도, 다시 부를 수도 없는 단계다 — 그 토큰의 게스트는 이미
+없어서 두 번째 DELETE 는 401 이다(`app/api/me.py` `delete_me`, 그 docstring 에
+적혀 있다). 마지막 걸음(`POST /guests`)이 실패하면 예외가 그대로 올라가
+`clearPerAccount()` 와 `_adopt` 에 닿지 못하고, 재시도는 다시 DELETE 부터 돌아
+401 로 끝난다. 죽은 토큰·옛 계정 플래그가 그대로 남고, 삭제 자리에는 "삭제
+실패" 로 읽히는 문구가 뜬다.
+
+**수정.** `mobile/lib/account/account_controller.dart`
+
+- `bool _serverDeleted` 를 둬서 서버 삭제가 끝났다는 사실을 기억한다. 재시도는
+  DELETE 를 건너뛰고 **발급부터 잇는다.** 발급이 성공하면 다시 false 로 돌린다.
+- 로컬 흔적(`clearPerAccount()` + `myStatsProvider.discard()`)은 발급을
+  기다리지 않고 **서버 삭제 직후** 버린다. 중간에 멈춰도 이미 사라진 계정의
+  이름·기록이 화면에 남아 있으면 안 된다.
+- 토큰 교체 순서(발급 성공 뒤 `replaceWith`)는 그대로 뒀다 — 앱이 토큰 없는
+  상태로 남지 않는다는 기존 성질과 그 테스트가 유효하다.
+
+**증명하는 테스트.** (둘 다 새 테스트. 리뷰가 지적한 "기존 테스트는 토큰이
+null 이 아닌지만 본다" 를 메운다 — 두 테스트 모두 **두 번째 DELETE 가 401 을
+던지도록** 실제 서버 계약을 가짜에 넣고, 그래도 복구되는지 본다)
+
+- `test/account/account_controller_test.dart` — "계정 삭제 새 게스트 발급이
+  실패해도 네트워크가 돌아오면 그 자리에서 복구한다": 1차 실패 직후
+  `linkAccountNoticeSeen` 이 false, `myStatsProvider.value` 가 null 임을 먼저
+  확인하고, 네트워크 복구 후 재시도에서 `deleteAccountCalls == 1`(DELETE 는
+  다시 안 부른다), `createGuestCalls == 2`, 토큰 `fresh-guest`, 오류 null.
+- `test/screens/records_account_test.dart` — "계정 삭제 게스트 발급이
+  실패했다가 돌아오면 다시 눌러 복구한다": 같은 순서를 실제 화면에서. 1차
+  실패 뒤 "Google · a\*\*\*@gmail.com 연결됨" 과 "99일" 이 사라지고 네트워크
+  문구가 뜨며, 다시 눌러 "계정을 삭제하고 새로 시작했어요" 까지 간다.
+
+빨강(수정 전):
+
+```
++12 -3: test/account/account_controller_test.dart: 계정 삭제 새 게스트 발급이 실패해도 네트워크가 돌아오면 그 자리에서 복구한다 [E]
+  Expected: false
+    Actual: <true>        (linkAccountNoticeSeen 이 지워지지 않았다)
+```
+
+### D-29-3 (MINOR) — 연결됨 카드에 요구된 provider 아이콘 없음
+
+리뷰 지적을 받아들여 고쳤다(두 줄). 이전 라운드의 "이탈 1" 은 더 이상 해당하지
+않는다.
+
+**원인.** `_LinkedAccount` 가 provider 와 무관하게 `LucideIcons.userCheck` 를
+그렸다. "Lucide 에 브랜드 마크가 없다" 는 **공식 로고를 쓸 수 없다**는 뜻이지,
+두 provider 를 같은 아이콘으로 두어도 된다는 뜻이 아니다. 티켓 체크박스 3 과
+SCREENS S4 는 "provider 아이콘" 을 명시했고 OVERRIDES 에 이를 취소하는 규정이
+없다.
+
+**수정.** `mobile/lib/widgets/account_card.dart` 에 `providerIcon(String)` 을
+더했다 — `google` → `LucideIcons.chrome`, `apple` → `LucideIcons.apple`, 모르는
+값은 `providerDisplayName` 과 같은 이유로 `userCheck` 로 떨어진다. 브랜드 마크가
+아니라 **provider 를 구분하는 선 아이콘**이다. 공식 로그인 버튼 에셋 교체는
+그대로 `docs/RELEASE.md` "### 29." 5) 에 남아 있다.
+
+**증명하는 테스트.** `test/screens/records_account_test.dart` 의 "AccountCard
+연결됨 아이콘은 Google 이면 chrome 이다" / "… Apple 이면 apple 이다" / "모르는
+provider 면 공통 아이콘으로 떨어진다" 3개. 골든 `records_linked_390.png` 는
+아이콘이 바뀌어 `--update-goldens` 로 다시 떴다(계정 블록의 글자 구성·마스킹·
+헤어라인은 그대로, 아이콘 글리프만 바뀜).
+
+빨강(수정 전):
+
+```
++18 -4: test/screens/records_account_test.dart: AccountCard 연결됨 아이콘은 Google 이면 chrome 이다 [E]
+  Expected: exactly one matching candidate
+    Actual: _IconWidgetFinder:<Found 0 widgets with icon "IconData(U+0F207)": []>
+```
+
+### 미수정 MINOR
+
+없다. 라운드 1 의 MINOR 는 D-29-3 하나였고 고쳤다.
+
+### 리뷰 지적 중 고치지 않은 것
+
+없다. 세 결함 모두 재현됐고, 리뷰의 판정이 틀렸다고 본 항목은 없다.
+
+### 문서
+
+`README.md` "### 29." 에 설계 판단 두 개를 더했다 — (1) 계정 경계가 바뀌면 옛
+`/me/stats` 를 버린다(+ `copyWithPrevious` 함정), (2) `DELETE /me` 는 재시도할
+수 없는 단계라 완료를 기억한다. "알려진 제한" 의 아이콘 문장도 지금 구현에
+맞게 고쳤다. `docs/RELEASE.md`·`.env.example`·스펙·마이그레이션은 건드리지
+않았다.
+
+### 수정 라운드 1 재실행
+
+```
+$ cd mobile && flutter test
+00:14 +385: All tests passed!
+
+$ cd mobile && flutter analyze
+Analyzing mobile...
+No issues found! (ran in 5.2s)
+
+$ cd mobile && dart format --output=none --set-exit-if-changed .
+Formatted 114 files (0 changed) in 0.14 seconds.
+```
+
+앱 테스트 376 → **385**(+9: 컨트롤러 3, 화면 6). 마이그레이션 변경이 없어
+`flask db heads` 는 이번에도 확인 대상이 아니다(`git diff --name-only
+main...HEAD` 에 `migrations/` 없음).
+
+백엔드는 이 라운드에서도 안 건드렸지만 회귀가 없는지 같은 전용 자원으로 다시
+돌렸다(공용 테스트 DB 는 비우지 않았다):
+
+```
+$ export TEST_DATABASE_URL='mysql+pymysql://chosung:chosung@localhost:3306/chosung_daily_test_t29?charset=utf8mb4'
+$ export TEST_REDIS_URL='redis://localhost:6379/3'
+$ export TEST_MIGRATION_DATABASE_URL='mysql+pymysql://chosung:chosung@localhost:3306/chosung_daily_test_t29_migrations?charset=utf8mb4'
+$ uv run pytest -q
+........................................................................ [ 97%]
+...................................                                      [100%]
+1403 passed in 910.88s (0:15:10)
+(종료 코드 0)
+
+$ uv run ruff check .
+All checks passed!
+```
+
+rebase: 로컬 `main` 은 이번에도 `34ec7ec` 그대로라 `git rebase main` 이
+"Current branch dosaem/t29-app-account-link-switch-delete is up to date." 로
+끝났다(= 이미 로컬 main 위다). `origin/main` 은 쓰지 않았다.
