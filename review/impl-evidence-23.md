@@ -283,3 +283,140 @@ $ npx impeccable detect .scratch/store-launch/design/archive/v2_softdark_home.ht
   탭 두 개를 열어두고 양쪽에서 교체하면 나중 탭이 403 이다 — 운영자 두 명 규모에서
   폼별 토큰 보관을 만들 이유가 없다고 봤다(15 와 같은 판단).
 - 운영자 페이지는 계속 ko 전용이다(운영자 두 명, 둘 다 한국어).
+
+## 수정 라운드 1 (리뷰 라운드 1 FAIL 대응)
+
+- 대상: `review/impl-review-23.md` "라운드 1" 의 BLOCKER 0 / **MAJOR 1(D-23-1)** / MINOR 0.
+- base: 로컬 `main` **`4d83feb`** (티켓 13 머지 — 리뷰 때의 `7df7809` 에서 올라갔다).
+  이 라운드에서 그 위로 다시 rebase 했다(충돌 1건: `.scratch/store-launch/spec.md`
+  "미정 항목" 에 티켓 13 줄과 티켓 23 줄이 같은 자리에 붙어서 생긴 추가·추가 충돌 —
+  두 줄을 모두 남겼다).
+- 테스트 자원은 라운드 0 과 같다(DB `chosung_daily_test_t23`, Redis DB 11,
+  `TEST_DATABASE_URL`·`TEST_REDIS_URL`). 공용 테스트 DB·Redis 는 건드리지 않았다.
+- 틀렸다고 판단해 고치지 않은 지적: **없다**. D-23-1 은 재현됐고 원인도 리뷰가 지적한
+  지점이 맞았다.
+
+### D-23-1 (MAJOR) — 시도 없음 검사와 교체가 원자적이지 않음
+
+**원인.** `replace_assignment` 이 `count_by_puzzle` 로 "시도 0건" 을 읽고 `word_id` 를
+UPDATE 할 때까지 퍼즐 행에 잠금이 없었다. 제출(`submit_guess`)은 `GuestStats` 행만
+잠그고 퍼즐 행은 캐시 또는 잠금 없는 SELECT 로만 읽어서, 두 트랜잭션이 서로를 전혀
+막지 않았다. 그래서 (a) 검사 후 UPDATE 전에 제출이 커밋되는 순서, (b) 제출 도중에
+교체가 커밋되는 순서 **둘 다** 양쪽이 성공했다 — 옛 정답으로 판정된 `Attempt` 행이
+새 정답을 가리키고, `solved_count`·리더보드에는 옛 정답의 성공이 남는다. 증상(캐시)이
+아니라 이 "검사와 쓰기 사이의 창" 이 원인이다.
+
+**수정.** 두 경로가 같은 `daily_puzzle` 행을 잠그게 해서 검사-쓰기 창을 닫았다.
+
+| 파일 | 무엇 |
+|---|---|
+| `app/repositories/puzzle_repository.py` | `lock_by_date(date, language)` — `SELECT ... FOR UPDATE`. `lock_shared_answer(puzzle_id)` — `word` 조인 + `LOCK IN SHARE MODE` 로 현재 정답을 읽는다 |
+| `app/services/puzzle_schedule_service.py` | `replace_assignment` 이 `find_by_date` → `lock_by_date` 로 바꿔, **잠근 뒤에** 시도를 센다 |
+| `app/services/guess_service.py` | `_hold_the_puzzle_answer(puzzle, answer)` — `GuestStats` 잠금 뒤 퍼즐 행을 공유 잠금으로 잡고 정답이 그대로인지 재확인. 바뀌었으면 캐시를 지우고 `PuzzleChangedError`(409 `PUZZLE_CHANGED`) |
+| `README.md` | 설계 판단 `### 23.` 에 잠금 설계와 "제출 쪽을 FOR UPDATE 로 하지 않은 이유" 추가 |
+
+제출 쪽을 배타 잠금으로 하지 않은 이유: 같은 퍼즐을 푸는 모든 제출이 한 줄로 서게
+된다. 공유 잠금은 제출끼리 서로를 막지 않으면서 교체의 `FOR UPDATE` 만 막는다.
+실제로 나가는 SQL:
+
+```
+lock_by_date:        SELECT daily_puzzle.id, ... FROM daily_puzzle
+                     WHERE daily_puzzle.puzzle_date = %s AND daily_puzzle.language = %s FOR UPDATE
+lock_shared_answer:  SELECT word.answer FROM word
+                     INNER JOIN daily_puzzle ON daily_puzzle.word_id = word.id
+                     WHERE daily_puzzle.id = %s LOCK IN SHARE MODE
+```
+
+그래서 어느 쪽이 먼저 와도 뒤에 온 쪽이 앞의 결과를 보고 멈춘다:
+
+- 제출이 퍼즐 행을 먼저 잡으면 → 교체가 그 커밋을 기다렸다가 "시도 1건" 으로 거부.
+- 교체가 먼저 잡으면 → 제출이 교체 커밋까지 기다렸다가 바뀐 정답을 읽고
+  `PUZZLE_CHANGED`. 시도 행도 통계도 남지 않는다(= 리뷰의 "새 퍼즐 기준 재검증").
+
+**재현 테스트.** `tests/test_concurrency.py` 에 두 순서를 각각 고정한 테스트를 더했다
+(기존 파일의 패턴 그대로 — 실제 MySQL 두 세션 + 스레드, 가짜 값 없음. 잠금 순서는
+`threading.Event` 로 못 박아서 간헐 실패가 없다).
+
+- `test_replacement_that_wins_the_lock_turns_the_submission_away` — 교체가 "시도 0건"
+  을 읽은 직후 제출이 들어오는 순서(리뷰의 재현과 같은 순서).
+- `test_submission_that_wins_the_lock_blocks_the_replacement` — 제출이 정답을 잡은
+  도중에 교체가 들어오는 반대 순서(리뷰가 "반대 순서의 경합이 남을 수 있다" 고 적은 쪽).
+
+둘 다 "둘 중 하나만 성공" 을 확인하고, 복원된 보드까지 본다 — 성공으로 복원된 보드의
+정답 행은 글자가 전부 맞아야 한다(모순된 보드를 그대로 잡는 조건).
+
+구현 **전**(HEAD~1 의 세 파일로 되돌려서) 두 테스트가 실제로 실패하는 것을 먼저 봤다 —
+양쪽이 다 성공하는 게 결함의 모양이다:
+
+```
+$ git checkout HEAD~1 -- app/repositories/puzzle_repository.py \
+    app/services/guess_service.py app/services/puzzle_schedule_service.py
+$ uv run pytest tests/test_concurrency.py -k "wins_the_lock" -q
+>           assert submit_outcome == ("error", "PuzzleChangedError"), submit_outcome
+E           AssertionError: ('ok', True)          ← 교체가 이긴 순서인데 제출도 성공
+>           assert replace_outcome == ("error", "ValidationError"), replace_outcome
+E           AssertionError: ('ok',)               ← 제출이 이긴 순서인데 교체도 성공
+FAILED tests/test_concurrency.py::test_replacement_that_wins_the_lock_turns_the_submission_away
+FAILED tests/test_concurrency.py::test_submission_that_wins_the_lock_blocks_the_replacement
+2 failed, 3 deselected in 4.34s
+exit=1
+```
+
+수정 **후**(세 파일 복구):
+
+```
+$ uv run pytest tests/test_concurrency.py -v
+tests/test_concurrency.py::test_concurrent_correct_guesses_do_not_double_count PASSED
+tests/test_concurrency.py::test_hint_unlock_and_guess_are_serialized PASSED
+tests/test_concurrency.py::test_concurrent_hint_unlocks_insert_one_row PASSED
+tests/test_concurrency.py::test_replacement_that_wins_the_lock_turns_the_submission_away PASSED
+tests/test_concurrency.py::test_submission_that_wins_the_lock_blocks_the_replacement PASSED
+5 passed
+exit=0
+```
+
+영향 범위(제출·조회·캐시·리더보드·배정표·운영자 교체 라우트):
+
+```
+$ uv run pytest tests/test_concurrency.py tests/test_puzzle_schedule_service.py \
+    tests/test_admin_schedule.py tests/test_guess_flow.py tests/test_puzzle_api.py \
+    tests/test_puzzle_cache.py tests/test_hint_unlock.py tests/test_leaderboard.py -q
+74 passed in 91.63s (0:01:31)
+exit=0
+```
+
+### 이 라운드의 전체 검증 (base = 로컬 `main` `4d83feb`)
+
+```
+$ git rebase main                  # 충돌 1건(spec.md "미정 항목") 해결, 그 외 깨끗
+$ git status --short               # 출력 없음 = clean
+$ uv run ruff check .
+All checks passed!
+exit=0
+
+$ FLASK_ENV=testing uv run flask --app wsgi db heads
+d7a1f0ca0a29 (head)
+exit=0        ← 한 줄. 이 수정도 마이그레이션을 만들지 않았다(잠금은 스키마 변경이 아니다).
+
+$ uv run pytest -q
+937 passed in 799.41s (0:13:19)
+exit=0
+```
+
+실패·skip·xfail **0**. 라운드 0 의 870 → **937**: main 이 티켓 13 머지로 올라가며
+따라온 테스트(+65)와 이 라운드의 재현 테스트 **+2**.
+
+### 이 라운드에서 하지 않은 것
+
+- **UI 를 건드리지 않았다.** 템플릿·CSS·정적 파일 diff 가 0 이므로(`git diff --stat
+  HEAD~1 -- web/` 비어 있음) `impeccable detect` 를 다시 돌리지 않았다. 리뷰가 적은
+  detect 조건의 한계(CDN 폰트 `<link>` 를 지운 폴백 환경에서 본 `line-length` 3건)는
+  이 라운드의 변경과 무관하게 그대로 남아 있는 관찰이다 — 리뷰도 그걸 결함으로
+  집계하지 않았다.
+- **미수정 MINOR 없음.** 리뷰 라운드 1 의 MINOR 는 0건이었다.
+- **배정표가 `schedule_puzzles(language, days)` 를 직접 부르지 않는 점**은 리뷰가
+  결함 목록에 올리지 않은 관찰이라 그대로 뒀다. 근거는 README 설계 판단 `### 23.`
+  (GET 조회가 배정을 만들면 운영자가 화면을 열어보는 것만으로 단어 풀이 줄어든다).
+  두 함수는 같은 모듈에서 같은 날짜 창 상수(`SCHEDULE_DAYS`)를 공유한다.
+- 프로덕션·배포·NAS·실제 외부 API 접근 없음, `git push` 없음, 하위 워커 없음. 시크릿
+  값은 이 문서에 없다(키 **이름**만).
