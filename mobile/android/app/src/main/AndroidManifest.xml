@@ -5,6 +5,11 @@
          적혀 있어야 읽는 사람이 안다. 정확한 알람(SCHEDULE_EXACT_ALARM)은
          쓰지 않는다 — 알림 예약은 inexact 로 간다(티켓 30). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- 재부팅·앱 업데이트 뒤에 예약을 다시 걸기 위한 권한(티켓 30). 없으면
+         기기를 한 번 껐다 켜는 것만으로 대기 중이던 알림이 전부 사라진다.
+         플러그인이 16 버전부터 리시버·권한을 자기 매니페스트에 넣지 않고
+         앱에 맡긴다. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <application
         android:label="@string/app_name"
         android:name="${applicationName}"
@@ -31,6 +36,22 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- 예약 알림을 실제로 띄우는 리시버와, 재부팅 뒤 다시 거는 리시버
+             (flutter_local_notifications). 선언이 없으면 Dart 테스트는 다
+             통과하는데 기기에서 알림만 안 뜬다. -->
+        <receiver
+            android:exported="false"
+            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver" />
+        <receiver
+            android:exported="false"
+            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON"/>
+            </intent-filter>
+        </receiver>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data
