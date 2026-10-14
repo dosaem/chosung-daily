@@ -306,7 +306,20 @@ CI(`.github/workflows/flutter-ci.yml`)는 ubuntu 에서 `dart format`·`analyze`
 ### 6.4 rebase 후 상태
 
 ```
-<REBASE_OUTPUT>
+$ git rebase main
+Current branch dosaem/t29-app-account-link-switch-delete is up to date.
+
+$ git status --short
+(비어 있음)
+
+$ git log --oneline main..HEAD
+42003f5 문서 29: README 설계 판단 · RELEASE 콘솔 등록 체크리스트 · 구현 증거
+1ef8601 앱 29: 골든 비교 실패 이미지를 커밋에서 빼고 무시 목록에 넣는다
+2bd2ba3 앱 29: 계정 삭제 — 새 토큰을 먼저 받고 죽은 토큰을 덮어쓴다
+e0388d3 앱 29: iOS 구글 클라이언트 ID·Sign in with Apple 권한 설정
+ca3e7c8 앱 29: S4 계정 카드·백업 코드 시트·삭제 다이얼로그, S2 연결 안내 1회
+d48dd69 앱 29: 네이티브 로그인 경계와 계정 컨트롤러 — 토큰 교체 한 길
+225445f 앱 29: ApiClient 에 계정 교환·삭제·백업 코드 확인 추가
 ```
 
 ## 7. 설계 판단 메모 (리뷰어용)
