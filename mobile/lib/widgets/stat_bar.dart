@@ -65,8 +65,10 @@ class _StatRow extends StatelessWidget {
     return Semantics(
       // 색·굵기로만 "내 행" 을 말하지 않는다(US 3 과 같은 이유).
       label: [
-        'result.stats_row'.tr(
-          namedArgs: {'count': '$attempt', 'percent': '$percent'},
+        'result.stats_row'.plural(
+          attempt,
+          namedArgs: {'percent': '$percent'},
+          name: 'count',
         ),
         if (isMine) 'result.stats_mine'.tr(),
       ].join(' '),

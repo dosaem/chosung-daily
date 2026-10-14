@@ -218,6 +218,23 @@ void main() {
       expect(_labelWeight(tester, '3회'), FontWeight.w400);
     });
 
+    // 티켓 38: 분포 막대의 semantics 라벨도 en 에서 `1 tries` 였다. 라벨은
+    // 스크린리더가 듣는 유일한 문구라 본문과 같은 복수형을 써야 한다.
+    testWidgets('en: 분포 막대 semantics 라벨의 복수형', (tester) async {
+      final handle = tester.ensureSemantics();
+      await openResultSheet(tester, locale: const Locale('en'));
+
+      expect(
+        find.bySemanticsLabel('1 try 8 percent'),
+        findsOne,
+        reason: '1회 칸은 단수다',
+      );
+      // 2회는 내 행이라 "your result" 가 붙는다.
+      expect(find.bySemanticsLabel('2 tries 31 percent your result'), findsOne);
+      expect(find.bySemanticsLabel('3 tries 40 percent'), findsOne);
+      handle.dispose();
+    });
+
     testWidgets('막대 길이가 비율에 비례한다', (tester) async {
       await openResultSheet(tester);
 

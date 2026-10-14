@@ -34,9 +34,9 @@ class LeaderboardRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = AppColors.from(context);
     final text = Theme.of(context).textTheme;
-    final attemptsLabel = 'ranking.attempts'.tr(
-      namedArgs: {'count': '$attempts'},
-    );
+    // en 은 1 회와 2 회 이상의 문구가 다르다("1 try" / "2 tries") — `.tr()` 로는
+    // 고를 자리가 없어서 `.plural()` 로 받는다. ko 는 'other' 한 형태뿐이다.
+    final attemptsLabel = 'ranking.attempts'.plural(attempts, name: 'count');
     // 걸린 시간도 HH:MM:SS 라 카운트다운과 같은 포맷터를 쓴다.
     final timeLabel = formatCountdown(Duration(seconds: seconds));
 

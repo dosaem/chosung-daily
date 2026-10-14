@@ -401,7 +401,7 @@ void main() {
           'entries': [
             {
               'rank': 1,
-              'display': '게스트 #a3f1',
+              'anon_tag': 'a3f1',
               'attempts': 1,
               'seconds': 41,
               'is_me': true,
@@ -414,7 +414,7 @@ void main() {
 
       final board = await client.fetchTodayLeaderboard();
 
-      expect(board.entries.single.display, '게스트 #a3f1');
+      expect(board.entries.single.anonTag, 'a3f1');
       expect(board.me?.rank, 1);
       expect(adapter.requests.single.path, '/puzzles/today/leaderboard');
       expect(adapter.requests.single.method, 'GET');

@@ -661,3 +661,59 @@ def test_a_sync_that_cannot_leave_is_retried_when_the_connection_returns(web_sta
     assert after["authorization"] == "Bearer offline-revisit-token"
     assert after["matchesUi"] is True
     assert after["syncedToken"] == "offline-revisit-token"
+
+
+# --- 티켓 38: 리더보드 이름·en 복수형 ----------------------------------------
+
+
+@pytest.fixture(scope="module")
+def names_ko() -> dict:
+    return run_scenario("leaderboard_names.mjs", "ko")
+
+
+@pytest.fixture(scope="module")
+def names_en() -> dict:
+    return run_scenario("leaderboard_names.mjs", "en")
+
+
+def test_korean_ui_prefixes_the_anon_tag_with_the_korean_word(names_ko):
+    """서버가 주는 건 `anon_tag: "a3f1"` 뿐이고 "게스트 #" 는 웹이 붙인다."""
+    rows = names_ko["two_entries"]["rowTexts"]
+
+    assert rows[0] == "#1게스트 #a3f1 · 1회 · 00:00:41"
+    assert rows[1] == "#2게스트 #7b20 · 2회 · 00:03:41"
+    assert names_ko["two_entries"]["myRank"] == "#2 · 2회 · 00:03:41"
+
+
+def test_english_ui_prefixes_the_same_tag_with_guest(names_en):
+    """같은 응답이 영어 UI 에서는 "Guest #a3f1" 이다 — 한글이 섞이지 않는다."""
+    rows = names_en["two_entries"]["rowTexts"]
+
+    assert rows[0] == "#1Guest #a3f1 · 1 try · 00:00:41"
+    assert rows[1] == "#2Guest #7b20 · 2 tries · 00:03:41"
+    assert "게스트" not in "".join(rows)
+
+
+def test_english_attempts_are_singular_at_one_and_plural_above(names_en):
+    """`1 tries` 가 보이던 자리. 행·내 순위 카드·분포 줄이 모두 같은 규칙이다."""
+    assert " 1 try · " in names_en["two_entries"]["rowTexts"][0]
+    assert " 2 tries · " in names_en["two_entries"]["rowTexts"][1]
+    assert names_en["solo_entry"]["myRank"] == "#1 · 1 try · 00:00:41"
+    assert names_en["two_entries"]["myRank"] == "#2 · 2 tries · 00:03:41"
+
+    # 오늘의 시도 분포: 1회 칸만 단수.
+    assert names_en["stats_rows"][:2] == ["1 try 50%", "2 tries 25%"]
+
+
+def test_korean_attempts_read_the_same_at_one_and_above(names_ko):
+    """ko 는 단수·복수가 같다 — en 복수형을 넣으면서 한국어가 바뀌지 않았는지 본다."""
+    assert names_ko["stats_rows"][:2] == ["1회 50%", "2회 25%"]
+    assert names_ko["solo_entry"]["myRank"] == "#1 · 1회 · 00:00:41"
+
+
+def test_my_row_is_still_marked_by_a_class_not_by_a_different_name(names_ko):
+    """is_me 표기는 기존대로 CSS 클래스다 — 이름 규칙은 남의 행과 같다."""
+    assert names_ko["two_entries"]["isMeClasses"] == [
+        "leaderboard-entry",
+        "leaderboard-entry is-me",
+    ]

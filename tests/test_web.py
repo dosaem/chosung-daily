@@ -242,10 +242,12 @@ def test_leaderboard_section_is_rendered(client):
     assert 'id="today-stats"' in html
 
 
-def test_js_renders_leaderboard_display_is_me_and_my_rank(client):
+def test_js_renders_leaderboard_name_is_me_and_my_rank(client):
     bundle = _bundle()
 
-    assert "entry.display" in bundle
+    # 서버는 언어 중립 태그만 준다 — 이름은 번들이 UI 사전으로 만든다(티켓 38).
+    assert "entry.anon_tag" in bundle
+    assert "entry.display" not in bundle
     assert "entry.is_me" in bundle
     assert "data.me" in bundle
 

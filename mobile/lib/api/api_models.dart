@@ -403,13 +403,16 @@ class TodayStats {
       date.day == puzzle.date.day;
 }
 
-/// 리더보드 한 줄. `display` 는 서버가 만든 익명 이름("게스트 #a3f1")이다 —
+/// 리더보드 한 줄. `anonTag` 는 서버가 만든 **언어 중립** 익명 태그("a3f1")다 —
 /// 이메일도 게스트 ID 도 내려오지 않는다(README "07. 리더보드 익명 표시").
+///
+/// "게스트 #" / "Guest #" 접두사는 화면이 자기 UI 언어로 붙인다(`ranking.guest`,
+/// README "38.") — 서버가 붙이면 영어 UI 에 한글이 섞인다.
 @immutable
 class LeaderboardEntry {
   const LeaderboardEntry({
     required this.rank,
-    required this.display,
+    required this.anonTag,
     required this.attempts,
     required this.seconds,
     required this.isMe,
@@ -418,14 +421,16 @@ class LeaderboardEntry {
   factory LeaderboardEntry.fromJson(Map<String, dynamic> json) =>
       LeaderboardEntry(
         rank: json['rank'] as int,
-        display: json['display'] as String,
+        anonTag: json['anon_tag'] as String,
         attempts: json['attempts'] as int,
         seconds: json['seconds'] as int,
         isMe: json['is_me'] as bool,
       );
 
   final int rank;
-  final String display;
+
+  /// 16진 4자리 익명 태그("a3f1"). 그대로 그리지 않고 `ranking.guest` 에 넣는다.
+  final String anonTag;
   final int attempts;
 
   /// 퍼즐을 연 순간부터 정답까지 걸린 시간(초).

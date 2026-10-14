@@ -103,13 +103,13 @@ TodayStats fakeTodayStats({
 
 LeaderboardEntry fakeLeaderboardEntry({
   required int rank,
-  String? display,
+  String? anonTag,
   int attempts = 1,
   int seconds = 41,
   bool isMe = false,
 }) => LeaderboardEntry(
   rank: rank,
-  display: display ?? '게스트 #${rank.toRadixString(16).padLeft(4, '0')}',
+  anonTag: anonTag ?? rank.toRadixString(16).padLeft(4, '0'),
   attempts: attempts,
   seconds: seconds,
   isMe: isMe,

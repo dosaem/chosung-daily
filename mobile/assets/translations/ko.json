@@ -23,11 +23,15 @@
     "open_store": "스토어로 이동"
   },
   "streak": {
-    "days": "{count}일",
+    "days": {
+      "other": "{count}일"
+    },
     "current": "현재",
     "max": "최고",
     "solved": "누적",
-    "puzzles": "{count}문제"
+    "puzzles": {
+      "other": "{count}문제"
+    }
   },
   "ads": {
     "slot_label": "광고 자리"
@@ -74,7 +78,9 @@
     "stats_title": "오늘의 통계",
     "stats_attempt": "{count}회",
     "stats_percent": "{percent}%",
-    "stats_row": "{count}회 {percent}퍼센트",
+    "stats_row": {
+      "other": "{count}회 {percent}퍼센트"
+    },
     "stats_mine": "내 결과",
     "stats_empty": "아직 아무도 못 풀었어요",
     "stats_failed": "통계를 불러오지 못했어요",
@@ -100,7 +106,10 @@
     "not_played": "아직 안 풀었어요",
     "empty": "아직 아무도 못 풀었어요. 첫 번째가 되어보세요",
     "me": "나",
-    "attempts": "{count}회",
+    "guest": "게스트 #{tag}",
+    "attempts": {
+      "other": "{count}회"
+    },
     "column_rank": "순위",
     "column_name": "이름",
     "column_attempts": "시도",

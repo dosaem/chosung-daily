@@ -76,13 +76,20 @@ UI_STRINGS: dict[str, dict[str, str]] = {
         "clipboard_unsupported": "클립보드 복사를 지원하지 않는 환경이에요. 직접 복사해주세요:",
         # 리더보드·통계
         "leaderboard_heading": "순위",
-        "my_rank": "#{rank} · {attempts}회 · {time}",
+        # 서버는 언어 중립 태그(`anon_tag: "a3f1"`)만 준다 — 접두사는 UI 언어가
+        # 붙인다(README "38."). 시도 횟수도 문구가 언어마다 달라서 따로 둔다.
+        "leaderboard_guest": "게스트 #{tag}",
+        # en 은 1 과 2 이상의 문구가 다르다("1 try" vs "2 tries"). ko 는 둘이 같지만
+        # 부르는 쪽이 언어를 묻지 않게 두 키를 양쪽 언어에 모두 둔다.
+        "attempts_one": "{count}회",
+        "attempts_other": "{count}회",
+        "my_rank": "#{rank} · {attempts} · {time}",
         "my_rank_unsolved": "아직 안 풀었어요",
-        "leaderboard_entry": "{display} · {attempts}회 · {time}",
+        "leaderboard_entry": "{name} · {attempts} · {time}",
         "leaderboard_empty": "아직 아무도 못 풀었어요. 첫 번째가 되어보세요",
         "leaderboard_load_failed": "순위를 불러오지 못했어요.",
         "stats_heading": "오늘의 시도 분포",
-        "stats_row": "{attempt}회 {percent}%",
+        "stats_row": "{attempts} {percent}%",
         "stats_empty": "아직 정답자가 없어요",
         # 섹션 토글 — 웹은 탭 대신 상단 텍스트 링크 하나로 섹션을 바꾼다(SCREENS "웹" 절).
         "section_nav_label": "화면 전환",
@@ -158,13 +165,16 @@ UI_STRINGS: dict[str, dict[str, str]] = {
         "share_fail": "{used}/{max} failed",
         "clipboard_unsupported": "This browser can't copy for you. Please copy it yourself:",
         "leaderboard_heading": "Leaderboard",
-        "my_rank": "#{rank} · {attempts} tries · {time}",
+        "leaderboard_guest": "Guest #{tag}",
+        "attempts_one": "{count} try",
+        "attempts_other": "{count} tries",
+        "my_rank": "#{rank} · {attempts} · {time}",
         "my_rank_unsolved": "You haven't solved it yet",
-        "leaderboard_entry": "{display} · {attempts} tries · {time}",
+        "leaderboard_entry": "{name} · {attempts} · {time}",
         "leaderboard_empty": "Nobody has solved it yet. Be the first",
         "leaderboard_load_failed": "Couldn't load the leaderboard.",
         "stats_heading": "Today's attempts",
-        "stats_row": "{attempt} tries {percent}%",
+        "stats_row": "{attempts} {percent}%",
         "stats_empty": "No one has solved it yet",
         "section_nav_label": "Sections",
         "nav_today": "Today",

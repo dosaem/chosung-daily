@@ -377,9 +377,9 @@ void main() {
           "date": "2026-10-13",
           "language": "ko",
           "entries": [
-            {"rank": 1, "display": "게스트 #a3f1", "attempts": 1,
+            {"rank": 1, "anon_tag": "a3f1", "attempts": 1,
              "seconds": 41, "is_me": false},
-            {"rank": 2, "display": "게스트 #7b20", "attempts": 2,
+            {"rank": 2, "anon_tag": "7b20", "attempts": 2,
              "seconds": 221, "is_me": true}
           ],
           "me": {"rank": 2, "attempts": 2, "seconds": 221}
@@ -391,7 +391,7 @@ void main() {
       expect(board.date, DateTime(2026, 10, 13));
       expect(board.language, PuzzleLanguage.ko);
       expect(board.entries.first.rank, 1);
-      expect(board.entries.first.display, '게스트 #a3f1');
+      expect(board.entries.first.anonTag, 'a3f1');
       expect(board.entries.first.attempts, 1);
       expect(board.entries.first.seconds, 41);
       expect(board.entries.first.isMe, isFalse);
