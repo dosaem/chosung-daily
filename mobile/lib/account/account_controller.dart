@@ -1,6 +1,7 @@
 import 'package:chosung/account/social_sign_in.dart';
 import 'package:chosung/api/api_client.dart';
 import 'package:chosung/api/api_exception.dart';
+import 'package:chosung/api/api_models.dart';
 import 'package:chosung/api/api_providers.dart';
 import 'package:chosung/guest/guest_token_provider.dart';
 import 'package:chosung/local/local_flags.dart';
@@ -88,17 +89,33 @@ class AccountNotifier extends Notifier<AccountState> {
   Future<void> restoreWithBackupCode(String code) async {
     await _run(AccountAction.backupCode, () async {
       final token = code.trim();
-      await _api.fetchMyStatsWithToken(token);
-      await _adopt(token);
+      // 확인 응답이 곧 **새 계정의** `/me/stats` 다. 그걸 버리고 다시 읽으면
+      // 그 재조회가 실패할 때 옛 계정 숫자가 화면에 남는다.
+      final stats = await _api.fetchMyStatsWithToken(token);
+      await _adopt(token, stats: stats);
       return const AccountState(switched: true);
     }, invalidCodeKey: 'account.error_backup_code');
   }
+
+  /// 서버 삭제가 이미 끝났는가. `DELETE /me` 는 **두 번 부를 수 없다** —
+  /// 두 번째는 지워진 게스트 인증이라 401 이고(`app/api/me.py` `delete_me`),
+  /// 그 401 이 사용자에게는 "삭제 실패" 로 보인다. 뒷단계(게스트 발급)가
+  /// 실패했을 때 재시도가 거기서부터 이어지게 하려고 기억해 둔다.
+  bool _serverDeleted = false;
 
   /// `DELETE /me` → 로컬 삭제 → 새 게스트. 온보딩을 다시 보여주지 않으려고
   /// 기기 단위 플래그는 남긴다([LocalFlag.perAccount]).
   Future<void> deleteAccount() async {
     await _run(AccountAction.delete, () async {
-      await _api.deleteAccount();
+      if (!_serverDeleted) {
+        await _api.deleteAccount();
+        _serverDeleted = true;
+        // 서버에서 사라진 계정의 로컬 흔적은 발급을 기다리지 않고 지금
+        // 버린다 — 발급이 실패해 멈춰도 지워진 계정의 이름·기록이 화면에
+        // 남아 있으면 안 된다.
+        await ref.read(localFlagStoreProvider).clearPerAccount();
+        ref.read(myStatsProvider.notifier).discard();
+      }
 
       // 지운 토큰을 버리기 전에 새 토큰을 먼저 받는다(`POST /guests` 는 인증이
       // 없다). 먼저 버리면 발급이 실패했을 때 앱이 토큰 없이 남고, 그 사이
@@ -107,7 +124,7 @@ class AccountNotifier extends Notifier<AccountState> {
       final token = await _api.createGuest(
         puzzleLanguage: ref.read(devicePuzzleLanguageProvider),
       );
-      await ref.read(localFlagStoreProvider).clearPerAccount();
+      _serverDeleted = false;
       await _adopt(token);
       return const AccountState();
     });
@@ -118,15 +135,17 @@ class AccountNotifier extends Notifier<AccountState> {
   /// 시작 흐름(`startupProvider`)을 통째로 다시 돌리지 않는 이유: 그러면
   /// 스플래시를 거쳐 홈 탭으로 튕겨 나가 사용자가 방금 누른 계정 카드를
   /// 떠나게 된다. 대신 토큰을 쓰는 provider 만 집어서 버린다.
-  Future<void> _adopt(String token) async {
+  /// [stats] 를 이미 읽어 뒀으면(백업 코드 확인 응답) 그걸 새 계정 값으로
+  /// 쓰고, 없으면 새 토큰으로 읽는다. 읽기가 실패하면 `adopt` 가 예외를
+  /// 올리고 [_run] 이 그 자리에 실패 문구를 둔다 — `refresh` 처럼 조용히
+  /// 넘기면 옛 계정의 이름·기록이 새 토큰 위에 그대로 남는다.
+  Future<void> _adopt(String token, {MyStats? stats}) async {
     await ref.read(guestTokenProvider.notifier).replaceWith(token);
     ref
       ..invalidate(todayPuzzleProvider)
       ..invalidate(historyProvider)
       ..invalidate(leaderboardProvider);
-    // `/me/stats` 를 한 번 더 읽는다(백업 코드는 확인 때도 읽었다). 드문
-    // 조작이라 호출 한 번을 아끼는 것보다 경로가 하나인 쪽이 낫다.
-    await ref.read(myStatsProvider.notifier).refresh();
+    await ref.read(myStatsProvider.notifier).adopt(stats);
   }
 
   /// 같은 일이 두 번 돌지 않게 감싸고, 실패를 사용자 문구로 눕힌다.

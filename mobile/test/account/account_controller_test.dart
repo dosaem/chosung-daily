@@ -8,6 +8,7 @@ import 'package:chosung/guest/guest_token_store.dart';
 import 'package:chosung/local/local_flags.dart';
 import 'package:chosung/puzzle/today_puzzle_controller.dart';
 import 'package:chosung/records/history_controller.dart';
+import 'package:chosung/records/my_stats_controller.dart';
 import 'package:chosung/settings/puzzle_language_controller.dart';
 import 'package:chosung/startup/startup_controller.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -229,6 +230,39 @@ void main() {
       );
     });
 
+    test('전환 뒤 기록을 못 읽으면 옛 계정을 버리고 오류로 말한다', () async {
+      // D-29-1 재현(연결·전환 경로): 토큰은 B 로 바뀌었는데 B 의 `/me/stats`
+      // 를 못 읽은 상황이다. A 의 신원을 그대로 두면 그 화면에서 누른 삭제가
+      // A 가 아니라 B 를 지운다.
+      final api = FakeApiClient(nextLinkedToken: 'other-device-token')
+        ..fetchMyStatsError = const NetworkApiException(
+          code: networkErrorCode,
+          message: 'offline',
+        );
+      final world = _container(
+        api,
+        signIn: _signInReturning(_googleCredential),
+        startup: fakeMyStats(
+          currentStreak: 99,
+          linkedAccount: const LinkedAccount(
+            provider: 'apple',
+            email: 'a@icloud.com',
+          ),
+        ),
+      );
+
+      await world.container
+          .read(accountProvider.notifier)
+          .link(AccountProvider.google);
+
+      expect(world.store.token, 'other-device-token');
+      expect(world.container.read(myStatsProvider).value, isNull);
+      expect(
+        world.container.read(accountProvider).error,
+        'account.error_network',
+      );
+    });
+
     test('SDK 가 실패하면 로그인 실패 문구로 눕힌다', () async {
       final api = FakeApiClient();
       final world = _container(
@@ -264,7 +298,49 @@ void main() {
       expect(api.statsTokens, ['backup-code']);
       expect(world.store.token, 'backup-code');
       expect(world.container.read(accountProvider).switched, isTrue);
-      expect(api.fetchMyStatsCalls, 1);
+      expect(world.container.read(myStatsProvider).value?.currentStreak, 4);
+      // 확인 응답이 곧 새 계정의 `/me/stats` 다 — 다시 읽지 않는다(D-29-1).
+      expect(api.fetchMyStatsCalls, 0);
+    });
+
+    test('확인 때 받은 새 계정 기록을 그대로 쓴다 — 옛 계정이 남지 않는다', () async {
+      // D-29-1 재현: A 의 기록이 떠 있는 상태에서 B 의 코드를 넣고, 토큰 교체
+      // **뒤** 재조회만 실패시킨다. 코드 확인이 이미 B 의 기록을 받아 왔으므로
+      // 화면에는 B 가 있어야 한다 — A 의 이메일·streak 이 남으면 카드가
+      // 가리키는 계정과 토큰이 가리키는 계정이 달라진다.
+      final api = FakeApiClient()
+        ..statsByToken['backup-code'] = fakeMyStats(
+          currentStreak: 4,
+          linkedAccount: const LinkedAccount(
+            provider: 'google',
+            email: 'b@gmail.com',
+          ),
+        )
+        ..fetchMyStatsError = const NetworkApiException(
+          code: networkErrorCode,
+          message: 'offline',
+        );
+      final world = _container(
+        api,
+        signIn: _signInReturning(null),
+        startup: fakeMyStats(
+          currentStreak: 99,
+          linkedAccount: const LinkedAccount(
+            provider: 'apple',
+            email: 'a@icloud.com',
+          ),
+        ),
+      );
+
+      await world.container
+          .read(accountProvider.notifier)
+          .restoreWithBackupCode('backup-code');
+
+      final stats = world.container.read(myStatsProvider).value;
+      expect(world.store.token, 'backup-code');
+      expect(stats?.linkedAccount?.email, 'b@gmail.com');
+      expect(stats?.currentStreak, 4);
+      expect(world.container.read(accountProvider).error, isNull);
     });
 
     test('401 이면 토큰을 바꾸지 않고 코드가 틀렸다고 말한다', () async {
@@ -320,6 +396,54 @@ void main() {
         world.container.read(accountProvider).error,
         'account.error_network',
       );
+    });
+
+    test('새 게스트 발급이 실패해도 네트워크가 돌아오면 그 자리에서 복구한다', () async {
+      // D-29-2 재현: `DELETE /me` 는 성공했고 `POST /guests` 만 실패했다.
+      // 서버 계정은 이미 사라졌으므로 같은 토큰으로 DELETE 를 또 부르면
+      // 401 이다(`app/api/me.py` delete_me). 재시도가 DELETE 부터 다시
+      // 돌면 거기서 끝나고 앱은 죽은 토큰에 갇힌다.
+      final api = FakeApiClient(nextGuestToken: 'fresh-guest')
+        ..createGuestError = const NetworkApiException(
+          code: networkErrorCode,
+          message: 'offline',
+        );
+      final world = _container(
+        api,
+        signIn: _signInReturning(null),
+        startup: fakeMyStats(
+          linkedAccount: const LinkedAccount(
+            provider: 'google',
+            email: 'a@gmail.com',
+          ),
+        ),
+      );
+      await world.flags.set(LocalFlag.linkAccountNoticeSeen);
+
+      final notifier = world.container.read(accountProvider.notifier);
+      await notifier.deleteAccount();
+
+      // 서버에서 사라진 계정의 로컬 흔적은 발급을 기다리지 않고 버린다.
+      expect(await world.flags.isSet(LocalFlag.linkAccountNoticeSeen), isFalse);
+      expect(world.container.read(myStatsProvider).value, isNull);
+      expect(
+        world.container.read(accountProvider).error,
+        'account.error_network',
+      );
+
+      api
+        ..createGuestError = null
+        ..deleteAccountError = const UnauthorizedApiException(
+          code: 'UNAUTHORIZED',
+          message: '게스트를 찾을 수 없습니다.',
+        );
+
+      await notifier.deleteAccount();
+
+      expect(api.deleteAccountCalls, 1);
+      expect(api.createGuestCalls, 2);
+      expect(world.store.token, 'fresh-guest');
+      expect(world.container.read(accountProvider).error, isNull);
     });
 
     test('삭제가 실패하면 토큰도 플래그도 그대로다', () async {

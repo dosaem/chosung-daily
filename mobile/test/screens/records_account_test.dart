@@ -19,6 +19,7 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lucide_icons/lucide_icons.dart';
 
 import '../fakes/fake_api_client.dart';
 import '../fakes/in_memory_guest_token_store.dart';
@@ -174,6 +175,47 @@ void main() {
       expect(find.byKey(accountLinkGoogleKey), findsNothing);
     });
 
+    testWidgets('연결됨 아이콘은 Google 이면 chrome 이다', (tester) async {
+      // D-29-3: 티켓 체크박스 3·SCREENS S4 는 "provider 아이콘" 을 요구한다 —
+      // provider 와 무관한 공통 아이콘이면 두 계정이 똑같이 보인다. Lucide 에
+      // 브랜드 마크가 없어 chrome/apple 로 가른다(README 설계 판단 29).
+      await _pump(
+        tester,
+        startup: fakeMyStats(
+          linkedAccount: const LinkedAccount(
+            provider: 'google',
+            email: 'hsseo@gmail.com',
+          ),
+        ),
+      );
+
+      expect(find.byIcon(LucideIcons.chrome), findsOneWidget);
+      expect(find.byIcon(LucideIcons.apple), findsNothing);
+    });
+
+    testWidgets('연결됨 아이콘은 Apple 이면 apple 이다', (tester) async {
+      await _pump(
+        tester,
+        startup: fakeMyStats(
+          linkedAccount: const LinkedAccount(provider: 'apple'),
+        ),
+      );
+
+      expect(find.byIcon(LucideIcons.apple), findsOneWidget);
+      expect(find.byIcon(LucideIcons.chrome), findsNothing);
+    });
+
+    testWidgets('모르는 provider 면 공통 아이콘으로 떨어진다', (tester) async {
+      await _pump(
+        tester,
+        startup: fakeMyStats(
+          linkedAccount: const LinkedAccount(provider: 'kakao'),
+        ),
+      );
+
+      expect(find.byIcon(LucideIcons.userCheck), findsOneWidget);
+    });
+
     testWidgets('구글 연결에 성공하면 전환 안내와 함께 기록을 다시 읽는다', (tester) async {
       final api = FakeApiClient(
         stats: fakeMyStats(
@@ -201,6 +243,28 @@ void main() {
       // 로컬 상태 폐기: 보드와 7일 그리드를 새 토큰으로 다시 읽는다.
       expect(api.fetchTodayPuzzleCalls, puzzleCalls + 1);
       expect(api.fetchMyHistoryDays.length, historyCalls + 1);
+    });
+
+    testWidgets('전환 뒤 기록을 못 읽으면 옛 기록이 사라지고 오류가 뜬다', (tester) async {
+      // D-29-1 을 화면에서 본다: 토큰은 B 인데 화면이 A 를 보여주면, 그 화면
+      // 아래 삭제 버튼이 A 가 아니라 B 를 지운다.
+      final api = FakeApiClient(nextLinkedToken: 'other-device-token')
+        ..fetchMyStatsError = const NetworkApiException(
+          code: networkErrorCode,
+          message: 'offline',
+        );
+      final world = await _pump(
+        tester,
+        client: api,
+        startup: fakeMyStats(currentStreak: 99),
+      );
+      expect(find.text('99일'), findsOneWidget);
+
+      await _tap(tester, find.byKey(accountLinkGoogleKey));
+
+      expect(world.store.token, 'other-device-token');
+      expect(find.text('99일'), findsNothing);
+      expect(find.text('네트워크에 연결할 수 없어요'), findsOneWidget);
     });
 
     testWidgets('애플 연결은 authorization_code 를 같이 보낸다', (tester) async {
@@ -259,6 +323,45 @@ void main() {
       expect(find.byType(BackupCodeSheet), findsNothing);
       expect(world.store.token, 'backup-code');
       expect(api.statsTokens, ['backup-code']);
+    });
+
+    testWidgets('전환하면 카드가 바로 새 계정을 보여준다', (tester) async {
+      // D-29-1 의 원래 재현: A 가 연결된 화면에서 B 의 코드를 넣는다. 코드
+      // 확인이 이미 B 의 `/me/stats` 를 받아 왔으므로, 그 뒤 재조회가
+      // 실패해도(여기서는 아예 실패시킨다) 카드에 A 가 남으면 안 된다.
+      final api = FakeApiClient()
+        ..statsByToken['backup-code'] = fakeMyStats(
+          currentStreak: 7,
+          linkedAccount: const LinkedAccount(
+            provider: 'google',
+            email: 'b@gmail.com',
+          ),
+        )
+        ..fetchMyStatsError = const NetworkApiException(
+          code: networkErrorCode,
+          message: 'offline',
+        );
+      final world = await _pump(
+        tester,
+        client: api,
+        startup: fakeMyStats(
+          currentStreak: 99,
+          linkedAccount: const LinkedAccount(
+            provider: 'apple',
+            email: 'a@icloud.com',
+          ),
+        ),
+      );
+
+      await _tap(tester, find.text('다른 기기 기록 불러오기'));
+      await tester.enterText(find.byKey(backupCodeFieldKey), 'backup-code');
+      await tester.pumpAndSettle();
+      await _tap(tester, find.byKey(backupCodeSubmitKey));
+
+      expect(world.store.token, 'backup-code');
+      expect(find.text('Apple · a***@icloud.com 연결됨'), findsNothing);
+      expect(find.text('Google · b***@gmail.com 연결됨'), findsOneWidget);
+      expect(find.text('7일'), findsOneWidget);
     });
 
     testWidgets('틀린 코드면 시트가 열린 채로 오류를 보여준다', (tester) async {
@@ -331,6 +434,53 @@ void main() {
       expect(find.text('계정을 삭제하고 새로 시작했어요'), findsOneWidget);
       // 새 게스트라 계정 연결 버튼이 다시 보인다.
       expect(find.byKey(accountLinkGoogleKey), findsOneWidget);
+    });
+
+    testWidgets('게스트 발급이 실패했다가 돌아오면 다시 눌러 복구한다', (tester) async {
+      // D-29-2 를 화면에서 본다: `DELETE /me` 는 성공했고 `POST /guests` 만
+      // 실패했다. 서버 계정은 이미 사라졌으니 재시도가 DELETE 부터 다시 돌면
+      // 401 로 끝나고 앱은 죽은 토큰에 갇힌다.
+      final api = FakeApiClient(nextGuestToken: 'fresh-guest')
+        ..createGuestError = const NetworkApiException(
+          code: networkErrorCode,
+          message: 'offline',
+        );
+      final world = await _pump(
+        tester,
+        client: api,
+        startup: fakeMyStats(
+          currentStreak: 99,
+          linkedAccount: const LinkedAccount(
+            provider: 'google',
+            email: 'a@gmail.com',
+          ),
+        ),
+      );
+      await world.flags.set(LocalFlag.linkAccountNoticeSeen);
+
+      await _tap(tester, find.byKey(RecordsSlot.deleteAccount));
+      await _tap(tester, find.byKey(deleteAccountConfirmKey));
+
+      expect(find.text('네트워크에 연결할 수 없어요'), findsOneWidget);
+      // 지워진 계정의 이름·기록이 화면에 남아 있으면 안 된다.
+      expect(find.text('Google · a***@gmail.com 연결됨'), findsNothing);
+      expect(find.text('99일'), findsNothing);
+
+      api
+        ..createGuestError = null
+        ..deleteAccountError = const UnauthorizedApiException(
+          code: 'UNAUTHORIZED',
+          message: '게스트를 찾을 수 없습니다.',
+        );
+
+      await _tap(tester, find.byKey(RecordsSlot.deleteAccount));
+      await _tap(tester, find.byKey(deleteAccountConfirmKey));
+
+      expect(api.deleteAccountCalls, 1);
+      expect(api.createGuestCalls, 2);
+      expect(world.store.token, 'fresh-guest');
+      expect(await world.flags.isSet(LocalFlag.linkAccountNoticeSeen), isFalse);
+      expect(find.text('계정을 삭제하고 새로 시작했어요'), findsOneWidget);
     });
   });
 

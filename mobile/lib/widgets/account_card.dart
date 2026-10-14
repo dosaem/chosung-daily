@@ -86,7 +86,11 @@ class _LinkedAccount extends StatelessWidget {
       children: [
         Padding(
           padding: const EdgeInsets.only(top: 2),
-          child: Icon(LucideIcons.userCheck, size: 16, color: colors.brand),
+          child: Icon(
+            providerIcon(account.provider),
+            size: 16,
+            color: colors.brand,
+          ),
         ),
         const SizedBox(width: 8),
         Expanded(
@@ -181,4 +185,14 @@ String providerDisplayName(String provider) => switch (provider) {
   'google' => 'Google',
   'apple' => 'Apple',
   _ => provider,
+};
+
+/// provider 아이콘(티켓 29 체크박스 3, SCREENS S4). Lucide 에는 구글·애플
+/// 브랜드 마크가 없어 가장 가까운 선 아이콘으로 가른다 — 둘을 같은 아이콘으로
+/// 두면 어느 계정이 붙었는지 아이콘이 말해 주지 못한다. 모르는 provider 는
+/// [providerDisplayName] 과 같은 이유로 공통 아이콘으로 떨어진다.
+IconData providerIcon(String provider) => switch (provider) {
+  'google' => LucideIcons.chrome,
+  'apple' => LucideIcons.apple,
+  _ => LucideIcons.userCheck,
 };
