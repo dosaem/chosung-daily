@@ -4,6 +4,7 @@ import 'package:chosung/app.dart';
 import 'package:chosung/config/provider_retry.dart';
 import 'package:chosung/guest/guest_token_store.dart';
 import 'package:chosung/l10n/localization_bootstrap.dart';
+import 'package:chosung/layout/reading_width.dart';
 import 'package:chosung/screens/home_shell.dart';
 import 'package:chosung/screens/maintenance_screen.dart';
 import 'package:chosung/screens/ranking_tab.dart';
@@ -13,10 +14,10 @@ import 'package:chosung/screens/today_tab.dart';
 import 'package:chosung/screens/update_required_screen.dart';
 import 'package:chosung/theme/app_colors.dart';
 import 'package:chosung/widgets/ad_banner_slot.dart';
-import 'package:chosung/widgets/max_width_body.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'fakes/fake_api_client.dart';
@@ -262,18 +263,94 @@ void main() {
     expect(find.byType(HomeShell), findsOne);
   });
 
-  testWidgets('본문은 600px 를 넘지 않는다 (iPad)', (tester) async {
-    tester.view.physicalSize = const Size(1668, 2388);
-    tester.view.devicePixelRatio = 2;
-    addTearDown(tester.view.reset);
+  // 티켓 24 가 22 의 "본문은 600px 를 넘지 않는다 (iPad)" 를 태블릿 뼈대 기준으로
+  // 다시 쓴 자리다. 22 는 폰 레이아웃을 가운데 600px 로 가뒀고, 24 는 왼쪽
+  // rail + 읽기 폭 콘텐츠 열로 바꿨다(스펙 §B.19, SCREENS T0).
+  group('태블릿 적응형 셸', () {
+    Future<void> pumpAtWidth(WidgetTester tester, double logicalWidth) async {
+      tester.view.physicalSize = Size(logicalWidth, 1200);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
 
-    await _pumpApp(tester, api: FakeApiClient());
+      await _pumpApp(tester, api: FakeApiClient());
+    }
 
-    expect(tester.getSize(find.byType(TodayTab)).width, 834);
-    final body = find.descendant(
-      of: find.byType(MaxWidthBody),
-      matching: find.byType(ConstrainedBox),
-    );
-    expect(tester.getSize(body.first).width, MaxWidthBody.maxWidth);
+    testWidgets('834 폭(iPad 세로)은 rail + 콘텐츠 열 600 이하', (tester) async {
+      // 1668×2388 @2 = 834dp — medium 구간.
+      tester.view.physicalSize = const Size(1668, 2388);
+      tester.view.devicePixelRatio = 2;
+      addTearDown(tester.view.reset);
+
+      await _pumpApp(tester, api: FakeApiClient());
+
+      expect(find.byType(NavigationRail), findsOne);
+      expect(find.byType(NavigationBar), findsNothing);
+
+      // 콘텐츠 열은 rail 을 뺀 폭이고, 그 안의 본문은 읽기 폭으로 갇힌다.
+      final content = tester.getSize(find.byType(TodayTab)).width;
+      final rail = tester.getSize(find.byType(NavigationRail)).width;
+      expect(content, 834 - rail);
+
+      final body = find.descendant(
+        of: find.byType(ReadingWidth),
+        matching: find.byType(ConstrainedBox),
+      );
+      expect(tester.getSize(body.first).width, ReadingWidth.defaultMaxWidth);
+    });
+
+    testWidgets('390 폭(폰)은 하단 탭 바, rail 없음', (tester) async {
+      await pumpAtWidth(tester, 390);
+
+      expect(find.byType(NavigationBar), findsOne);
+      expect(find.byType(NavigationRail), findsNothing);
+      expect(tester.getSize(find.byType(TodayTab)).width, 390);
+    });
+
+    for (final width in [744.0, 1024.0, 1366.0]) {
+      testWidgets('$width 폭은 rail, 하단 탭 바 없음', (tester) async {
+        await pumpAtWidth(tester, width);
+
+        expect(find.byType(NavigationRail), findsOne);
+        expect(find.byType(NavigationBar), findsNothing);
+      });
+    }
+
+    // 한 테스트 안에서 앱을 두 번 띄우면 두 번째 라우터가 플랫폼에 남은 직전
+    // 경로에서 시작한다 — 폭마다 테스트를 따로 둔다.
+    for (final width in [390.0, 1024.0]) {
+      testWidgets('$width 폭에서 세 탭이 같은 go_router 경로를 쓴다', (tester) async {
+        await pumpAtWidth(tester, width);
+
+        final router = GoRouter.of(tester.element(find.byType(HomeShell)));
+        String location() =>
+            router.routerDelegate.currentConfiguration.uri.toString();
+
+        final visited = [location()];
+        for (final label in ['순위', '내 기록']) {
+          await _tapAndSettle(tester, find.text(label));
+          visited.add(location());
+        }
+
+        expect(visited, ['/today', '/ranking', '/records']);
+      });
+    }
+
+    testWidgets('폭이 390 → 744 → 390 이어도 현재 탭이 유지된다', (tester) async {
+      await pumpAtWidth(tester, 390);
+      await _tapAndSettle(tester, find.text('순위'));
+      expect(find.byType(RankingTab), findsOne);
+
+      tester.view.physicalSize = const Size(744, 1133);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(NavigationRail), findsOne);
+      expect(find.byType(RankingTab), findsOne);
+
+      tester.view.physicalSize = const Size(390, 844);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(NavigationBar), findsOne);
+      expect(find.byType(RankingTab), findsOne);
+    });
   });
 }
