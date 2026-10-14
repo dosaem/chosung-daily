@@ -170,3 +170,24 @@ def test_leaderboard_and_today_stats_from_before_a_switch_are_discarded(stale_ge
     assert after["entryRows"] == 0
     assert after["myRank"] == UI_STRINGS["ko"]["my_rank_unsolved"]
     assert after["statsText"] == UI_STRINGS["ko"]["stats_empty"]
+
+
+def test_a_today_response_from_an_earlier_switch_does_not_replace_the_newer_puzzle(
+    stale_generation,
+):
+    """칩을 연달아 누르면 재조회가 겹친다 — 먼저 보낸 응답이 늦게 와도 덮어쓰지 않는다."""
+    after = stale_generation["late_today"]
+
+    assert after["puzzleId"] == 1
+    assert after["puzzleLanguage"] == "ko"
+    assert after["chips"] == {"ko": "true", "en": "false"}
+
+
+def test_a_language_patch_that_resolves_after_a_refetch_is_dropped(stale_generation):
+    """PATCH /me 가 도는 사이 409 재조회가 화면을 갈아끼웠으면 그 전환은 접는다."""
+    after = stale_generation["late_patch"]
+
+    assert after["puzzleLanguage"] == "ko"
+    assert after["chips"] == {"ko": "true", "en": "false"}
+    # 접지 않으면 재조회가 한 번 더 돌아 사용자가 보던 퍼즐이 또 바뀐다.
+    assert after["refetchesAfterReload"] == 0

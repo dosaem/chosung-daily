@@ -62,6 +62,18 @@ const state = {
   attempts: [],
 };
 
+/** 요청을 보내기 직전의 세대를 집어 둔다.
+ *
+ * 돌려준 함수는 "응답이 오는 사이에 상태가 폐기됐는가" 를 답한다. 비동기 요청은
+ * 전부 이 한 경로로 거른다 — 응답마다 다른 조건(퍼즐 ID 비교 같은)을 덧대면
+ * ko→en→ko 왕복처럼 그 조건이 다시 같아지는 순서에서 또 새어 들어온다
+ * (review/impl-review-17.md D-17-1 REPEAT · D-17-3).
+ */
+function sinceGeneration() {
+  const generation = state.generation;
+  return () => state.generation !== generation;
+}
+
 function authHeaders() {
   return { Authorization: `Bearer ${state.token}` };
 }
@@ -130,7 +142,11 @@ async function ensureToken() {
 }
 
 async function loadToday() {
+  const isStale = sinceGeneration();
   const res = await fetch(`${API_BASE}/puzzles/today`, { headers: authHeaders() });
+  // 칩을 연달아 누르면 재조회가 두 번 날아간다 — 먼저 보낸 쪽이 늦게 도착해
+  // 나중 언어의 퍼즐을 덮어쓰지 않게, 폐기 이전 세대의 응답은 없던 일로 한다.
+  if (isStale()) return null;
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     showMessage(errorText(body, "puzzle_load_failed"));
@@ -140,7 +156,7 @@ async function loadToday() {
 }
 
 async function loadStats() {
-  const requestedGeneration = state.generation;
+  const isStale = sinceGeneration();
   const streakEl = document.getElementById("streak");
   const res = await fetch(`${API_BASE}/me/stats`, { headers: authHeaders() });
   if (!res.ok) {
@@ -162,7 +178,7 @@ async function loadStats() {
   // 클릭이 "이미 그 언어"로 보여 무시된다(review/impl-review-17.md D-17-3).
   // 퍼즐이 없는 날(자정 전환 직후)에도 칩은 내 선호 언어를 가리켜야 하므로,
   // 퍼즐 유무가 아니라 세대로 판단한다.
-  if (state.generation === requestedGeneration) renderLanguageChips(stats.puzzle_language);
+  if (!isStale()) renderLanguageChips(stats.puzzle_language);
 }
 
 // 로그인 버튼은 provider 연결 전까지만 보여준다 — 연결된 뒤엔 어떤 계정으로
@@ -200,11 +216,15 @@ function renderLanguageChips(language) {
 async function handleLanguageChange(language) {
   if (language === state.puzzleLanguage) return;
 
+  const isStale = sinceGeneration();
   const res = await fetch(`${API_BASE}/me`, {
     method: "PATCH",
     headers: jsonHeaders(),
     body: JSON.stringify({ puzzle_language: language }),
   });
+  // PATCH 가 도는 사이 409 재조회나 백업 코드 전환이 화면을 갈아끼웠을 수 있다.
+  // 그 위에 이 전환을 마저 얹으면 사용자가 보고 있는 퍼즐이 한 번 더 바뀐다.
+  if (isStale()) return;
   if (!res.ok) {
     showMessage(t("puzzle_language_failed"));
     return;
@@ -437,7 +457,7 @@ async function submitGuess(input, raw) {
   // 그 사이 보드는 서버 이력으로 복원됐다 — ID 만 보면 복원된 그 시도를 한 번 더
   // 그려서 같은 행이 두 번 보인다(review/impl-review-17.md D-17-1 REPEAT).
   const requestedPuzzleId = state.puzzleId;
-  const requestedGeneration = state.generation;
+  const isStale = sinceGeneration();
   const res = await fetch(`${API_BASE}/puzzles/today/guesses`, {
     method: "POST",
     headers: jsonHeaders(),
@@ -445,7 +465,7 @@ async function submitGuess(input, raw) {
   });
   const data = await res.json();
 
-  if (state.generation !== requestedGeneration || state.puzzleId !== requestedPuzzleId) return;
+  if (isStale() || state.puzzleId !== requestedPuzzleId) return;
 
   if (data.code === "PUZZLE_CHANGED") {
     // 자정이 지났거나 다른 기기에서 언어를 바꿨다. 시도는 소비되지 않았으니
@@ -495,13 +515,13 @@ function formatSeconds(totalSeconds) {
 async function loadLeaderboard() {
   const message = document.getElementById("leaderboard-message");
   // 통계·리더보드는 "내가 안 고른 언어"도 볼 수 있는 엔드포인트라 언어를 명시한다.
-  const requestedGeneration = state.generation;
+  const isStale = sinceGeneration();
   const res = await fetch(
     `${API_BASE}/puzzles/today/leaderboard?language=${state.puzzleLanguage}`,
     { headers: authHeaders() }
   );
   // 요청에 박아 보낸 언어가 지금 화면의 언어가 아니면, 이 순위표는 남의 퍼즐 것이다.
-  if (state.generation !== requestedGeneration) return;
+  if (isStale()) return;
   if (!res.ok) {
     message.textContent = t("leaderboard_load_failed");
     return;
@@ -545,11 +565,11 @@ function renderLeaderboard(data) {
 }
 
 async function loadTodayStats() {
-  const requestedGeneration = state.generation;
+  const isStale = sinceGeneration();
   const res = await fetch(`${API_BASE}/puzzles/today/stats?language=${state.puzzleLanguage}`, {
     headers: authHeaders(),
   });
-  if (state.generation !== requestedGeneration) return;
+  if (isStale()) return;
   if (!res.ok) return;
 
   renderTodayStats(await res.json());

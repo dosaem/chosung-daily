@@ -513,3 +513,187 @@ $ git diff --check main...HEAD
 - 수동 체크리스트 9·10 번은 **문서로만 추가**했다. 실제 Slow 3G 전환 조작은 node
   대역의 응답 보류로 대신했다 — 같은 순서를 만들지만 실제 브라우저·네트워크는 아니다.
 - 미수정 MINOR 없음(리뷰 MINOR 0건).
+
+---
+
+## 수정 라운드 2
+
+`review/impl-review-17.md` "라운드 2" 의 활성 결함 2건(BLOCKER 0 / MAJOR 2 / MINOR 0)을
+고쳤다. 둘 다 리뷰어 말이 맞았다 — 리뷰의 재현 명령을 그대로 돌려 같은 출력을
+받고 시작했다(아래 "수정 전"). 미수정 MINOR 는 없다(리뷰 MINOR 0건).
+리뷰 파일은 수정하지 않았다.
+
+- 기준점: 이 라운드 작업 중 로컬 `main` 이 두 번 움직여 두 번 rebase 했다
+  (`148715b` → `1e764da` "Merge 티켓 15", 둘 다 충돌 없음, 11 커밋). 리뷰는
+  `bf287f6` 위에서 봤다. 코디네이터가 말한 `008a35a`(티켓 22)는 `1e764da` 에 들어 있다.
+- 전용 테스트 자원 그대로: `TEST_DATABASE_URL=...chosung_daily_test_t17`,
+  `TEST_REDIS_URL=redis://127.0.0.1:6379/5`,
+  `TEST_MIGRATION_DATABASE_URL=...chosung_daily_test_t17_migrations`.
+  공용 테스트 DB·Redis DB 1 은 건드리지 않았다. 접속 URL 의 자격 증명은 적지 않는다.
+- 마이그레이션 없음(스키마 변경 없음). 서버 코드 변경 없음 — 이번 수정은
+  `web/static/app.js` 한 파일과 테스트뿐이다.
+
+### 공통 원인 — "같은 ID 로 돌아오는" 순간
+
+두 결함은 증상이 다를 뿐 원인이 하나다. **지금 화면이 어느 상태인지를 퍼즐 ID 로
+구분하려 한 것**이다.
+
+- 라운드 1 의 수정은 제출 응답을 `state.puzzleId !== requestedPuzzleId` 로 걸렀다.
+  ko→en 단방향은 막히지만 ko→en→ko 왕복이면 ID 가 **다시 같아진다**. 그 사이
+  보드는 서버 `attempts` 로 복원됐으므로, 늦게 온 응답을 다시 반영하면 같은 시도가
+  두 번 그려진다(D-17-1 REPEAT).
+- 조회 응답(`/me/stats`·순위·오늘 통계·`GET today`·`PATCH /me`)에는 그 비교조차
+  없었다. 전환 전에 시작한 `/me/stats` 의 `puzzle_language` 가 지금 고른 언어를
+  덮어써 칩과 퍼즐이 어긋나고, 다음 칩 클릭이 `language === state.puzzleLanguage`
+  에 걸려 통째로 무시된다(D-17-3).
+
+그래서 응답마다 조건을 덧대지 않고 **세대(generation) 하나**로 막았다. 상태를
+통째로 폐기하는 단 한 지점(`discardLocalPlayState`)에서 `state.generation` 을 1
+올리고, 비동기 요청은 전부 같은 경로로 거른다:
+
+```js
+function sinceGeneration() {
+  const generation = state.generation;
+  return () => state.generation !== generation;
+}
+```
+
+`discardLocalPlayState` 는 언어 전환·409 재조회(자정 경과 포함)·백업 코드 전환이
+모두 거쳐 가는 길목이라, 세대 증가 지점도 하나다.
+
+### 비동기 요청별 — 늦은 응답을 어떻게 막는가
+
+| 요청 | 거르는 지점 | 늦은 응답이 그대로 들어오면 | 고정한 테스트 |
+|---|---|---|---|
+| `POST /puzzles/today/guesses` (submitGuess) | `isStale() \|\| state.puzzleId !== requestedPuzzleId` | 왕복 후 복원된 시도를 한 번 더 그려 보드·공유 그리드가 중복 | `test_a_submit_response_from_before_a_round_trip_is_discarded` (+ 라운드 1 의 단방향 2건) |
+| `GET /me/stats` (loadStats) | `if (!isStale()) renderLanguageChips(...)` | 지난 선호 언어가 칩을 되돌려 다음 전환이 막힘 | `test_a_stats_response_from_before_a_switch_does_not_revert_the_language` |
+| `GET /puzzles/today` (loadToday) | `if (isStale()) return null;` | 먼저 보낸 재조회가 나중 언어의 퍼즐을 덮어씀 | `test_a_today_response_from_an_earlier_switch_does_not_replace_the_newer_puzzle` |
+| `PATCH /me` (handleLanguageChange) | `if (isStale()) return;` | 409 재조회로 갈아끼운 화면 위에 전환을 또 얹어 퍼즐이 한 번 더 바뀜 | `test_a_language_patch_that_resolves_after_a_refetch_is_dropped` |
+| `GET /puzzles/today/leaderboard` | `if (isStale()) return;` | 전 언어 퍼즐의 순위·내 순위가 지금 화면에 남음 | `test_leaderboard_and_today_stats_from_before_a_switch_are_discarded` |
+| `GET /puzzles/today/stats` | `if (isStale()) return;` | 전 언어 퍼즐의 시도 분포가 지금 화면에 남음 | 같은 테스트 |
+
+세대를 **안 보는** 비동기 요청과 그 이유:
+
+| 요청 | 왜 거르지 않는가 |
+|---|---|
+| `POST /guests` (ensureToken) | 토큰 발급은 `init()` 의 첫 단계다 — 아직 그릴 상태도, 폐기할 상태도 없다. |
+| `POST /session/sync` (syncSession) | 응답으로 화면을 그리지 않는다(쿠키만 심는다). |
+| `GET /me/stats` (handleRestoreSubmit 의 코드 검증) | 성공하면 `discardLocalPlayState()` + `location.reload()` 로 페이지가 통째로 다시 뜬다. 실패하면 `#restore-message` 한 줄뿐이고, 이건 플레이 상태가 아니라 그 패널의 것이다. |
+| `loadStats` 의 연속 기록·연결 계정 | 퍼즐이 아니라 **게스트**의 정보라 언어 전환과 무관하게 최신이다. 전환했다고 비워두면 "기록이 0일인가?" 로 헷갈린다 — 그래서 같은 응답에서도 선호 언어 칩만 거른다(`test_a_stale_stats_response_still_updates_the_guest_scoped_summary`). |
+
+### 결함별 — 원인 / 수정 / 증명
+
+#### D-17-1 (REPEAT, MAJOR) — 왕복 후 폐기한 제출 응답이 복원 이력을 중복시킨다
+
+- **원인**: `web/static/app.js` 의 제출 가드가 퍼즐 ID 비교뿐이었다. ko→en→ko 면
+  ID 가 1 로 되돌아와 "같은 퍼즐" 로 판정된다. 그 사이 `applyPuzzle` 이 서버
+  `attempts` 로 그 시도를 이미 복원해뒀으므로 한 번 더 `state.attempts.push` 된다.
+- **수정**: `submitGuess` 가 요청 직전 세대를 `sinceGeneration()` 으로 집어두고,
+  응답에서 `isStale() || state.puzzleId !== requestedPuzzleId` 면 통째로 버린다.
+  ID 비교는 남겼다 — 폐기 없이 `applyPuzzle` 만 도는 경로(`init()`)까지 덮는다.
+- **증명**: `tests/js/stale_state_generation.mjs` 시나리오 (A) — ko 제출 보류 →
+  en 전환 → ko 복귀(서버가 1행 복원) → 보류했던 응답 도착.
+
+```
+수정 전: {"puzzleId":1,"attempts":[{"guess":"사자",...},{"guess":"사자",...}],"attemptsLeft":4,"boardRows":2}
+수정 후: {"puzzleId":1,"attempts":[{"guess":"사자","feedback":[true,false]}],"attemptsLeft":4,"boardRows":1}
+```
+
+#### D-17-3 (신규, MAJOR) — 늦은 내 기록 조회가 퍼즐 언어를 되돌려 전환을 막는다
+
+- **원인**: `loadStats` 가 `renderLanguageChips(stats.puzzle_language)` 를 무조건
+  불렀다. 그 응답은 전환 **전** 상태의 것이라 선호 언어가 ko 다. 칩만 ko 로
+  되돌아가고 퍼즐은 en 인 어긋난 상태가 되며, 다음 한국어 클릭은
+  `language === state.puzzleLanguage` 로 즉시 반환돼 요청이 0건이 된다
+  (= en 퍼즐에서 못 빠져나온다). `normalizeGuess` 의 en 대문자 처리도 같이 잃는다.
+- **수정**: 같은 세대의 응답일 때만 칩을 그린다. 퍼즐이 없는 날에도 칩은 선호
+  언어를 가리켜야 하므로 "퍼즐이 있나" 가 아니라 "세대가 같나" 로 판단한다.
+  연속 기록·연결 계정은 게스트의 것이라 그대로 반영한다.
+- **증명**: 시나리오 (B) — ko 에서 `loadStats()` 보류 → en 전환 → 보류 응답 도착
+  → 이어서 한국어 칩 클릭.
+
+```
+수정 전: {"puzzleId":2,"puzzleLanguage":"ko","chips":{"ko":"true","en":"false"},"normalizedLatin":"ab"}  ko click requests: 0
+수정 후: {"puzzleId":2,"puzzleLanguage":"en","chips":{"ko":"false","en":"true"},"normalizedLatin":"AB"}  ko click requests: 4
+```
+
+#### 같은 원인의 나머지 경로 (리뷰가 지적하지 않았지만 같이 막았다)
+
+코디네이터 지시("응답마다 개별 조건을 덧대지 말고 원인을 한 번에 막아라")에 따라
+남은 비동기 요청도 같은 경로로 묶었다. 각각 시나리오 (D)(E)(F) 로 고정했다.
+
+```
+순위·오늘 통계 (D)  수정 전: {"entryRows":1,"myRank":"#9 · 3회 · 00:01:30","statsText":"1회 50%2회 0%..."}
+                    수정 후: {"entryRows":0,"myRank":"아직 안 풀었어요","statsText":"아직 정답자가 없어요"}
+GET today    (E)   수정 전: {"puzzleId":2,"puzzleLanguage":"en"}   ← 마지막 클릭은 한국어였다
+                    수정 후: {"puzzleId":1,"puzzleLanguage":"ko"}
+PATCH /me    (F)   수정 전: refetchesAfterReload 1  (409 재조회 뒤 퍼즐이 또 바뀐다)
+                    수정 후: refetchesAfterReload 0
+```
+
+### 수정 전 (red) → 수정 후 (green)
+
+수정 전 번들(`1e24303:web/static/app.js`)로 되돌려 새 테스트만 돌렸다:
+
+```
+$ git show 1e24303:web/static/app.js > web/static/app.js
+$ uv run pytest tests/test_web_js.py -q
+FAILED tests/test_web_js.py::test_a_submit_response_from_before_a_round_trip_is_discarded
+FAILED tests/test_web_js.py::test_a_stats_response_from_before_a_switch_does_not_revert_the_language
+FAILED tests/test_web_js.py::test_leaderboard_and_today_stats_from_before_a_switch_are_discarded
+FAILED tests/test_web_js.py::test_a_today_response_from_an_earlier_switch_does_not_replace_the_newer_puzzle
+FAILED tests/test_web_js.py::test_a_language_patch_that_resolves_after_a_refetch_is_dropped
+5 failed, 8 passed in 0.42s
+
+$ git checkout web/static/app.js        # 수정본 복구
+$ uv run pytest tests/test_web_js.py -q
+13 passed in 1.05s
+```
+
+통과한 8건에는 대조군 2건이 들어 있다 — 전환이 없으면 제출 응답도(`fresh_wrong`),
+stats 의 선호 언어도(`fresh_stats`) 평소처럼 반영된다. 즉 "늦은 응답을 다 버린다"
+가 아니라 "폐기 이전 세대만 버린다" 를 고정한다.
+
+### 전체 검증 (rebase 후)
+
+```
+$ git rebase main                      # main = 1e764da "Merge 티켓 15"
+Successfully rebased and updated refs/heads/dosaem/t17-web-play-flow-i18n.
+
+$ uv run pytest -q
+788 passed in 1173.14s (0:19:33)       # exit 0
+                                        # 이번 라운드가 더한 건 JS 실행 테스트 7건
+                                        # (새 결함 5 + 대조군·게스트 요약 2).
+                                        # 722 → 729 가 그 7건이고, 729 → 788 은
+                                        # 재rebase 로 들어온 티켓 15(운영자 CRUD) 몫이다.
+
+$ uv run ruff check .
+All checks passed!                      # exit 0
+
+$ uv run flask db heads
+dae1b5af0cf7 (head)                     # 1줄, exit 0 (17 은 마이그레이션 없음)
+
+$ git diff --check main...HEAD
+                                        # 출력 없음, exit 0
+```
+
+`148715b` 위에서도 같은 수치를 받았다(`729 passed`, exit 0). 20~27분이 걸린 건
+같은 머신에서 다른 워크트리 5개가 같은 시각에 전체 테스트를 돌려서다(라운드 1 은
+8분). 테스트 자원은 겹치지 않는다 — 이 라운드는 `chosung_daily_test_t17` +
+Redis DB 5 만 썼다.
+
+`git status` 는 clean 이고 브랜치는 로컬 `main`(`1e764da`) 바로 위에 있다.
+`origin/main` 은 쓰지 않았고 `git push` 도 하지 않았다.
+
+### 리뷰어 지적 중 틀렸다고 본 것
+
+없다. 두 결함 모두 리뷰의 재현 명령을 그대로 돌려 같은 출력을 받았다.
+
+### 남은 것 / 이 라운드가 못 한 것
+
+- **브라우저 재확인은 안 했다.** 수정은 `web/static/app.js` 의 비동기 경계 6곳이고
+  CSS·마크업·DOM 구조를 건드리지 않아서 `impeccable detect` 를 다시 돌리지 않았다
+  (라이트 0건 주장은 그대로다). 다크 OS 중간 상태도 그대로 티켓 18 범위다(§6).
+- node 대역은 **응답 도착 순서**를 만들 뿐 실제 브라우저·네트워크가 아니다. 실제
+  Slow 3G 에서의 연타는 README "웹 수동 체크리스트" 9번이 계속 담당한다.
+- 미수정 MINOR 없음(리뷰 MINOR 0건).

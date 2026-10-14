@@ -53,6 +53,11 @@ const KO_STATS = {
   linked_account: null,
 };
 
+/** 붙잡아 둔 응답 말고 나머지 await 가 풀릴 틈. */
+function tick() {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 /** ko 퍼즐을 그려둔 앱. */
 function appOnKoPuzzle() {
   const app = loadApp({ strings, lang });
@@ -179,6 +184,61 @@ const results = {};
     myRank: app.el("my-rank").textContent,
     statsText: app.el("today-stats").text,
   };
+}
+
+// (E) 칩을 연달아 누르면 재조회가 겹친다 — 먼저 보낸 today 응답이 늦게 와도
+//     나중 언어의 퍼즐을 덮어쓰지 않는다.
+{
+  const app = appOnKoPuzzle();
+  let releaseToday;
+  let todayCalls = 0;
+  app.setFetch(async (url, options) => {
+    if (options?.method === "PATCH") {
+      return okResponse({ puzzle_language: JSON.parse(options.body).puzzle_language });
+    }
+    if (url.endsWith("/puzzles/today")) {
+      todayCalls += 1;
+      // 첫 재조회(en)만 붙잡아 둔다.
+      if (todayCalls === 1) return new Promise((resolve) => (releaseToday = resolve));
+      return okResponse(structuredClone(KO_PUZZLE));
+    }
+    if (url.includes("leaderboard")) return okResponse({ entries: [], me: null });
+    return okResponse({ total_solved: 0, by_attempt: {} });
+  });
+
+  const pendingEn = app.run('handleLanguageChange("en")');
+  await tick();
+  await app.run('handleLanguageChange("ko")');
+  releaseToday(okResponse(structuredClone(EN_PUZZLE)));
+  await pendingEn;
+
+  results.late_today = snapshot(app);
+}
+
+// (F) PATCH /me 가 도는 사이 409 재조회가 화면을 갈아끼우면, 그 전환은 접는다.
+{
+  const app = appOnKoPuzzle();
+  let releasePatch;
+  let todayCalls = 0;
+  app.setFetch(async (url, options) => {
+    if (options?.method === "PATCH") return new Promise((resolve) => (releasePatch = resolve));
+    if (url.endsWith("/puzzles/today")) {
+      todayCalls += 1;
+      return okResponse(structuredClone(KO_PUZZLE));
+    }
+    if (url.includes("leaderboard")) return okResponse({ entries: [], me: null });
+    return okResponse({ total_solved: 0, by_attempt: {} });
+  });
+
+  const pendingEn = app.run('handleLanguageChange("en")');
+  await tick();
+  await app.run("reloadPuzzle()");
+  const todayAfterReload = todayCalls;
+
+  releasePatch(okResponse({ puzzle_language: "en" }));
+  await pendingEn;
+
+  results.late_patch = { ...snapshot(app), refetchesAfterReload: todayCalls - todayAfterReload };
 }
 
 console.log(JSON.stringify(results));
