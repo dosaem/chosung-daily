@@ -57,6 +57,11 @@ TodayPuzzle applyGuess({
   );
 }
 
+/// 이 퍼즐에 쓴 시도 수. **보드 행 수가 아니라 서버가 준 남은 기회**로 센다 —
+/// 끝난 퍼즐의 결과(공유 텍스트·분포의 내 위치)는 서버가 판정한 값이어야 한다
+/// (웹 `buildShareText` 와 같은 기준).
+int attemptsUsed(TodayPuzzle puzzle) => maxAttempts - puzzle.attemptsLeft;
+
 /// 다음 KST 자정까지 남은 시간. 기기 시간대와 무관하게 같은 값이다.
 Duration timeUntilNextPuzzle(DateTime now) {
   final kst = now.toUtc().add(_kstOffset);
