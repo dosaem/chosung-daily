@@ -1,0 +1,84 @@
+{% extends "account/_layout.html" %}
+{% block document %}
+{% if csrf_token %}
+<p>
+  This deletes the records (guest) of this browser and the account linked to them.
+  <strong>This cannot be undone</strong> — deleted records cannot be restored.
+</p>
+
+<h2>What gets deleted</h2>
+{# The item names match the privacy policy's "What we collect, and how long we keep it"
+   section — if the two documents use different words they promise different things. #}
+<dl>
+  <dt>Guest token</dt>
+  <dd>The string that owns your records. It is also the backup code in "Back up my records".</dd>
+
+  <dt>Account email</dt>
+  <dd>The email and unique identifier of the linked Google or Apple account.</dd>
+
+  <dt>Apple refresh token</dt>
+  <dd>
+    If you signed in with Apple, the connection on Apple's side ("Apps Using Apple ID") is
+    revoked as well and the token is destroyed. If the revocation fails, the token is kept
+    encrypted for up to 7 days for retries only, then destroyed.
+  </dd>
+
+  <dt>Attempt history</dt>
+  <dd>Submitted words, whether they were correct, attempt counts, streak and solved count.</dd>
+
+  <dt>Subscription identifier</dt>
+  <dd>The store purchase identifier and expiry of the ad-free subscription.</dd>
+
+  <dt>Today's ranking</dt>
+  <dd>Your entry on today's leaderboard (both puzzle languages).</dd>
+</dl>
+
+<p class="doc-note">
+  <strong>Your subscription is not cancelled automatically.</strong> To stop being charged you
+  must cancel it separately in App Store or Google Play subscription settings. Deleting the
+  account leaves the store-side subscription untouched.
+</p>
+
+<p class="doc-note">
+  Server backups keep the data from before deletion for up to 14 days and then discard it
+  (policy:
+  <a href="{{ url_for('web.privacy', lang='en') }}#collection">What we collect, and how long we keep it</a>).
+</p>
+
+<form class="delete-form" method="post" action="{{ url_for('web.account_delete_submit') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+  <button class="delete-button" type="submit">Delete my account and all records</button>
+</form>
+
+<p class="delete-links">
+  More detail:
+  <a href="{{ url_for('web.privacy', lang='en') }}#collection">What we collect, and how long we keep it</a> ·
+  <a href="{{ url_for('web.privacy', lang='en') }}#rights">Deletion and your rights</a>
+</p>
+{% else %}
+<p>
+  This browser has no records to delete. Records belong to the guest token stored on the
+  device, so you have to delete them <strong>from the browser or app that holds them</strong>.
+</p>
+
+<h2>How to delete</h2>
+<ul>
+  <li>
+    Web: open <a href="{{ url_for('web.index') }}">Hidden Vowels</a> once in the browser that
+    holds your records — that is where you log in or restore a backup code — then come back
+    here and the delete button will be there.
+  </li>
+  <li>App: "Delete account" at the bottom of the My Records screen.</li>
+  <li>
+    If you lost the device, or none of the above works, ask the operator by email —
+    <a href="mailto:{{ contact_email }}">{{ contact_email }}</a>
+  </li>
+</ul>
+
+<p class="delete-links">
+  More detail:
+  <a href="{{ url_for('web.privacy', lang='en') }}#collection">What we collect, and how long we keep it</a> ·
+  <a href="{{ url_for('web.privacy', lang='en') }}#rights">Deletion and your rights</a>
+</p>
+{% endif %}
+{% endblock %}

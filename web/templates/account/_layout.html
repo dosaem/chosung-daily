@@ -1,0 +1,69 @@
+{#
+  `/account/delete` 공통 틀. 본문은 언어별 템플릿이 `document` 블록에 채운다
+  (법적 문서와 같은 규칙 — 한 템플릿에서 if 로 두 언어를 섞으면 한쪽만 고쳐진
+  문구가 나간다, `legal/_layout.html` 참고).
+
+  레이아웃 CSS 는 문서 페이지의 `legal.css`(.doc*)를 그대로 쓴다 — 같은 "중앙
+  정렬 카드 한 장"(OVERRIDES §10)이고, 이 페이지에만 있는 건 삭제 버튼뿐이라
+  `account.css` 가 그것만 더한다.
+#}
+{% set chrome = {
+  "ko": {
+    "home": "오늘의 초성",
+    "other_lang_label": "English",
+    "other_lang": "en",
+    "title": "계정 삭제",
+    "privacy": "개인정보처리방침",
+    "terms": "이용약관",
+  },
+  "en": {
+    "home": "Hidden Vowels",
+    "other_lang_label": "한국어",
+    "other_lang": "ko",
+    "title": "Delete account",
+    "privacy": "Privacy Policy",
+    "terms": "Terms of Service",
+  },
+}[ui_language] %}
+<!doctype html>
+<html lang="{{ ui_language }}">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ chrome.title }} · {{ chrome.home }}</title>
+  {# 심사자·스토어가 이 URL 을 그대로 쓴다. 검색 결과로 띄울 페이지는 아니다. #}
+  <meta name="robots" content="noindex" />
+  <link rel="alternate" hreflang="ko" href="{{ url_for(request.endpoint, lang='ko') }}" />
+  <link rel="alternate" hreflang="en" href="{{ url_for(request.endpoint, lang='en') }}" />
+  {# Pretendard 는 ko/en 을 한 폰트로 덮는다 (OVERRIDES §3). 버전 고정. #}
+  <link
+    rel="stylesheet"
+    href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css"
+  />
+  <link rel="stylesheet" href="{{ url_for('static', filename='tokens.css') }}?v={{ asset_version }}" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='legal.css') }}?v={{ asset_version }}" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='account.css') }}?v={{ asset_version }}" />
+</head>
+<body>
+  <main class="doc">
+    <nav class="doc-nav" aria-label="{{ chrome.home }}">
+      <a class="doc-nav-link" href="{{ url_for('web.index') }}">&larr; {{ chrome.home }}</a>
+      <a
+        class="doc-nav-link"
+        href="?lang={{ chrome.other_lang }}"
+        hreflang="{{ chrome.other_lang }}"
+        lang="{{ chrome.other_lang }}"
+      >{{ chrome.other_lang_label }}</a>
+    </nav>
+
+    <h1 class="doc-title">{{ chrome.title }}</h1>
+
+    {% block document %}{% endblock %}
+
+    <footer class="doc-footer">
+      <a class="doc-nav-link" href="{{ url_for('web.privacy', lang=ui_language) }}">{{ chrome.privacy }}</a>
+      <a class="doc-nav-link" href="{{ url_for('web.terms', lang=ui_language) }}">{{ chrome.terms }}</a>
+    </footer>
+  </main>
+</body>
+</html>

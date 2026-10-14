@@ -101,6 +101,9 @@ web/                  # Jinja 템플릿 1장 + vanilla JS
 | GET/POST | `/admin/words/<id>/edit`, `/admin/words/<id>` | 단어 수정 폼 / 저장 (`mask` 재계산) | S + 운영자 (+ POST CSRF) |
 | POST | `/admin/words/<id>/delete` | 단어 삭제 (퍼즐에 배정된 단어는 거부) | S + 운영자 + CSRF |
 | GET/POST | `/admin/words/import` | CSV 업로드 폼 / 적재 + 행별 결과 표 | S + 운영자 (+ POST CSRF) |
+| DELETE | `/api/v1/me` | 계정·기록 전체 삭제(한 커밋) → 204, 애플 계정이면 애플 연결도 철회 | Bearer |
+| GET | `/account/delete` | 계정 삭제 확인 페이지 (Jinja, ko/en) — 세션 없으면 안내 + 운영자 메일. Play Data safety 삭제 URL | 세션 쿠키(선택) |
+| POST | `/account/delete` | 확인 폼 제출 → 삭제 후 `/?deleted=1` 리다이렉트, 세션 없음 401 / CSRF 불일치 403 `FORBIDDEN` | 세션 쿠키 + CSRF |
 
 에러 응답은 전부 `{code, message}` + 적절한 HTTP status로 통일 (아래 "에러 응답" 참고).
 
@@ -224,6 +227,7 @@ celery 브로커 큐와 rate limit 카운터는 DB 와 무관해서 건드리지
 | 00:05 | `tasks.flush_daily_stats` | 전날 Redis 통계(`stats:{date}:{lang}`)를 언어별로 `DailyStats` 에 반영 | Redis 장애면 예외 → Celery 재시도(최대 5회, backoff) |
 | 09:00 | `tasks.notify_low_word_pool` | 언어별 미사용 단어 잔량이 **14일치 미만**이면 Slack 알림 | Slack 전송 실패는 경고 로그만 (`app/clients/slack.py`) |
 | 월 09:10 | `tasks.notify_apple_secret_expiry` | 애플 `client_secret`(JWT) 만료가 **7일 안**이면 Slack 알림 (주 1회) | 같음 |
+| 09:20 | `tasks.retry_apple_revocations` | 실패한 애플 연결 철회(`apple_revocation_retry`)를 다시 시도하고, 7일 넘긴 행은 폐기 + Slack 알림 | 한 행이 실패해도 나머지 행은 그날 계속 시도 |
 
 잔량 알림을 자정이 아니라 09:00 에 둔 건, 알림이 운영자가 깨어 있는 시간에 와야
 그날 안에 `flask seed-words` 로 단어를 채울 수 있어서다. 잔량은 "아직 한 번도
@@ -235,6 +239,7 @@ celery 브로커 큐와 rate limit 카운터는 DB 와 무관해서 건드리지
 uv run celery -A celery_app.celery call tasks.ensure_today_puzzle
 uv run celery -A celery_app.celery call tasks.notify_low_word_pool
 uv run celery -A celery_app.celery call tasks.notify_apple_secret_expiry
+uv run celery -A celery_app.celery call tasks.retry_apple_revocations
 ```
 
 ## 운영: 단어 CSV 업로드 (`/admin`)
@@ -1303,6 +1308,77 @@ Split View 최소 폭 약 320 은 compact 로 떨어뜨린다). 각 화면의 2�
 대체·검증한다. 시트도 하나로 합쳤다 — `showAdaptiveSheet` 가 compact 에서
 바텀시트, medium 이상에서 가운데 다이얼로그(최대 폭 560, 상하 여백 48)를 고르므로
 26·29·32 는 폭을 신경 쓰지 않고 내용 위젯만 넘기면 된다.
+
+
+### 14. 계정 삭제 — 한 커밋 · 애플 revoke 재시도
+
+삭제는 되돌릴 수 없는 유일한 기능이라, "어디까지가 한 트랜잭션인가" 와 "실패하면
+무엇이 남는가" 를 먼저 정했다.
+
+**1. 삭제 자체는 DB 한 트랜잭션 + 커밋 하나.**
+`delete_guest_account`(app/services/account_deletion_service.py) 가 Attempt →
+HintUnlock → Subscription → Account → GuestStats → Guest 를 순서대로 지우고 한 번
+커밋한다(자식부터 — 순서를 바꾸면 외래 키가 막는다). `DELETE /api/v1/me`(앱)와
+웹 `POST /account/delete` 가 **같은 함수**를 부른다: 삭제 범위가 들어온 문으로
+갈리면 한쪽만 고쳐진 삭제가 생긴다.
+
+**2. 트랜잭션에 못 들어오는 둘은 커밋 뒤에.** 오늘 리더보드 `ZREM`(Redis)과 애플
+연결 철회(외부 HTTP)는 DB 트랜잭션에 참여할 수 없고 되돌릴 수도 없다. 그래서
+커밋 **뒤에** 한다 — 이러면 Redis·애플 장애가 플레이어의 삭제를 막지 못한다.
+반대 순서(정리 먼저, 커밋 나중)는 "커밋이 실패했는데 순위만 사라진" 상태를 만든다.
+대가는 하나 있다: 커밋 직후 Redis 가 죽어 있으면 **오늘** 리더보드에 지워진
+게스트의 항목이 남는다(`safe_redis_call` 이 삼킨다). 그 항목은 익명 라벨이고
+DB 행이 없어 아무 응답으로도 식별되지 않으며, 리더보드는 오늘 키만 읽어서 다음
+날 자동으로 사라진다 — 삭제를 막는 쪽보다 이쪽이 싸다고 판단했다.
+
+**3. 애플 revoke 는 "발급 client" 가 핵심이다.** 애플은 refresh token 을 **그
+토큰을 발급한 client 의 자격증명**으로만 철회해 준다. 그래서 `Account` 가
+`provider_refresh_token`(Fernet 암호문)과 `provider_client_id`(iOS 연결 = 앱 번들
+ID, 웹 연결 = Services ID)를 짝으로 들고 있고, 철회는 그 client_id 로
+`apple_client_secret(app, client_id)`(티켓 11 의 공개 접근자)을 받아 쓴다.
+`provider_client_id` 가 없으면 아무 client 로 찍어 보내지 않고 건너뛴다 —
+애플이 `invalid_client` 로 거절할 뿐이라 재시도 행을 만들 이유도 없다.
+
+**4. 철회 실패는 삭제를 막지 않는다 — `AppleRevocationRetry` 로 미룬다.**
+행에는 암호문 토큰과 client_id, 생성 시각만 있고 `guest_id` 가 없다(그 시점에
+게스트 행은 이미 없다). 그 행은 **삭제와 같은 커밋**에 들어간다
+(`schedule_revocation` → 커밋 → `complete_scheduled_revocation`): 애플 호출이
+실패한 **뒤에** 저장하면, 삭제 커밋과 저장 사이에서 DB·프로세스가 죽은 요청이
+계정만 지우고 철회 자격증명을 영구히 버린다(게스트 행이 없어 아무도 다시
+만들어낼 수 없다). 철회가 성공하면 그 행을 지운다 — 즉 커밋이 둘이다(삭제,
+그리고 의무 해제). 대가는 Beat 가 "방금 삭제돼 아직 철회 중인" 행을 집어 올 수
+있다는 것뿐이고, 같은 토큰에 철회가 두 번 가도 애플 쪽 결과는 같다. Beat 가 매일 09:20 에 재시도하고, 7일(`RETRY_MAX_AGE`)을
+넘긴 행은 **그날 한 번 더 시도해 본 뒤** 실패하면 폐기하고 운영자에게 Slack 으로
+알린다. 시도 뒤에 폐기하는 이유: 그래야 알림이 "방금도 안 됐다" 를 뜻하고,
+운영자가 애플 콘솔에서 확인할 일이 분명해진다. 알림에 토큰은 넣지 않는다.
+7일이 적절한 값인지는 운영 데이터로 다시 본다(스펙 "미정 11") — 고칠 자리는
+상수 하나다. 복호화 실패(SECRET_KEY 교체)도 실패로 접는다: 예외로 올리면 삭제
+요청이 500 이 되거나 Beat 한 바퀴가 한 행 때문에 멈춘다.
+
+**5. 웹은 세션 + 1회용 CSRF 토큰, GET 은 아무것도 지우지 않는다.**
+`/account/delete` 는 Play Data safety 의 "계정 삭제 URL" 이라 심사자·크롤러가 먼저
+GET 으로 열어본다 — 그래서 GET 은 확인 폼만 그린다(`tests/test_account_delete_page.py`
+가 고정). POST 는 **세션 확인이 CSRF 검증보다 먼저**다: 로그인 안 된 브라우저의
+제출은 "폼이 위조됐다"(403)가 아니라 "지울 게 누군지 모른다"(401)이기 때문이다.
+세션은 `POST /api/v1/session/sync` 가 심은 `current_guest_id` 를 쓰고, 그 id 가
+**지금도 살아 있는지** 매번 확인한다 — 서명 쿠키 세션은 상태가 전부 클라이언트에
+있어서 다른 탭이 들고 있던 쿠키는 삭제 후에도 남는다. 거기에 폼은 **그릴 때 본
+게스트**(`delete_target_guest_id`)만 지운다: 확인 화면을 띄워 둔 채 다른 탭에서
+백업 코드를 복원하거나 계정을 전환하면 세션이 다른 게스트를 가리키는데, CSRF
+토큰은 "이 폼을 우리가 그려줬다" 만 증명하고 "누구를 지우는 폼인가" 는 증명하지
+않아서 옛 버튼이 멀쩡한 계정을 지워버린다. 대상이 다르면 403 이고 화면을 다시
+받아야 한다.
+
+삭제 성공 응답은 `/?deleted=1` 리다이렉트다. 프론트(`web/static/app.js`)가 그
+쿼리를 보면 **저장된 토큰이 정말 죽었는지 서버에 먼저 확인하고**(옛 토큰으로
+`GET /api/v1/me/history?days=1` → 401) 그때만 localStorage 토큰과 이 기기에 남은
+보드 기록을 버리고 새 게스트를 발급받는다 — 토큰만 버리면 새 게스트가 옛 보드를
+그대로 그린다. 쿼리파라미터는 신호일 뿐 증거가 아니다: 다른 사이트가 보낸
+`/?deleted=1` 링크를 누르기만 해도 같은 분기를 타는데(삭제 POST 의 CSRF 방어를
+안 거친다), 계정 연결도 백업 코드도 없는 플레이어에게 그 토큰은 유일한 복구
+수단이다. 확인을 못 했으면(오프라인) 아무것도 지우지 않고 신호를 주소창에 남겨
+다음 로드에서 다시 확인한다. 동작은 `tests/test_web.py` 가 실제 `app.js` 를 Node
+`vm` 에서 실행해 고정한다. 수동 확인 항목은 `docs/RELEASE.md` "### 14." 에 있다.
 
 
 ## 부하 테스트 요약

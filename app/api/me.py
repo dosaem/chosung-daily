@@ -3,6 +3,7 @@ from flask import Blueprint, g, jsonify, request
 from app.api.auth import with_guest
 from app.errors import ValidationError
 from app.schemas.guest import PuzzleLanguageRequest, PuzzleLanguageResponse
+from app.services.account_deletion_service import delete_guest_account
 from app.services.guest_service import change_puzzle_language
 from app.services.stats_service import (
     DEFAULT_HISTORY_DAYS,
@@ -53,3 +54,16 @@ def _requested_days() -> int:
 def my_history():
     history = get_my_history(g.guest, _requested_days())
     return jsonify([day.model_dump(mode="json") for day in history])
+
+
+@bp.delete("/me")
+@with_guest
+def delete_me():
+    """계정과 모든 기록을 지운다(스펙 §A.7, US 21). 앱 설정 화면의 삭제 버튼.
+
+    돌려줄 내용이 없어서 204 다 — 삭제 후에는 이 토큰으로 조회할 게 아무것도
+    없고, 응답 본문이 생기면 앱이 그걸 보고 뭔가 더 하게 된다. 같은 토큰으로
+    다시 부르면 401 이다(`with_guest` 가 게스트를 못 찾는다).
+    """
+    delete_guest_account(g.guest)
+    return "", 204

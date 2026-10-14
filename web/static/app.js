@@ -44,6 +44,15 @@ function safeStorageSet(key, value) {
   }
 }
 
+// 삭제 후 정리에만 쓴다. 저장과 같은 이유로 접근 자체가 던질 수 있어서 감싼다.
+function safeStorageRemove(key) {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    // 무시
+  }
+}
+
 function loadHistory(date) {
   const raw = safeStorageGet(historyKey(date));
   if (!raw) return [];
@@ -332,6 +341,63 @@ function handleOAuthLogin(provider) {
   location.href = `${API_BASE}/auth/${provider}/login`;
 }
 
+// 저장된 토큰이 서버에서 이미 지워졌는지 확인한다. 401이면 "지워졌다"가 확실하다.
+// 확인 자체를 못 했으면(오프라인·5xx) null — 모르는 상태와 지워진 상태를 섞으면
+// 네트워크가 끊겼을 때 멀쩡한 토큰을 버린다.
+async function guestTokenIsGone(token) {
+  try {
+    const res = await fetch(`${API_BASE}/me/history?days=1`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.status === 401) return true;
+    if (res.ok) return false;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// 계정 삭제(/account/delete)가 끝나면 서버가 /?deleted=1로 돌려보낸다. 지워진
+// 토큰을 그대로 들고 있으면 모든 API가 401이라, 저장된 토큰과 이 기기에 남은
+// 보드 기록을 버린다 — 그러면 아래 ensureToken()이 새 게스트를 발급받는다.
+// 기록까지 지우는 이유: 토큰만 버리면 새 게스트가 localStorage에 남은 옛 보드를
+// 그대로 그린다(loadHistory는 날짜 키만 보고 읽는다).
+//
+// 쿼리파라미터는 "신호"일 뿐 증거가 아니다. 다른 사이트가 보낸 /?deleted=1 링크를
+// 누르기만 해도 같은 분기를 타는데(삭제 POST의 CSRF 방어를 안 거친다), 계정 연결도
+// 백업 코드도 없는 플레이어에게 이 토큰은 유일한 복구 수단이다. 그래서 서버에
+// 토큰을 들이밀어 정말 지워졌는지(401) 확인한 뒤에만 버린다.
+async function discardDeletedAccountState() {
+  const params = new URLSearchParams(location.search);
+  if (!params.has("deleted")) return;
+
+  const token = safeStorageGet(TOKEN_KEY);
+  const gone = token ? await guestTokenIsGone(token) : false;
+  // 확인을 못 했으면 아무것도 지우지 않고 신호도 주소창에 남긴다 — 새로고침이나
+  // 다음 방문에서 다시 확인해야 지워진 계정의 토큰을 계속 들고 돌지 않는다.
+  if (gone === null) return;
+
+  params.delete("deleted");
+  const query = params.toString();
+  history.replaceState({}, "", location.pathname + (query ? `?${query}` : ""));
+  // 가짜 신호였다 — 살아 있는 게스트의 토큰·기록은 그대로 둔다.
+  if (!gone) return;
+
+  safeStorageRemove(TOKEN_KEY);
+  try {
+    const keys = [];
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith("chosung_history_")) keys.push(key);
+    }
+    keys.forEach(safeStorageRemove);
+  } catch {
+    // 무시 — 토큰은 이미 버렸으니 새 게스트로는 시작할 수 있다.
+  }
+
+  showMessage("계정과 기록을 삭제했어요. 새 기록으로 다시 시작합니다.");
+}
+
 // 로그인 콜백이 끝나면 /?login_token=<새 토큰>으로 돌아온다. 있으면 저장하고
 // URL에서 지운다(새로고침해도 다시 안 보이게, 그리고 주소창에 토큰이 안 남게).
 function applyLoginTokenFromUrl() {
@@ -346,6 +412,7 @@ function applyLoginTokenFromUrl() {
 }
 
 async function init() {
+  await discardDeletedAccountState(); // 삭제가 확인되면 옛 토큰을 먼저 버린다
   applyLoginTokenFromUrl();
   state.token = await ensureToken();
   syncSession(); // 응답을 기다릴 필요 없음 — 로그인 버튼 누르기 전까지만 심어지면 된다.
