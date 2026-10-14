@@ -602,6 +602,16 @@ Android lane 은 빌드 전에 이전 `app-release.aab` 를 지우고, 빌드 �
 - [ ] **스토어 구독 고지 일치.** ASC·Play 콘솔의 구독 설명과 약관 `#subscription` 절의
       가격·결제 주기·자동 갱신·해지 경로가 같은지 확인한다(Apple 3.1.2(a),
       Google Play 구독 정책).
+- [ ] **개인정보처리시스템 접속기록 보관 구성** (법정 보관 기간). 지금 레포의 운영 실행
+      경로에는 요청 접근 로그 설정이 없다(`Dockerfile` 의 Gunicorn 기본값 = 접근 로그
+      없음, compose 에도 로그 수집·보존 설정 없음). 방침 `#collection`·`#security` 절은
+      이 상태를 그대로 적고 "출시 전 적용 예정" 으로 두었다 — 접속기록을 남기고 법정
+      기간 보관하도록 구성한 뒤 그 두 절의 보유 기간 문구와 `LEGAL_EFFECTIVE_DATE` 를
+      함께 고친다(`tests/test_legal_checklist.py::test_the_production_entrypoint_has_no_access_log`
+      이 현재 상태를 고정하고 있어, 구성하면 그 테스트도 같이 바꾼다).
+- [ ] **백업 덤프 암호화 여부 결정.** `scripts/backup.sh` 는 `mysqldump | gzip` 만 하고
+      덤프를 암호화하지 않는다. 방침 `#destruction` 절은 이 상태를 그대로 적는다 —
+      암호화를 넣기로 하면 그 절 문구도 함께 고친다.
 - [ ] 위 값을 채운 뒤 `/privacy?lang=ko|en`·`/terms?lang=ko|en` 에서 "운영자 정보"
       블록을 눈으로 확인하고, 본문을 고쳤으면 `app/web.py` 의 `LEGAL_EFFECTIVE_DATE`
       를 올린다.

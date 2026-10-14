@@ -94,10 +94,15 @@
 
   <dt>Access and error logs</dt>
   <dd>
-    To investigate failures, request paths, timestamps, and error stacks are written to our
-    server logs and to Sentry. Identifying values such as emails and tokens are masked.
-    Retention: Sentry deletes them according to its retention policy, and server access logs
-    are kept for at least a year as required by the PIPA Enforcement Decree Art. 30.
+    To investigate failures, error stacks and processing records are written to our server
+    logs, and the path and time of a failing request are sent to Sentry. Our server logs do
+    not record identifying values such as emails or tokens, and Sentry is configured not to
+    receive request bodies, query strings, cookies, IP addresses, or user identifiers.
+    Retention: Sentry deletes events under its own retention policy, and our server logs are
+    only written to container standard output and are <strong>not collected into separate
+    storage</strong> (they are gone once the container is recreated). A configuration that
+    keeps access logs for the period the law requires will be in place
+    <strong>before launch</strong>, and we will update the retention in this section then.
   </dd>
 </dl>
 <p class="doc-note">
@@ -166,7 +171,7 @@
       <li><strong>Country, time, method</strong>: the United States and other countries where Google runs servers / when you use the feature / HTTPS network transfer</li>
       <li><strong>Recipient and contact</strong>: Google LLC (published channel: <a href="https://policies.google.com/privacy" rel="noopener" target="_blank">policies.google.com/privacy</a>)</li>
       <li><strong>Purpose and retention</strong>: sign-in and subscription validity / per Google's retention policy</li>
-      <li><strong>How to refuse, and the effect</strong>: if you never link a Google account, or unlink it, there is no transfer. You can still play as a guest; only continuing the same records across devices stops working.</li>
+      <li><strong>How to refuse, and the effect</strong>: <strong>Sign-in</strong> &mdash; if you never link a Google account, or unlink it, there is no transfer; you can still solve the puzzle, and only continuing the same records across devices stops working. <strong>Subscription verification</strong> is separate from linking: even without a linked account, buying the ad-free subscription on Google Play sends that purchase token to Google for verification. To refuse that transfer, do not buy the subscription; refusing only means you cannot remove the ads.</li>
     </ul>
   </dd>
 
@@ -177,7 +182,7 @@
       <li><strong>Country, time, method</strong>: the United States and other countries where Apple runs servers / at sign-in, subscription verification, and revocation / HTTPS network transfer</li>
       <li><strong>Recipient and contact</strong>: Apple Inc. (published channel: <a href="https://www.apple.com/legal/privacy/" rel="noopener" target="_blank">apple.com/legal/privacy</a>)</li>
       <li><strong>Purpose and retention</strong>: sign-in, subscription validity, revoking the connection / per Apple's retention policy</li>
-      <li><strong>How to refuse, and the effect</strong>: if you never link an Apple account, or unlink it, there is no transfer. The effect is the same as for Google above.</li>
+      <li><strong>How to refuse, and the effect</strong>: <strong>Sign-in and revocation</strong> &mdash; if you never link an Apple account, or unlink it, there is no transfer (the Apple refresh token exists only for a linked account), and the effect is the same as for Google above. <strong>Subscription verification</strong> is separate from linking: even without a linked account, buying the ad-free subscription on the App Store sends that transaction ID to Apple for verification. To refuse that transfer, do not buy the subscription.</li>
     </ul>
   </dd>
 
@@ -216,7 +221,8 @@
 </dl>
 <p class="doc-note">
   The apps still send ads, usage events, and error reports
-  <strong>even without a linked account</strong> — using the service without an account is not
+  <strong>even without a linked account</strong>, and buying a subscription sends the purchase
+  identifier to the store as well — using the service without an account is not
   a way to refuse international transfer. If you cannot accept these transfers, please stop using the service and delete your
   account and records as described in section 8.
 </p>
@@ -236,12 +242,14 @@
   <li>
     <strong>Method</strong>: database rows are deleted immediately and cannot be recovered from
     the service; the encrypted Apple refresh token is destroyed as soon as revocation finishes,
-    or after at most 7 days if revocation keeps failing. Backups are deleted as whole dump files
-    after 14 days. We hold no printed personal data.
+    or after at most 7 days if revocation keeps failing. Backups are deleted as whole
+    compressed dump files after 14 days — the dump files themselves are not encrypted and are
+    kept only in an access-restricted folder on the server. We hold no printed personal data.
   </li>
   <li>
     <strong>Access and error logs</strong>: Sentry deletes them under its own retention policy,
-    and server access logs are deleted once the period required by law has passed.
+    and our server logs are not collected into separate storage, so there is no separate
+    destruction step for them.
   </li>
 </ul>
 
@@ -277,7 +285,7 @@
   <li>Encryption in transit: every web and app request travels over HTTPS only.</li>
   <li>Encryption at rest: sensitive values such as the Apple refresh token are stored encrypted.</li>
   <li>Access control: operator pages are limited to an allow-list of operator accounts, and state-changing requests are protected with a CSRF token.</li>
-  <li>Access logging and masking: server logs mask tokens and email addresses.</li>
+  <li>Log minimisation: our server logs and error reports do not record identifying values such as emails or tokens. Keeping access logs for the statutory period will be in place before launch.</li>
   <li>Backups: taken daily and kept for 14 days, with restore rehearsals.</li>
 </ul>
 
