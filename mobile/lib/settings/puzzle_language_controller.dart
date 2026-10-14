@@ -3,7 +3,7 @@ import 'package:chosung/api/api_models.dart';
 import 'package:chosung/api/api_providers.dart';
 import 'package:chosung/puzzle/today_puzzle_controller.dart';
 import 'package:chosung/ranking/leaderboard_controller.dart';
-import 'package:chosung/startup/startup_controller.dart';
+import 'package:chosung/records/my_stats_controller.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -31,12 +31,17 @@ class PuzzleLanguageNotifier extends Notifier<PuzzleLanguageSetting> {
 
   @override
   PuzzleLanguageSetting build() {
-    // `/me/stats` 를 다시 읽으면(시작 재시도) 서버 값이 다시 정본이 된다.
-    // 그때 떠나 있던 쓰기 응답은 이 번호로 버린다.
+    // `/me/stats` 를 다시 읽으면(시작 재시도·계정 전환) 서버 값이 다시
+    // 정본이 된다. 그때 떠나 있던 쓰기 응답은 이 번호로 버린다.
+    //
+    // 시작 snapshot(`startupStatsProvider`) 이 아니라 그 사본을 들고 있는
+    // `myStatsProvider` 를 본다(티켓 29) — 계정을 전환하면 새 계정의
+    // `puzzle_language` 가 여기로 들어오고, 안 그러면 설정 행만 옛 계정
+    // 값으로 남는다.
     _generation++;
     return PuzzleLanguageSetting(
       language:
-          ref.watch(startupStatsProvider)?.puzzleLanguage ?? PuzzleLanguage.ko,
+          ref.watch(myStatsProvider).value?.puzzleLanguage ?? PuzzleLanguage.ko,
     );
   }
 
