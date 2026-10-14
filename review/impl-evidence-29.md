@@ -540,3 +540,212 @@ All checks passed!
 rebase: 로컬 `main` 은 이번에도 `34ec7ec` 그대로라 `git rebase main` 이
 "Current branch dosaem/t29-app-account-link-switch-delete is up to date." 로
 끝났다(= 이미 로컬 main 위다). `origin/main` 은 쓰지 않았다.
+
+## 수정 라운드 2
+
+리뷰 `review/impl-review-29.md` "라운드 2" 의 잔여 결함 **MAJOR 1건(D-29-4)**
+을 고쳤다. 같은 절의 D-29-1·2·3 은 FIXED 로 재판정됐고 REPEAT 는 없다. 미수정
+MINOR 도 없다(라운드 2 MINOR 0건). 리뷰어 지적을 반박한 항목은 없다 — D-29-4
+는 재현 그대로 실재했다.
+
+### D-29-4 (MAJOR) — 이전 계정의 삭제 완료 플래그가 복원된 계정의 서버 삭제를 생략시킴
+
+**원인.** 라운드 1 에서 D-29-2 를 고치며 둔 `bool _serverDeleted` 가 **"삭제가
+끝났다" 만 기억하고 "어느 계정의 삭제가 끝났는지" 는 기억하지 않았다.** 이
+플래그가 참이라는 말은 사실 "지금 저장된 토큰이 가리키는 계정은 서버에서 이미
+사라졌다" 라는 뜻이라, **토큰이 바뀌면 성립하지 않는다.** 그런데 토큰을 바꾸는
+자리(`_adopt`)와 플래그를 내리는 자리(`deleteAccount` 의 발급 성공 뒤)가 서로
+떨어져 있어서, 발급이 실패해 플래그가 참으로 남은 채 백업 코드로 다른 계정을
+불러오면 그 참이 새 계정까지 따라왔다. 두 번째 삭제는 `DELETE /me` 와 로컬
+정리를 통째로 건너뛰고 새 게스트만 발급하며, 오류가 없으니 화면에는 "계정을
+삭제하고 새로 시작했어요" 가 떴다 — 서버의 B 계정과 기록은 삭제 요청조차
+받지 않았다.
+
+**수정.** `mobile/lib/account/account_controller.dart`
+
+- `bool _serverDeleted` → `String? _deletedToken`. 삭제가 끝난 **토큰**을
+  기억하고, `deleteAccount()` 는 지금 토큰을 읽어(`guestTokenProvider.future`,
+  `link()` 이 "전환/연결" 을 가리려고 쓰는 것과 같은 방식) 그 토큰과 같을
+  때만 `DELETE /me` 를 건너뛴다. 같은 계정의 발급 재시도(D-29-2)는 그대로
+  건너뛰고, 다른 계정이면 제대로 지운다.
+- `_adopt` 에서 플래그를 내리는 방식(한 줄로 더 간단하다)을 **쓰지 않았다.**
+  토큰을 바꾸는 길이 `_adopt` 만이 아니기 때문이다 — 시작 흐름의 401 복구
+  (`mobile/lib/startup/startup_controller.dart` `_fetchStats` → `clear()` +
+  `_issueGuestToken()`)도 토큰을 갈아끼운다. "플래그 내리는 자리를 외우는"
+  방식은 그 길에서 같은 누수가 다시 난다. 지금 토큰과 맞춰 보는 방식은 토큰이
+  어디서 바뀌든 성립한다.
+- 발급 성공 뒤에 있던 `_serverDeleted = false` 는 지웠다(비교가 대신한다).
+
+**증명하는 테스트.** (3개 전부 새 테스트)
+
+- `test/account/account_controller_test.dart` — "계정 삭제 삭제 복구 중 다른
+  계정으로 전환하면 그 계정도 서버에서 지운다": 리뷰의 재현 순서 그대로
+  (`createGuestError` → `deleteAccount()` → 오류 해제 → `restoreWithBackupCode(B)`
+  → B 토큰·이메일 확인 → `deleteAccount()`). `deleteAccountCalls == 2`,
+  `createGuestCalls == 2`, 토큰 `fresh-guest`, 오류 null.
+- `test/account/account_controller_test.dart` — "계정 삭제 삭제 복구 중 시작
+  흐름이 토큰을 바꿔도 새 계정을 서버에서 지운다": 같은 원인의 **다른 길**을
+  막아 둔다. 발급 실패 뒤 `guestTokenProvider.notifier.replaceWith(...)` 로
+  시작 흐름의 401 복구와 같은 토큰 교체를 일으키고 다시 삭제한다.
+- `test/screens/records_account_test.dart` — "계정 삭제 발급 실패 뒤 다른
+  계정을 불러오면 그 계정을 지운다": 같은 순서를 실제 `RecordsTab`·백업 코드
+  시트·삭제 다이얼로그에서. 중간에 "Google · b\*\*\*@gmail.com 연결됨" 을,
+  마지막에 "계정을 삭제하고 새로 시작했어요" 를 **먼저** 단언한 뒤
+  `deleteAccountCalls == 2` 를 본다 — 리뷰가 지적한 "잘못된 성공 안내" 가
+  그대로 재현되는 자리다.
+
+빨강(수정 전) — 리뷰가 보고한 값과 같다:
+
+```
+$ flutter test test/account/account_controller_test.dart --plain-name '삭제 복구 중 다른 계정으로 전환하면'
+00:00 +0 -1: 계정 삭제 삭제 복구 중 다른 계정으로 전환하면 그 계정도 서버에서 지운다 [E]
+  Expected: <2>
+    Actual: <1>
+  test/account/account_controller_test.dart 492:7  main.<fn>.<fn>
+
+$ flutter test test/screens/records_account_test.dart --plain-name '발급 실패 뒤 다른 계정을 불러오면'
+00:01 +0 -1: 계정 삭제 발급 실패 뒤 다른 계정을 불러오면 그 계정을 지운다 [E]
+  Expected: <2>
+    Actual: <1>
+  test/screens/records_account_test.dart 532:7  main.<fn>.<fn>
+```
+
+(화면 재현이 멈춘 532 행은 `deleteAccountCalls` 단언이다. 그 **앞**의 "계정을
+삭제하고 새로 시작했어요" 단언은 통과했다 — 삭제가 안 된 채로 성공 안내가
+뜬다는 리뷰의 지적이 그대로 확인된다.)
+
+위 빨강 출력의 행 번호는 **그때 돌린 시점의 것**이다. 이후 두 번째 재현
+테스트와 D-29-3 보정이 같은 파일에 들어가면서 밀렸다 — 지금은 컨트롤러
+`test/account/account_controller_test.dart:493`·`:523`, 화면
+`test/screens/records_account_test.dart:536` 이 그 단언이다.
+
+초록(수정 후):
+
+```
+$ flutter test test/account/account_controller_test.dart test/screens/records_account_test.dart --plain-name '삭제 복구 중'
+00:00 +1: 계정 삭제 삭제 복구 중 다른 계정으로 전환하면 그 계정도 서버에서 지운다
+00:00 +2: All tests passed!
+
+$ flutter test test/screens/records_account_test.dart --plain-name '발급 실패 뒤 다른 계정을 불러오면'
+00:00 +1: All tests passed!
+```
+
+**두 번째 테스트가 실제로 더 센지 확인했다.** 더 간단한 수정(`_adopt` 에서
+플래그 해제)을 일부러 넣고 돌려 보니, 백업 코드 경로 테스트는 통과하지만 시작
+흐름 경로 테스트는 같은 `Expected: <2> / Actual: <1>` 로 실패한다 — 두 테스트가
+서로 다른 길을 보고 있다는 증거다(확인 후 되돌렸다).
+
+```
+00:00 +1: 계정 삭제 삭제 복구 중 다른 계정으로 전환하면 그 계정도 서버에서 지운다
+00:00 +1 -1: 계정 삭제 삭제 복구 중 시작 흐름이 토큰을 바꿔도 새 계정을 서버에서 지운다 [E]
+  Expected: <2>
+    Actual: <1>
+```
+
+### D-29-3 보정 (코디네이터 추가 지시) — 구글 아이콘 `chrome` → 중립 아이콘
+
+라운드 1 에서 D-29-3 을 고치며 Google 자리에 `LucideIcons.chrome` 을 썼는데,
+코디네이터가 이를 바로잡으라고 지시했다. **근거: `chrome` 은 구글 계정이 아니라
+브라우저 제품의 브랜드 마크다** — 계정 연결 표시에 쓰면 "Chrome 으로 연결됨"
+으로 읽혀 다른 제품을 가리킨다(브랜드 오용). 리뷰가 D-29-3 에서 짚은 "Lucide 에
+브랜드 마크가 없다는 것은 요구 충족의 증거가 아니다" 는 **비슷한 마크로
+대신하라는 뜻도 아니었다.**
+
+- `mobile/lib/widgets/account_card.dart` `providerIcon`: `'google' =>
+  LucideIcons.chrome` 분기를 지웠다. Google 은 공통 분기(`LucideIcons.userCheck`)
+  로 떨어지고, provider 는 바로 옆 "Google · hs\*\*\*@gmail.com 연결됨" 텍스트
+  라벨이 가린다. Apple 은 Lucide 의 `apple` 이 **그 회사** 마크라 그대로 뒀다.
+- 공식 'G' 로고 에셋은 저장소에 받아 둔 것이 없어 새로 내려받지 않았다. 공식
+  로그인 버튼 에셋은 콘솔 등록과 함께 넣는 출시 전 작업으로 `docs/RELEASE.md`
+  "### 29." 에 이미 적혀 있다.
+- README 설계 판단 `### 29.` 의 "알려진 제한" 문단을 이 판단으로 갱신했다.
+- 테스트 `test/screens/records_account_test.dart` "AccountCard 연결됨 Google 은
+  중립 아이콘과 텍스트 라벨로 가른다": 중립 아이콘 1개 + "Google · …" 라벨을
+  단언하고 `LucideIcons.chrome` 이 **없음**을 못 박아 되돌아가지 못하게 했다.
+  Apple 쪽 테스트는 apple 마크가 뜨고 중립 아이콘이 안 뜨는지로 바꿔 두
+  provider 가 여전히 서로 구분되는지 본다.
+- 골든 `records_linked_390.png` 를 다시 떴다(194px, 0.06% — 아이콘 자리만).
+
+```
+$ flutter test test/screens/records_account_test.dart --plain-name '연결됨'
+00:03 +1: AccountCard 연결됨 Google 은 중립 아이콘과 텍스트 라벨로 가른다
+00:03 +2: AccountCard 연결됨 아이콘은 Apple 이면 apple 이다
+00:03 +2: All tests passed!
+```
+
+### 라운드 2 rebase 와 재실행
+
+**rebase 는 이번에 no-op 이 아니었다.** 라운드 1 때와 달리 로컬 `main` 이
+`34ec7ec` → `8ddc8fd`(티켓 28 "앱 온보딩·권한 사전 안내" 머지)로 나아가 있었다.
+`git rebase main`(로컬 main. `origin/main` 은 쓰지 않았다)에서 충돌 7건을 두
+티켓의 뜻을 모두 살려 풀었다:
+
+- `mobile/pubspec.yaml` — 같은 자리에 티켓 28 `shared_preferences`, 티켓 29
+  `sign_in_with_apple` 가 각각 들어왔다. 둘 다 필요해서 둘 다 둔다.
+- `mobile/assets/translations/{ko,en}.json` — 같은 자리에 형제 키 블록
+  (`onboarding` / `account`)이 각각 들어왔다. 둘 다 두고 JSON 파싱으로 확인했다.
+- `mobile/test/screens/records_tab_test.dart` — 의미 충돌이다. 티켓 28 이
+  "하는 법" 행을 누를 수 있게 만들었고, 티켓 29 는 계정·백업·삭제 행을 채우며
+  나머지를 `pending` 집합으로 단언했다. 합치면 `pending` 에서 `howTo` 를 빼고
+  (28 이 채웠다) `howTo` 의 `onTap` 이 null 이 **아님**을 단언해야 맞다. 그렇게
+  고쳤다 — 한쪽을 고르면 다른 티켓이 채운 자리가 검증에서 빠진다.
+- `mobile/test/screens/play_result_refresh_test.dart` — override 가 양쪽 다
+  필요하다(onboardingStore + localFlagStore). 둘 다 두고 import 순서를 맞췄다.
+- 골든 `records_light_390.png`·`records_tablet_1024.png`·`records_linked_390.png`
+  — 3개가 **전부 같은 622px(0.19%/0.08%)** 만큼 어긋났다. 숫자가 같다는 게
+  단서라 `failures/..._isolatedDiff.png` 를 직접 열어 보니 차이가 "하는 법" 행
+  하나에만 있었다(티켓 28 이 붙인 `>`). 계정 블록은 그대로다. 확인한 뒤
+  `--update-goldens` 로 다시 뜨고, 다시 뜬 이미지를 눈으로 열어 계정 카드(29)와
+  `>`(28)가 함께 있는지 봤다.
+
+그 밖에 `mobile/test/golden/failures/` 아티팩트가 작업 트리에 남아 있었다.
+티켓 29 가 이미 `.gitignore` 에 넣은 경로이고 `main` 에도 추적되지 않는다 —
+커밋에 들어가지 않게 지웠다.
+
+재실행(전부 rebase 후, 로컬 main 위):
+
+```
+$ cd mobile && flutter test
+00:59 +449: All tests passed!
+
+$ cd mobile && flutter analyze
+No issues found! (ran in 4.2s)
+
+$ cd mobile && dart format --output=none --set-exit-if-changed .
+Formatted 132 files (0 changed) in 0.28 seconds.
+
+$ export TEST_DATABASE_URL='mysql+pymysql://chosung:chosung@localhost:3306/chosung_daily_test_t29?charset=utf8mb4'
+$ export TEST_REDIS_URL='redis://localhost:6379/3'
+$ export TEST_MIGRATION_DATABASE_URL='mysql+pymysql://chosung:chosung@localhost:3306/chosung_daily_test_t29_migrations?charset=utf8mb4'
+$ uv run pytest -q
+........................................................................ [ 97%]
+...................................                                      [100%]
+1403 passed in 2126.04s (0:35:26)
+(종료 코드 0)
+
+$ uv run ruff check .
+All checks passed!
+```
+
+앱 테스트 385 → **449**. 늘어난 64개 중 이번 라운드가 더한 것은 4개
+(D-29-4 재현 3개 + D-29-3 보정 테스트는 기존 테스트를 고친 것)이고, 나머지는
+티켓 28 이 `main` 으로 들어오며 합류한 테스트다. 백엔드는 이번 라운드에도 안
+건드렸고 같은 전용 자원(DB `chosung_daily_test_t29`, Redis DB 3)으로 돌렸다 —
+공용 테스트 DB 는 비우지 않았고 새 DB 를 만들지도, 기본 DB 로 떨어지지도
+않았다. 35분이 걸린 것은 다른 워커(t31·t35)의 pytest 와 같은 기계를 나눠 썼기
+때문이고 실패·재실행은 없다. 마이그레이션 변경이 없어(`git diff --name-only
+main...HEAD` 에 `migrations/` 없음) `flask db heads` 는 이번에도 대상이 아니다.
+
+작업 트리는 clean 이고 `main`(`8ddc8fd`)이 `HEAD` 의 조상이다.
+
+### 미수정 MINOR
+
+없다. 라운드 2 리뷰의 잔여 결함은 MAJOR 1건(D-29-4)뿐이었고 고쳤다.
+
+### 범위 밖이라 손대지 않은 것 (후속 티켓 제안)
+
+티켓 28 과 29 가 **기기 로컬 플래그 저장소를 각각 하나씩** 들고 왔다
+(`mobile/lib/onboarding/onboarding_store.dart`, `mobile/lib/local/local_flags.dart`.
+둘 다 shared_preferences 위다). 지금은 서로 간섭 없이 함께 돌고 테스트도 둘 다
+통과하지만, 같은 일을 하는 길이 둘인 상태다. 결함이 아니고 이번 수정 범위도
+아니라 건드리지 않았다 — 통합은 별도 티켓이 맞다.
