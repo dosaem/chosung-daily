@@ -154,3 +154,67 @@ reverse Next response: active True store calls: 2
 현재 미해결 결함: BLOCKER 0, MAJOR 1(D-13-3), MINOR 0. 이전 D-13-1과 D-13-2는 FIXED이며 REPEAT는 없다. 전체 테스트 통과와 별개로 직접 재현한 철회 응답 폐기 때문에 승인할 수 없다.
 
 판정: FAIL
+
+## 라운드 3
+
+- 검토일: 2026-10-14. 로컬 `main` 및 merge-base는 `7df78098f9c25baea9c47eb4cabf1c853ed9799f`, 구현 HEAD는 `a185225a4bf2335bf2afd113b42c8b9ff634dde8`이다. 검토 전후 동일함을 확인했다. `origin/main`은 사용하지 않았다.
+- `git diff main...HEAD`의 20개 파일과 `git log main..HEAD`의 9개 커밋(`c671581`, `3ff4944`, `193b5a4`, `53a9d51`, `59956e3`, `de89b41`, `463d39a`, `64f77cb`, `a185225`)을 검토했다.
+- 티켓 13, 스펙 §A.8·A.12·Testing 및 미정 1/15/18/19, 정본 ADR 0003, CONTEXT.md, 이전 두 리뷰와 구현 증거 문서를 대조했다. UI 변경은 없어 디자인 검토는 해당 없다. 하위 에이전트 없이 직접 검토했다.
+- 구현 증거의 통과 주장은 아래 실제 실행으로 다시 확인했다. 애플리케이션·테스트·설정·`.scratch/`는 수정하지 않았고 이 리뷰 파일만 추가 작성했다.
+
+### 체크박스별 확인
+
+| 티켓 항목 | 판정 | 직접 확인한 근거 |
+|---|---|---|
+| 순수 권한 함수 및 active 24h / grace 3일째 / hold / revoked 단위 테스트 | 충족 | `app/services/entitlement.py:41`의 `is_entitled`는 상태·만료·유예 종료·현재 시각만으로 판정한다. active만 만료+24h, grace는 유예 종료까지, 나머지는 없음이다. `tests/test_entitlement.py`의 상태·시간 경계 테스트가 전체 스위트에서 통과했다. |
+| `/me/stats` entitlement, 1h 경계 포함 재조회, 3초 타임아웃, 실패 저장값 유지·카운터, ±24h 5분, next_check_at | 충족 | `entitlement_for` → `is_recheck_due` → `recheck` → `build_entitlement` 경로와 API 직렬화를 확인했다. `next_check_at`은 마지막 확인+1h다. Apple requests·Play httplib2의 timeout=3 설정과 관련 래퍼 테스트를 확인했다. 실패 처리·5분 간격 테스트가 통과하고, 이전 철회 동시성 결함도 실제 API 재현에서 수정됐다. |
+| 만료 20일 전 revoked / 정확히 1h / 59분 / 만료 2일 뒤 verify 재전송 / 재조회 1h 상한 테스트 | 충족 | `tests/test_subscription_recheck.py:205`, `:223`, `:235`, `:509`의 실제 API·DB 또는 verify 서비스 검증이 통과했다. 정확한 경계와 1초 전은 `tests/test_entitlement.py:132`, `:145`에서 고정 시각으로 검증한다. |
+| Beat 매일 만료 3일 이내 active/grace/hold 재조회, 서비스 직접 호출·배선, 연속 실패 3회 알림 | 충족 | `find_expiring`의 상태·만료 조건, `recheck_expiring_subscriptions`, 매일 03:30 스케줄과 태스크 위임을 확인했다. 실제 서비스 호출 테스트가 대상 필터·실패 누적·성공 리셋·알림·한 행 실패 후 계속 처리를 검증한다. 동일 재조회 함수의 동시성 수정도 확인했다. |
+| 정본 ADR 0003을 1h TTL + ±24h 5분으로 갱신 | 충족 | `docs/adr/0003-subscription-entitlement-on-server.md`의 재조회·Consequences에 반영됐다. 스펙 미정 항목 끝의 티켓 13 기록에 미정 15/18/19 결정이 있다. |
+| README 상태 표·유예·TTL·웹훅 미도입 근거 | 충족 | README `### 13.`에 상태 표, active 전용 24h 유예, 재조회 세 경로, TTL, 웹훅 미도입 근거가 있다. API 표는 기존 행을 보존하고 자기 행을 끝에 추가한다. |
+
+### 직접 실행한 검증
+
+기존 로컬 DB `chosung_daily_test_t13`, 마이그레이션 DB `chosung_daily_test_t13_migrations`, Redis DB 15를 각각 `TEST_DATABASE_URL`, `TEST_MIGRATION_DATABASE_URL`, `TEST_REDIS_URL`로 지정했다. 정상 접속하여 기본 DB 폴백·새 DB 생성은 없었다. 접속 자격 값은 이 문서에 기록하지 않는다.
+
+| 명령 | 직접 실행 결과 |
+|---|---|
+| 위 환경의 `uv run pytest -q` | **865 passed in 663.74s (0:11:03)**, 종료 코드 0. 실패·skip·재실행 없음. |
+| `uv run ruff check .` | **All checks passed!**, 종료 코드 0. |
+| `FLASK_APP=wsgi.py uv run flask db heads` | **d7a1f0ca0a29 (head)** 한 줄, 종료 코드 0. |
+| `git diff --check main...HEAD` | 출력 없음, 종료 코드 0. |
+| 동일 전용 DB·Redis에서 `uv run python -`으로 두 응답 순서를 실제 `/api/v1/me/stats`에서 재현 | 두 경우 모두 API revoked/false, 최종 DB revoked, 후속 API false, 스토어 호출 합계 2. 종료 코드 0. |
+
+전체 테스트에는 실패 카운터의 실제 마이그레이션 upgrade/downgrade와 기존 구독 행의 0 초기화가 포함된다. 새 head는 티켓 14의 `94a83f12fddb` 뒤에 연결되며 다른 티켓의 마이그레이션·태스크·테스트가 유지돼 있다. 스토어·운영자 알림 경계만 대체한 재조회 테스트는 실제 정규화·DB 쓰기·권한 판정을 검증한다. 동시성 회귀 테스트도 독립 app context/DB 세션을 사용하므로 같은 객체만 바꾸는 무의미한 mock 검증이 아니다.
+
+### 이전 결함 판정
+
+| ID | 이전 심각도 | 판정 | 위치와 직접 확인한 근거 |
+|---|---|---|---|
+| D-13-1 | MAJOR | FIXED | `app/services/subscription_recheck.py:113`, `app/repositories/subscription_repository.py:48`. 쓰기 직전 잠금·재읽기를 유지하고, 이미 저장된 revoked의 권한을 되살리는 늦은 active 응답을 버린다. 아래 첫 순서에서 API와 DB 모두 revoked/false였다. 기존 회귀 테스트 `tests/test_subscription_recheck.py:565`도 통과했다. |
+| D-13-2 | MINOR | FIXED | `README.md:107`. `git diff main...HEAD -- README.md`에서 기존 API 행 삭제·치환이 없고 티켓 13 행만 표 끝에 추가된다. 기대한 append-only 변경과 일치한다. |
+| D-13-3 | MAJOR | FIXED | `app/services/subscription_recheck.py:113`, `:122`. 변경된 행이라는 이유만으로 철회 응답을 버리지 않고, 권한을 늘리는 응답에만 폐기 조건을 적용한다. 아래 둘째 순서에서 실제 철회 확인 응답부터 권한이 없었다. 새 회귀 테스트 `tests/test_subscription_recheck.py:634`도 통과했다. |
+
+**이전 재현의 재실행 방법과 기대/실제:** 전용 DB에서 게스트와 Apple 구독을 생성하고 `status=active`, `expires_at=now+20일`, `last_verified_at=now-2시간`으로 저장했다. `app_store.fetch_subscription_status`만 fixture 응답으로 대체하고, A의 Bearer `/api/v1/me/stats` 요청이 스토어 응답을 받기 전에 독립 app context B에서 실제 `recheck`를 커밋했다. B가 종료된 뒤 A 응답을 반환하고, A의 API 응답·expire/reload한 DB·같은 게스트의 후속 API 응답과 스토어 호출 수를 확인했다.
+
+1. B가 revoked를 저장 → A에 늦은 active 반환(D-13-1): 기대는 확인된 철회 유지, 실제도 revoked/false였다.
+2. B가 active를 저장 → A에 revoked 반환(D-13-3): 기대는 A 응답부터 권한 제거, 실제도 revoked/false였다.
+
+```text
+first=revoked, delayed=active: API revoked/false; DB revoked; next API false; store calls=2
+first=active, delayed=revoked: API revoked/false; DB revoked; next API false; store calls=2
+```
+
+두 경우 모두 후속 요청이 추가 스토어 호출 없이 false를 유지했다. 테스트 후 전용 DB 테스트 테이블과 Redis DB 15를 정리했다. 외부 Apple·Google·Slack 호출이나 프로덕션 접근은 하지 않았다.
+
+### 새 결함 및 기타 검토
+
+- 새 결함 없음. 이전 D-13-1·D-13-2·D-13-3은 모두 FIXED이며 REPEAT는 없다.
+- 기존 Bearer `with_guest` 인증과 게스트별 구독 조회 범위가 유지된다. 새로운 사용자 입력·인증 우회·CSRF 경로는 추가하지 않았다. 운영자 알림에는 store key 대신 행 ID·상태 확인 시각·실패 횟수만 들어간다.
+- 변경분에서 실제 운영 키·토큰·비밀번호가 추가된 증거는 발견하지 못했다. 구현 증거의 로컬 테스트 URL은 예제 자격 값이므로 여기에 복사하지 않았다.
+- README API 표·설계 판단 및 스펙 미정 항목은 자기 행/절 추가 방식이다. `.env.example`·`docs/RELEASE.md` 변경은 없다. ADR과 마이그레이션 변경은 티켓 요구 범위다. 추가 데이터 손상 결함이나 범위 밖 기능 변경을 확인하지 못했다.
+- 참고: 실서비스 스토어 통신과 Sandbox 수동 검증은 수행하지 않았다. 3초 타임아웃은 코드 설정 및 래퍼 테스트 범위에서 확인했다. 취향·스타일 제안은 결함으로 올리지 않았다.
+
+현재 미해결 결함: BLOCKER 0, MAJOR 0, MINOR 0. 이전 결함 3건 FIXED, 새 결함 0건.
+
+판정: PASS
