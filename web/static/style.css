@@ -35,10 +35,15 @@ body {
   margin: 0;
 }
 
+/* 스트릭 글자는 `foreground` 다 — brand(#ea580c)를 글자색으로 쓰면 흰 면 위에서
+   3.6:1 로 AA 미달이고(impeccable detect 가 잡는다), OVERRIDES §2 가 "스트릭 숫자는
+   foreground" 로 못 박아 뒀다. brand 는 아이콘·테두리·밑줄에만 쓴다.
+   (17 이 손댄 유일한 기존 규칙이다 — 대비 위반이라 18 까지 미루지 않았다.
+   불꽃을 Lucide `flame` 아이콘으로 바꾸는 건 OVERRIDES §8, 티켓 18.) */
 .streak {
-  font-size: 1rem;
+  font-size: var(--font-size-base);
   font-weight: 700;
-  color: #ea580c;
+  color: var(--color-foreground);
   margin: 0;
   white-space: nowrap;
 }
@@ -118,11 +123,64 @@ body {
   margin: 2px 0;
 }
 
-.chosung {
-  font-size: 3rem;
+/* 가림 타일과 시도 보드. 색·간격·모서리는 09 의 tokens.css 변수를 쓴다.
+   기존 규칙(body/card/header/panel/form)의 토큰 전환과 다크모드는 티켓 18. */
+.tile-row {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+}
+
+.mask-row {
+  margin: 12px 0 4px;
+}
+
+.tile {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-tile);
+  font-size: 1.5rem;
   font-weight: 700;
-  letter-spacing: 0.3em;
-  margin: 12px 0;
+}
+
+.mask-row .tile {
+  width: 48px;
+  height: 48px;
+  font-size: 1.75rem;
+}
+
+/* 구분자(공백·하이픈)는 타일이 아니라 타일 사이 간격이다. */
+.tile-gap {
+  width: 10px;
+}
+
+/* 보이는 글자는 타이포가 주인공이라 면을 안 깐다(OVERRIDES §1), 빈 타일만 면이다. */
+.tile.revealed {
+  background: none;
+}
+
+.tile.empty {
+  background: var(--color-tile-empty);
+}
+
+.tile.correct {
+  background: var(--color-tile-correct);
+  color: var(--color-tile-text-on-correct);
+}
+
+.tile.wrong {
+  background: var(--color-tile-wrong);
+  color: var(--color-foreground);
+}
+
+.length-caption {
+  font-size: var(--font-size-xs);
+  color: var(--color-muted-foreground);
+  margin: 0 0 var(--space-2);
 }
 
 .attempts-left {
@@ -130,37 +188,11 @@ body {
   color: #3f3f46;
 }
 
-.history {
+.board {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  margin-bottom: 12px;
-}
-
-.history-row {
-  display: flex;
-  justify-content: center;
-  gap: 4px;
-}
-
-.cell {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 6px;
-  font-weight: 700;
-}
-
-.cell.correct {
-  background: #16a34a;
-  color: #fff;
-}
-
-.cell.wrong {
-  background: #e4e4e7;
-  color: #3f3f46;
+  gap: 6px;
+  margin-bottom: var(--space-3);
 }
 
 .guess-form {
@@ -216,6 +248,110 @@ body {
 .copied {
   font-size: 0.8rem;
   color: #16a34a;
+}
+
+.language-chips {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.language-label {
+  font-size: var(--font-size-xs);
+  color: var(--color-muted-foreground);
+}
+
+.chip {
+  padding: 6px var(--space-3);
+  border: var(--border-hairline) solid var(--color-border);
+  border-radius: 999px;
+  background: none;
+  color: var(--color-foreground);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+/* 선택된 칩만 brand 를 쓴다 — 테두리와 옅은 배경까지, 글자색으로는 안 쓴다
+   (OVERRIDES §2: brand 는 면 채움·일반 글자색 금지). */
+.chip[aria-pressed="true"] {
+  border-color: var(--color-brand);
+  background: var(--color-brand-subtle);
+  font-weight: 700;
+}
+
+/* 순위 섹션. 섹션 전환 토글과 토큰 디자인은 티켓 18. */
+.leaderboard {
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: var(--border-hairline) solid var(--color-border);
+}
+
+.leaderboard h2 {
+  font-size: var(--font-size-lg);
+  margin: 0 0 var(--space-2);
+}
+
+.leaderboard h3 {
+  font-size: var(--font-size-base);
+  margin: var(--space-4) 0 var(--space-2);
+}
+
+.my-rank {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  margin: 0 0 var(--space-2);
+}
+
+.leaderboard-entries {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.leaderboard-entry {
+  display: flex;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+}
+
+.leaderboard-entry.is-me {
+  font-weight: 700;
+}
+
+.rank {
+  min-width: 2.5em;
+  color: var(--color-muted-foreground);
+}
+
+/* 1~3위만 순위 숫자를 굵게. brand 색 글자는 쓰지 않는다(OVERRIDES §2). */
+.rank.top {
+  font-weight: 700;
+  color: var(--color-foreground);
+}
+
+.leaderboard-message,
+.stats-empty {
+  font-size: var(--font-size-xs);
+  color: var(--color-muted-foreground);
+}
+
+.today-stats {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.stats-row {
+  font-size: var(--font-size-sm);
+  color: var(--color-foreground);
 }
 
 .hidden {

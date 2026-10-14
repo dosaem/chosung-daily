@@ -121,7 +121,18 @@ def test_token_css_is_served(client):
     assert b"--color-background" in res.data
 
 
-def test_main_page_style_is_untouched():
-    # 티켓 09 는 기존 메인 페이지 스타일을 건드리지 않는다(티켓 18 에서 교체).
-    style_css = TOKENS_CSS.parent / "style.css"
-    assert "var(--color-" not in style_css.read_text(encoding="utf-8")
+def test_tokens_css_declares_variables_only(css: str):
+    """이 파일은 변수만 둔다 — 요소 규칙을 넣으면 이걸 같이 쓰는 페이지마다 되돌리는
+    코드가 생긴다(파일 머리말).
+
+    (티켓 09 의 `test_main_page_style_is_untouched` 를 대체한다. 그 테스트는 "09 가
+    메인 페이지를 안 건드렸다"는 뜻이었는데, 17 이 자기가 새로 만든 요소(타일·칩·
+    순위 행)에 이 변수를 쓰기로 해서 더 이상 성립하지 않는다. 17 의 새 요소가 색을
+    직접 정하지 않는지는 `tests/test_web.py` 가 본다. 기존 규칙의 토큰 전환·다크모드
+    는 티켓 18 범위다.)
+    """
+    outside_blocks = re.sub(r":root[^{]*\{[^}]*\}", "", css)
+    outside_blocks = re.sub(r"@media[^{]*\{.*?\n\}", "", outside_blocks, flags=re.S)
+    selectors = re.findall(r"^\s*([.#a-z][^{\n]*)\{", outside_blocks, re.M)
+
+    assert selectors == []
