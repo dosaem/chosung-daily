@@ -1,4 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Android 13(API 33)+ 의 알림 런타임 권한. 온보딩 S6 의 사전 안내에서
+         "알림 켜기" 를 눌렀을 때만 요청한다(티켓 28). flutter_local_notifications
+         도 같은 권한을 선언하지만, 앱이 왜 이 권한을 쓰는지는 앱 매니페스트에
+         적혀 있어야 읽는 사람이 안다. 정확한 알람(SCHEDULE_EXACT_ALARM)은
+         쓰지 않는다 — 알림 예약은 inexact 로 간다(티켓 30). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <application
         android:label="@string/app_name"
         android:name="${applicationName}"
