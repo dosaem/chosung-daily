@@ -1,0 +1,50 @@
+{#
+  운영자 페이지 공통 틀. 플레이어 화면이 아니라 운영 도구라서 ko 전용이다 —
+  법적 문서처럼 언어별 템플릿을 두지 않는다(운영자는 두 명, 둘 다 한국어).
+
+  목업이 없는 화면이다(design/SCREENS.md "목업 파일 매핑" 의 비고). 색·간격·폰트는
+  전부 tokens.css 변수(= OVERRIDES 표)만 쓰고, 레이아웃은 admin.css 에 둔다.
+#}
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>{% block title %}{% endblock %} · 오늘의 초성 운영자</title>
+  {# Pretendard 는 ko/en 을 한 폰트로 덮는다 (OVERRIDES §3). 버전 고정. #}
+  <link
+    rel="stylesheet"
+    href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css"
+  />
+  <link rel="stylesheet" href="{{ url_for('static', filename='tokens.css') }}?v={{ asset_version }}" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='admin.css') }}?v={{ asset_version }}" />
+</head>
+<body>
+  <div class="admin">
+    <header class="admin-header">
+      <p class="admin-brand">오늘의 초성 운영자</p>
+      <nav class="admin-nav" aria-label="운영자 메뉴">
+        <a class="admin-nav-link" href="{{ url_for('admin.words') }}">단어 목록</a>
+        <a class="admin-nav-link" href="{{ url_for('admin.new_word') }}">단어 추가</a>
+        <a class="admin-nav-link" href="{{ url_for('admin.import_form') }}">CSV 업로드</a>
+      </nav>
+    </header>
+
+    {# 추가·수정·삭제 결과는 목록으로 돌아간 뒤에 보여준다(PRG 패턴) — 새로고침으로
+       같은 POST 가 다시 날아가지 않게 한다. #}
+    {% with messages = get_flashed_messages() %}
+      {% if messages %}
+        <div class="admin-flash" role="status">
+          {% for message in messages %}<p>{{ message }}</p>{% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+
+    <main class="admin-main">
+      <h1 class="admin-title">{% block heading %}{% endblock %}</h1>
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+</body>
+</html>

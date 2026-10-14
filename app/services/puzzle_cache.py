@@ -58,6 +58,16 @@ def get_cached_puzzle(puzzle_date: date, language: PuzzleLanguage) -> CachedPuzz
     )
 
 
+def invalidate_cached_puzzle(puzzle_date: date, language: PuzzleLanguage) -> None:
+    """그 날짜·언어 캐시를 버린다. 다음 조회가 DB 에서 다시 읽어 채운다.
+
+    TTL(26시간)만 믿으면 배정된 단어를 고쳐도 당일 내내 옛 값이 나간다 — 저장하는
+    쪽(`word_service.update_word`)이 고친 퍼즐의 키를 지워줘야 한다. Redis 가 죽어
+    있으면 `safe_redis_call` 이 조용히 넘어가고, 캐시는 TTL 로 결국 사라진다.
+    """
+    safe_redis_call("delete", _cache_key(puzzle_date, language))
+
+
 def cache_puzzle(puzzle: DailyPuzzle) -> None:
     payload = json.dumps(
         {

@@ -221,3 +221,19 @@ body {
 .hidden {
   display: none;
 }
+
+/* 서버가 심은 안내 (운영자 페이지 접근 안내). 이 파일은 토큰 CSS 도입 전의
+   플레이어 화면 스타일이라 주변 규칙과 같은 방식으로 색을 적는다 — 웹 개편
+   티켓에서 tokens.css 로 같이 옮긴다. */
+.notice {
+  margin-bottom: 16px;
+  padding: 12px;
+  border: 1px solid #fdba74;
+  border-radius: 10px;
+  background: #fff7ed;
+  font-size: 0.875rem;
+}
+
+.notice p {
+  margin: 0;
+}
