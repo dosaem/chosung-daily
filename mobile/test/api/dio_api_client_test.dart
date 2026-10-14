@@ -349,5 +349,46 @@ void main() {
       );
       expect(adapter.requests, isEmpty);
     });
+
+    test('GET /puzzles/today/stats 는 Bearer 를 달고 분포를 돌려준다', () async {
+      final adapter = _RecordingAdapter(
+        (_) => _json({
+          'date': '2026-10-13',
+          'language': 'ko',
+          'total_solved': 100,
+          'by_attempt': {'1': 0.08, '2': 0.31, '3': 0.4, '4': 0.15, '5': 0.06},
+        }, 200),
+      );
+      final client = _clientWith(adapter, token: 'guest-token');
+
+      final stats = await client.fetchTodayStats();
+
+      expect(stats.totalSolved, 100);
+      expect(stats.byAttempt[3], 0.4);
+      expect(adapter.requests.single.path, '/puzzles/today/stats');
+      expect(adapter.requests.single.method, 'GET');
+      expect(
+        adapter.requests.single.headers['Authorization'],
+        'Bearer guest-token',
+      );
+      // 언어는 보내지 않는다 — 게스트 선호 언어의 오늘 퍼즐 집계가 결과 시트가
+      // 보여줄 값이다(`?language=` 는 다른 언어를 볼 화면이 생기면 더한다).
+      expect(adapter.requests.single.queryParameters, isEmpty);
+    });
+
+    test('아직 퍼즐이 없으면 stats 도 전용 예외로 온다', () async {
+      final adapter = _RecordingAdapter(
+        (_) => _json({
+          'code': 'NO_PUZZLE_TODAY',
+          'message': '아직 준비되지 않았습니다.',
+        }, 404),
+      );
+      final client = _clientWith(adapter, token: 'guest-token');
+
+      await expectLater(
+        client.fetchTodayStats(),
+        throwsA(isA<NoPuzzleTodayApiException>()),
+      );
+    });
   });
 }

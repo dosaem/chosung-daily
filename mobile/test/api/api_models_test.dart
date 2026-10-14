@@ -266,4 +266,49 @@ void main() {
       expect(result.answer, '\uc9c0\ud558\ucca0\uc5ed');
     });
   });
+
+  group('TodayStats.fromJson', () {
+    test('by_attempt 는 시도 횟수를 키로 가진 비율 표가 된다', () {
+      final stats = TodayStats.fromJson(
+        jsonDecode(
+              '{"date": "2026-10-13", "language": "ko", "total_solved": 100, '
+              '"by_attempt": {"1": 0.08, "2": 0.31, "3": 0.4, "4": 0.15, '
+              '"5": 0.06}}',
+            )
+            as Map<String, dynamic>,
+      );
+
+      expect(stats.date, DateTime(2026, 10, 13));
+      expect(stats.language, PuzzleLanguage.ko);
+      expect(stats.totalSolved, 100);
+      expect(stats.byAttempt, {1: 0.08, 2: 0.31, 3: 0.4, 4: 0.15, 5: 0.06});
+    });
+
+    // 아직 아무도 못 푼 퍼즐은 서버가 전부 0.0 을 보낸다(정수 0 으로 올 수도 있다).
+    test('정수로 온 비율도 double 로 읽는다', () {
+      final stats = TodayStats.fromJson(
+        jsonDecode(
+              '{"date": "2026-10-13", "language": "en", "total_solved": 0, '
+              '"by_attempt": {"1": 0, "2": 0}}',
+            )
+            as Map<String, dynamic>,
+      );
+
+      expect(stats.totalSolved, 0);
+      expect(stats.byAttempt, {1: 0.0, 2: 0.0});
+    });
+
+    // 서버가 앱보다 먼저 칸을 늘려도(또는 모르는 키를 보내도) 떠야 한다.
+    test('숫자가 아닌 키는 버린다', () {
+      final stats = TodayStats.fromJson(
+        jsonDecode(
+              '{"date": "2026-10-13", "language": "ko", "total_solved": 1, '
+              '"by_attempt": {"1": 1.0, "fail": 0.0}}',
+            )
+            as Map<String, dynamic>,
+      );
+
+      expect(stats.byAttempt, {1: 1.0});
+    });
+  });
 }

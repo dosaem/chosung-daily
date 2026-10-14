@@ -356,3 +356,38 @@ class GuessResult {
   final String? hint;
   final String? answer;
 }
+
+/// `GET /api/v1/puzzles/today/stats` 응답. 결과 시트(S2)의 분포 막대가 쓴다.
+@immutable
+class TodayStats {
+  const TodayStats({
+    required this.date,
+    required this.language,
+    required this.totalSolved,
+    required this.byAttempt,
+  });
+
+  factory TodayStats.fromJson(Map<String, dynamic> json) => TodayStats(
+    date: DateTime.parse(json['date'] as String),
+    language:
+        PuzzleLanguage.fromWire(json['language'] as String?) ??
+        PuzzleLanguage.ko,
+    totalSolved: json['total_solved'] as int,
+    byAttempt: {
+      for (final entry in (json['by_attempt'] as Map<String, dynamic>).entries)
+        // 서버가 시도 칸 말고 다른 키(예: 집계용 "fail")를 보내도 떠야 한다 —
+        // 숫자가 아닌 키는 `?` 가 그 칸을 빼버린다.
+        ?int.tryParse(entry.key): (entry.value as num).toDouble(),
+    },
+  );
+
+  final DateTime date;
+  final PuzzleLanguage language;
+
+  /// 오늘 이 언어의 퍼즐을 맞춘 사람 수. 0 이면 분포가 전부 0 이다.
+  final int totalSolved;
+
+  /// 시도 횟수(1~5) → 그 횟수에 맞춘 사람의 비율(0~1). 서버가 안 보낸 칸은
+  /// 아예 없으므로 화면이 `?? 0` 으로 읽는다.
+  final Map<int, double> byAttempt;
+}

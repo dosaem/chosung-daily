@@ -86,6 +86,17 @@ class DioApiClient implements ApiClient {
   }
 
   @override
+  Future<TodayStats> fetchTodayStats() async {
+    final body = await _send<Map<String, dynamic>>(
+      () => _dio.get<Map<String, dynamic>>(
+        '/puzzles/today/stats',
+        options: _authorized(),
+      ),
+    );
+    return TodayStats.fromJson(body);
+  }
+
+  @override
   Future<PuzzleLanguage> updatePuzzleLanguage(
     PuzzleLanguage puzzleLanguage,
   ) async {

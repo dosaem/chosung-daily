@@ -27,6 +27,10 @@ abstract interface class ApiClient {
     required String guess,
   });
 
+  /// `GET /puzzles/today/stats` → 오늘 퍼즐의 시도별 정답자 비율. 결과
+  /// 시트(S2)가 쓴다. 그 언어의 퍼즐이 아직 없으면 [NoPuzzleTodayApiException].
+  Future<TodayStats> fetchTodayStats();
+
   /// `PATCH /me` → 바뀐 퍼즐 언어. 설정 화면(티켓 29·30)이 쓴다.
   Future<PuzzleLanguage> updatePuzzleLanguage(PuzzleLanguage puzzleLanguage);
 }
