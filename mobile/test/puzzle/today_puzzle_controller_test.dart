@@ -309,6 +309,29 @@ void main() {
       expect(_ready(await first).puzzle.puzzleId, 9);
     });
 
+    test('재시도로 provider 가 다시 세워지면 이전 세대의 응답은 조용히 버린다', () async {
+      final api = FakeApiClient();
+      final container = _container(api);
+      await container.read(todayPuzzleProvider.future);
+
+      final gate = Completer<void>();
+      api.submitGuessGate = gate;
+      final submitting = container
+          .read(todayPuzzleProvider.notifier)
+          .submit('지하촌역');
+
+      // 오류 카드의 재시도와 같은 경로 — notifier 가 버려지고 새로 세워진다.
+      container.read(todayPuzzleProvider.notifier).retry();
+      await container.read(todayPuzzleProvider.future);
+
+      gate.complete();
+      // 버려진 notifier 에 state 를 쓰면 예외다. 쓰지 않고 false 로 돌아온다.
+      expect(await submitting, isFalse);
+      final state = _ready(container.read(todayPuzzleProvider).requireValue);
+      expect(state.puzzle.attempts, isEmpty);
+      expect(state.submitting, isFalse);
+    });
+
     test('느린 재조회 뒤에 떠난 재조회가 이긴다', () async {
       final api = FakeApiClient();
       final container = _container(api);

@@ -36,6 +36,10 @@ class TodayPuzzleNotifier extends AsyncNotifier<TodayState> {
       onResume: () => unawaited(refresh()),
     );
     ref.onDispose(lifecycle.dispose);
+    // 다시 빌드되는 것(= `retry()` 의 `invalidateSelf`)도 상태를 바꾸는 사건이다.
+    // Riverpod 은 notifier 객체를 그대로 두고 `build` 만 다시 부르므로 세대를
+    // 여기서 올리지 않으면 이전 빌드에서 떠난 응답이 새 보드에 그대로 쓰인다.
+    _generation++;
     return _load();
   }
 
