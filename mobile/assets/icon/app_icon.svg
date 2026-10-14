@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  앱 아이콘 원본 (OVERRIDES §8, 2026-10-14 사용자 확정).
+
+  글자 없는 타일 3칸 — 양끝은 brand, 가운데 한 칸은 "가려진" 칸이다. 스토어는
+  앱당 아이콘 하나라서 "ㅊ" 은 영어 사용자에게 뜻이 없다(언어 중립 모양).
+
+  좌표는 OVERRIDES §8 의 참고 좌표 그대로다: 배경 120×120, 타일 30×34 rx=7 을
+  x=12/46/80, y=43.
+
+  가운데 칸만 `tile-wrong` 라이트 #D6D3D1 에서 한 단계 어두운 #A8A29E 로 바꿨다 —
+  #D6D3D1 은 배경 #FAFAF9 와 대비가 1.43:1 뿐이라 30px 렌더에서 칸이 사라진다
+  (근거·측정은 OVERRIDES §8, README "35.", tool/make_app_icon.py).
+  **앱 안의 `tile-wrong` 토큰은 그대로 #D6D3D1 이다** — 보드 타일은 글자가 대비를
+  만들고, 여기서 바꾼 건 글자 없는 아이콘 한 장뿐이다.
+
+  PNG 생성: python3 tool/make_app_icon.py (이 파일이 유일한 원본이다)
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
+  <rect x="0" y="0" width="120" height="120" rx="0" fill="#FAFAF9"/>
+  <rect x="12" y="43" width="30" height="34" rx="7" fill="#EA580C"/>
+  <rect x="46" y="43" width="30" height="34" rx="7" fill="#A8A29E"/>
+  <rect x="80" y="43" width="30" height="34" rx="7" fill="#EA580C"/>
+</svg>
