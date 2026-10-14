@@ -35,10 +35,15 @@ body {
   margin: 0;
 }
 
+/* 스트릭 글자는 `foreground` 다 — brand(#ea580c)를 글자색으로 쓰면 흰 면 위에서
+   3.6:1 로 AA 미달이고(impeccable detect 가 잡는다), OVERRIDES §2 가 "스트릭 숫자는
+   foreground" 로 못 박아 뒀다. brand 는 아이콘·테두리·밑줄에만 쓴다.
+   (17 이 손댄 유일한 기존 규칙이다 — 대비 위반이라 18 까지 미루지 않았다.
+   불꽃을 Lucide `flame` 아이콘으로 바꾸는 건 OVERRIDES §8, 티켓 18.) */
 .streak {
-  font-size: 1rem;
+  font-size: var(--font-size-base);
   font-weight: 700;
-  color: #ea580c;
+  color: var(--color-foreground);
   margin: 0;
   white-space: nowrap;
 }
@@ -118,8 +123,8 @@ body {
   margin: 2px 0;
 }
 
-/* 가림 타일과 시도 보드. 색은 OVERRIDES §2 의 게임 피드백 토큰 값을 쓴다
-   (토큰 CSS 변수 전환과 다크모드는 티켓 18). */
+/* 가림 타일과 시도 보드. 색·간격·모서리는 09 의 tokens.css 변수를 쓴다.
+   기존 규칙(body/card/header/panel/form)의 토큰 전환과 다크모드는 티켓 18. */
 .tile-row {
   display: flex;
   justify-content: center;
@@ -137,7 +142,7 @@ body {
   justify-content: center;
   width: 40px;
   height: 40px;
-  border-radius: 8px;
+  border-radius: var(--radius-tile);
   font-size: 1.5rem;
   font-weight: 700;
 }
@@ -159,23 +164,23 @@ body {
 }
 
 .tile.empty {
-  background: #f5f5f4;
+  background: var(--color-tile-empty);
 }
 
 .tile.correct {
-  background: #16a34a;
-  color: #fff;
+  background: var(--color-tile-correct);
+  color: var(--color-tile-text-on-correct);
 }
 
 .tile.wrong {
-  background: #d6d3d1;
-  color: #0f172a;
+  background: var(--color-tile-wrong);
+  color: var(--color-foreground);
 }
 
 .length-caption {
-  font-size: 0.8rem;
-  color: #57534e;
-  margin: 0 0 8px;
+  font-size: var(--font-size-xs);
+  color: var(--color-muted-foreground);
+  margin: 0 0 var(--space-2);
 }
 
 .attempts-left {
@@ -187,7 +192,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  margin-bottom: 12px;
+  margin-bottom: var(--space-3);
 }
 
 .guess-form {
@@ -249,52 +254,54 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  margin-bottom: 12px;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
 }
 
 .language-label {
-  font-size: 0.78rem;
-  color: #57534e;
+  font-size: var(--font-size-xs);
+  color: var(--color-muted-foreground);
 }
 
 .chip {
-  padding: 6px 12px;
-  border: 1px solid #e7e5e4;
+  padding: 6px var(--space-3);
+  border: var(--border-hairline) solid var(--color-border);
   border-radius: 999px;
   background: none;
-  color: #0f172a;
-  font-size: 0.8rem;
+  color: var(--color-foreground);
+  font-size: var(--font-size-sm);
   cursor: pointer;
 }
 
+/* 선택된 칩만 brand 를 쓴다 — 테두리와 옅은 배경까지, 글자색으로는 안 쓴다
+   (OVERRIDES §2: brand 는 면 채움·일반 글자색 금지). */
 .chip[aria-pressed="true"] {
-  border-color: #ea580c;
-  background: #fff7ed;
+  border-color: var(--color-brand);
+  background: var(--color-brand-subtle);
   font-weight: 700;
 }
 
 /* 순위 섹션. 섹션 전환 토글과 토큰 디자인은 티켓 18. */
 .leaderboard {
-  margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px solid #e7e5e4;
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: var(--border-hairline) solid var(--color-border);
 }
 
-.leaderboard h2,
-.leaderboard h3 {
-  font-size: 0.95rem;
-  margin: 0 0 8px;
+.leaderboard h2 {
+  font-size: var(--font-size-lg);
+  margin: 0 0 var(--space-2);
 }
 
 .leaderboard h3 {
-  margin-top: 16px;
+  font-size: var(--font-size-base);
+  margin: var(--space-4) 0 var(--space-2);
 }
 
 .my-rank {
-  font-size: 0.9rem;
+  font-size: var(--font-size-sm);
   font-weight: 600;
-  margin: 0 0 8px;
+  margin: 0 0 var(--space-2);
 }
 
 .leaderboard-entries {
@@ -303,13 +310,13 @@ body {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .leaderboard-entry {
   display: flex;
-  gap: 8px;
-  font-size: 0.85rem;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
 }
 
 .leaderboard-entry.is-me {
@@ -318,19 +325,19 @@ body {
 
 .rank {
   min-width: 2.5em;
-  color: #57534e;
+  color: var(--color-muted-foreground);
 }
 
 /* 1~3위만 순위 숫자를 굵게. brand 색 글자는 쓰지 않는다(OVERRIDES §2). */
 .rank.top {
   font-weight: 700;
-  color: #0f172a;
+  color: var(--color-foreground);
 }
 
 .leaderboard-message,
 .stats-empty {
-  font-size: 0.8rem;
-  color: #57534e;
+  font-size: var(--font-size-xs);
+  color: var(--color-muted-foreground);
 }
 
 .today-stats {
@@ -343,8 +350,8 @@ body {
 }
 
 .stats-row {
-  font-size: 0.82rem;
-  color: #3f3f46;
+  font-size: var(--font-size-sm);
+  color: var(--color-foreground);
 }
 
 .hidden {

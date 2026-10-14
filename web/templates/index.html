@@ -4,6 +4,9 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>{{ t.app_title }}</title>
+  {# 09 의 공용 디자인 토큰. 17 이 새로 만든 요소(타일·칩·순위 행)가 이 변수를 쓴다.
+     기존 규칙의 토큰 전환·다크모드·480px 카드는 티켓 18. #}
+  <link rel="stylesheet" href="{{ url_for('static', filename='tokens.css') }}?v={{ asset_version }}" />
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v={{ asset_version }}" />
 </head>
 <body>
