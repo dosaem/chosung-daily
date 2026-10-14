@@ -1,3 +1,6 @@
+{#
+  절 순서·절 id 는 ko 본문과 **같아야 한다**. 조문 ↔ 절 매핑은 `docs/legal-checklist.md`.
+#}
 {% extends "legal/_layout.html" %}
 {% block title %}Terms of Service{% endblock %}
 {% block heading %}Terms of Service{% endblock %}
@@ -8,14 +11,15 @@
   accept them.
 </p>
 
-<h2>1. What the service does</h2>
+<h2 id="service">1. What the service does</h2>
 <p>
   One masked word per day. The puzzle changes at midnight Korea Standard Time (KST), with one
   puzzle per puzzle language (Korean and English). There is no sign-up: the guest token stored
-  on your device owns your records.
+  on your device owns your records. These terms are available at any time from the service and
+  on this page.
 </p>
 
-<h2>2. Linked accounts and backup codes</h2>
+<h2 id="account">2. Linked accounts and backup codes</h2>
 <p>
   Linking a Google or Apple account lets you continue the same records on another device.
   Without an account you can still move your records with the backup code shown under "back up
@@ -23,45 +27,88 @@
   and never linked an account, there is no way to recover the records.
 </p>
 
-<h2>3. Ad-free subscription</h2>
+<h2 id="subscription">3. Ad-free subscription</h2>
 <p>
   In the apps, a monthly subscription (product ID <code>adfree_monthly</code>) removes banner and
-  interstitial ads and unlocks hint previews without watching an ad. The price is whatever
-  App Store or Google Play shows for your region (₩1,500 per month in Korea).
+  interstitial ads and unlocks hint previews without watching an ad.
+</p>
+<dl>
+  <dt>Product name</dt>
+  <dd>Ad-free subscription — an auto-renewing in-app subscription (not sold on the web).</dd>
+
+  <dt>Price</dt>
+  <dd>
+    Whatever App Store or Google Play shows for your region (₩1,500 per month in Korea). The
+    amount shown on the store's purchase sheet is what applies.
+  </dd>
+
+  <dt>Length and billing period</dt>
+  <dd>One month. The benefit starts immediately and billing repeats on the same cycle.</dd>
+
+  <dt>Auto-renewal</dt>
+  <dd>
+    This subscription <strong>automatically renews</strong> unless you cancel at least
+    <strong>24 hours</strong> before the current period ends, and your store account is charged.
+  </dd>
+
+  <dt>Cancelling</dt>
+  <dd>
+    You <strong>cancel in the store</strong> — on iOS, Settings &gt; Apple Account &gt;
+    Subscriptions; on Android, Google Play &gt; Subscriptions. Benefits stay active until the end
+    of the current period. Deleting your account in the app does not cancel the subscription.
+  </dd>
+
+  <dt>Restoring</dt>
+  <dd>
+    After changing devices or reinstalling, use "Restore purchases" on the subscription screen to
+    reattach a subscription bought with the same store account.
+  </dd>
+</dl>
+
+<h2 id="withdrawal">4. Withdrawal and refunds</h2>
+<p>
+  Billing and refunds for the subscription are handled by <strong>App Store (Apple) or Google
+  Play (Google)</strong>. The operator cannot see your payment method or transaction history and
+  cannot process a refund for you — please ask the store directly.
 </p>
 <ul>
   <li>
-    <strong>Auto-renewal</strong>: the subscription <strong>automatically renews</strong> unless
-    you cancel before the current period ends, and your store account is charged.
+    App Store: report the problem from your purchase history at
+    <a href="https://reportaproblem.apple.com" rel="noopener" target="_blank">reportaproblem.apple.com</a>.
   </li>
   <li>
-    <strong>Cancelling</strong>: you <strong>cancel in the store</strong> — on iOS, Settings
-    &gt; Apple Account &gt; Subscriptions; on Android, Google Play &gt; Subscriptions. Benefits
-    stay active until the end of the current period. Deleting your account in the app does not
-    cancel the subscription.
-  </li>
-  <li>
-    <strong>Refunds</strong>: billing and refunds follow App Store or Google Play policy and the
-    operator cannot process them for you. Please ask the store directly.
-  </li>
-  <li>
-    <strong>Restoring</strong>: after changing devices or reinstalling, use "Restore purchases"
-    on the subscription screen to reattach a subscription bought with the same store account.
+    Google Play: use the refund request form at
+    <a href="https://support.google.com/googleplay" rel="noopener" target="_blank">support.google.com/googleplay</a>.
   </li>
 </ul>
+<p>
+  Under Article 17 of the Korean Act on Consumer Protection in Electronic Commerce you may
+  <strong>withdraw</strong> your purchase within 7 days of payment. However, Art. 17(2)5 allows
+  that right to be restricted for the part of <strong>digital content</strong> already supplied —
+  the ad-free benefit applies from the moment of purchase. You can still withdraw for a part not
+  yet supplied (a future billing period, for example), and an accepted withdrawal is refunded to
+  your payment method under the store's policy.
+</p>
+<p>
+  If the subscription did not do what it promised (you paid and ads kept showing, for example),
+  write to the email in section 11. We will find and fix the cause and help you document the
+  transaction for the store's refund request.
+</p>
 
-<h2>4. End User License Agreement (EULA)</h2>
+<h2 id="eula">5. End User License Agreement (EULA)</h2>
 <p>
   Use of the app itself is governed by Apple's standard Licensed Application End User License
   Agreement:
   <a href="{{ apple_standard_eula_url }}" rel="noopener" target="_blank">Apple standard EULA</a>.
 </p>
 <p class="doc-note">
-  If we decide to use a custom EULA instead, the link in this section will point to that document.
-  Until then, Apple's standard EULA applies.
+  We decided to use the standard EULA as is (spec open question 9, 2026-10-14): this app has no
+  licence terms that differ from the standard agreement, and using the standard one means no
+  separate terms have to be entered in App Store Connect. If a custom EULA is ever needed, the
+  link in this section will point to it.
 </p>
 
-<h2>5. Rules of use</h2>
+<h2 id="rules">6. Rules of use</h2>
 <ul>
   <li>Do not submit answers or manipulate the leaderboard with automated tools or scripts.</li>
   <li>Do not disrupt the service with excessive API calls (rate limits apply).</li>
@@ -73,14 +120,15 @@
   restrict access.
 </p>
 
-<h2>6. Changes and interruptions</h2>
+<h2 id="service-changes">7. Changes and interruptions</h2>
 <p>
   This service is run by one person, so maintenance, incidents, or shutdown may interrupt it
   temporarily or permanently. During maintenance the app and web show a maintenance screen. If
-  the service is to shut down, we will announce it in the app and on the web beforehand.
+  the service is to shut down, we will announce it in the app and on the web beforehand, and the
+  announcement will say what happens to any remaining subscription period.
 </p>
 
-<h2>7. Limits of liability</h2>
+<h2 id="liability">8. Limits of liability</h2>
 <p>
   The service is provided "as is". For the free features we are not liable for damages from lost
   records or leaderboard errors. For the paid subscription we are responsible for providing the
@@ -88,22 +136,27 @@
   rights guaranteed by applicable law are not limited by this section.
 </p>
 
-<h2>8. Privacy</h2>
+<h2 id="privacy">9. Privacy</h2>
 <p>
-  What we collect, how long we keep it, and how to delete it are set out in the
-  <a href="{{ url_for('web.privacy', lang='en') }}">Privacy Policy</a>.
+  What we collect, how long we keep it, how to delete it, and where it is transferred are set out
+  in the <a href="{{ url_for('web.privacy', lang='en') }}">Privacy Policy</a>, which is also
+  reachable from the app's settings screen and the footer of this page.
 </p>
 
-<h2>9. Changes to these terms</h2>
+<h2 id="terms-changes">10. Changes to these terms</h2>
 <p>
   When the terms change we update the effective date on this page and announce significant
   changes in the app and on the web. Continuing to use the service after that announcement means
   you accept the updated terms.
 </p>
 
-<h2>10. Governing law and contact</h2>
+<h2 id="governing-law">11. Governing law and contact</h2>
 <p>
-  These terms are governed by the laws of the Republic of Korea. For questions, write to
-  <a href="mailto:{{ contact_email }}">{{ contact_email }}</a>.
+  These terms are governed by the laws of the Republic of Korea. For questions and complaints,
+  write to <a href="mailto:{{ contact_email }}">{{ contact_email }}</a>. Korean consumers may also
+  use the counselling and mediation service of the Korea Consumer Agency (1372) under the
+  Framework Act on Consumers.
 </p>
+
+{% include "legal/_business_info.html" %}
 {% endblock %}

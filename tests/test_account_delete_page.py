@@ -18,7 +18,7 @@ PATH = "/account/delete"
 EN_HEADERS = {"Accept-Language": "en-US,en;q=0.9"}
 KO_HEADERS = {"Accept-Language": "ko-KR,ko;q=0.9"}
 
-# 개인정보처리방침 "수집하는 정보" 절(`legal/privacy.*.html` §1)의 항목 이름.
+# 개인정보처리방침 "수집하는 정보" 절(`legal/privacy.*.html` `id="collection"`)의 항목 이름.
 # 삭제 확인 페이지가 지우는 데이터를 **같은 이름** 으로 보여줘야 한다(티켓 14) —
 # 방침과 다른 말로 적으면 두 문서가 서로 다른 약속을 하는 셈이 된다.
 COLLECTED_NAMES = {
@@ -113,7 +113,7 @@ def test_confirm_form_lists_the_data_with_the_privacy_policy_names(logged_in_cli
 
 @pytest.mark.parametrize("language", ["ko", "en"])
 def test_confirm_form_links_the_policy_retention_and_rights_sections(logged_in_client, language):
-    """방침의 "파기(보유 기간)" 절과 "삭제와 이용자 권리" 절로 바로 갈 수 있어야 한다."""
+    """방침의 "수집하는 정보·보유 기간" 절과 "정보주체의 권리" 절로 바로 갈 수 있어야 한다."""
     client, _ = logged_in_client
 
     html = _html(client, f"{PATH}?lang={language}")

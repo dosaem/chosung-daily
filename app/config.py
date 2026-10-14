@@ -119,12 +119,20 @@ class Config:
     # (출시 전 사람이 채울 값: docs/RELEASE.md "### 09.").
     # `.env` 에 키만 있고 값이 비어 있어도(= 빈 문자열이 환경에 들어온다) 기본값으로
     # 떨어지게 `or` 를 쓴다 — 문서의 연락처가 비는 건 스토어 심사에서 반려 사유다.
+    #
+    # 전화번호(`LEGAL_BUSINESS_PHONE`)와 보호책임자 성명(`LEGAL_PRIVACY_OFFICER`)은
+    # 사용자 결정(2026-10-14, 스펙 미정 21)에 따라 **자리만 둔다**: 비면 그 행·성명을
+    # 렌더하지 않고(전화는 미표시, 책임자는 직책 "운영자" 로 표기), 나중에 값을 채우면
+    # 코드를 고치지 않고 표시된다. 주소도 같은 이유로 **값 자체를 사람이 축약해 넣는다**
+    # (코드가 자르지 않는다 — 시·구까지만 + "상세 주소는 요청 시 제공").
     LEGAL_CONTACT_EMAIL = os.environ.get("LEGAL_CONTACT_EMAIL") or "hsseo@dosaem.com"
     LEGAL_BUSINESS_NAME = os.environ.get("LEGAL_BUSINESS_NAME", "")
     LEGAL_REPRESENTATIVE = os.environ.get("LEGAL_REPRESENTATIVE", "")
     LEGAL_BUSINESS_REG_NO = os.environ.get("LEGAL_BUSINESS_REG_NO", "")
     LEGAL_MAIL_ORDER_REG_NO = os.environ.get("LEGAL_MAIL_ORDER_REG_NO", "")
     LEGAL_BUSINESS_ADDRESS = os.environ.get("LEGAL_BUSINESS_ADDRESS", "")
+    LEGAL_BUSINESS_PHONE = os.environ.get("LEGAL_BUSINESS_PHONE", "")
+    LEGAL_PRIVACY_OFFICER = os.environ.get("LEGAL_PRIVACY_OFFICER", "")
 
     # 운영자 페이지(/admin)에 들어올 수 있는 구글 계정 이메일. 쉼표로 여러 개.
     # **기본값 없음** — 설정을 깜빡한 환경에서는 아무도 운영자가 아니다(전부 403).

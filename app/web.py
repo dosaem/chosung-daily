@@ -22,15 +22,18 @@ LEGAL_EFFECTIVE_DATE = date(2026, 10, 14)
 # 미정 9(Apple 표준 EULA vs 커스텀)의 기본 선택지. 커스텀 약관으로 가면 이 링크를 지운다.
 APPLE_STANDARD_EULA_URL = "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/"
 
-# 문서 "운영자 정보" 블록에 싣는 사업자 정보: (설정 키, ko 라벨, en 라벨).
-# 전자상거래법 표기 순서를 그대로 쓴다. 값은 설정에서만 오고 코드에 없다 —
-# 사업자 등록 전에는 전부 비어 있고, 그러면 서비스명과 연락처만 렌더된다.
+# 문서 "운영자 정보" 블록(`legal/_business_info.html`)에 싣는 사업자 정보:
+# (설정 키, ko 라벨, en 라벨). 순서는 전자상거래법 제10조 제1항의 표기 순서다 —
+# 상호·대표자 → 주소·전화·이메일 → 등록번호 → 통신판매업 신고번호.
+# 값은 설정에서만 오고 코드에 없다 — 사업자 등록 전에는 전부 비어 있고, 그러면
+# 서비스명·연락처·호스팅만 렌더된다(티켓 16: 레포에 상호·주소·등록번호를 적지 않는다).
 LEGAL_BUSINESS_FIELDS = (
     ("LEGAL_BUSINESS_NAME", "상호", "Business name"),
     ("LEGAL_REPRESENTATIVE", "대표자", "Representative"),
+    ("LEGAL_BUSINESS_ADDRESS", "주소", "Address"),
+    ("LEGAL_BUSINESS_PHONE", "전화번호", "Phone"),
     ("LEGAL_BUSINESS_REG_NO", "사업자등록번호", "Business registration number"),
     ("LEGAL_MAIL_ORDER_REG_NO", "통신판매업 신고번호", "Mail-order business registration no."),
-    ("LEGAL_BUSINESS_ADDRESS", "주소", "Address"),
 )
 
 
@@ -74,23 +77,31 @@ def _render_legal_document(name: str):
         effective_date=LEGAL_EFFECTIVE_DATE,
         contact_email=current_app.config["LEGAL_CONTACT_EMAIL"],
         business_info=_business_info(language),
+        # 비면 템플릿이 직책("운영자")으로 적는다 — 성명 표기는 사람이 값을 채워 고른다
+        # (사용자 결정 2026-10-14, 개보법 제31조는 성명 **또는** 직책을 요구한다).
+        privacy_officer=current_app.config["LEGAL_PRIVACY_OFFICER"].strip(),
         apple_standard_eula_url=APPLE_STANDARD_EULA_URL,
     )
     # 심사자·크롤러가 Accept-Language 없이 받아도 어느 언어인지 알 수 있게 명시한다.
     return html, 200, {"Content-Language": language}
 
 
-def _business_info(language: str) -> list[tuple[str, str]]:
-    """설정에 값이 있는 사업자 정보 항목만 (라벨, 값) 으로 돌려준다.
+def _business_info(language: str) -> list[dict[str, str]]:
+    """설정에 값이 있는 사업자 정보 항목만 `{key, label, value}` 로 돌려준다.
 
     없는 값을 "미등록" 같은 문구로 채우지 않는다: 사업자 등록 전에 빈 목록을 돌려주면
     템플릿이 서비스명·연락처만 보여주고, 등록 후 환경변수를 채우면 그 항목만 늘어난다.
+
+    설정 키를 라벨과 함께 넘기는 이유: 조각(`legal/_business_info.html`)이 "주소 행이
+    렌더됐는지" 를 **언어와 무관하게** 물어야 한다 — 주소를 축약해 넣기로 했으므로
+    (사용자 결정 2026-10-14) 그 행이 있을 때만 "상세 주소는 요청 시 제공" 을 붙인다.
     """
     info = []
     for key, label_ko, label_en in LEGAL_BUSINESS_FIELDS:
         value = (current_app.config.get(key) or "").strip()
         if value:
-            info.append((label_ko if language == "ko" else label_en, value))
+            label = label_ko if language == "ko" else label_en
+            info.append({"key": key, "label": label, "value": value})
     return info
 
 

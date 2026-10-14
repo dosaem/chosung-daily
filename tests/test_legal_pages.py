@@ -6,6 +6,7 @@
 """
 
 import importlib
+import re
 from pathlib import Path
 
 import pytest
@@ -190,10 +191,16 @@ def test_empty_contact_email_env_falls_back_to_the_default(monkeypatch):
 
 
 def _international_transfer_section(client, lang: str) -> str:
-    """4절(국외 이전) 본문만 떼어낸다. 절 번호는 두 언어가 같다."""
+    """국외 이전 절 본문만 떼어낸다 — 다음 절 제목까지.
+
+    절 번호가 아니라 `id="overseas"` 로 찾는다(티켓 16 에서 절 순서를 작성지침 권장
+    구성으로 재배열했다 — 번호로 자르면 구성이 바뀔 때마다 테스트가 엉뚱한 절을 본다).
+    절 id 는 `docs/legal-checklist.md` 가 조문과 묶어 고정한다.
+    """
     html = _body(client, f"/privacy?lang={lang}")
-    start = html.index("<h2>4.")
-    return html[start : html.index("<h2>5.", start)]
+    start = html.index('<h2 id="overseas"')
+    next_heading = re.search(r'<h2 id="', html[start + 1 :])
+    return html[start : start + 1 + next_heading.start()]
 
 
 @pytest.mark.parametrize("lang", ["ko", "en"])
@@ -306,25 +313,28 @@ def test_cross_links_the_other_document(client, path):
 OPERATOR_FIELD_LABELS_KO = [
     "상호",
     "대표자",
+    "주소",
+    "전화번호",
     "사업자등록번호",
     "통신판매업 신고번호",
-    "주소",
 ]
 
 OPERATOR_FIELD_LABELS_EN = [
     "Business name",
     "Representative",
+    "Address",
+    "Phone",
     "Business registration number",
     "Mail-order business registration no.",
-    "Address",
 ]
 
 FILLED_BUSINESS_CONFIG = {
     "LEGAL_BUSINESS_NAME": "테스트 상호",
     "LEGAL_REPRESENTATIVE": "테스트 대표",
+    "LEGAL_BUSINESS_ADDRESS": "서울특별시 테스트구",
+    "LEGAL_BUSINESS_PHONE": "02-0000-0000",
     "LEGAL_BUSINESS_REG_NO": "000-00-00000",
     "LEGAL_MAIL_ORDER_REG_NO": "제0000-서울-0000호",
-    "LEGAL_BUSINESS_ADDRESS": "서울특별시 테스트구 테스트로 1",
 }
 
 
@@ -397,5 +407,7 @@ def test_business_info_values_are_not_hardcoded():
         "LEGAL_BUSINESS_REG_NO",
         "LEGAL_MAIL_ORDER_REG_NO",
         "LEGAL_BUSINESS_ADDRESS",
+        "LEGAL_BUSINESS_PHONE",
+        "LEGAL_PRIVACY_OFFICER",
     ]:
         assert f'{name} = os.environ.get("{name}", "")' in config_py
