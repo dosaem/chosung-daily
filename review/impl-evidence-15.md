@@ -192,3 +192,141 @@ $ impeccable detect "http://127.0.0.1:5117/control_v2.html"
   화면당 하나다). 삭제 한 번 뒤에는 목록이 다시 그려지며 새 토큰을 받으므로 정상 흐름은
   막히지 않지만, 탭 두 개를 열어두고 양쪽에서 삭제하면 나중 탭이 403 이 된다 — 운영자
   두 명 규모에서 폼별 토큰 보관을 만들 이유가 없다고 봤다(01 의 같은 판단을 따른다).
+
+## 수정 라운드 1
+
+리뷰 라운드 1(`review/impl-review-15.md`, 판정 FAIL)의 MAJOR 3건·MINOR 1건을 모두 고쳤다.
+**틀렸다고 판단한 지적은 없다** — 네 건 모두 리뷰에 적힌 재현 방법 그대로 재현됐고,
+먼저 실패하는 테스트로 고정한 뒤 고쳤다. 재현 테스트 6개는 수정 전 코드에서 전부
+빨갛고 수정 후 전부 통과한다(아래 §수정 전 red 확인).
+
+- 자원: 리뷰와 같은 전용 DB `chosung_daily_test_t15` / Redis DB `3` /
+  마이그레이션 DB `chosung_daily_test_t15_migrations`. 공용 테스트 DB·Redis 는 안 건드렸다.
+- **마이그레이션 없음**(추가한 건 서비스·검증 로직뿐이다). Alembic head 1개:
+  `dae1b5af0cf7 (head)` — 로컬 `main` 이 티켓 06 머지로 올라가며 들어온 head 다.
+- 리뷰 파일은 수정하지 않았다. 프로덕션·배포·`git push`·외부 서비스 호출 없음. 시크릿 값 없음.
+
+### D-15-1 (MAJOR) — 수정 완료
+
+| | |
+|---|---|
+| **원인** | `word_service.update_word` 가 `db.session.commit()` 만 하고 끝났다. 오늘 퍼즐 읽기는 cache-aside(`puzzle_service.get_today_puzzle_or_404` → `puzzle:{date}:{lang}`)라서 캐시가 이미 채워져 있으면 DB 를 다시 안 본다. TTL 26시간 동안 옛 정답·힌트·mask 가 계속 나갔다. 증상(힌트가 안 바뀜)이 아니라 "쓰기 경로가 읽기 캐시를 무효화하지 않는다" 를 고쳤다. |
+| **수정** | `puzzle_cache.invalidate_cached_puzzle(puzzle_date, language)` 추가(`safe_redis_call("delete", ...)` — Redis 가 죽어도 조용히 넘어간다). `word_repository.assigned_puzzle_slots(word_id)` 가 `(날짜, 언어)` 를 돌려준다 — 캐시 키가 언어로 갈려 있어 날짜만으로는 키를 못 만든다. `update_word` 는 **커밋이 끝난 뒤** 배정된 퍼즐마다 그 키를 지운다(롤백된 수정이 캐시를 날리지 않게 순서를 그렇게 뒀다). 기존 `assigned_puzzle_dates` 는 새 함수에서 파생시켜 쿼리를 한 벌로 뒀다. |
+| **증명** | `tests/test_admin_words.py::test_update_word_makes_the_change_visible_in_todays_puzzle` — 캐시를 먼저 채우고(`get_today_puzzle_or_404`) 운영자 폼의 실제 CSRF 토큰으로 `POST /admin/words/<id>` 한 뒤, **게임 읽기 경로**가 고친 힌트를 주는지 본다. DB 값만 보던 기존 테스트의 공백(리뷰가 지적한 그 공백)을 메운다. |
+
+### D-15-2 (MAJOR) — 수정 완료
+
+| | |
+|---|---|
+| **원인** | `update_word` 가 `word.language` 를 무조건 덮어썼다. `DailyPuzzle.language` 는 그대로 남으니 ko 퍼즐이 en 단어를 참조하게 되고, ko 조회·채점이 영어 정답(`apple`)과 영어 모음 가림을 쓴다. 캐시와 무관한 **불변식 위반**이고, 배정 검사가 삭제 경로(`delete_word`)에만 있던 게 원인이다. |
+| **수정** | `update_word` 에서 배정된 퍼즐이 있고 언어가 바뀌면 `ValidationError` 로 거부한다(사유에 배정일 최대 3개, 삭제 차단과 같은 문구 규칙). **정답·힌트·카테고리 수정은 그대로 된다** — 오타·부적절한 내용 수정이 운영자의 주 용도이고, 언어만 퍼즐 불변식을 깬다. 배정 안 된 단어는 전처럼 자유롭게 바꿀 수 있다(막는 범위를 좁게 뒀다). |
+| **증명** | `test_update_word_rejects_a_language_change_for_an_assigned_word` — 거부(200 + "배정" 문구), DB 가 `ko`/`사과` 그대로, 게임 읽기도 `사과`. 범위를 좁게 둔 것까지 `test_update_word_can_change_language_when_it_is_not_assigned` 로 고정했고, 기존 `test_update_word_recalculates_the_mask`(배정 안 된 단어의 ko→en)도 그대로 통과한다. |
+
+### D-15-3 (MAJOR) — 수정 완료
+
+| | |
+|---|---|
+| **원인** | 두 입구가 각각 열려 있었다. ① `csv.DictReader` 의 `restkey` 가 기본값 `None` 이라 헤더보다 많은 값이 **이름 없는 키**에 담기고, `import_word_rows` 가 그 자리를 안 봐서 초과 값이 조용히 버려졌다. ② `missing_csv_columns` 가 집합으로 존재만 보기 때문에 `answer` 가 두 번 있어도 통과하고, `DictReader` 가 같은 키를 뒤 값으로 덮어써 앞 값이 사라졌다. 둘 다 "추가 1개" 로 성공 처리돼 운영자가 데이터 유실을 알 길이 없었다 — US 51–52 의 "잘못된 행을 찾아 고친다" 가 성립하지 않는다. |
+| **수정** | `word_service.CSV_EXTRA_FIELD_KEY = "__extra__"` 를 restkey 로 쓴다(업로드·CLI 시드 양쪽 `DictReader`). `import_word_rows` 는 그 자리에 값이 있으면 그 행만 `ERROR` 로 돌려준다(사유: 헤더 칸 수·이 행 칸 수·따옴표 안내). 앞 4개만 받고 버리지 않는 이유는 어느 값이 어느 열인지 알 수 없기 때문이다. 헤더 중복은 `word_service.duplicate_csv_columns(fieldnames)` 로 필수 열의 중복을 찾아 `app/admin.py` 가 업로드 자체를 거부한다. 적재 규칙이 한 곳에 있으니 **CLI `flask seed-words` 도 같은 규칙**을 쓴다. |
+| **증명** | 리뷰의 재현 A/B 를 그대로 태운 HTTP 테스트 — `tests/test_admin_csv_upload.py::test_upload_rejects_a_row_with_more_values_than_the_header`(저장 0건 + "열이 헤더보다 많습니다"), `::test_upload_rejects_a_duplicated_required_header`(저장 0건 + "같은 열이 두 번 있어요: answer"), `::test_upload_keeps_loading_good_rows_next_to_a_too_wide_row`(깨진 행 하나가 나머지를 막지 않는다 — 행별 결과의 기존 약속). 규칙 자체는 서비스 층에도 고정했다: `tests/test_word_service.py::test_duplicate_csv_columns_lists_required_names_that_repeat`, `::test_import_word_rows_rejects_a_row_with_values_past_the_header`, `::test_seed_words_from_csv_reports_a_row_with_values_past_the_header`(CLI 경로). |
+
+### D-15-4 (MINOR) — 수정 완료 (미수정 MINOR 없음)
+
+| | |
+|---|---|
+| **원인** | `app/admin.py` 의 `list(reader)` 가 보호 없이 돌았다. 한 칸이 `csv` 모듈 기본 필드 한도(131072자)를 넘으면 `_csv.Error` 가 그 자리에서 터져 서비스의 200자 검증까지 못 가고, 결과 표도 못 그리고 운영 설정에서는 500 으로 귀결됐다. 한도를 올리는 게 아니라(힌트 상한은 200자다 — 131072자는 어떤 정상 입력도 아니다) **파서 오류를 운영자가 고칠 수 있는 입력 오류로 바꾸는 것**이 맞는 고침이라고 봤다. |
+| **수정** | `reader.fieldnames` 접근과 `list(reader)` 를 `try/except csv.Error` 로 감싸고(헤더 줄에서도 같은 오류가 날 수 있다), `_render_import(error=...)` 로 "CSV 를 읽지 못했어요: … 한 칸에 너무 긴 값이 있어요." 를 돌려준다. 업로드 전체를 거부하므로 깨진 값이 부분 저장되지 않는다. |
+| **증명** | `tests/test_admin_csv_upload.py::test_upload_reports_a_field_over_the_csv_parser_limit` — 리뷰의 입력 생성식(`'…ko,general,기차,' + 'x' * 131073`)을 그대로 쓴다. 200 + 저장 0건 + "CSV 를 읽지 못했어요". |
+
+### 수정 전 red 확인
+
+고친 app 파일 4개만 수정 전 상태로 되돌리고 새 테스트를 돌려, 6개가 전부 리뷰가 적은
+증상 그대로 실패하는 걸 확인했다(그 뒤 수정본으로 복구. 테스트 파일은 그대로 뒀다).
+
+```text
+uv run pytest tests/test_admin_csv_upload.py tests/test_admin_words.py -q   # 수정 전 app/
+FAILED test_admin_csv_upload.py::test_upload_rejects_a_row_with_more_values_than_the_header
+FAILED test_admin_csv_upload.py::test_upload_rejects_a_duplicated_required_header
+FAILED test_admin_csv_upload.py::test_upload_reports_a_field_over_the_csv_parser_limit
+FAILED test_admin_csv_upload.py::test_upload_keeps_loading_good_rows_next_to_a_too_wide_row
+FAILED test_admin_words.py::test_update_word_makes_the_change_visible_in_todays_puzzle
+FAILED test_admin_words.py::test_update_word_rejects_a_language_change_for_an_assigned_word
+6 failed, 30 passed in 38.49s
+
+# 실패 내용(리뷰의 "실제" 와 일치)
+test_update_word_makes_the_change_visible_in_todays_puzzle:
+  AssertionError: assert '빨간 과일' == '고친 힌트'
+test_update_word_rejects_a_language_change_for_an_assigned_word:
+  AssertionError: assert 302 == 200
+test_upload_reports_a_field_over_the_csv_parser_limit:
+  _csv.Error: field larger than field limit (131072)   (app/admin.py:191 list(reader))
+test_upload_keeps_loading_good_rows_next_to_a_too_wide_row:
+  AssertionError: assert ['학교', '사과'] == ['사과']   (초과 값을 버린 채 저장)
+```
+
+서비스 층 테스트 3개는 수정 전 코드에서 `ImportError: cannot import name
+'CSV_EXTRA_FIELD_KEY'` 로 수집조차 안 된다 — 새로 만든 규칙을 고정하는 테스트라서다.
+
+### 바꾼 파일
+
+| 파일 | 무엇 |
+|---|---|
+| `app/services/word_service.py` | `CSV_EXTRA_FIELD_KEY`, `duplicate_csv_columns`, `import_word_rows` 의 초과 열 행 오류, `update_word` 의 언어 불변식 + 캐시 무효화, CLI `DictReader` 의 restkey |
+| `app/services/puzzle_cache.py` | `invalidate_cached_puzzle` |
+| `app/repositories/word_repository.py` | `assigned_puzzle_slots`(날짜+언어). `assigned_puzzle_dates` 는 여기서 파생 |
+| `app/admin.py` | `csv.Error` 처리, 중복 헤더 거부, 이름 붙인 restkey |
+| `tests/test_admin_words.py` | 재현 테스트 3개(D-15-1, D-15-2 + 범위 경계) |
+| `tests/test_admin_csv_upload.py` | 재현 테스트 4개(D-15-3 A/B·부분 적재, D-15-4) |
+| `tests/test_word_service.py` | 규칙 테스트 3개(중복 헤더, 초과 열, CLI 시드) |
+
+범위 밖 리팩토링·기능 추가는 없다. 리뷰가 "참고" 로 남긴 관리자 폭 1040px(OVERRIDES §10
+480px 와 다름)은 결함이 아니라 기록된 의도적 선택이라 손대지 않았다.
+
+### 수정 라운드 1 전체 검증
+
+로컬 `main` = `008a35a`(티켓 22 머지) 위로 rebase 한 뒤 돌렸다. 충돌 없음, 작업 트리 clean.
+(리뷰가 기준으로 쓴 `abf3e9a` 이후 main 이 티켓 06·22 머지로 두 번 올라갔고, 그 위에서
+다시 전체를 돌렸다.)
+
+```text
+uv run pytest -q
+743 passed in 454.70s (0:07:34)
+exit 0
+
+uv run ruff check .
+All checks passed!
+exit 0
+
+FLASK_ENV=testing uv run flask --app wsgi db heads
+dae1b5af0cf7 (head)
+exit 0
+
+git status --short
+출력 없음
+
+git log --oneline main..HEAD
+<이 문서 커밋> 증거 15: 수정 라운드 1 — 결함별 원인·수정·재현 테스트
+98c197b 수정 15: 배정 단어 캐시·언어 불변식, CSV 열 구조 검증
+1a46336 리뷰 15: 운영자 CRUD와 CSV 최종 검증 및 결함 보고
+11d5953 증거 15: 체크박스별 근거·테스트·impeccable detect 출력
+8407a65 티켓 15: 운영자 페이지 — 구글 로그인 인증·단어 CRUD·CSV 업로드
+```
+
+`impeccable detect` — 이번 라운드가 **새로 만든 오류 화면 3장**(초과 열 행 오류 표,
+`csv.Error` 입력 오류, 배정 단어 언어 변경 거부 폼)을 §4 와 같은 방식(운영자 세션
+테스트 클라이언트의 실제 응답 HTML + 원본 `tokens.css`·`admin.css` 복사본을 로컬 정적
+서버로 제공)으로 뽑아 검사했다. 스냅샷 스크립트는 스크래치패드에 두고 레포에 남기지
+않았다(기존 `review/admin-detect-snapshot-15.py` 는 수정하지 않았다).
+
+```text
+node <impeccable cli> detect --json --viewport 1280x800 <로컬 URL 3개>
+[]
+exit 0
+
+node <impeccable cli> detect --json --viewport 390x844 <로컬 URL 3개>
+[]
+exit 0
+대상: import_extra_column, import_field_limit, word_edit_language_blocked
+```
+
+가장 긴 새 문구(행 오류 사유 — 표 칸 안에 들어간다)에서도 넘침·겹침 0건이다.
