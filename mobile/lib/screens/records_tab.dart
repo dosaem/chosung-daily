@@ -1,5 +1,5 @@
+import 'package:chosung/layout/reading_width.dart';
 import 'package:chosung/startup/startup_controller.dart';
-import 'package:chosung/widgets/max_width_body.dart';
 import 'package:chosung/widgets/skeleton_box.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
@@ -15,7 +15,7 @@ class RecordsTab extends ConsumerWidget {
     final stats = ref.watch(startupStatsProvider);
 
     return SafeArea(
-      child: MaxWidthBody(
+      child: ReadingWidth(
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Column(

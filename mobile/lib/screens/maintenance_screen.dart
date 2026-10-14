@@ -1,6 +1,6 @@
+import 'package:chosung/layout/reading_width.dart';
 import 'package:chosung/startup/startup_state.dart';
 import 'package:chosung/theme/app_colors.dart';
-import 'package:chosung/widgets/max_width_body.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
@@ -19,7 +19,7 @@ class MaintenanceScreen extends StatelessWidget {
 
     return Scaffold(
       body: SafeArea(
-        child: MaxWidthBody(
+        child: ReadingWidth(
           child: Padding(
             padding: const EdgeInsets.all(24),
             child: Column(
