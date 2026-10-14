@@ -311,6 +311,10 @@ void main() {
   testWidgets('오픈소스 라이선스 행은 라이선스 화면을 연다', (tester) async {
     await _pumpRecords(tester, api: FakeApiClient());
 
+    // 1열 S4 는 계정 카드(29)와 알림 두 행(30)까지 얹혀 마지막 행이 화면
+    // 밖이다 — 실제 사용자처럼 먼저 스크롤한다.
+    await tester.ensureVisible(_row('오픈소스 라이선스'));
+    await tester.pumpAndSettle();
     await tester.tap(_row('오픈소스 라이선스'));
     await tester.pumpAndSettle();
 

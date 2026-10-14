@@ -133,7 +133,7 @@ class NotificationSyncController extends Notifier<List<ScheduledNotification>> {
   ///
   /// 제출로 끝난 경우뿐 아니라 **다른 기기에서 푼 날**(앱을 켜자마자 끝난
   /// 보드가 오는 경우)도 같은 길로 들어온다 — 둘을 따로 다룰 이유가 없다.
-  Future<void> _recordCompleted(AsyncValue<TodayState> puzzle) async {
+  Future<void> _recordCompleted(AsyncValue<TodayState?> puzzle) async {
     final today = puzzle.value;
     if (today is! TodayPuzzleReady || !today.puzzle.status.isFinished) return;
 
