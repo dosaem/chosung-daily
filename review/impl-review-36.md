@@ -127,3 +127,83 @@ with app.app_context():
 - 결함 집계: BLOCKER 0, MAJOR 3, MINOR 0.
 
 판정: FAIL
+
+## 라운드 2
+
+- 기준: 로컬 `main` = `055b56ce43df639e63a39d096c1e3b43b275ec1d`, 구현 HEAD = `3464ce8aaf1169ea4b813185dec959cc79e5a147`.
+- 티켓 36, 스펙 §A.15·C.28·C.33·미정 27, `git diff main...HEAD`, `git log main..HEAD`, 구현 증거 및 라운드 1 결함을 대조했다. `origin/main`은 사용하지 않았다.
+- code-review·verification-before-completion 기준으로 직접 검토했다. 사용자 지시에 따라 하위 에이전트 없이 수행했고, 애플리케이션·테스트·설정·`.scratch/`는 수정하지 않았다.
+
+### 체크박스별 판정
+
+| 티켓 체크박스 | 판정 | 직접 확인한 근거 |
+|---|---|---|
+| 백업 암호화 | 충족 | `scripts/backup.sh:60`부터 인증서 누락을 차단하고 덤프·gzip·CMS를 파이프로 연결한다. 실제 OpenSSL 테스트가 암호화 파일 생성·평문 임시 파일 부재·실패 알림·신구 확장자 보존 삭제를 확인한다. 실제 compose 병합 결과에서도 backup 인증서 경로가 전달된다(D-36-1 FIXED). |
+| 복구 | 충족 | `scripts/restore.sh:58`부터 키 검사, `dump_stream` 및 전체 gzip 사전 검증 후에만 MySQL 경로를 호출한다. 올바른 키·누락·잘못된 키·손상·평문 전환기 테스트를 포함한 기존 백업/복구 테스트 파일 전체가 통과했다. |
+| 키 절차 문서 | 증거 부족 | `docs/RELEASE.md:617`부터 CMS 키 생성·공개 인증서 배치·NAS 밖 두 곳 보관·분실 경고·교체 절차, README 운영 단락은 있다. 다만 `docs/RELEASE.md:672`의 암호화 복구 리허설 실측은 여전히 미완료 체크박스다. 라운드 1과 동일하게 실제 리허설 완료를 인증하지 않는다. |
+| 감사 로그 테이블·기록 지점 | 충족 | migration·INSERT 리포지토리·응답 훅·README 행위 표가 연결되어 있다. 실제 요청 테스트가 운영자 라우트·403·계정 삭제·열람·연결·프로필 변경을 기록한다. 실제 MySQL의 빈/기존 체인에 10개 동시 기록을 넣는 테스트가 행 수·오류 없음·체인 정합성을 확인한다(D-36-3 FIXED). |
+| 위변조 검출 | 충족 | `row_hash`·`verify_chain` 및 CLI가 실제 DB 중간 행 변경/삭제를 검출한다. 모델에 `updated_at`이 없고 리포지토리에 update/delete 공개 API가 없다. 만료 삭제 뒤 체인 검사도 통과한다. |
+| 접근 로그 | 충족 | `gunicorn.conf.py:30`의 파일 출력과 포맷, Dockerfile의 설정 로딩을 확인했다. 인증 헤더·쿠키·쿼리 및 전체 요청 줄을 제외한다. prod/develop 실제 compose config에서 app·backup 모두 동일 호스트 폴더를 `/logs`로 마운트하고 `LOG_DIR=/logs`를 받는다(D-36-2 FIXED). |
+| 보관·삭제 | 충족 | 기본 365일 설정, Beat 일일 DB 삭제, backup cron 파일 회전·gzip·만료 삭제 배선이 있다. 기간 안팎의 행/파일과 기간 변경·삭제 실패 알림을 실행 테스트로 확인했다. |
+| 점검 | 충족 | 실제 DB 행을 사용하는 CLI 테스트가 월별 행위 수·거부 수·체인 검증 결과 및 잘못된 월 입력을 검증한다. RELEASE §36에 월 1회 실행·결과 보관 체크박스가 있다. |
+| 법적 문서 동기화 | 충족 | ko/en 본문, 법적 체크리스트, RELEASE §16→§36 참조, 스펙 미정 27·16 글머리가 구현과 맞게 변경됐다. 법적 페이지·체크리스트 테스트가 통과했다. 시행일은 같은 날짜인 2026-10-14로 유지한 기존 설명을 수용한다. |
+| env·README 설계 판단·기존 테스트·ruff | 충족 | 승인된 CMS 환경변수와 LOG_DIR·보관 기간 설명이 있고 README §36에 공개키·두 겹 로그·해시 체인·기간 근거를 기록했다. 백업/복구 테스트 전체 및 ruff를 직접 실행해 통과했다. |
+
+### 이전 결함 재판정
+
+#### D-36-1 — FIXED (이전 MAJOR)
+
+- 위치: `docker-compose.prod.yml:131`, `scripts/backup.sh:60`.
+- 재현: 아래 명령을 `.env.prod.example`과 `.env.develop.example` 각각으로 실행해 실제 Docker Compose 병합 결과를 확인했다. 전체 환경을 출력하지 않고 인증서·로그 경로·로그 마운트만 추출했다.
+
+```sh
+ENV_FILE=.env.prod.example docker compose -f docker-compose.prod.yml \
+  --env-file .env.prod.example config --format json |
+  uv run python -c 'import json,sys; s=json.load(sys.stdin)["services"]; print({n:{"LOG_DIR":s[n]["environment"].get("LOG_DIR"), "CERT":s[n]["environment"].get("BACKUP_ENCRYPTION_CERT_FILE"), "mounts":[v for v in s[n]["volumes"] if v["target"]=="/logs"]} for n in ("app","backup")})'
+```
+
+- 기대: backup에 `BACKUP_ENCRYPTION_CERT_FILE=/backups/backup-cert.pem` 전달.
+- 실제: prod/develop 모두 기대와 일치한다. 기존 `MISSING` 증상은 재현되지 않는다. 스크립트 테스트의 직접 env 주입뿐 아니라 compose 자체의 치환 결과로 수정 여부를 확인했다.
+
+#### D-36-2 — FIXED (이전 MAJOR)
+
+- 위치: `docker-compose.prod.yml:64`, `docker-compose.prod.yml:133`, `docker-compose.prod.yml:142`, `gunicorn.conf.py:23`.
+- 재현: D-36-1의 config 명령을 prod/develop 예제 각각에 실행한다.
+- 기대: app과 backup의 컨테이너 환경이 모두 `/logs`이며 로그 mount target과 같고, 호스트 source도 서로 같다.
+- 실제: prod는 두 서비스 모두 호스트 `logs`→`/logs`, develop은 두 서비스 모두 `logs-develop`→`/logs`이고 `LOG_DIR=/logs`다. 따라서 Gunicorn 출력과 회전 스크립트가 같은 파일을 가리킨다. 호스트 상대 경로가 app의 `/srv` 밑으로 새던 증상은 해소됐다.
+
+#### D-36-3 — FIXED (이전 MAJOR)
+
+- 위치: `app/repositories/access_log_repository.py:44`, `app/repositories/access_log_repository.py:77`, `tests/test_concurrency.py:418`.
+- 재현: 전용 테스트 자원을 지정한 상태에서 `uv run pytest tests/test_concurrency.py -q -k access_log`에 해당하는 세 테스트를 아래 통합 실행에 포함했다. 빈 체인/기존 체인 두 경우 모두 barrier로 10개 실제 스레드를 동시에 시작하며 제품 `record_access`·`append`를 그대로 사용한다.
+- 기대: 오류 0건, 빈 체인 10행/기존 체인 11행, 체인 검증 이상 없음.
+- 실제: 두 10개 동시성 테스트와 기존 2개 동시 기록 테스트가 모두 통과했다. `GET_LOCK`을 전용 연결에서 획득하고 append 커밋 후 같은 연결에서 해제하므로 빈 테이블에도 직렬화가 적용되며, 락 획득 후 READ COMMITTED 조회가 직전 커밋의 꼬리를 읽는다. 기록 경로 또는 DB를 mock한 테스트가 아니다.
+
+### 직접 실행한 검증
+
+- 기존 localhost MySQL `chosung_daily_test_t36`, 기존 마이그레이션 DB `chosung_daily_test_t36_migrations`, localhost Redis DB 10을 각각 `TEST_DATABASE_URL`·`TEST_MIGRATION_DATABASE_URL`·`TEST_REDIS_URL`로 지정했다. 접속 성공했고 기본 DB 폴백이나 새 DB 생성은 없었다. 자격정보 값은 기록하지 않는다.
+- 아래 변경 관련 테스트 11개 파일을 **한 프로세스로 순차 실행**했다. 결과는 **427 passed in 396.60s (0:06:36)**, 종료 코드 0이다. 간헐 실패나 재실행은 없었다.
+
+```sh
+uv run pytest tests/test_access_log.py tests/test_access_log_file.py \
+  tests/test_backup_restore.py tests/test_celery_wiring.py tests/test_cli.py \
+  tests/test_compose_config.py tests/test_concurrency.py \
+  tests/test_legal_checklist.py tests/test_legal_pages.py \
+  tests/test_migrations.py tests/test_sentry.py -q
+```
+
+- `uv run ruff check .` → **All checks passed!**, 종료 코드 0.
+- `uv run flask db heads` → **`b1c7d4e0a932 (head)`**, 정확히 1줄·1개 head.
+- `git diff --check main...HEAD` → 출력 없음, 종료 코드 0.
+- 증거 문서의 전체 1353개 통과 주장을 이번 리뷰의 직접 실행 결과로 대체하지 않았다. 이번 라운드에서 직접 재실행한 범위는 위 427개이며 전체 스위트 재실행은 하지 않았다.
+- 백업/복구 테스트는 실제 OpenSSL·gzip을 사용하고 외부 Docker/Slack 호출은 스텁이다. 감사 로그·체인·보존·마이그레이션은 실제 전용 MySQL에서 검증하고, Sentry는 메모리 Transport로 검증한다. 실제 외부 서비스·NAS·프로덕션에 접속하지 않았다.
+
+### 범위·보안·참고
+
+- 신규 결함 없음. 이전 결함은 **FIXED 3, REPEAT 0**. 현재 미해결 결함 집계: **BLOCKER 0 / MAJOR 0 / MINOR 0**.
+- 공유 파일의 README 설계 판단·env·RELEASE 추가분은 36 항목이며, 기존 §16·법적 문서·스펙 지정 글머리 및 README 운영 설명 변경은 티켓에서 지시한 범위다. 새 무단 범위 확장이나 인증·CSRF 가드 제거, 새 운영 시크릿·키·토큰 값의 커밋을 발견하지 않았다.
+- 법적 템플릿은 본문 고지 변경이다. 디자인 SCREENS 및 OVERRIDES 우선 규칙과 대조했으며 레이아웃·CSS·색 토큰 변경은 없다. 취향·스타일 제안은 결함으로 올리지 않았다.
+- 키 절차의 실측 증거 부족은 남아 있다. 스펙 검증 범위가 NAS 실행·리허설을 RELEASE의 사람 체크리스트로 구분하고 이번 리뷰가 프로덕션 접근을 금지하므로, 배포 리허설 완료와 코드 리뷰 PASS를 구분한다. `restore.sh` 전체 운영 경로의 암호화 복구 실측, NAS 밖 키 보관, 월간 점검은 출시 담당자가 별도로 확인해야 한다.
+- 조문은 레포가 인용한 기준과 구현·고지의 일치를 검토했다. 현행 조문 번호 확인은 RELEASE §36에 남은 사람 확인 항목이며 이번 리뷰가 법적 적합성을 인증하지 않는다.
+
+판정: PASS
