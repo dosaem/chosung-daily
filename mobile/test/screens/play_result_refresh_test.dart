@@ -3,6 +3,7 @@ import 'package:chosung/api/api_providers.dart';
 import 'package:chosung/app.dart';
 import 'package:chosung/config/provider_retry.dart';
 import 'package:chosung/guest/guest_token_store.dart';
+import 'package:chosung/onboarding/onboarding_store.dart';
 import 'package:chosung/widgets/leaderboard_row.dart';
 import 'package:chosung/widgets/seven_day_grid.dart';
 import 'package:flutter/material.dart';
@@ -11,6 +12,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../fakes/fake_api_client.dart';
 import '../fakes/in_memory_guest_token_store.dart';
+import '../fakes/in_memory_onboarding_store.dart';
 import '../layout/adaptive_scaffold_test.dart' show setViewSize;
 
 /// 플레이 결과가 생긴 뒤 순위(S3)·내 기록(S4)이 그 결과를 읽는지 본다.
@@ -29,6 +31,10 @@ Future<void> _pumpApp(WidgetTester tester, {required FakeApiClient api}) async {
           apiClientProvider.overrideWithValue(api),
           guestTokenStoreProvider.overrideWithValue(
             InMemoryGuestTokenStore('guest-token'),
+          ),
+          // 온보딩은 이미 본 상태 — 여기서 보는 건 플레이 흐름이다.
+          onboardingStoreProvider.overrideWithValue(
+            InMemoryOnboardingStore(seen: true),
           ),
           appVersionProvider.overrideWith((_) async => '1.0.0'),
           isIosProvider.overrideWithValue(true),

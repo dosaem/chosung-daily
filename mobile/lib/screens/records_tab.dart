@@ -5,6 +5,7 @@ import 'package:chosung/layout/app_breakpoint.dart';
 import 'package:chosung/layout/reading_width.dart';
 import 'package:chosung/records/history_controller.dart';
 import 'package:chosung/records/my_stats_controller.dart';
+import 'package:chosung/routing/app_routes.dart';
 import 'package:chosung/settings/legal_links.dart';
 import 'package:chosung/settings/puzzle_language_controller.dart';
 import 'package:chosung/theme/app_colors.dart';
@@ -14,6 +15,7 @@ import 'package:chosung/widgets/skeleton_box.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 /// 뒤 티켓이 채울 자리. 담당 티켓 번호를 주석으로 달아 두고, 키는 그 티켓과
 /// 태블릿 열 배치 테스트가 같이 쓴다(SCREENS T4 — 자리의 열은 바뀌지 않는다).
@@ -36,7 +38,7 @@ abstract final class RecordsSlot {
   /// 티켓 31: 광고 개인정보 설정(UMP privacy options 가 required 일 때만 표시).
   static const adPrivacy = Key('records.slot.ad_privacy');
 
-  /// 티켓 28: "하는 법"(온보딩 3장 다시 보기).
+  /// "하는 법"(온보딩 3장 다시 보기, 티켓 28).
   static const howTo = Key('records.slot.how_to');
 
   /// 티켓 29: 계정 삭제 + 확인 다이얼로그.
@@ -315,11 +317,11 @@ class _SettingsList extends ConsumerWidget {
           value: pending,
         ),
         const _Hairline(),
-        // 티켓 28 이 온보딩 3장을 다시 띄운다.
+        // 온보딩(S6)을 처음부터 다시 본다 — 완료 플래그는 그대로다.
         SettingsRow(
           key: RecordsSlot.howTo,
           label: 'records.how_to'.tr(),
-          value: pending,
+          onTap: () => context.push(AppRoutes.howTo),
         ),
         const _Hairline(),
         SettingsRow(

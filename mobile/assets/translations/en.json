@@ -135,5 +135,30 @@
     "result_fail": "failed",
     "result_in_progress": "in progress",
     "result_none": "not played"
+  },
+  "onboarding": {
+    "skip": "Skip",
+    "close": "Close",
+    "next": "Next",
+    "progress": "Step {current} of {total}",
+    "one_a_day_title": "One puzzle a day",
+    "one_a_day_body": {
+      "ko": "Guess the word from its Korean initial consonants.\nA new puzzle every midnight KST.",
+      "en": "Guess the word from its consonants only.\nA new puzzle every midnight KST."
+    },
+    "five_tries_title": "Five tries",
+    "five_tries_body": "Letters in the right spot turn green, the rest stay grey.",
+    "five_tries_correct": "Right spot",
+    "five_tries_wrong": "Not it",
+    "keep_streak_title": "Keep the streak",
+    "keep_streak_body": "Miss a single day and your streak starts over at zero.",
+    "keep_streak_sample": "12 day streak",
+    "notification_title": "A nudge every morning?",
+    "notification_body": "We'll remind you at 9:00 AM on this device. You can turn it off in settings.",
+    "notification_allow": "Turn on notifications",
+    "notification_later": "Not now",
+    "tracking_title": "Allow personalised ads",
+    "tracking_body": "Allowing this makes the ads more relevant. The app works the same either way.",
+    "tracking_continue": "Continue"
   }
 }

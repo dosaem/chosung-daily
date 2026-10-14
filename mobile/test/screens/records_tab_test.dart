@@ -279,7 +279,7 @@ void main() {
     expect(find.byType(LicensePage), findsOneWidget);
   });
 
-  testWidgets('28~32 가 채울 자리는 전부 있고 아직 눌리지 않는다', (tester) async {
+  testWidgets('29~32 가 채울 자리는 전부 있고 아직 눌리지 않는다', (tester) async {
     await _pumpRecords(tester, api: FakeApiClient());
 
     for (final slot in [
@@ -295,14 +295,18 @@ void main() {
       expect(find.byKey(slot), findsOneWidget, reason: '$slot 자리가 없다');
     }
 
-    // 자리는 비활성이다 — 28~32 가 onTap 을 채운다.
+    // 남은 자리는 비활성이다 — 29~32 가 onTap 을 채운다. "하는 법" 은 티켓 28
+    // 이 채웠고(온보딩 다시 보기), 그 동작은 온보딩 화면 테스트가 본다.
     for (final row in tester.widgetList<SettingsRow>(
       find.byType(SettingsRow),
     )) {
-      if (row.key != null) {
-        expect(row.onTap, isNull, reason: '${row.key} 는 아직 비활성이어야 한다');
-      }
+      if (row.key == null || row.key == RecordsSlot.howTo) continue;
+      expect(row.onTap, isNull, reason: '${row.key} 는 아직 비활성이어야 한다');
     }
+    expect(
+      tester.widget<SettingsRow>(find.byKey(RecordsSlot.howTo)).onTap,
+      isNotNull,
+    );
   });
 
   testWidgets('영어 UI 에서도 같은 화면이 뜬다', (tester) async {
