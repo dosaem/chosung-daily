@@ -580,3 +580,51 @@ $ uv run pytest tests/test_app_deploy_workflow.py -q     # 수정 후
 - BASELINE 은 Profile 설정에도 배포 identity 를 넣어 뒀지만 따라가지 않았다
   (로컬 `flutter run --profile` 이 배포 인증서를 요구하게 된다). 배포 경로는
   Release 만 쓴다 — D-34-1 절 참조.
+
+#### rebase 후 재검증 (로컬 `main` = `a520223`, 티켓 17 머지까지 위)
+
+전체 스위트가 한 번에 11~12분이라 그 사이 로컬 `main` 이 계속 앞으로 갔다. rebase 후
+전체 재실행을 네 번 했고 **네 번 모두 exit 0** 이다 — `b8f63cc` 위 `845 passed`,
+`7df7809`(티켓 14) 위 `902 passed`, `4d83feb`(티켓 13) 위 `967 passed`,
+`a520223`(티켓 17) 위 `1026 passed`. 아래가 최종(`a520223` 위) 상태다. 충돌은 네 번
+모두 0건이었다 — 이 티켓이 건드리는 파일 중 다른 티켓과 겹칠 수 있는 것은
+`docs/RELEASE.md` 뿐이고 자기 번호 절(`### 34.`)만 쓴다.
+
+```
+$ git -c core.editor=true rebase main          # 로컬 main. origin/main 아님
+Successfully rebased and updated refs/heads/dosaem/t34-app-deploy-workflows-signing
+$ git status --short
+(비어 있음 — clean)
+
+$ uv run ruff check .
+All checks passed!
+
+$ TEST_DATABASE_URL=…/chosung_daily_test_t34 TEST_REDIS_URL=redis://…/8 uv run pytest -q
+1026 passed in 663.81s (0:11:03)       # exit 0 (머지된 티켓들 995 + 새 테스트 31)
+
+$ uv run pytest tests/test_app_deploy_workflow.py -q
+102 passed in 1.55s                    # 기존 71 + 이번 라운드 31
+
+$ uv run flask db heads
+d7a1f0ca0a29 (head)                    # 1줄(머지된 티켓의 head). 이 티켓은 마이그레이션 변경 없음
+
+$ flutter analyze --no-pub             # 레포 루트
+No issues found! (ran in 3.2s)
+$ flutter test --no-pub                # mobile/
+00:22 +120: All tests passed!          # main 의 티켓 24 테스트가 들어와 87 → 120
+
+$ plutil -lint mobile/ios/Runner.xcodeproj/project.pbxproj
+mobile/ios/Runner.xcodeproj/project.pbxproj: OK
+$ xcodebuild -project mobile/ios/Runner.xcodeproj -list
+Build Configurations: Debug / Release / Profile    # 설정 목록 그대로
+```
+
+- 테스트 DB 는 기존 `chosung_daily_test_t34`(+ 파생 `_t34_migrations`), Redis 는 DB 8.
+  공용 `chosung_daily_test` 와 다른 티켓 DB 는 건드리지 않았고 새로 만들지도 않았다.
+  접속 문자열·비밀번호는 기록하지 않는다.
+- 이번 수정의 변경 범위는 Android 빌드 그래프와 무관해서(iOS pbxproj·fastlane Ruby·
+  워크플로 YAML·테스트·문서) `flutter build apk --debug` 는 다시 돌리지 않았다 —
+  디스크 여유가 적다는 코디네이터 메모에 따라 `mobile/build` 도 비워 뒀다. pbxproj
+  변경은 `plutil -lint` + `xcodebuild -showBuildSettings`/`-list` 로 검증했다.
+- 실제 서명·match·업로드는 시크릿이 없어 실행하지 않았다. 프로덕션 접근·`git push`·
+  외부 서비스 호출·인증 정보 입력 없음. BASELINE(`~/Code/BuildUrPalace`)은 읽기만 했다.
