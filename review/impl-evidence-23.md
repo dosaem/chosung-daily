@@ -1,7 +1,8 @@
 # 티켓 23 구현 증거 — 운영자 배정표·잔량·점검/최소 버전 토글·Google Books 검색
 
-- 브랜치: `dosaem/t23-admin-schedule-stock-toggles-books`, 로컬 `main` **`b8f63cc`**
-  (티켓 24 머지) 위로 rebase. 충돌 없음, 작업 트리 clean.
+- 브랜치: `dosaem/t23-admin-schedule-stock-toggles-books`, 로컬 `main` **`7df7809`**
+  (티켓 14 머지) 위로 rebase. 충돌 없음, 작업 트리 clean. 작업 중 main 이 티켓
+  22·24·14 머지로 세 번 올라가서 마지막 base 에서 전체 검증을 다시 돌렸다(§3.2).
 - 테스트 자원(워커 전용): DB `chosung_daily_test_t23` / Redis DB `11` /
   마이그레이션 DB `chosung_daily_test_t23_migrations`
   (`TEST_DATABASE_URL`·`TEST_REDIS_URL`·`TEST_MIGRATION_DATABASE_URL`). 공용 테스트
@@ -73,8 +74,9 @@ $ git log --oneline main..HEAD
 <커밋 2개: 구현 + 이 증거 문서>
 ```
 
-rebase 충돌은 없었다. 시작 시점 main 은 `1e764da`(티켓 15 머지)였고 작업 중 티켓
-22·24 가 머지돼 `b8f63cc` 로 올라가서, 그 위에서 아래 검증을 전부 다시 돌렸다.
+rebase 충돌은 없었다(두 번 모두). 시작 시점 main 은 `1e764da`(티켓 15 머지)였고,
+작업 중 티켓 22·24 머지로 `b8f63cc`, 이어 티켓 14 머지로 `7df7809` 가 됐다. 아래는
+`b8f63cc` 기준 출력이고, 최종 base `7df7809` 에서 다시 돌린 결과는 §3.2 다.
 
 ```
 $ uv run ruff check .
@@ -116,6 +118,36 @@ $ uv run pytest tests/test_admin_schedule.py tests/test_admin_settings.py \
  admin_books 11 · google_books 9 · puzzle_schedule_service 18(+9) ·
  app_config 15(+8) · word_service 24(+1))
 ```
+
+### 3.2 최종 base (`main` = `7df7809`, 티켓 14 머지) 재검증
+
+```
+$ git rebase main          # 충돌 없음
+Rebasing (1/2)Rebasing (2/2)Successfully rebased and updated refs/heads/dosaem/t23-admin-schedule-stock-toggles-books.
+
+$ uv run ruff check .
+All checks passed!
+exit=0
+
+$ FLASK_ENV=testing uv run flask --app wsgi db heads
+94a83f12fddb (head)
+exit=0        ← 한 줄. 티켓 14 가 가져온 head 이고, 이 티켓은 마이그레이션이 없다.
+
+$ uv run pytest -q
+870 passed in 821.91s (0:13:41)
+exit=0
+
+$ git status --short
+(출력 없음)
+
+$ git log --oneline main..HEAD
+5fb47c1 증거 23: 체크박스별 근거·테스트 출력·impeccable detect 0건
+10c2746 티켓 23: 운영자 30일 배정표·잔량·점검/최소 버전 토글·Google Books 검색
+```
+
+(커밋 해시는 이 문서를 담은 커밋을 다시 쓰면서 바뀐다 — 내용은 위 두 커밋 그대로다.
+`impeccable detect` 는 템플릿·CSS 가 이 rebase 로 바뀌지 않았으므로 §4 결과가 그대로
+유효하다.)
 
 ### 3.1 red → green (TDD)
 
