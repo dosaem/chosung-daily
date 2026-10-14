@@ -1109,7 +1109,10 @@ Riverpod, 라우팅은 `go_router`, HTTP 는 `dio`, 토큰은 `flutter_secure_st
 Firebase 설정 파일(`google-services.json`, `GoogleService-Info.plist`)은 커밋하지
 않고 `.example` 자리표시자만 둔다. **파일이 없으면 Gradle 플러그인을 적용하지
 않고 런타임 초기화도 건너뛴다** — 그래야 새로 클론한 로컬과 CI 에서 분석·테스트·
-디버그 빌드가 그대로 돌아간다. 폰트는 Pretendard 정적 3종(400/600/700)을 번들한다.
+디버그 빌드가 그대로 돌아간다. 다만 설정 파일이 없어도 네이티브 플러그인 자체는
+설치 대상이라, **iOS 최소 버전은 `firebase_core`/`firebase_analytics` 의 podspec 이
+요구하는 15.0** 으로 맞췄다(13.0 이면 `pod install` 이 의존성을 풀지 못한다).
+Podfile·Xcode 세 구성·`AppFrameworkInfo.plist` 가 같은 값이어야 한다. 폰트는 Pretendard 정적 3종(400/600/700)을 번들한다.
 가변 폰트 한 파일이 더 작지만, Flutter 는 `fontWeight` 로 **에셋을 고르는** 방식이라
 정적 쪽이 `TextStyle` 마다 `fontVariations` 를 쓰지 않아도 된다.
 
@@ -1122,6 +1125,12 @@ Dio 구현은 가짜 `HttpClientAdapter` 로 "어떤 경로에 무엇을 보냈�
 바뀌는가" 까지 확인하고(네트워크는 타지 않는다), 시작 분기 3종(점검/업데이트/정상)
 ·탭 이동·다크 모드·iPad 폭 제한은 앱 트리를 통째로 띄우는 위젯 테스트로 본다.
 서버 통합 테스트는 백엔드 쪽 pytest 가 이미 하는 일이라 앱에서 다시 하지 않는다.
+여기에 두 가지를 더 지킨다. **시작 순서**(`bootstrapChosungApp`: Firebase →
+기기 언어 초기화 → `runApp`)는 그 자체로 테스트한다 — 위젯 테스트는 언어를
+고정해서 띄우므로 기기 언어 초기화를 빼먹어도 전부 통과하는데 실제 앱만 첫
+프레임에서 죽는다. **네이티브 설정**(iOS 최소 버전, 한국어 앱 이름 리소스)은
+Dart 테스트가 `ios/` 설정 파일을 직접 읽어서 지킨다 — analyze·위젯 테스트·
+안드로이드 빌드는 iOS 프로젝트 파일을 보지 않는다.
 
 ### 06. 힌트 미리 보기 공정성 · AdMob SSV 미사용
 

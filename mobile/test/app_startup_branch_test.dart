@@ -3,6 +3,7 @@ import 'package:chosung/api/api_providers.dart';
 import 'package:chosung/app.dart';
 import 'package:chosung/config/provider_retry.dart';
 import 'package:chosung/guest/guest_token_store.dart';
+import 'package:chosung/l10n/localization_bootstrap.dart';
 import 'package:chosung/screens/home_shell.dart';
 import 'package:chosung/screens/maintenance_screen.dart';
 import 'package:chosung/screens/ranking_tab.dart';
@@ -16,6 +17,7 @@ import 'package:chosung/widgets/max_width_body.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'fakes/fake_api_client.dart';
 import 'fakes/in_memory_guest_token_store.dart';
@@ -28,7 +30,7 @@ Future<void> _pumpApp(
   GuestTokenStore? store,
   String appVersion = '1.0.0',
   bool isIos = true,
-  Locale locale = const Locale('ko'),
+  Locale? locale = const Locale('ko'),
   Future<void> Function(String url)? storeLauncher,
 }) async {
   // 번역 JSON 은 rootBundle 에서 실제로 읽어온다 — runAsync 안에서 첫 프레임을
@@ -247,6 +249,17 @@ void main() {
     expect(find.bySemanticsLabel(RegExp('내 기록')), findsOne);
 
     handle.dispose();
+  });
+
+  // 다른 테스트는 모두 startLocale 로 언어를 고정해서 라이브러리의 "기기 언어"
+  // 분기를 건너뛴다. 실제 앱(main)은 그 분기를 타므로 한 번은 고정 없이 띄운다.
+  testWidgets('언어를 고정하지 않는 실제 시작 경로로도 홈이 뜬다', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    await initializeLocalization();
+
+    await _pumpApp(tester, api: FakeApiClient(), locale: null);
+
+    expect(find.byType(HomeShell), findsOne);
   });
 
   testWidgets('본문은 600px 를 넘지 않는다 (iPad)', (tester) async {

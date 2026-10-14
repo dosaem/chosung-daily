@@ -30,6 +30,9 @@ dev_dependencies:
   flutter_native_splash: ^2.4.7
   flutter_test:
     sdk: flutter
+  # 앱 코드는 쓰지 않는다 — easy_localization 의 초기화가 내부에서 읽는 저장소라
+  # 시작 경로 테스트에서 가짜 값을 넣으려고 테스트 전용으로만 둔다.
+  shared_preferences: ^2.5.4
   very_good_analysis: ^10.1.0
 
 flutter:

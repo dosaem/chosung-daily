@@ -109,6 +109,33 @@ void main() {
     );
   });
 
+  // 27 이 토큰을 교체하면 같은 Dio 인스턴스가 다음 요청부터 새 토큰을 써야
+  // 한다 — 헤더를 생성 시점에 한 번 굽지 않는다는 뜻이다.
+  test('같은 클라이언트가 요청마다 토큰을 다시 읽는다', () async {
+    final adapter = _RecordingAdapter(
+      (_) => _json({
+        'puzzle_language': 'ko',
+        'current_streak': 1,
+        'max_streak': 2,
+        'solved_count': 3,
+        'linked_account': null,
+      }, 200),
+    );
+    var token = 'first-token';
+    final dio = Dio(BaseOptions(baseUrl: 'https://example.test/api/v1'))
+      ..httpClientAdapter = adapter;
+    final client = DioApiClient(dio: dio, readToken: () => token);
+
+    await client.fetchMyStats();
+    token = 'second-token';
+    await client.fetchMyStats();
+
+    expect(
+      adapter.requests.map((r) => r.headers['Authorization']).toList(),
+      ['Bearer first-token', 'Bearer second-token'],
+    );
+  });
+
   test('토큰이 없는데 Bearer 가 필요한 호출은 네트워크를 타지 않는다', () async {
     final adapter = _RecordingAdapter((_) => _json(const {}, 200));
     final client = _clientWith(adapter);

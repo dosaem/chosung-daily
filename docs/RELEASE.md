@@ -346,10 +346,10 @@ analyze`·`flutter test`·디버그 실행 모두). 아래는 실기기·배포�
 - [ ] **Xcode 에서 `GoogleService-Info.plist` 를 Runner 타깃에 추가**한다(파일을
       디렉터리에 두는 것만으로는 번들에 안 들어간다). 넣기 전에는 앱이 Firebase
       초기화를 건너뛴 채 그대로 뜬다.
-- [ ] **Xcode 에서 `mobile/ios/Runner/ko.lproj/InfoPlist.strings` 를 Runner 타깃에
-      추가**한다. 한국어 기기에서 앱 이름이 "오늘의 초성" 으로 보이게 하는 파일이고,
-      안 넣으면 영어 이름("Hidden Vowels")만 쓰인다. Android 는 코드에 들어 있다
-      (`values/strings.xml` + `values-ko/strings.xml`).
+- [ ] 한국어 앱 이름은 사람이 할 일이 아니다 — `ko.lproj/InfoPlist.strings` 가
+      Runner 타깃 Resources 에 들어 있고(`mobile/test/config/ios_project_test.dart`
+      가 지킨다), Android 는 `values-ko/strings.xml` 에 있다. 실기기에서 한국어로
+      "오늘의 초성", 영어로 "Hidden Vowels" 가 보이는지만 확인한다.
 - [ ] 실기기·스토어 빌드는 `--dart-define=API_BASE_URL=<서버 주소>/api/v1` 로 넘긴다.
       기본값은 Android 에뮬레이터용 로컬 주소라 그대로 쓰면 실기기에서 안 붙는다.
       Sentry 를 켜려면 `--dart-define=SENTRY_DSN=<DSN>` 을 같이 넘긴다(비어 있으면

@@ -23,9 +23,10 @@ class ChosungApp extends ConsumerWidget {
   );
 }
 
-/// UI 언어는 기기 설정을 따른다 — `saveLocale: false` 라서 저장소(shared_preferences)를
-/// 건드리지 않고, 그래서 `EasyLocalization.ensureInitialized()` 도 필요 없다.
-/// 퍼즐 언어는 서버에 저장되는 별도 선호값이다.
+/// UI 언어는 기기 설정을 따른다 — `saveLocale: false` 라서 선택한 언어를
+/// 저장하지는 않지만, 기기 언어를 읽어오는 건 `initializeLocalization()`
+/// (`EasyLocalization.ensureInitialized()`) 뿐이라 **그 호출이 반드시 먼저**
+/// 있어야 한다. 퍼즐 언어는 서버에 저장되는 별도 선호값이다.
 class AppLocalizationScope extends StatelessWidget {
   const AppLocalizationScope({
     required this.child,
