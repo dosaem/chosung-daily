@@ -4,6 +4,8 @@ import 'package:chosung/api/api_exception.dart';
 import 'package:chosung/api/api_models.dart';
 import 'package:chosung/api/api_providers.dart';
 import 'package:chosung/config/provider_retry.dart';
+import 'package:chosung/guest/guest_token_provider.dart';
+import 'package:chosung/guest/guest_token_store.dart';
 import 'package:chosung/puzzle/today_puzzle_controller.dart';
 import 'package:chosung/ranking/leaderboard_controller.dart';
 import 'package:chosung/settings/puzzle_language_controller.dart';
@@ -12,10 +14,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../fakes/fake_api_client.dart';
+import '../fakes/in_memory_guest_token_store.dart';
 
 ProviderContainer _container(
   FakeApiClient api, {
   PuzzleLanguage stored = PuzzleLanguage.ko,
+  GuestTokenStore? tokenStore,
 }) {
   final container = ProviderContainer(
     retry: noAutoRetry,
@@ -24,6 +28,9 @@ ProviderContainer _container(
       startupStatsProvider.overrideWithValue(
         fakeMyStats(puzzleLanguage: stored),
       ),
+      // 토큰을 실제로 바꿔 보는 테스트만 저장소를 끼운다.
+      if (tokenStore != null)
+        guestTokenStoreProvider.overrideWithValue(tokenStore),
     ],
   );
   addTearDown(container.dispose);
@@ -140,5 +147,28 @@ void main() {
     final setting = container.read(puzzleLanguageProvider);
     expect(setting.language, PuzzleLanguage.en);
     expect(setting.changing, isFalse);
+  });
+
+  test('계정이 바뀐 뒤의 탭은 새 계정 언어를 덮어쓰지 않는다', () async {
+    // 이 행의 값은 지금 계정의 `/me/stats` 에서 왔다. 계정이 바뀌면 옛 계정
+    // 화면에서 고른 언어가 새 계정으로 나가면 안 된다(D-29-5 와 같은 장치).
+    final api = FakeApiClient();
+    final container = _container(
+      api,
+      tokenStore: InMemoryGuestTokenStore('guest-a'),
+    );
+    expect(container.read(puzzleLanguageProvider).language, PuzzleLanguage.ko);
+
+    await container.read(guestTokenProvider.notifier).replaceWith('guest-b');
+
+    final changed = await container
+        .read(puzzleLanguageProvider.notifier)
+        .change(PuzzleLanguage.en);
+
+    expect(changed, isFalse);
+    expect(api.updatedPuzzleLanguages, isEmpty);
+    // 행은 바꾸는 중에서 되돌아온다 — 새 계정 값은 그 계정의 stats 가 채운다.
+    expect(container.read(puzzleLanguageProvider).language, PuzzleLanguage.ko);
+    expect(container.read(puzzleLanguageProvider).changing, isFalse);
   });
 }

@@ -4,6 +4,7 @@ import 'package:chosung/api/api_client.dart';
 import 'package:chosung/api/api_exception.dart';
 import 'package:chosung/api/api_models.dart';
 import 'package:chosung/api/api_providers.dart';
+import 'package:chosung/guest/account_epoch.dart';
 import 'package:chosung/puzzle/guess_rules.dart';
 import 'package:chosung/puzzle/today_puzzle_state.dart';
 import 'package:chosung/ranking/leaderboard_controller.dart';
@@ -14,7 +15,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 /// S1 오늘 탭의 상태. `GET /puzzles/today` 하나가 보드의 정본이다 —
 /// 로컬에 시도 이력을 쌓지 않는다(README "04. 시도 이력을 서버가 돌려주는 이유").
-class TodayPuzzleNotifier extends AsyncNotifier<TodayState> {
+///
+/// 값이 null 이면 **보드를 아직 모른다** 다(= 화면은 스켈레톤). 첫 조회 전과
+/// 계정이 바뀐 직후가 그 상태다([discard]) — 로딩·오류를 `TodayState` 안에
+/// 또 세지 않으려고 "없음" 만 null 로 둔다(`MyStatsNotifier` 와 같은 방식).
+class TodayPuzzleNotifier extends AsyncNotifier<TodayState?> {
   /// 응답 경합을 끊는 세대 번호. 조회·제출은 **떠날 때** 이 번호를 올리고,
   /// 응답이 돌아오면 자기 번호가 아직 최신일 때만 상태에 쓴다. 먼저 떠난 느린
   /// 응답이 나중에 도착해 새 보드를 과거로 되돌리는 걸 막는다.
@@ -27,10 +32,16 @@ class TodayPuzzleNotifier extends AsyncNotifier<TodayState> {
   bool _submitting = false;
   bool _refreshQueued = false;
 
+  /// 지금 보드를 **어느 계정에서** 읽었는가([accountEpochProvider]). 제출은 이
+  /// 값과 지금 계정을 비교해서 남의 계정에 쓰지 않는다(D-29-5).
+  int _accountEpoch = 0;
+
   ApiClient get _api => ref.read(apiClientProvider);
 
+  AccountEpochNotifier get _account => ref.read(accountEpochProvider.notifier);
+
   @override
-  Future<TodayState> build() {
+  Future<TodayState?> build() {
     // 앱 시작(= 이 provider 의 첫 빌드)과 포그라운드 복귀 때 다시 읽는다.
     // 복귀 감지를 탭 위젯이 아니라 여기에 두는 이유: 복귀 순간 사용자가 순위·
     // 기록 탭에 있을 수 있고, 그때도 오늘 보드는 새 것이어야 한다. 알림 탭으로
@@ -47,6 +58,9 @@ class TodayPuzzleNotifier extends AsyncNotifier<TodayState> {
   }
 
   Future<TodayState> _load() async {
+    // 보드를 읽는 자리에서 계정을 적어 둔다 — 응답이 아니라 **요청**이 어느
+    // 계정에서 떠났는지가 제출 때 비교할 값이다.
+    _accountEpoch = _account.state;
     try {
       return TodayPuzzleReady(puzzle: await _api.fetchTodayPuzzle());
     } on NoPuzzleTodayApiException {
@@ -57,6 +71,27 @@ class TodayPuzzleNotifier extends AsyncNotifier<TodayState> {
 
   /// 오류 카드의 재시도 버튼. 처음부터 다시 돌린다(스켈레톤 → 결과).
   void retry() => ref.invalidateSelf();
+
+  /// 계정 경계(연결·전환·삭제 후 새 게스트)에서 **보던 보드를 버리고** 새
+  /// 계정의 보드를 읽는다.
+  ///
+  /// `ref.invalidate` 로는 안 된다: 다시 빌드하는 동안 Riverpod 이 직전 값을
+  /// 새 `AsyncLoading` 에 실어 주므로(`AsyncValue.copyWithPrevious`) 화면은
+  /// 옛 계정 보드를 계속 고른다. 그 보드는 로딩 표시도 오류도 없어서 입력과
+  /// 제출이 열려 있고, `ApiClient` 는 매 요청 **지금** 토큰을 읽는다 — 옛
+  /// 보드에서 누른 제출이 새 계정의 시도를 소비한다(D-29-5). 그래서 값을
+  /// 명시적으로 비운다(`MyStatsNotifier.discard` 와 같은 이유).
+  ///
+  /// 세대를 올려 떠나 있던 옛 계정의 조회·제출 응답도 같이 버린다. 새 보드
+  /// 조회가 실패하면 보드가 없으므로 [_commitLoad] 가 오류 카드를 세운다 —
+  /// 옛 보드 위에 "다시 불러오지 못했어요" 를 올리던 길로 가지 않는다.
+  Future<void> discard() async {
+    final generation = ++_generation;
+    _submitting = false;
+    _refreshQueued = false;
+    state = const AsyncData<TodayState?>(null);
+    _commitLoad(await AsyncValue.guard(_load), generation);
+  }
 
   /// 포그라운드 복귀·알림 탭·보드의 인라인 재시도. 이미 보드가 있으면
   /// 스켈레톤으로 돌아가지 않고 조용히 바꿔 끼운다 — 복귀마다 화면이 깜빡이면
@@ -96,10 +131,18 @@ class TodayPuzzleNotifier extends AsyncNotifier<TodayState> {
     state = AsyncData(TodayPuzzleReady(puzzle: puzzle, submitting: true));
 
     try {
-      final result = await _api.submitGuess(
-        puzzleId: puzzle.puzzleId,
-        guess: guess,
+      // 보드를 만든 계정이 아직 지금 계정일 때만 요청을 보낸다. 계정이 바뀐
+      // 뒤면 null 이 오고, 이 보드는 남의 것이라 버린다(D-29-5). 계정 경계는
+      // 보통 `AccountNotifier._adopt` 가 보드까지 버리지만, 토큰이 바뀌는 길은
+      // 그것만이 아니라(시작 흐름의 401 복구) 쓰기 직전에 한 번 더 본다.
+      final result = await _account.sendIfSameAccount(
+        _accountEpoch,
+        () => _api.submitGuess(puzzleId: puzzle.puzzleId, guess: guess),
       );
+      if (result == null) {
+        unawaited(discard());
+        return false;
+      }
       if (!_canCommit(generation)) return false;
       final played = applyGuess(puzzle: puzzle, guess: guess, result: result);
       state = AsyncData(TodayPuzzleReady(puzzle: played));
@@ -172,7 +215,7 @@ class TodayPuzzleNotifier extends AsyncNotifier<TodayState> {
   /// 이전 값을 같이 들고 있어(`copyWithPrevious`) 화면은 보드를 고르고, 오류는
   /// 아무도 안 보는 곳에 남아 재조회가 실패한 걸 알 방법이 없어진다.
   void _commitLoad(
-    AsyncValue<TodayState> loaded,
+    AsyncValue<TodayState?> loaded,
     int generation, {
     TodayNotice? notice,
   }) {
@@ -207,6 +250,6 @@ class TodayPuzzleNotifier extends AsyncNotifier<TodayState> {
 }
 
 final todayPuzzleProvider =
-    AsyncNotifierProvider<TodayPuzzleNotifier, TodayState>(
+    AsyncNotifierProvider<TodayPuzzleNotifier, TodayState?>(
       TodayPuzzleNotifier.new,
     );

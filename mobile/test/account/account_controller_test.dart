@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:chosung/account/account_controller.dart';
 import 'package:chosung/account/social_sign_in.dart';
 import 'package:chosung/api/api_exception.dart';
@@ -8,6 +10,7 @@ import 'package:chosung/guest/guest_token_provider.dart';
 import 'package:chosung/guest/guest_token_store.dart';
 import 'package:chosung/local/local_flags.dart';
 import 'package:chosung/puzzle/today_puzzle_controller.dart';
+import 'package:chosung/puzzle/today_puzzle_state.dart';
 import 'package:chosung/records/history_controller.dart';
 import 'package:chosung/records/my_stats_controller.dart';
 import 'package:chosung/settings/puzzle_language_controller.dart';
@@ -344,6 +347,50 @@ void main() {
       expect(world.container.read(accountProvider).error, isNull);
     });
 
+    test('새 계정 보드를 읽기 전에는 옛 보드가 폐기되고 제출도 막힌다', () async {
+      // D-29-5 재현: A 의 보드가 떠 있는 상태에서 B 의 코드를 넣고, 토큰 교체
+      // **뒤** B 의 `GET /puzzles/today` 만 붙잡는다. 토큰은 이미 B 라 이 보드에서
+      // 나가는 제출은 B 의 시도를 A 의 보드 위에서 소비한다 — 서버 이력을 읽기
+      // 전에는 보드가 없어야 한다.
+      final api = FakeApiClient()
+        ..statsByToken['backup-code'] = fakeMyStats(currentStreak: 4);
+      final world = _container(api, signIn: _signInReturning(null));
+      final before = await world.container.read(todayPuzzleProvider.future);
+      expect(before, isA<TodayPuzzleReady>());
+
+      final gate = Completer<void>();
+      api.fetchTodayPuzzleGate = gate;
+      addTearDown(() {
+        if (!gate.isCompleted) gate.complete();
+      });
+
+      await world.container
+          .read(accountProvider.notifier)
+          .restoreWithBackupCode('backup-code');
+
+      expect(world.store.token, 'backup-code');
+      // 보드가 **없는** 상태다(화면은 스켈레톤) — 오류 카드도 아니다.
+      final today = world.container.read(todayPuzzleProvider);
+      expect(today.value, isNull, reason: '옛 계정 보드가 남았다');
+      expect(today.hasError, isFalse);
+
+      final recorded = await world.container
+          .read(todayPuzzleProvider.notifier)
+          .submit('지하촌역');
+      expect(recorded, isFalse);
+      expect(api.submittedGuesses, isEmpty);
+
+      // B 의 보드가 도착하면 그때부터 다시 제출된다.
+      gate.complete();
+      api.fetchTodayPuzzleGate = null;
+      await world.container.read(todayPuzzleProvider.future);
+      expect(
+        await world.container.read(todayPuzzleProvider.notifier).submit('지하촌역'),
+        isTrue,
+      );
+      expect(api.submittedGuesses.single.guess, '지하촌역');
+    });
+
     test('401 이면 토큰을 바꾸지 않고 코드가 틀렸다고 말한다', () async {
       final api = FakeApiClient();
       final world = _container(api, signIn: _signInReturning(null));
@@ -376,6 +423,30 @@ void main() {
       expect(await world.flags.isSet(LocalFlag.linkAccountNoticeSeen), isFalse);
       expect(world.flags.values['onboarding_done'], '1');
       expect(world.container.read(accountProvider).error, isNull);
+    });
+
+    test('삭제한 계정의 보드는 새 게스트 보드가 오기 전에 사라진다', () async {
+      // 삭제 → 새 게스트도 전환과 같은 `_adopt` 길이다(D-29-5). 지워진 계정의
+      // 보드에 남은 시도 이력이 새 게스트의 보드로 보이면 안 된다.
+      final api = FakeApiClient(nextGuestToken: 'fresh-guest');
+      final world = _container(api, signIn: _signInReturning(null));
+      await world.container.read(todayPuzzleProvider.future);
+
+      final gate = Completer<void>();
+      api.fetchTodayPuzzleGate = gate;
+      addTearDown(() {
+        if (!gate.isCompleted) gate.complete();
+      });
+
+      await world.container.read(accountProvider.notifier).deleteAccount();
+
+      expect(world.store.token, 'fresh-guest');
+      expect(world.container.read(todayPuzzleProvider).value, isNull);
+      expect(
+        await world.container.read(todayPuzzleProvider.notifier).submit('지하촌역'),
+        isFalse,
+      );
+      expect(api.submittedGuesses, isEmpty);
     });
 
     test('새 게스트 발급이 실패해도 앱이 토큰 없이 남지 않는다', () async {

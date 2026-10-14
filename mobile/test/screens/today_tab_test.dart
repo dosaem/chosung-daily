@@ -1,11 +1,13 @@
 import 'dart:async';
 
+import 'package:chosung/account/account_controller.dart';
 import 'package:chosung/analytics/analytics_service.dart';
 import 'package:chosung/api/api_exception.dart';
 import 'package:chosung/api/api_models.dart';
 import 'package:chosung/api/api_providers.dart';
 import 'package:chosung/app.dart';
 import 'package:chosung/config/provider_retry.dart';
+import 'package:chosung/guest/guest_token_store.dart';
 import 'package:chosung/local/local_flags.dart';
 import 'package:chosung/screens/today_tab.dart';
 import 'package:chosung/startup/startup_controller.dart';
@@ -24,6 +26,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
 import '../fakes/fake_api_client.dart';
+import '../fakes/in_memory_guest_token_store.dart';
 import '../fakes/in_memory_local_flag_store.dart';
 import '../layout/adaptive_scaffold_test.dart' show setViewSize;
 
@@ -38,10 +41,15 @@ Widget _app({
   Locale locale = const Locale('ko'),
   double textScale = 1,
   bool disableAnimations = false,
+  GuestTokenStore? tokenStore,
 }) => ProviderScope(
   retry: noAutoRetry,
   overrides: [
     apiClientProvider.overrideWithValue(api),
+    // 계정 전환을 실제로 돌려 보는 테스트만 토큰 저장소를 끼운다 — 나머지는
+    // 홈 화면만 보므로 게스트 토큰을 읽을 일이 없다.
+    if (tokenStore != null)
+      guestTokenStoreProvider.overrideWithValue(tokenStore),
     startupStatsProvider.overrideWithValue(
       stats ?? fakeMyStats(currentStreak: 7),
     ),
@@ -82,6 +90,7 @@ Future<void> _pumpToday(
   Size size = const Size(390, 844),
   double textScale = 1,
   bool disableAnimations = false,
+  GuestTokenStore? tokenStore,
 }) async {
   setViewSize(tester, size);
   await tester.runAsync(() async {
@@ -94,6 +103,7 @@ Future<void> _pumpToday(
         locale: locale,
         textScale: textScale,
         disableAnimations: disableAnimations,
+        tokenStore: tokenStore,
       ),
     );
     await tester.pump();
@@ -328,6 +338,44 @@ void main() {
         isNull,
       );
     });
+  });
+
+  // D-29-5: 계정이 바뀌는 순간 보드는 **다른 사람의 보드**다. 새 계정의 서버
+  // 이력을 읽기 전까지 화면에 남겨 두면 그 보드에서 누른 제출이 새 계정의
+  // 시도를 소비한다(Dio 는 매 요청 지금 토큰을 읽는다).
+  testWidgets('계정을 전환하면 새 보드를 읽기 전까지 옛 보드로 제출할 수 없다', (tester) async {
+    final api = FakeApiClient()
+      ..statsByToken['backup-code'] = fakeMyStats(currentStreak: 4);
+    await _pumpToday(
+      tester,
+      api: api,
+      tokenStore: InMemoryGuestTokenStore('guest-token'),
+    );
+    expect(find.byType(PuzzleBoard), findsOne);
+
+    // B 의 홈 응답만 붙잡는다 — 전환은 끝났고 보드만 아직 안 왔다.
+    final gate = Completer<void>();
+    api.fetchTodayPuzzleGate = gate;
+    addTearDown(() {
+      if (!gate.isCompleted) gate.complete();
+    });
+
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(TodayTab)),
+    );
+    await tester.runAsync(() async {
+      await container
+          .read(accountProvider.notifier)
+          .restoreWithBackupCode('backup-code');
+      await tester.pump();
+    });
+    await tester.pump();
+
+    // 옛 보드·입력창이 사라지고 스켈레톤이 그 자리를 받는다.
+    expect(find.byType(PuzzleBoard), findsNothing);
+    expect(find.byType(GuessInput), findsNothing);
+    expect(find.byType(SkeletonBox), findsWidgets);
+    expect(api.submittedGuesses, isEmpty);
   });
 
   group('결과 시트(S2)', () {

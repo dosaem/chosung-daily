@@ -1,6 +1,7 @@
 import 'package:chosung/api/api_exception.dart';
 import 'package:chosung/api/api_models.dart';
 import 'package:chosung/api/api_providers.dart';
+import 'package:chosung/guest/account_epoch.dart';
 import 'package:chosung/puzzle/today_puzzle_controller.dart';
 import 'package:chosung/ranking/leaderboard_controller.dart';
 import 'package:chosung/records/my_stats_controller.dart';
@@ -29,6 +30,11 @@ class PuzzleLanguageNotifier extends Notifier<PuzzleLanguageSetting> {
   /// 때만 상태에 쓴다.
   int _generation = 0;
 
+  /// 지금 보고 있는 언어가 **어느 계정의** 값인가([accountEpochProvider]).
+  /// 쓰기는 이 값과 지금 계정을 비교한다 — 계정이 바뀐 뒤의 탭은 새 계정의
+  /// 언어를 옛 계정 화면에서 고른 값으로 덮어쓴다(D-29-5 와 같은 장치).
+  int _accountEpoch = 0;
+
   @override
   PuzzleLanguageSetting build() {
     // `/me/stats` 를 다시 읽으면(시작 재시도·계정 전환) 서버 값이 다시
@@ -39,6 +45,7 @@ class PuzzleLanguageNotifier extends Notifier<PuzzleLanguageSetting> {
     // `puzzle_language` 가 여기로 들어오고, 안 그러면 설정 행만 옛 계정
     // 값으로 남는다.
     _generation++;
+    _accountEpoch = ref.read(accountEpochProvider);
     return PuzzleLanguageSetting(
       language:
           ref.watch(myStatsProvider).value?.puzzleLanguage ?? PuzzleLanguage.ko,
@@ -55,9 +62,21 @@ class PuzzleLanguageNotifier extends Notifier<PuzzleLanguageSetting> {
     state = PuzzleLanguageSetting(language: previous, changing: true);
 
     try {
+      // 이 행의 값은 지금 계정의 `/me/stats` 에서 왔다 — 그 사이 계정이
+      // 바뀌었으면 새 계정의 언어를 옛 계정 화면에서 고른 값으로 덮어쓰지
+      // 않는다(D-29-5 와 같은 장치). 다시 빌드되면 새 계정 값이 들어온다.
       final applied = await ref
-          .read(apiClientProvider)
-          .updatePuzzleLanguage(language);
+          .read(accountEpochProvider.notifier)
+          .sendIfSameAccount(
+            _accountEpoch,
+            () => ref.read(apiClientProvider).updatePuzzleLanguage(language),
+          );
+      if (applied == null) {
+        if (_canCommit(generation)) {
+          state = PuzzleLanguageSetting(language: previous);
+        }
+        return false;
+      }
       if (!_canCommit(generation)) return false;
       state = PuzzleLanguageSetting(language: applied);
       // 오늘 퍼즐도 리더보드도 언어마다 다른 데이터다. 보던 걸 바꿔 끼우는 게

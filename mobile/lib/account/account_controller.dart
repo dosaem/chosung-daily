@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:chosung/account/social_sign_in.dart';
 import 'package:chosung/api/api_client.dart';
 import 'package:chosung/api/api_exception.dart';
@@ -151,8 +153,16 @@ class AccountNotifier extends Notifier<AccountState> {
   /// 넘기면 옛 계정의 이름·기록이 새 토큰 위에 그대로 남는다.
   Future<void> _adopt(String token, {MyStats? stats}) async {
     await ref.read(guestTokenProvider.notifier).replaceWith(token);
+    // 홈 보드는 무효화가 아니라 **폐기**다 — 무효화는 다시 읽는 동안 옛 계정
+    // 보드를 값으로 남겨 두고(`copyWithPrevious`), 그 보드에서 누른 제출이 새
+    // 계정의 시도를 소비한다(D-29-5, `TodayPuzzleNotifier.discard`). 순위는
+    // 계정이 아니라 오늘·언어로 갈리는 공용 데이터라 무효화로 충분하다.
+    // 홈을 아직 아무도 읽지 않았으면 버릴 보드도 없다 — 거기서 `read` 로
+    // 억지로 만들면 보는 사람 없는 조회가 한 번 더 나간다(무효화와 같은 규칙).
+    if (ref.exists(todayPuzzleProvider)) {
+      unawaited(ref.read(todayPuzzleProvider.notifier).discard());
+    }
     ref
-      ..invalidate(todayPuzzleProvider)
       ..invalidate(historyProvider)
       ..invalidate(leaderboardProvider);
     await ref.read(myStatsProvider.notifier).adopt(stats);
