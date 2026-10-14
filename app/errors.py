@@ -57,6 +57,12 @@ class PuzzleChangedError(AppError):
     message = "퍼즐이 바뀌었어요. 새로고침해주세요."
 
 
+class HintAlreadyUnlockedError(AppError):
+    code = "HINT_ALREADY_UNLOCKED"
+    status_code = 409
+    message = "이미 힌트를 열었습니다."
+
+
 class RateLimitedError(AppError):
     code = "RATE_LIMITED"
     status_code = 429

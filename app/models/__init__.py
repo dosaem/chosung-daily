@@ -13,6 +13,7 @@ from app.models.enums import (
 )
 from app.models.guest import Guest
 from app.models.guest_stats import GuestStats
+from app.models.hint_unlock import HintUnlock
 from app.models.subscription import Subscription
 from app.models.word import Word
 
@@ -24,6 +25,7 @@ __all__ = [
     "DailyStats",
     "Guest",
     "GuestStats",
+    "HintUnlock",
     "OAuthProvider",
     "PuzzleLanguage",
     "Subscription",

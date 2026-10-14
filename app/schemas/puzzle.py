@@ -30,8 +30,17 @@ class TodayPuzzleResponse(BaseModel):
     # 제출한 순서 그대로. 웹·앱은 로컬 저장 이력을 버리고 이걸로 보드를 그린다.
     attempts: list[AttemptView]
     status: Literal["in_progress", "success", "fail"]
-    # 힌트 미리 보기(보상형 광고)로 힌트를 연 적이 있는가. 티켓 06 에서 HintUnlock
-    # 조회로 바뀌기 전까지는 항상 false 다.
+    # 힌트 미리 보기(보상형 광고)로 힌트를 연 적이 있는가(`HintUnlock` 행).
     hint_unlocked: bool
     hint: str | None = None
     answer: str | None = None
+
+
+class HintUnlockRequest(BaseModel):
+    # 제출(`GuessRequest`)과 같은 이유로 선택 필드다 — 빠진 요청도 409
+    # PUZZLE_CHANGED 로 돌려줘야 하고, 그 판정은 서비스가 한다.
+    puzzle_id: int | None = None
+
+
+class HintUnlockResponse(BaseModel):
+    hint: str

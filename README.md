@@ -94,6 +94,7 @@ web/                  # Jinja 템플릿 1장 + vanilla JS
 | GET | `/privacy` | 개인정보처리방침 (Jinja, ko/en — `?lang=` 또는 Accept-Language) | - |
 | GET | `/terms` | 이용약관 (Jinja, ko/en — `?lang=` 또는 Accept-Language) | - |
 | POST | `/api/v1/subscriptions/verify` | 스토어 영수증 검증 → 구독 upsert → `entitlement {active, until, status, source, next_check_at}` | Bearer |
+| POST | `/api/v1/puzzles/today/hint-unlock` | 힌트 미리 보기 (`{puzzle_id}`) → `{hint}`, 퍼즐당 1회 · 시도 미소비, 끝난 퍼즐 409 `ALREADY_FINISHED` / 이미 열림 409 `HINT_ALREADY_UNLOCKED` / 퍼즐 불일치 409 `PUZZLE_CHANGED` | Bearer |
 
 에러 응답은 전부 `{code, message}` + 적절한 HTTP status로 통일 (아래 "에러 응답" 참고).
 
@@ -1079,6 +1080,45 @@ client_id 와 만료 시각만 넣고 JWT 자체는 넣지 않는다 — 서명�
 위 "08. 헬스체크 등급" 의 "`apple_secret_expires_at` 은 … 지금은 `null`" 과 "알려진
 제한사항" 의 "앱 시작 시점에 한 번만 만든다" 는 이 티켓으로 해소됐다 — 공유 절은
 덧붙이기만 하는 규칙(티켓 10 과 같은 이유)이라 그 줄들은 그대로 뒀다.
+
+### 06. 힌트 미리 보기 공정성 · AdMob SSV 미사용
+
+`POST /api/v1/puzzles/today/hint-unlock {puzzle_id}` 는 3번째 오답 전에 힌트를
+연다. 서버는 **보상형 광고를 실제로 봤는지 알 수 없다** — AdMob 서버 사이드 검증
+(SSV)을 쓰지 않기로 했다. SSV 를 붙이려면 공개 콜백 엔드포인트 하나(AdMob 이
+보내는 `ad_network`·`key_id`·`signature` 를 구글 공개키로 검증)와 "콜백이 먼저
+오는가, 클라이언트 호출이 먼저 오는가"를 다루는 대기·재시도 경로가 필요한데, 이
+기능으로 막는 부정행위의 이득이 "오늘 한 문제의 힌트"뿐이라 그 복잡도를 살 이유가
+없다고 판단했다. 구독자는 어차피 광고 없이 같은 엔드포인트를 부르므로(스펙 §A.5)
+"광고를 봤는가"는 서버의 권한 판정 기준도 아니다.
+
+그래서 이 엔드포인트가 지키는 건 **두 가지뿐**이다.
+
+1. **퍼즐당 1회.** `HintUnlock` 의 PK `(guest_id, puzzle_id)` 가 곧 그 규칙이다.
+   플래그·카운터 컬럼이 없고 행의 존재가 상태다. 열림은 기기가 아니라 게스트에
+   붙으므로 재진입·다른 기기에서도 `GET /puzzles/today` 가 `hint_unlocked: true`
+   와 `hint` 를 계속 돌려준다 — 광고를 두 번 보게 만들지 않는다.
+2. **시도·순위에 영향 없음.** 시도 행도 `GuestStats` 도 건드리지 않아서 남은
+   기회, `solved_count`, 연속 기록, 리더보드 점수(시도 횟수 × 86400 + 걸린 초)가
+   전부 그대로다. 힌트를 본 사람과 안 본 사람이 같은 줄로 들어간다
+   (`tests/test_hint_unlock.py`).
+
+**`GuestStats FOR UPDATE` 경로를 제출과 공유한다.** 힌트를 여는 데 통계가 필요한
+건 아니지만, "끝난 퍼즐인가" 판정이 제출과 같은 잠금 뒤에서 내려져야 한다 —
+5번째 제출과 미리 보기가 동시에 들어오면, 잠금이 없을 때 미리 보기가 "아직 4번"
+스냅샷을 보고 끝난 퍼즐의 힌트를 팔 수 있다. 같은 잠금을 쓰면 뒤에 선 쪽이 앞
+요청의 커밋까지 보고 판정한다(`tests/test_concurrency.py`). 끝난 퍼즐은
+`ALREADY_FINISHED` 로 막는데, 그 시점엔 정답을 이미 응답에 실어 보냈기 때문에
+광고를 더 보여주는 게 플레이어를 속이는 쪽이 된다.
+
+판단 둘을 더 적어둔다. (1) **3번째 오답으로 힌트가 이미 보이는 상태에서도 호출을
+막지 않는다** — 스펙이 세는 에러는 `PUZZLE_CHANGED`·`ALREADY_FINISHED`·
+`HINT_ALREADY_UNLOCKED` 셋뿐이고, 네 번째 거절 상태를 만들면 클라이언트가 "지금
+광고 버튼을 띄워도 되는가"를 서버 규칙으로 한 번 더 계산해야 한다. 행이 하나
+들어가고 끝이라 상태도 더 단순하다. (2) **rate limit 데코레이터를 걸지 않는다** —
+제출용 카운터(분당 10회)를 같이 쓰면 광고를 본 사람이 제출 기회를 깎이는 셈이 되고,
+첫 호출 이후는 전부 409 라 반복 호출로 늘릴 수 있는 건 조회 한 번뿐이다.
+
 
 ## 부하 테스트 요약
 

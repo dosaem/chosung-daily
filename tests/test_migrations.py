@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import IntegrityError, OperationalError
 
 from app.config import TestingConfig
 from app.models.enums import PuzzleLanguage
@@ -31,6 +31,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 PREVIOUS_REVISION = "9ec267465b4e"  # 퍼즐 언어 직전 리비전
 APP_SETTING_PARENT_REVISION = "f394da7f4d88"  # 설정 테이블 직전 리비전
+HINT_UNLOCK_PARENT_REVISION = "a5bab2f58a7b"  # 힌트 미리 보기 테이블 직전 리비전
 
 PUZZLE_DATE = date(2026, 10, 13)
 KO_ANSWER = "해리 포터"
@@ -301,3 +302,35 @@ def test_app_setting_rows_written_without_the_orm_are_readable(migration_engine)
         ).mappings().one()
 
     assert dict(row) == {"setting_key": "maintenance_enabled", "value": "true"}
+
+
+def test_hint_unlock_table_round_trips(migration_engine):
+    """06: 힌트 미리 보기 테이블이 upgrade 로 생기고 downgrade 로 사라져야 한다."""
+    _run_flask_db(_migration_database_url(), "upgrade")
+    assert "hint_unlock" in _table_names(migration_engine)
+
+    _run_flask_db(_migration_database_url(), "downgrade", HINT_UNLOCK_PARENT_REVISION)
+    assert "hint_unlock" not in _table_names(migration_engine)
+
+    _run_flask_db(_migration_database_url(), "upgrade")
+    assert "hint_unlock" in _table_names(migration_engine)
+
+
+def test_hint_unlock_rows_are_one_per_guest_and_puzzle(migration_engine):
+    """마이그레이션이 만든 PK 가 "퍼즐당 1회" 를 DB 에서도 막아야 한다 —
+    서비스의 FOR UPDATE 경로를 안 타는 변경이 생겨도 중복 행은 들어갈 수 없다."""
+    _run_flask_db(_migration_database_url(), "upgrade")
+    _insert_korean_data(migration_engine)
+
+    insert = text(
+        "INSERT INTO hint_unlock (guest_id, puzzle_id, unlocked_at) "
+        "SELECT g.id, p.id, NOW() FROM guest g, daily_puzzle p"
+    )
+    with migration_engine.begin() as conn:
+        conn.execute(insert)
+
+    with pytest.raises(IntegrityError), migration_engine.begin() as conn:
+        conn.execute(insert)
+
+    with migration_engine.connect() as conn:
+        assert conn.execute(text("SELECT COUNT(*) FROM hint_unlock")).scalar() == 1
