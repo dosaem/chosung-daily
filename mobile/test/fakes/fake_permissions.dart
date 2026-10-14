@@ -45,9 +45,15 @@ class FixedNotificationPermissionNotifier
 }
 
 class FakeTrackingAuthorization implements TrackingAuthorization {
-  FakeTrackingAuthorization({this.result = TrackingStatus.authorized});
+  FakeTrackingAuthorization({
+    this.result = TrackingStatus.authorized,
+    this.saved = TrackingStatus.notDetermined,
+  });
 
   TrackingStatus result;
+
+  /// 시스템에 남아 있는 지난 선택(두 번째 실행 이후).
+  TrackingStatus saved;
   int requests = 0;
 
   @override
@@ -55,4 +61,7 @@ class FakeTrackingAuthorization implements TrackingAuthorization {
     requests++;
     return result;
   }
+
+  @override
+  Future<TrackingStatus> current() async => saved;
 }

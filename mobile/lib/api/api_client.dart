@@ -3,7 +3,7 @@ import 'package:chosung/api/api_models.dart';
 
 /// 서버 API 중 **지금 앱이 실제로 쓰는 것**만 둔다.
 ///
-/// 스펙 §A' 의 나머지 메서드는 그걸 호출하는 티켓(27·29·30·31)이 더한다 —
+/// 스펙 §A' 의 나머지 메서드는 그걸 호출하는 티켓(29·32·33)이 더한다 —
 /// 쓰지 않는 메서드를 미리 선언하면 가짜 구현만 늘고 테스트가 증명하는 건 없다.
 abstract interface class ApiClient {
   /// `POST /guests` → 새 게스트 토큰.
@@ -26,6 +26,16 @@ abstract interface class ApiClient {
     required int puzzleId,
     required String guess,
   });
+
+  /// `POST /puzzles/today/hint-unlock` → 힌트 문장. 보상형 광고를 끝까지 본
+  /// 비구독자와 구독자가 같은 호출을 쓴다 — 서버는 광고 시청 여부를 알 수 없고
+  /// (AdMob SSV 미사용, README "06. 힌트 미리 보기 공정성") "퍼즐당 한 번" 과
+  /// "시도·순위에 영향 없음" 만 지킨다.
+  ///
+  /// 이미 열었으면 409 [HintAlreadyUnlockedApiException], 끝난 퍼즐이면 409
+  /// [AlreadyFinishedApiException], 보고 있던 퍼즐이 "지금의 오늘" 과 다르면
+  /// 409 [PuzzleChangedApiException].
+  Future<String> unlockHint({required int puzzleId});
 
   /// `GET /puzzles/today/stats?language=` → 그 언어 오늘 퍼즐의 시도별 정답자
   /// 비율. 결과 시트(S2)가 쓴다. 그 언어의 퍼즐이 아직 없으면

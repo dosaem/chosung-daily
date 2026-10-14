@@ -86,6 +86,18 @@ class DioApiClient implements ApiClient {
   }
 
   @override
+  Future<String> unlockHint({required int puzzleId}) async {
+    final body = await _send<Map<String, dynamic>>(
+      () => _dio.post<Map<String, dynamic>>(
+        '/puzzles/today/hint-unlock',
+        data: {'puzzle_id': puzzleId},
+        options: _authorized(),
+      ),
+    );
+    return body['hint'] as String;
+  }
+
+  @override
   Future<TodayStats> fetchTodayStats({
     required PuzzleLanguage language,
   }) async {

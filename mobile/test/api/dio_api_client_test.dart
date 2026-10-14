@@ -321,6 +321,55 @@ void main() {
       );
     });
 
+    // 티켓 31 보상형 힌트 미리 보기. 시도를 소비하지 않는 별도 엔드포인트다.
+    test('POST /puzzles/today/hint-unlock 은 puzzle_id 를 보내고 힌트를 받는다', () async {
+      final adapter = _RecordingAdapter(
+        (_) => _json({'hint': '서울에 가장 많다'}, 200),
+      );
+      final client = _clientWith(adapter, token: 'guest-token');
+
+      final hint = await client.unlockHint(puzzleId: 41);
+
+      expect(hint, '서울에 가장 많다');
+      expect(adapter.requests.single.path, '/puzzles/today/hint-unlock');
+      expect(adapter.requests.single.method, 'POST');
+      expect(adapter.requests.single.data, {'puzzle_id': 41});
+      expect(
+        adapter.requests.single.headers['Authorization'],
+        'Bearer guest-token',
+      );
+    });
+
+    test('409 HINT_ALREADY_UNLOCKED 는 전용 예외로 온다', () async {
+      final adapter = _RecordingAdapter(
+        (_) => _json({
+          'code': 'HINT_ALREADY_UNLOCKED',
+          'message': '이미 힌트를 열었어요.',
+        }, 409),
+      );
+      final client = _clientWith(adapter, token: 'guest-token');
+
+      await expectLater(
+        client.unlockHint(puzzleId: 41),
+        throwsA(isA<HintAlreadyUnlockedApiException>()),
+      );
+    });
+
+    test('409 ALREADY_FINISHED 는 전용 예외로 온다', () async {
+      final adapter = _RecordingAdapter(
+        (_) => _json({
+          'code': 'ALREADY_FINISHED',
+          'message': '이미 끝난 퍼즐이에요.',
+        }, 409),
+      );
+      final client = _clientWith(adapter, token: 'guest-token');
+
+      await expectLater(
+        client.unlockHint(puzzleId: 41),
+        throwsA(isA<AlreadyFinishedApiException>()),
+      );
+    });
+
     test('PATCH /me 는 바뀐 퍼즐 언어를 돌려준다', () async {
       final adapter = _RecordingAdapter(
         (_) => _json({'puzzle_language': 'en'}, 200),
