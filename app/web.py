@@ -48,7 +48,22 @@ def index():
     `resolve_ui_language` 다(`?lang=` > Accept-Language > ko).
     """
     language = _requested_ui_language()
-    html = render_template("index.html", ui_language=language, t=strings_for(language))
+    html = render_template(
+        "index.html",
+        ui_language=language,
+        t=strings_for(language),
+        # 스토어 링크·앱 ID 는 08 이 만든 설정값이다. 스토어 등록 전에는 비어 있고,
+        # 그러면 템플릿이 배지와 Smart App Banner 메타 태그를 아예 안 그린다
+        # (티켓 18 — README "18. 웹 앱 CTA").
+        store_url_ios=current_app.config["STORE_URL_IOS"],
+        store_url_android=current_app.config["STORE_URL_ANDROID"],
+        app_store_id=current_app.config["APP_STORE_ID"],
+        # 푸터가 법적 문서와 **같은 조각**(`legal/_business_info.html`)을 include
+        # 한다 — 전자상거래법 제10조의 표시 위치가 초기 화면이라서다. 조각이 쓰는
+        # 컨텍스트를 문서 페이지와 같은 함수에서 넘긴다(표시 범위는 티켓 16 소유).
+        business_info=_business_info(language),
+        contact_email=current_app.config["LEGAL_CONTACT_EMAIL"],
+    )
     # 프록시·CDN 이 ko 로 그려진 페이지를 en 방문자에게 주지 않게 한다.
     return html, 200, {"Content-Language": language, "Vary": "Accept-Language"}
 

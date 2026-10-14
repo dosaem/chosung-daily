@@ -96,7 +96,10 @@ def test_server_error_messages_are_shown_in_the_ui_language(english_errors):
     assert english_errors["guess_already_finished"] == en["error_already_finished"]
     assert english_errors["guess_rate_limited"] == en["error_rate_limited"]
     assert english_errors["guess_unauthorized"] == en["error_unauthorized"]
-    assert english_errors["today_no_puzzle"] == en["error_no_puzzle_today"]
+    # 퍼즐이 없는 날은 오류가 아니라 "기다리면 된다" 라서, 티켓 18 부터 인라인 상태
+    # 카드가 카운트다운과 같이 `no_puzzle_heading` 을 띄운다(OVERRIDES §7). 어느
+    # 문구든 서버의 한국어 `message` 가 아니라 사전에서 와야 한다는 점은 같다.
+    assert english_errors["today_no_puzzle"] == en["no_puzzle_heading"]
 
 
 def test_an_unmapped_error_code_falls_back_to_the_generic_ui_string(english_errors):
@@ -338,3 +341,143 @@ def test_a_plain_language_switch_still_writes_and_renders_once(concurrent_langua
     assert after["puzzleId"] == 2
     assert after["chips"] == {"ko": "false", "en": "true"}
     assert after["submit"]["message"] != UI_STRINGS["en"]["puzzle_changed"]
+
+
+# --- 티켓 18: 상태 4종 전환 · 섹션 토글 · 공유 링크 --------------------------
+
+
+@pytest.fixture(scope="module")
+def web_states() -> dict:
+    return run_scenario("web_states_and_sections.mjs", "ko")
+
+
+def test_the_skeleton_gives_way_to_the_puzzle(web_states):
+    """로딩은 스켈레톤이고(OVERRIDES §7) 퍼즐이 오면 걷힌다 — 둘이 같이 보이지 않는다."""
+    before, after = web_states["before_load"], web_states["after_load"]
+
+    assert (before["skeletonHidden"], before["puzzleHidden"], before["formHidden"]) == (
+        False,
+        True,
+        True,
+    )
+    assert (after["skeletonHidden"], after["puzzleHidden"], after["formHidden"]) == (
+        True,
+        False,
+        False,
+    )
+
+
+def test_a_request_that_cannot_leave_shows_the_banner_and_locks_the_input(web_states):
+    """오프라인은 상단 배너 + 입력 비활성이다(OVERRIDES §7) — 보낼 수 없는 제출로
+    기회를 잃지 않게 한다."""
+    offline = web_states["unreachable"]
+
+    assert offline["bannerHidden"] is False
+    assert offline["inputDisabled"] is True
+    assert offline["submitDisabled"] is True
+    assert offline["stateHidden"] is False
+    assert offline["stateText"] == UI_STRINGS["ko"]["network_error"]
+    # 스켈레톤이 남아 있으면 "아직 불러오는 중" 으로 보인다.
+    assert offline["skeletonHidden"] is True
+
+
+def test_the_inline_retry_button_recovers_the_puzzle(web_states):
+    """오류는 인라인 카드 + 재시도다 — 토스트로 숨기지 않는다(OVERRIDES §7)."""
+    after = web_states["after_retry"]
+
+    assert after["stateHidden"] is True
+    assert after["puzzleHidden"] is False
+    assert after["bannerHidden"] is True
+    assert after["inputDisabled"] is False
+
+
+def test_coming_back_online_reloads_without_asking(web_states):
+    """`online` 이벤트가 오면 버튼을 누르게 만들지 않고 알아서 다시 받는다."""
+    recovery = web_states["online_recovery"]
+
+    assert recovery["offline"]["bannerHidden"] is False
+    assert recovery["after"]["bannerHidden"] is True
+    assert recovery["after"]["puzzleHidden"] is False
+    assert recovery["after"]["inputDisabled"] is False
+
+
+def test_navigator_online_alone_raises_the_banner_before_any_request(web_states):
+    """비행기 모드로 들어온 방문자는 첫 요청이 실패하기 전에 이유를 안다."""
+    at_load = web_states["offline_before_first_request"]
+
+    assert at_load["bannerHidden"] is False
+    assert at_load["inputDisabled"] is True
+    # 아직 조회를 하지도 않았으니 오류 카드는 뜨지 않는다.
+    assert at_load["stateHidden"] is True
+
+
+def test_a_day_without_a_puzzle_counts_down_to_kst_midnight(web_states):
+    """퍼즐 없음은 오류가 아니다 — "곧 새 퍼즐" + 카운트다운 + 재시도(US 7)."""
+    state = web_states["no_puzzle"]
+
+    assert state["stateText"] == UI_STRINGS["ko"]["no_puzzle_heading"]
+    assert state["countdownHidden"] is False
+    countdown = UI_STRINGS["ko"]["no_puzzle_countdown"]
+    assert state["countdownText"] == countdown.format(time="23:30:00")
+    # 풀 퍼즐이 없으니 제출 폼은 안 보인다.
+    assert state["formHidden"] is True
+    assert state["bannerHidden"] is True, "퍼즐이 없는 것과 오프라인은 다른 상태다"
+
+
+def test_the_countdown_follows_the_clock(web_states):
+    countdown = UI_STRINGS["ko"]["no_puzzle_countdown"]
+    assert web_states["no_puzzle_next_tick"] == countdown.format(time="00:00:01")
+
+
+def test_the_countdown_stops_when_the_puzzle_finally_arrives(web_states):
+    """자정이 지나 퍼즐이 생기면 카운트다운이 멈추고 자리를 비켜야 한다."""
+    after = web_states["no_puzzle_then_ready"]
+
+    assert after["stateHidden"] is True
+    assert after["countdownHidden"] is True
+    assert after["puzzleHidden"] is False
+
+
+def test_seconds_until_kst_midnight_is_computed_from_the_kst_day(web_states):
+    """KST 는 서머타임이 없어서 고정 오프셋으로 계산해도 서버 자정과 어긋나지 않는다."""
+    seconds = web_states["countdown_seconds"]
+
+    assert seconds["just_after_midnight"] == 86399
+    assert seconds["half_hour_in"] == 84600
+    assert seconds["one_second_before_midnight"] == 1
+
+
+def test_the_top_links_show_exactly_one_section(web_states):
+    """탭 바 대신 상단 텍스트 링크로 같은 페이지 섹션을 바꾼다(SCREENS "웹" 절)."""
+    assert web_states["sections_at_first"] == {
+        "panels": {"today": True, "leaderboard": False, "records": False},
+        "pressed": {"today": "true", "leaderboard": "false", "records": "false"},
+    }
+    assert web_states["sections_after_leaderboard"]["panels"] == {
+        "today": False,
+        "leaderboard": True,
+        "records": False,
+    }
+    assert web_states["sections_after_records"]["panels"] == {
+        "today": False,
+        "leaderboard": False,
+        "records": True,
+    }
+    assert web_states["sections_back_to_today"] == web_states["sections_at_first"]
+
+
+def test_the_selected_section_is_announced_to_assistive_tech(web_states):
+    """퍼즐 언어 칩과 같은 `aria-pressed` 로 선택을 알린다 — 색·굵기만으로 두지 않는다."""
+    pressed = web_states["sections_after_records"]["pressed"]
+
+    assert pressed == {"today": "false", "leaderboard": "false", "records": "true"}
+
+
+def test_the_share_text_ends_with_the_web_link(web_states):
+    """받은 사람이 바로 플레이할 수 있게 웹 링크가 붙는다(US 11)."""
+    lines = web_states["share_text"].split("\n")
+
+    assert lines[-1] == "https://chosung.dosaem.com/?utm_source=share"
+    # 그리드와 링크가 한 줄에 붙지 않게 빈 줄을 둔다.
+    assert lines[-2] == ""
+    assert web_states["share_result"]["resultHidden"] is False

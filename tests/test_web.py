@@ -116,34 +116,10 @@ def test_page_links_the_shared_token_stylesheet(client):
     assert html.index("tokens.css") < html.index("style.css"), "토큰이 먼저 와야 변수가 잡힌다"
 
 
-def test_new_elements_use_token_variables_not_new_hex():
-    """17 이 새로 만든 요소는 색을 직접 정하지 않는다 — tokens.css 변수를 쓴다.
-
-    기존 규칙(body/card/header/panel/form)의 토큰 전환과 다크모드는 티켓 18 범위라
-    아직 하드코딩 hex 다. 그래서 "파일에 hex 가 없다"가 아니라 "이 선택자들에는
-    없다"를 본다.
-    """
-    css = (Path(__file__).resolve().parent.parent / "web" / "static" / "style.css").read_text(
-        encoding="utf-8"
-    )
-    new_selectors = [
-        ".tile.empty",
-        ".tile.correct",
-        ".tile.wrong",
-        ".length-caption",
-        ".chip",
-        '.chip[aria-pressed="true"]',
-        ".leaderboard",
-        ".rank",
-        ".rank.top",
-    ]
-    offenders = []
-    for selector in new_selectors:
-        block = css.split(selector + " {")[1].split("}")[0]
-        if re.search(r"#[0-9a-fA-F]{3,6}", block):
-            offenders.append(selector)
-
-    assert offenders == []
+# (티켓 17 의 `test_new_elements_use_token_variables_not_new_hex` 는 "17 이 새로 만든
+# 선택자에는 hex 가 없다" 였다. 18 이 기존 규칙까지 토큰으로 옮겼으니 파일 전체를 보는
+# `tests/test_web_design.py::test_style_sheet_has_no_hex_colors_left` 가 그 자리를
+# 대신한다 — 디자인 계약은 그 파일에 모았다.)
 
 
 # --- 퍼즐 언어 칩 --------------------------------------------------------------
@@ -289,7 +265,24 @@ def test_manual_checklist_is_documented():
     readme = (Path(__file__).resolve().parent.parent / "README.md").read_text(encoding="utf-8")
 
     assert "## 웹 수동 체크리스트" in readme
-    for item in ["퍼즐 언어 전환", "새 탭", "자정 경과", "계정 전환", "백업 코드"]:
+    items = [
+        "퍼즐 언어 전환",
+        "새 탭",
+        "자정 경과",
+        "계정 전환",
+        "백업 코드",
+        # 티켓 18 이 더한 줄. 브라우저 없이 못 보는 것들이라 표에 남는다.
+        "섹션 토글",
+        "로딩 스켈레톤",
+        "오프라인",
+        "퍼즐 없음 카운트다운",
+        "앱 CTA",
+        "삭제 후 새 게스트 발급",
+        "다크모드",
+        "공유 텍스트",
+        "푸터",
+    ]
+    for item in items:
         assert item in readme, item
 
 
