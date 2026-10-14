@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:chosung/analytics/analytics_service.dart';
 import 'package:chosung/api/api_exception.dart';
 import 'package:chosung/api/api_models.dart';
 import 'package:chosung/api/api_providers.dart';
@@ -13,6 +14,7 @@ import 'package:chosung/widgets/guess_input.dart';
 import 'package:chosung/widgets/hint_card.dart';
 import 'package:chosung/widgets/offline_banner.dart';
 import 'package:chosung/widgets/puzzle_board.dart';
+import 'package:chosung/widgets/result_sheet.dart';
 import 'package:chosung/widgets/skeleton_box.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
@@ -29,6 +31,7 @@ import '../layout/adaptive_scaffold_test.dart' show setViewSize;
 Widget _app({
   required FakeApiClient api,
   MyStats? stats,
+  NoopAnalyticsService? analytics,
   Brightness brightness = Brightness.light,
   Locale locale = const Locale('ko'),
   double textScale = 1,
@@ -39,6 +42,9 @@ Widget _app({
     apiClientProvider.overrideWithValue(api),
     startupStatsProvider.overrideWithValue(
       stats ?? fakeMyStats(currentStreak: 7),
+    ),
+    analyticsServiceProvider.overrideWithValue(
+      analytics ?? NoopAnalyticsService(),
     ),
   ],
   child: AppLocalizationScope(
@@ -67,6 +73,7 @@ Future<void> _pumpToday(
   WidgetTester tester, {
   required FakeApiClient api,
   MyStats? stats,
+  NoopAnalyticsService? analytics,
   Brightness brightness = Brightness.light,
   Locale locale = const Locale('ko'),
   Size size = const Size(390, 844),
@@ -79,6 +86,7 @@ Future<void> _pumpToday(
       _app(
         api: api,
         stats: stats,
+        analytics: analytics,
         brightness: brightness,
         locale: locale,
         textScale: textScale,
@@ -316,6 +324,119 @@ void main() {
             .onPressed,
         isNull,
       );
+    });
+  });
+
+  group('결과 시트(S2)', () {
+    /// 한 번 더 틀리면 끝나는 보드 + 정답/오답 응답.
+    FakeApiClient lastAttempt({required bool correct}) => FakeApiClient(
+      puzzle: fakeTodayPuzzle(
+        attemptsLeft: 1,
+        attempts: const [
+          PuzzleAttempt(guess: '지하촌역', feedback: [true, false, false, true]),
+          PuzzleAttempt(guess: '지하도역', feedback: [true, false, false, true]),
+          PuzzleAttempt(guess: '지하실역', feedback: [true, false, false, true]),
+          PuzzleAttempt(guess: '지하창역', feedback: [true, false, false, true]),
+        ],
+      ),
+      guessResult: fakeGuessResult(
+        isCorrect: correct,
+        attemptsLeft: 0,
+        answer: '지하철역',
+      ),
+    );
+
+    testWidgets('정답 제출로 끝나면 시트가 뜨고 puzzle_complete 를 찍는다', (tester) async {
+      final analytics = NoopAnalyticsService();
+      final api = FakeApiClient(
+        puzzle: fakeTodayPuzzle(
+          attemptsLeft: 4,
+          attempts: const [
+            PuzzleAttempt(guess: '지하촌역', feedback: [true, false, false, true]),
+          ],
+        ),
+        guessResult: fakeGuessResult(
+          isCorrect: true,
+          attemptsLeft: 3,
+          answer: '지하철역',
+        ),
+      );
+
+      await _pumpToday(tester, api: api, analytics: analytics);
+      await tester.enterText(find.byType(TextField), '지하철역');
+      await tester.pump();
+      await _tapAndSettle(tester, find.widgetWithText(FilledButton, '제출'));
+
+      expect(find.byType(ResultSheet), findsOne);
+      expect(find.text('정답은 지하철역!'), findsOne);
+      expect(analytics.logged.single.name, 'puzzle_complete');
+      // 남은 기회 3 → 두 번째 시도에 맞췄다.
+      expect(analytics.logged.single.parameters, {
+        'language': 'ko',
+        'success': 1,
+        'attempts': 2,
+      });
+      expect(api.fetchTodayStatsCalls, 1);
+    });
+
+    testWidgets('마지막 시도가 오답이면 실패 시트 + success 0 · attempts 5', (tester) async {
+      final analytics = NoopAnalyticsService();
+
+      await _pumpToday(
+        tester,
+        api: lastAttempt(correct: false),
+        analytics: analytics,
+      );
+      await tester.enterText(find.byType(TextField), '지하터널');
+      await tester.pump();
+      await _tapAndSettle(tester, find.widgetWithText(FilledButton, '제출'));
+
+      expect(find.text('아쉬워요, 정답은 지하철역'), findsOne);
+      expect(analytics.logged.single.parameters, {
+        'language': 'ko',
+        'success': 0,
+        'attempts': 5,
+      });
+    });
+
+    testWidgets('아직 안 끝난 제출은 시트도 이벤트도 없다', (tester) async {
+      final analytics = NoopAnalyticsService();
+      final api = FakeApiClient();
+
+      await _pumpToday(tester, api: api, analytics: analytics);
+      await tester.enterText(find.byType(TextField), '지하촌역');
+      await tester.pump();
+      await _tapAndSettle(tester, find.widgetWithText(FilledButton, '제출'));
+
+      expect(find.byType(ResultSheet), findsNothing);
+      expect(analytics.logged, isEmpty);
+      expect(api.fetchTodayStatsCalls, 0);
+    });
+
+    // 다른 기기에서 이미 끝낸 퍼즐을 여는 경로 — 이벤트는 그때 이미 찍혔다.
+    testWidgets('이미 끝난 퍼즐은 자동으로 안 뜨고, "결과 보기" 로만 열린다', (tester) async {
+      final analytics = NoopAnalyticsService();
+      final api = FakeApiClient(
+        puzzle: fakeTodayPuzzle(
+          status: PuzzleStatus.success,
+          attemptsLeft: 3,
+          answer: '지하철역',
+          attempts: const [
+            PuzzleAttempt(guess: '지하촌역', feedback: [true, false, false, true]),
+            PuzzleAttempt(guess: '지하철역', feedback: [true, true, true, true]),
+          ],
+        ),
+      );
+
+      await _pumpToday(tester, api: api, analytics: analytics);
+
+      expect(find.byType(ResultSheet), findsNothing);
+
+      await _tapAndSettle(tester, find.text('결과 보기'));
+
+      expect(find.byType(ResultSheet), findsOne);
+      expect(find.text('정답은 지하철역!'), findsOne);
+      expect(analytics.logged, isEmpty);
     });
   });
 

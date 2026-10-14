@@ -63,5 +63,31 @@
     "locked": "The hint opens after your third wrong answer",
     "watch_ad": "Watch an ad to peek at the hint",
     "label": "Hint"
+  },
+  "result": {
+    "success_title": "The answer is {answer}!",
+    "fail_title": "So close — the answer was {answer}",
+    "success_title_plain": "You got it!",
+    "fail_title_plain": "So close",
+    "success_body": "Solved on try {used}",
+    "fail_body": "All {max} tries used",
+    "stats_title": "Today's stats",
+    "stats_attempt": "{count}",
+    "stats_percent": "{percent}%",
+    "stats_row": "{count} tries {percent} percent",
+    "stats_mine": "your result",
+    "stats_empty": "Nobody has solved it yet",
+    "stats_failed": "Couldn't load the stats",
+    "countdown": "Next puzzle in {time}",
+    "share": "Share result",
+    "show_ranking": "See ranking",
+    "link_account": "Link an account to keep your streak →",
+    "dismiss": "Dismiss"
+  },
+  "share": {
+    "heading": "Hidden Vowels {date}",
+    "puzzle": "{mask} ({length} letters)",
+    "success": "{used}/{max} solved",
+    "fail": "{used}/{max} failed"
   }
 }

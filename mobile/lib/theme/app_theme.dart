@@ -111,6 +111,16 @@ ThemeData appTheme(Brightness brightness) {
         borderRadius: BorderRadius.circular(_cardRadius),
       ),
     ),
+    // 태블릿에서 결과 시트·Paywall 이 바텀시트 대신 뜨는 가운데 다이얼로그
+    // (SCREENS T2). 같은 내용이 폭에 따라 다른 면·모서리로 보이지 않게
+    // 바텀시트와 같은 `card` 면을 쓰고 모서리만 카드값(16)이다.
+    dialogTheme: DialogThemeData(
+      backgroundColor: colors.card,
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(_cardRadius),
+      ),
+    ),
     bottomSheetTheme: BottomSheetThemeData(
       backgroundColor: colors.card,
       elevation: 0,
