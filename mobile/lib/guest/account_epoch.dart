@@ -31,6 +31,45 @@ class AccountEpochNotifier extends Notifier<int> {
   /// 쓰지 않는다: 거절과 응답을 구별할 수 없다.
   Future<T?> sendIfSameAccount<T>(int epoch, Future<T> Function() send) async =>
       epoch == state ? await send() : null;
+
+  /// 계정 데이터를 **읽는** 조회를 감싼다. 떠날 때의 세대를 적어 두고 응답이
+  /// 오면 다시 본다 — 그 사이 계정이 바뀌었으면 성공·실패·값 없음 어느 쪽이든
+  /// `null` 을 돌려준다. `null` 은 "값이 없다" 가 아니라 **"이 응답은 남의
+  /// 것이다, 상태에 반영하지 마라"** 다([sendIfSameAccount] 와 같은 약속).
+  ///
+  /// 왜 값 쪽에서 "쓰지 말라" 를 표현하지 않는가: 조회 결과 자체로 그걸
+  /// 말하면(예: 보드 없음 = null) 부른 쪽이 "현재 상태를 비우라" 로 읽어,
+  /// 버려야 할 응답이 이미 올라온 새 계정 값을 지운다(D-29-6). 버릴 응답은
+  /// 값의 자리 밖에서 가려낸다.
+  Future<AsyncValue<T>?> fetchIfSameAccount<T>(
+    Future<T> Function() fetch,
+  ) async {
+    final epoch = state;
+    final loaded = await AsyncValue.guard(fetch);
+    return epoch == state ? loaded : null;
+  }
+}
+
+/// `build` 가 돌려주는 **첫 조회**의 결과를 상태 값으로 고른다.
+///
+/// 프레임워크는 `build` 가 돌려준 future 가 끝나면 세대·계정 검사를 거치지
+/// 않고 그 값을 바로 상태에 쓴다 — 조회 쪽에서 commit 을 건너뛸 방법이 없다.
+/// 그래서 버려야 하는 응답([loaded] 가 null)에는 **지금 상태**를 그대로
+/// 돌려줘 그 쓰기가 아무것도 바꾸지 않게 만든다(D-29-6). 오류 상태였으면 같은
+/// 오류를 다시 던져 오류 카드도 그대로 남는다.
+///
+/// [current] 를 콜백으로 받는 이유: provider 가 이미 버려졌으면 `state` 를
+/// 읽을 수 없다. 그 경우엔 프레임워크도 결과를 쓰지 않으므로 아무 값이나
+/// 돌려줘도 된다.
+T? initialStateOrCurrent<T>(
+  AsyncValue<T>? loaded,
+  AsyncValue<T> Function() current,
+) {
+  final effective = loaded ?? current();
+  if (effective case AsyncError(:final error, :final stackTrace)) {
+    Error.throwWithStackTrace(error, stackTrace);
+  }
+  return effective.value;
 }
 
 final accountEpochProvider = NotifierProvider<AccountEpochNotifier, int>(

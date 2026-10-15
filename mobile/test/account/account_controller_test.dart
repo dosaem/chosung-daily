@@ -475,6 +475,91 @@ void main() {
       expect(api.submittedGuesses.single.guess, '지하촌역');
     });
 
+    test('전환하면 7일 칸도 비워지고 새 계정 값으로 채워진다', () async {
+      // 읽기 전용 표시지만 계정이 바뀌면 **다른 사람의 7일**이다. 무효화로는
+      // 비워지지 않아(`copyWithPrevious`) 화면이 옛 계정 칸을 계속 골랐다 —
+      // 라운드 3 에서 적어 둔 관찰을 계정 세대 장치로 닫는다.
+      final bHistory = fakeHistory(
+        results: const [
+          {
+            PuzzleLanguage.ko: DayResult.success,
+            PuzzleLanguage.en: DayResult.none,
+          },
+        ],
+      );
+      final api = FakeApiClient()
+        ..statsByToken['backup-code'] = fakeMyStats(currentStreak: 4);
+      final world = _container(api, signIn: _signInReturning(null));
+      final aHistory = await world.container.read(historyProvider.future);
+      expect(aHistory, isNotNull);
+
+      final gate = Completer<void>();
+      api
+        ..fetchMyHistoryGate = gate
+        ..history = bHistory;
+      addTearDown(() {
+        if (!gate.isCompleted) gate.complete();
+      });
+
+      await world.container
+          .read(accountProvider.notifier)
+          .restoreWithBackupCode('backup-code');
+
+      final during = world.container.read(historyProvider);
+      expect(during.value, isNull, reason: '옛 계정의 7일 칸이 남았다');
+      expect(during.hasError, isFalse);
+
+      // B 의 칸이 도착하면 그 값으로 채워진다.
+      api.fetchMyHistoryGate = null;
+      gate.complete();
+      await pumpEventQueue();
+      expect(world.container.read(historyProvider).value, bHistory);
+    });
+
+    test('전환보다 늦게 끝난 최초 7일 조회는 새 계정 칸을 지우지 않는다', () async {
+      // D-29-6 은 홈 보드만의 문제가 아니다 — 계정 데이터를 읽는 조회는 모두
+      // 같은 경합을 공유한다.
+      final bHistory = fakeHistory(
+        results: const [
+          {
+            PuzzleLanguage.ko: DayResult.fail,
+            PuzzleLanguage.en: DayResult.none,
+          },
+        ],
+      );
+      final api = FakeApiClient()
+        ..statsByToken['backup-code'] = fakeMyStats(currentStreak: 4);
+      final gate = Completer<void>();
+      api.fetchMyHistoryGate = gate;
+      addTearDown(() {
+        if (!gate.isCompleted) gate.complete();
+      });
+      final world = _container(api, signIn: _signInReturning(null));
+      final pendingFirstLoad = world.container.read(historyProvider.future);
+
+      api
+        ..fetchMyHistoryGate = null
+        ..history = bHistory;
+      await world.container
+          .read(accountProvider.notifier)
+          .restoreWithBackupCode('backup-code');
+      await pumpEventQueue();
+      expect(world.container.read(historyProvider).value, bHistory);
+
+      // 늦게 도착한 A 의 최초 7일 응답.
+      gate.complete();
+      await pendingFirstLoad;
+      await pumpEventQueue();
+
+      final today = world.container.read(historyProvider);
+      expect(
+        today.value,
+        bHistory,
+        reason: '계정 경계를 넘은 옛 응답이 새 계정 칸을 지웠다',
+      );
+      expect(today.hasError, isFalse);
+    });
+
     test('401 이면 토큰을 바꾸지 않고 코드가 틀렸다고 말한다', () async {
       final api = FakeApiClient();
       final world = _container(api, signIn: _signInReturning(null));

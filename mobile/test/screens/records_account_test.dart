@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:chosung/account/social_sign_in.dart';
 import 'package:chosung/api/api_exception.dart';
 import 'package:chosung/api/api_models.dart';
@@ -15,6 +17,7 @@ import 'package:chosung/theme/app_theme.dart';
 import 'package:chosung/widgets/account_card.dart';
 import 'package:chosung/widgets/backup_code_sheet.dart';
 import 'package:chosung/widgets/delete_account_dialog.dart';
+import 'package:chosung/widgets/seven_day_grid.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -366,6 +369,44 @@ void main() {
       expect(find.text('Apple · a***@icloud.com 연결됨'), findsNothing);
       expect(find.text('Google · b***@gmail.com 연결됨'), findsOneWidget);
       expect(find.text('7일'), findsOneWidget);
+    });
+
+    testWidgets('전환하면 7일 칸이 비워지고 새 계정 칸이 들어온다', (tester) async {
+      // 읽기 전용 표시지만 계정이 바뀌면 **다른 사람의 7일**이다. 무효화로는
+      // 비워지지 않아(`copyWithPrevious`) 이 화면이 옛 계정 칸을 계속 골랐다.
+      final api = FakeApiClient()
+        ..statsByToken['backup-code'] = fakeMyStats(currentStreak: 4);
+      final world = await _pump(tester, client: api);
+      expect(find.byType(SevenDayGrid), findsOneWidget);
+
+      // B 의 7일 조회만 붙잡는다 — 전환은 끝났고 칸만 아직 안 왔다.
+      final gate = Completer<void>();
+      api.fetchMyHistoryGate = gate;
+      addTearDown(() {
+        if (!gate.isCompleted) gate.complete();
+      });
+
+      await _tap(tester, find.text('다른 기기 기록 불러오기'));
+      await tester.enterText(find.byKey(backupCodeFieldKey), 'backup-code');
+      await tester.pumpAndSettle();
+      await _tap(tester, find.byKey(backupCodeSubmitKey));
+
+      expect(world.store.token, 'backup-code');
+      expect(
+        find.byType(SevenDayGrid),
+        findsNothing,
+        reason: '옛 계정의 7일 칸이 남았다',
+      );
+
+      // B 의 칸이 도착하면 그 자리를 받는다.
+      api.fetchMyHistoryGate = null;
+      await tester.runAsync(() async {
+        gate.complete();
+        await pumpEventQueue();
+        await tester.pump();
+      });
+      await tester.pumpAndSettle();
+      expect(find.byType(SevenDayGrid), findsOneWidget);
     });
 
     testWidgets('틀린 코드면 시트가 열린 채로 오류를 보여준다', (tester) async {

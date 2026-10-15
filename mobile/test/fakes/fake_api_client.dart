@@ -208,6 +208,10 @@ class FakeApiClient implements ApiClient {
   /// 재조회가 끼어드는 순서를 테스트가 직접 만들어 보는 데 쓴다.
   Completer<void>? submitGuessGate;
 
+  /// 7일 그리드 응답도 같은 방식으로 붙잡는다 — 계정이 바뀐 직후의 "아직
+  /// 새 계정 칸을 모르는" 순간을 세워 두고 본다.
+  Completer<void>? fetchMyHistoryGate;
+
   /// 분포 응답도 붙잡을 수 있다 — 결과 시트의 통계 스켈레톤을 세워 두는 데 쓴다.
   Completer<void>? fetchTodayStatsGate;
 
@@ -349,7 +353,10 @@ class FakeApiClient implements ApiClient {
   @override
   Future<List<HistoryDay>> fetchMyHistory({int days = 7}) async {
     fetchMyHistoryDays.add(days);
+    // 응답은 **호출 시점의** 값이다(`fetchTodayPuzzle` 과 같은 이유).
+    final response = history;
+    if (fetchMyHistoryGate case final gate?) await gate.future;
     if (fetchMyHistoryError case final error?) throw error;
-    return history;
+    return response;
   }
 }

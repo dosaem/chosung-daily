@@ -155,10 +155,11 @@ class AccountNotifier extends Notifier<AccountState> {
     // 보드를 값으로 남겨 두고(`copyWithPrevious`), 그 보드에서 누른 제출이 새
     // 계정의 시도를 소비한다(D-29-5, `TodayPuzzleNotifier.discard`). 순위는
     // 계정이 아니라 오늘·언어로 갈리는 공용 데이터라 무효화로 충분하다.
+    // 7일 칸도 같은 이유로 **폐기**다 — 무효화는 다시 읽는 동안 옛 계정의
+    // 칸을 값으로 남겨 둬(`copyWithPrevious`) 화면이 그걸 계속 고른다.
     discardTodayPuzzle(ref);
-    ref
-      ..invalidate(historyProvider)
-      ..invalidate(leaderboardProvider);
+    discardHistory(ref);
+    ref.invalidate(leaderboardProvider);
     await ref.read(myStatsProvider.notifier).adopt(stats);
   }
 

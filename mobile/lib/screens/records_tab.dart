@@ -234,7 +234,7 @@ class _RecentDays extends ConsumerWidget {
                 ),
               ),
               TextButton(
-                onPressed: () => ref.invalidate(historyProvider),
+                onPressed: () => ref.read(historyProvider.notifier).retry(),
                 child: Text('records.retry'.tr()),
               ),
             ],

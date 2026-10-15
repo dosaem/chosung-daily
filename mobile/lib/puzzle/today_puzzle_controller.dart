@@ -57,47 +57,33 @@ class TodayPuzzleNotifier extends AsyncNotifier<TodayState?> {
     return _initialLoad(generation);
   }
 
-  /// 첫 조회. [_load] 를 그대로 돌려주지 않고 한 겹 감싼다 — `build` 가 돌려준
-  /// future 는 프레임워크가 [_commitLoad] 를 거치지 않고 바로 상태에 쓰기
-  /// 때문이다. 그 사이 계정 경계([discard])나 재시도(`invalidateSelf`)가
-  /// 지나갔으면 이 응답은 **남의 것**이라 상태를 건드려선 안 되는데, 쓰기를
-  /// 막을 방법이 없으므로 **지금 상태를 그대로** 돌려줘 그 쓰기를 무해하게
-  /// 만든다. 늦게 끝난 옛 계정 조회가 이미 떠 있는 새 계정 보드를 지워 홈이
-  /// 스켈레톤에 갇히던 길을 끊는다(D-29-6).
+  /// 첫 조회. [_load] 를 그대로 돌려주지 않고 [initialStateOrCurrent] 를 거친다
+  /// — `build` 가 돌려준 future 는 프레임워크가 [_commitLoad] 를 건너뛰고 바로
+  /// 상태에 쓰기 때문이다(D-29-6). 계정이 바뀌었거나 그 사이 새 조회가
+  /// 떠났으면 지금 상태를 그대로 돌려줘 그 쓰기를 무해하게 만든다.
   Future<TodayState?> _initialLoad(int generation) async {
-    final loaded = await AsyncValue.guard(_load);
-    final effective = _canCommit(generation) ? loaded : _currentState(loaded);
-    if (effective case AsyncError(:final error, :final stackTrace)) {
-      // 오류는 그대로 올린다 — 프레임워크가 `AsyncError` 로 적어 화면이 오류
-      // 카드를 고른다(값으로 바꿔 돌려주면 오류가 사라진다).
-      Error.throwWithStackTrace(error, stackTrace);
-    }
-    return effective.value;
+    final loaded = await _load();
+    return initialStateOrCurrent<TodayState?>(
+      _canCommit(generation) ? loaded : null,
+      () => ref.mounted ? state : const AsyncData<TodayState?>(null),
+    );
   }
 
-  /// 지금 살아 있는 상태. provider 가 이미 버려졌으면 `state` 를 읽을 수 없어
-  /// [fallback] 을 쓴다 — 그 경우 프레임워크도 결과를 쓰지 않는다.
-  AsyncValue<TodayState?> _currentState(AsyncValue<TodayState?> fallback) =>
-      ref.mounted ? state : fallback;
-
-  /// 보드를 읽는다. 떠날 때의 계정을 적어 두고([_accountEpoch]) 돌아올 때
-  /// 다시 본다 — 그 사이 계정이 바뀌었으면 이 보드는 **남의 것**이라 null 을
-  /// 돌려준다(화면은 스켈레톤).
-  ///
-  /// 세대 번호로는 이 경우를 다 막을 수 없다: `build` 가 돌려준 future 는
-  /// 프레임워크가 세대 검사를 거치지 않고 바로 상태에 쓴다([refresh] 의 설명과
-  /// 같은 이유). 그래서 "쓰지 말라" 를 돌려주는 값 쪽에서 판정한다.
-  Future<TodayState?> _load() async {
-    final epoch = _account.state;
-    _accountEpoch = epoch;
-    try {
-      final puzzle = await _api.fetchTodayPuzzle();
-      if (epoch != _account.state) return null;
-      return TodayPuzzleReady(puzzle: puzzle);
-    } on NoPuzzleTodayApiException {
-      // 오류가 아니라 "아직" 이다 — 카운트다운 카드로 보여준다(OVERRIDES §7).
-      return epoch == _account.state ? const TodayNoPuzzle() : null;
-    }
+  /// 보드를 읽는다. 떠날 때의 계정을 적어 두고([_accountEpoch], 제출 가드가
+  /// 쓴다) 조회는 [AccountEpochNotifier.fetchIfSameAccount] 로 감싼다 — 그
+  /// 사이 계정이 바뀌었으면 이 응답은 **남의 것**이라 `null`("쓰지 마라")이
+  /// 온다. 값의 자리가 아니라 그 밖에서 가려내므로, 버릴 응답이 이미 올라온
+  /// 새 계정 보드를 지우지 않는다(D-29-6).
+  Future<AsyncValue<TodayState?>?> _load() {
+    _accountEpoch = _account.state;
+    return _account.fetchIfSameAccount<TodayState?>(() async {
+      try {
+        return TodayPuzzleReady(puzzle: await _api.fetchTodayPuzzle());
+      } on NoPuzzleTodayApiException {
+        // 오류가 아니라 "아직" 이다 — 카운트다운 카드로 보여준다(OVERRIDES §7).
+        return const TodayNoPuzzle();
+      }
+    });
   }
 
   /// 오류 카드의 재시도 버튼. 처음부터 다시 돌린다(스켈레톤 → 결과).
@@ -121,7 +107,7 @@ class TodayPuzzleNotifier extends AsyncNotifier<TodayState?> {
     _submitting = false;
     _refreshQueued = false;
     state = const AsyncData<TodayState?>(null);
-    _commitLoad(await AsyncValue.guard(_load), generation);
+    _commitLoad(await _load(), generation);
   }
 
   /// 포그라운드 복귀·알림 탭·보드의 인라인 재시도. 이미 보드가 있으면
@@ -139,7 +125,7 @@ class TodayPuzzleNotifier extends AsyncNotifier<TodayState?> {
     if (state.isLoading && !state.hasValue) return;
 
     final generation = ++_generation;
-    _commitLoad(await AsyncValue.guard(_load), generation);
+    _commitLoad(await _load(), generation);
   }
 
   /// 답을 제출한다. 보드에 한 행이 쌓였으면 true — 그때만 화면이 입력창을 비운다.
@@ -182,7 +168,7 @@ class TodayPuzzleNotifier extends AsyncNotifier<TodayState?> {
     } on PuzzleChangedApiException {
       // 시도는 소비되지 않았다. 새 퍼즐을 읽어와 그 위에 메시지를 올린다.
       _commitLoad(
-        await AsyncValue.guard(_load),
+        await _load(),
         generation,
         notice: TodayNotice.puzzleChanged,
       );
@@ -220,7 +206,8 @@ class TodayPuzzleNotifier extends AsyncNotifier<TodayState?> {
   void _invalidateGuessReaders(TodayPuzzle played) {
     final finished = played.status.isFinished;
     if (finished || played.attempts.length == 1) {
-      ref.invalidate(historyProvider);
+      // 무효화가 아니라 재조회다 — 보던 칸을 스켈레톤으로 되돌리지 않는다.
+      refreshHistory(ref);
     }
     if (!finished) return;
     ref.invalidate(leaderboardProvider);
@@ -245,12 +232,14 @@ class TodayPuzzleNotifier extends AsyncNotifier<TodayState?> {
   /// 남긴다(US 8, OVERRIDES §7). 오류를 `AsyncError` 로만 두면 Riverpod 이
   /// 이전 값을 같이 들고 있어(`copyWithPrevious`) 화면은 보드를 고르고, 오류는
   /// 아무도 안 보는 곳에 남아 재조회가 실패한 걸 알 방법이 없어진다.
+  /// [loaded] 가 null 이면 계정이 바뀐 뒤 도착한 **남의 응답**이다 — 지금
+  /// 상태를 그대로 둔다(`fetchIfSameAccount` 의 약속).
   void _commitLoad(
-    AsyncValue<TodayState?> loaded,
+    AsyncValue<TodayState?>? loaded,
     int generation, {
     TodayNotice? notice,
   }) {
-    if (!_canCommit(generation)) return;
+    if (loaded == null || !_canCommit(generation)) return;
 
     if (loaded case AsyncError(:final error)) {
       final previous = state.value;
