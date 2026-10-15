@@ -195,7 +195,8 @@ class FakeApiClient implements ApiClient {
   List<HistoryDay> history;
   String nextGuestToken;
 
-  /// `POST /subscriptions/verify` 가 돌려줄 권한.
+  /// `POST /subscriptions/verify` 가 돌려줄 권한. 기본값은 **구매가 받아들여진
+  /// 경우**(권한 있음)다 — 거절·장애는 `verifySubscriptionError` 로 만든다.
   Entitlement verifyResponse = fakeEntitlement(
     active: true,
     until: DateTime.utc(2026, 11),

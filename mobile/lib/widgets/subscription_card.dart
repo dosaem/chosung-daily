@@ -43,16 +43,21 @@ class _OfferRow extends ConsumerWidget {
     final flow = ref.watch(purchaseFlowProvider);
     final price = flow.product?.price;
 
+    final String value;
+    if (flow.busy) {
+      // 결제가 떠 있으면 그걸 먼저 말한다 — 가격 안내는 지금 할 말이 아니다.
+      value = 'subscription.verifying'.tr();
+    } else if (price == null) {
+      // 가격을 못 읽었으면 금액 없이 안내만 한다 — ₩1,500 은 한국 Tier
+      // 설정값일 뿐이라 앱이 대신 적을 수 없다(스펙 §A.8).
+      value = 'subscription.card_idle_no_price'.tr();
+    } else {
+      value = 'subscription.card_idle'.tr(namedArgs: {'price': price});
+    }
+
     return SettingsRow(
       label: 'records.subscription'.tr(),
-      value: switch (null) {
-        // 결제가 떠 있으면 그걸 먼저 말한다 — 가격 안내는 지금 할 말이 아니다.
-        _ when flow.busy => 'subscription.verifying'.tr(),
-        // 가격을 못 읽었으면 금액 없이 안내만 — ₩1,500 은 한국 Tier 설정값일
-        // 뿐이라 앱이 대신 적을 수 없다(스펙 §A.8).
-        _ when price == null => 'subscription.card_idle_no_price'.tr(),
-        _ => 'subscription.card_idle'.tr(namedArgs: {'price': price}),
-      },
+      value: value,
       onTap: () => unawaited(showPaywallSheet(context: context)),
     );
   }
