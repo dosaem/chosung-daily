@@ -989,3 +989,233 @@ worktree 의 pytest 는 돌고 있었지만 DB·Redis 가 티켓별로 갈라져
 **rebase 는 하지 않았다** — 코디네이터 범위 메모대로 베이스는 `1172b9b` 그대로다
 (`git merge-base HEAD main` = `1172b9b`). 로컬 `main` 위로 올리는 일은 최종 스크린샷
 재촬영 작업이 함께 한다.
+
+## 수정 라운드 2
+
+최종 리뷰 라운드 2(`review/impl-review-35.md` "## 라운드 2")는 이전 7건을 모두 FIXED
+로 보고, 새 결함 **MAJOR 1건(D-35-8) · MINOR 1건(D-35-9)** 으로 FAIL 을 냈다. 둘 다
+고쳤다. 그리고 지시받은 `git rebase main` 이 리뷰에 없던 결함을 하나 더 드러내서
+코디네이터 결정을 받고 함께 고쳤다(아래 "rebase 가 드러낸 결함").
+
+리뷰어 지적이 틀렸다고 본 것은 **없다**. 두 지적 모두 재현된다.
+
+### D-35-8 — MAJOR — Play 태블릿 재촬영 경로가 iOS 전용 온보딩을 다시 복사하고 검사도 허용함
+
+**재현 (리뷰의 재현 1 그대로).** 커밋된 태블릿 세트 10장이 iPad 원본과 바이트까지
+같다 — 플랫폼으로 갈리는 `06_language` 까지 같다:
+
+```
+$ for loc in ko-KR en-US; do for f in android/.../$loc/images/tenInchScreenshots/*.png; do
+    echo "$(shasum -a 256 "$f" | cut -c1-16) $loc/$(basename $f)"; done; done
+418401b48b50767f ko-KR/ipad13_ko_01_home.png
+...
+a72c741378b5cc4d ko-KR/ipad13_ko_06_language.png      ← iOS 전용 ATT 안내가 든 장
+685529a797e15e34 en-US/ipad13_en_06_language.png
+$ # iOS 쪽 ipad13_* 지문과 10/10 일치
+```
+
+**원인.** 두 곳이다.
+
+1. `scripts/store_screenshots.sh` — Play 태블릿 세트를 **캡처하지 않고 복사**했다:
+   `cp "$ios_dir"/ipad13_*.png "$play_dir/tenInchScreenshots/"`. iPad 캡처는 플랫폼
+   override 없이 iOS 구성으로 생성된다. 폰에는 `fallback_phone_set` 으로 Android
+   구성(`SHOT_IS_IOS=false`)을 적용했는데 태블릿에는 적용하지 않았다.
+   근본 원인은 주석에 적힌 전제가 틀렸다는 것이다 — "태블릿 레이아웃은 같은 코드라
+   그림이 같다" 는 **레이아웃**에만 맞고 **장 구성**에는 틀리다.
+   `mobile/lib/onboarding/onboarding_pages.dart:26` 의 `onboardingPages` 는 화면 폭을
+   보지 않고 `isIos` 하나로만 갈린다(iOS 4장 / Android 3장).
+2. `mobile/tool/verify_store_screenshots.py` — 복사본 판정이 `phoneScreenshots` 만
+   돌았고, 태블릿은 "같은 그림" 이라는 **같은 틀린 전제**로 통과시켰다. 그래서 폰을
+   고치고 나면 잘못된 태블릿 세트가 업로드 검사까지 통과한다.
+
+**수정.**
+
+- `scripts/store_screenshots.sh`: `cp` 를 지우고 `play_tablet_set()` 을 더했다 —
+  같은 iPad 시뮬레이터에서 `SHOT_IS_IOS=false` 로 **한 번 더 찍는다**. 폴더는
+  태블릿 한 기기 유형의 것이라 `'*.png'` 로 폴더째 바꾼다(prefix `androidtablet`).
+- `mobile/tool/verify_store_screenshots.py`: 복사본 판정을 기기 유형별 기준으로
+  일반화했다 — `PLAY_IOS_SOURCE_PREFIX = {phoneScreenshots: iphone69,
+  tenInchScreenshots: ipad13}`. 두 유형 모두 그 유형의 iOS 온보딩 캡처와 바이트가
+  같으면 거부한다.
+- `README.md` 의 "태블릿 세트도 반대로 iPad 캡처 재사용이 맞아서 통과시킨다" 서술을
+  고쳤다. 틀린 전제가 문서에 남으면 되돌아온다.
+
+**증명하는 테스트.** 리뷰어가 임시 사본으로 돌린 재현을 레포 테스트로 고정했다.
+
+- `tests/test_store_metadata.py::test_the_verifier_refuses_a_play_tablet_set_copied_from_the_ipad_captures`
+  — 리뷰의 재현 2(태블릿만 iPad 5장으로 교체 → `_verify(root, 'play')`). 수정 전
+  **종료 0 / `screenshots OK: play`**, 수정 후 종료 1 + "iOS 온보딩 캡처".
+- `tests/test_store_metadata.py::test_the_verifier_allows_a_tablet_set_shot_in_the_android_layout`
+  — 반대 방향. iPad 시뮬레이터에서 Android 구성으로 찍은 세트(네 장면은 바이트가
+  같고 온보딩만 다르다)는 통과해야 한다. 정상 경로를 막지 않는지 본다.
+- `tests/test_store_screenshot_script.py::test_the_play_tablet_set_is_shot_in_the_android_composition`
+  — 실제 bash 함수를 source 해 `--dart-define=SHOT_IS_IOS=false` 를 넘기는지 본다.
+- `..._test_the_play_tablet_set_replaces_the_previous_set` — 태블릿 폴더도 세트
+  단위로 바뀌는지(과거 `ipad13_*` 복사본이 남아 10장이 되지 않는지).
+- `..._test_the_script_no_longer_copies_the_ipad_set_into_the_play_tablet_folder`
+  — 원인이었던 `cp ipad13_*.png` 한 줄이 돌아오지 못하게 고정한다.
+- `mobile/test/store/store_screenshot_scenes_test.dart` — 폰 폭만 돌던 "온보딩 장
+  수가 그 플랫폼과 같다" 를 **태블릿 폭까지** 돌린다(4건 → 8건).
+
+**정직하게 적어 둘 것:** 이 Dart 테스트는 처음부터 통과했다 — 장면 코드는 폭과
+무관하게 `isIos` 를 지킨다. 즉 결함은 Dart 쪽이 아니라 스크립트의 `cp` 와 검증기의
+사각지대에만 있었다. 이 8건은 재현 테스트가 아니라 **회귀 가드**다. 리뷰의 재현 1이
+4개 점을 본 이유도 같다: 그림이 iOS 구성으로 **생성**됐기 때문이다.
+
+```
+$ uv run pytest -q tests/test_store_metadata.py tests/test_store_screenshot_script.py
+# 수정 전: 4 failed, 69 passed    (D-35-8 재현 3건 + 검증기 1건)
+# 수정 후: 74 passed in 0.94s
+$ python3 mobile/tool/verify_store_screenshots.py play; echo "exit=$?"
+# 수정 전 2건 차단 → 수정 후 4건 차단 (폰 2 + 태블릿 2), exit=1
+$ python3 mobile/tool/verify_store_screenshots.py ios; echo "exit=$?"   # exit=0
+```
+
+커밋된 태블릿 PNG 교체는 **하지 않았다** — 코디네이터가 29~33 머지 후 최종 재촬영을
+별도 작업으로 지정했다. 다만 이제 검증기가 태블릿도 막으므로, **최종 재촬영은 폰만이
+아니라 태블릿 10장도 다시 찍어야 올라간다**. 그 작업에 전달할 사항이다.
+
+### D-35-9 — MINOR — 영문 스토어 설명이 6칸 예시를 5글자로 안내함
+
+**재현.** `P _ R P L _` 는 공백 기준 6칸이고, 같은 문장이 `for a five-letter word`
+라고 적었다. 장면의 실제 가림 타일(`store_screenshot_scenes.dart` 의 `_enMask`)도
+6개이고 정답은 `PURPLE`(6글자)이다. 홈 스크린샷도 `6 letters` 로 표시한다.
+
+**원인.** 숫자를 본문에 손으로 적어서, 예시 문자열·장면 데이터와 묶여 있지 않았다.
+
+**수정.** 두 파일을 `six-letter` 로 고쳤다
+(`mobile/ios/fastlane/metadata/en-US/description.txt:11`,
+`mobile/android/fastlane/metadata/android/en-US/full_description.txt:11`).
+증상만 고치지 않도록, 숫자를 **예시 문자열에서 세고** 장면의 `_enMask` 타일 수와도
+대조하는 테스트를 더했다 —
+`tests/test_store_metadata.py::test_the_english_description_counts_the_example_board_correctly`.
+예시가 바뀌면 숫자도 같이 바뀌어야 깨진다.
+
+### rebase 가 드러낸 결함 — 결과 장면이 기기 키체인 상태에 따라 달라짐
+
+리뷰 범위 밖이지만 `git rebase main`(지시 5번) 직후 전체 테스트가 깨져서, 코디네이터
+판단을 받고 고쳤다.
+
+**증상.** rebase 후 `flutter test` 가 `store_screenshot_scenes_test.dart` **13건**
+실패. 전부 같은 예외다:
+
+```
+MissingPluginException(No implementation found for method read on channel
+plugins.it_nomads.com/flutter_secure_storage)
+#1  SecureLocalFlagStore.isSet (package:chosung/local/local_flags.dart:55:7)
+#2  _ResultSheetState._resolveNotice (package:chosung/widgets/result_sheet.dart:97:9)
+```
+
+(먼저 `flutter analyze` 가 `Undefined name 'AppSettingsType'` 등 21건을 냈다 — main
+의 티켓 29 가 pubspec 의존성을 바꿨는데 `--no-pub` 로 돌려서다. `flutter pub get`
+후 `No issues found!`. 결함이 아니라 내 실행 실수다.)
+
+**원인.** main 의 티켓 29 가 결과 시트(S2)에 1회성 "계정 연결" 안내를 넣었고, 그
+판정이 `localFlagStoreProvider` → 플랫폼 채널(secure storage)을 탄다. 스토어 장면은
+`apiClientProvider` 등 서버 경계만 바꿔 끼우고 이 저장소는 그대로 둬서, `flutter
+test` 에서는 플러그인이 없어 예외가 된다. **더 중요한 건 실제 캡처다**: 시뮬레이터에는
+플러그인이 있어서 터지지 않고, 대신 키체인 상태에 따라 그림이 갈린다 — 깨끗한
+시뮬레이터면 안내가 결과 보드를 덮어 찍히고 두 번째 실행부터는 안 찍힌다. D-35-5·
+D-35-8 과 **같은 부류**(같은 스크립트가 기기 상태에 따라 다른 그림을 낸다)다.
+
+**결정.** 코디네이터에게 두 안(A 안내 숨김 / B 안내 노출)을 묻고 **A** 를 받았다 —
+근거는 OVERRIDES §8 의 S2 정의("결과 보기를 눌러 띄운 시트").
+
+**수정.** `mobile/integration_test/store_screenshot_scenes.dart` 의 `_root` 에
+`localFlagStoreProvider.overrideWithValue(storeScreenshotFlagStore())` 를 더했다.
+`storeScreenshotFlagStore()` 는 `LocalFlag.values` 를 **전부** 켠다 — 하나씩 적으면
+나중에 붙는 1회성 안내가 조용히 스크린샷에 끼어든다.
+
+**증명하는 테스트.** `store_screenshot_scenes_test.dart` 에 2건.
+
+- `$language — 결과 장면은 1회성 안내 없이 같은 그림으로 찍힌다`: `flutter test` 에는
+  플러그인이 없어 읽기가 그냥 죽고 안내도 안 뜬다 — 그러면 정작 재현하려는 "기기에선
+  뜬다" 가 사라진다. 그래서 **깨끗한 기기를 흉내내** 채널 대역을 끼우고(`read` →
+  `null`) 장면을 **두 번** 띄운다. 기기에 남는 저장소였다면 첫 번째만 뜬다. 장면이
+  기기 저장소를 아예 읽지 않는 것도 단언한다.
+- `$language — 장면의 로컬 플래그는 1회성 안내를 모두 켜 둔다`: `LocalFlag.values`
+  전체를 본다 — 안내가 새로 붙어도 장면이 따라가는지.
+
+red 확인(override 한 줄만 임시로 빼고 실행):
+
+```
+$ flutter test --no-pub test/store/store_screenshot_scenes_test.dart \
+    --plain-name '결과 장면은 1회성 안내 없이'
+1 번째: 1회성 계정 연결 안내가 결과 보드를 덮었다
+00:03 +0 -2: Some tests failed.
+# override 복원 후: 00:06 +28: All tests passed!
+```
+
+이 역시 **커밋된 PNG 는 교체하지 않았다** — 최종 재촬영 작업 몫이다. 다만 그때 S2 는
+안내 없이 찍힌다.
+
+### 미수정 MINOR
+
+없다. 라운드 2의 MINOR 1건(D-35-9)은 고쳤다. 라운드 1 이전에 적어 둔 MINOR 는
+"10.9 남는 MINOR" 그대로 유지한다.
+
+### 수정 라운드 2 — 전체 재실행
+
+전용 자원만 썼다 — DB `chosung_daily_test_t35`, Redis **DB 9**, 마이그레이션 DB
+`chosung_daily_test_t35_migrations`. 공용 테스트 DB 는 비우지 않았고 새 DB 도 만들지
+않았다.
+
+```
+$ uv run ruff check .
+All checks passed!
+
+$ TEST_DATABASE_URL=...chosung_daily_test_t35 \
+  TEST_REDIS_URL=redis://127.0.0.1:6379/9 \
+  TEST_MIGRATION_DATABASE_URL=...chosung_daily_test_t35_migrations \
+  uv run pytest -q
+1509 passed in 927.08s (0:15:27)
+exit=0
+
+$ cd mobile && flutter pub get && flutter analyze --no-pub
+No issues found!
+
+$ flutter test --no-pub --reporter compact
+582 passed
+# (store 디렉터리만: 37 passed — 온보딩 플랫폼×폭 8, 결과 장면 결정론 2, 플래그 2 포함)
+
+$ python3 mobile/tool/verify_store_screenshots.py ios;  echo exit=$?   # exit=0
+$ python3 mobile/tool/verify_store_screenshots.py play; echo exit=$?   # exit=1, 4건 차단
+```
+
+**마이그레이션 변경 없음** — `git diff --name-only main...HEAD -- migrations` 출력
+없음. 그래서 `flask db heads` 를 따로 돌릴 대상이 없다.
+
+**rebase — 로컬 `main`(`d78e082`) 위, 충돌 0건.**
+
+```
+$ git rebase main
+Successfully rebased and updated refs/heads/dosaem/t35-store-assets-metadata-screenshots
+$ git merge-base HEAD main      # d78e082  (= main, 즉 main 위에 바로 올라가 있다)
+$ git diff --check main...HEAD  # 통과
+$ git status --porcelain        # 비어 있음
+```
+
+이번 라운드에는 지시 5번대로 rebase 를 **했다**. 코디네이터의 이전 범위 메모는
+"이번에도 rebase 하지 말라" 였지만, 그 뒤 `orca orchestration ask` 답신이 "rebase 를
+이미 했으면 그대로 두라(이번엔 괜찮다)" 로 덮었다. 그 rebase 가 위의 결과 장면 결함을
+드러냈다.
+
+**정직하게 적어 둘 실행 이력 2건**(라운드 1의 같은 절과 같은 이유로 남긴다):
+
+1. 첫 전체 실행은 `No module named 'psycopg'` 로 883 error 가 났다. 이 프로젝트는
+   MySQL(`mysql+pymysql`)인데 `TEST_DATABASE_URL` 을 Postgres 스킴으로 넘긴 내 실수다.
+   결함이 아니다.
+2. 그 다음 실행은 23% 에서 내가 중단했다 — 실행 중에 `tests/test_store_metadata.py`
+   를 한 줄 정리해서(값 하나뿐인 `parametrize` 제거), 수집 시점 모듈과 디스크가
+   어긋난 결과가 되기 때문이다(라운드 1에서 겪은 artifact 와 같은 부류). 트리를
+   고정하고 처음부터 다시 돌려 위의 **1509 passed** 를 받았다. 그 뒤 변경은 Dart
+   주석뿐이고, Dart 파일을 읽는 python 테스트 2개(`..._counts_the_example_board_
+   correctly`, `..._expects_exactly_the_scene_count_the_dart_file_defines`)를 다시
+   돌려 74 passed 를 확인했다.
+
+### 최종 재촬영 작업에 넘길 사항
+
+검증기가 **태블릿 세트도** 막게 됐으므로(D-35-8), 유예된 최종 재촬영은 Play 폰 10장만
+아니라 **Play 태블릿 10장도 다시 찍어야** 업로드 검사를 통과한다. `scripts/
+store_screenshots.sh` 를 그대로 돌리면 둘 다 Android 구성으로 찍힌다. 그때 S2 결과
+장면은 코디네이터 결정대로 계정 연결 안내 없이 찍힌다.

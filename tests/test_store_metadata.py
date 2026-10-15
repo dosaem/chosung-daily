@@ -106,8 +106,7 @@ ENGLISH_BOARD_EXAMPLE = "P _ R P L _"
 _WORD_LENGTH_WORDS = {5: "five", 6: "six", 7: "seven"}
 
 
-@pytest.mark.parametrize("locale", ["en-US"])
-def test_the_english_description_counts_the_example_board_correctly(locale):
+def test_the_english_description_counts_the_example_board_correctly():
     """D-35-9: `P _ R P L _` 는 6칸인데 본문이 "five-letter word" 라고 적었다.
 
     칸 수를 손으로 센 숫자가 아니라 **예시 문자열에서** 뽑아 대조한다 — 예시가
@@ -118,8 +117,8 @@ def test_the_english_description_counts_the_example_board_correctly(locale):
     expected = f"({ENGLISH_BOARD_EXAMPLE} for a {_WORD_LENGTH_WORDS[slots]}-letter word)"
 
     for directory, name in (
-        (IOS_METADATA / locale, "description.txt"),
-        (PLAY_METADATA / locale, "full_description.txt"),
+        (IOS_METADATA / "en-US", "description.txt"),
+        (PLAY_METADATA / "en-US", "full_description.txt"),
     ):
         text = _read(directory / name)
         assert ENGLISH_BOARD_EXAMPLE in text, f"{name}: 예시 보드가 없다"

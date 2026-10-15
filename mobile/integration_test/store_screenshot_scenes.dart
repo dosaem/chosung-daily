@@ -5,11 +5,14 @@
 /// `flutter test`(test/store/store_screenshot_scenes_test.dart)가 폰·태블릿 폭
 /// 양쪽으로 띄워 보고, 스크린샷을 찍기 전에 "장면이 깨졌다" 를 CI 가 먼저 잡는다.
 ///
-/// 규칙 세 가지:
+/// 규칙 네 가지:
 /// - **라이트 모드 강제**(OVERRIDES §8). 기기 다크 설정과 무관하게 같은 그림이
 ///   나와야 한다 — `themeMode` 를 고정하고 `darkTheme` 에도 라이트를 넣는다.
 /// - **데이터는 `FakeApiClient` 뿐**. 서버 경계만 가짜고 화면·테마·레이아웃은 실제
 ///   코드다(README "22. 테스트 경계" 와 같은 선).
+/// - **기기에 남는 상태도 가짜**(`localFlagStoreProvider`). 서버가 아니라 **기기**가
+///   기억하는 1회성 안내가 있어서다 — 그대로 두면 같은 스크립트가 키체인 상태에
+///   따라 다른 그림을 낸다. 화면 코드는 여기서도 실제다.
 /// - **배너 슬롯 없음**. 광고 자리는 구독자에게 사라지는 영역이고(OVERRIDES §5),
 ///   스토어 스크린샷에 빈 회색 띠를 넣을 이유가 없다.
 library;
@@ -20,6 +23,7 @@ import 'package:chosung/api/api_providers.dart';
 import 'package:chosung/app.dart';
 import 'package:chosung/config/provider_retry.dart';
 import 'package:chosung/layout/adaptive_scaffold.dart';
+import 'package:chosung/local/local_flags.dart';
 import 'package:chosung/screens/onboarding_screen.dart';
 import 'package:chosung/screens/ranking_tab.dart';
 import 'package:chosung/screens/records_tab.dart';
@@ -32,6 +36,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
 import '../test/fakes/fake_api_client.dart';
+import '../test/fakes/in_memory_local_flag_store.dart';
 
 /// 찍을 장면. 구독(S5)은 OVERRIDES §8 의 목록에 없어서 빼 둔다.
 enum StoreScene {
@@ -313,6 +318,20 @@ Widget _shell({
   ),
 );
 
+/// 스토어 장면의 로컬 플래그 저장소. **모든 1회성 안내를 "이미 봤다" 로 켜 둔다** —
+/// OVERRIDES §8 의 S2 는 "결과 보기를 눌러 띄운 시트" 이고, 성장 유도 배너가 결과
+/// 보드를 덮으면 스토어 그림이 핵심 경험을 덜 보여준다.
+///
+/// `LocalFlag.values` 를 돌려서 켜는 이유: 나중에 1회성 안내가 더 붙어도 장면이
+/// 저절로 따라간다. 하나씩 적으면 새 안내가 조용히 스크린샷에 끼어든다.
+LocalFlagStore storeScreenshotFlagStore() {
+  final store = InMemoryLocalFlagStore();
+  for (final flag in LocalFlag.values) {
+    store.values[flag.key] = '1';
+  }
+  return store;
+}
+
 Widget _root({
   required StoreScene scene,
   required FakeApiClient api,
@@ -331,6 +350,11 @@ Widget _root({
     appVersionProvider.overrideWith((ref) async => '1.0.0'),
     // 온보딩 장 수는 플랫폼으로 갈린다 — 찍는 기기를 그대로 따른다.
     isIosProvider.overrideWithValue(isIos),
+    // 기기에 남은 "이미 봤다" 표시도 가짜로 바꾼다. 티켓 29 가 결과 시트에 넣은
+    // 계정 연결 안내는 **1회성**이라, 이 provider 를 그대로 두면 같은 스크립트가
+    // 키체인 상태에 따라 다른 그림을 낸다 — 깨끗한 시뮬레이터에선 안내가 결과
+    // 보드를 덮어 찍히고 두 번째 실행부터는 안 찍힌다(D-35-5·D-35-8 과 같은 부류).
+    localFlagStoreProvider.overrideWithValue(storeScreenshotFlagStore()),
   ],
   child: AppLocalizationScope(
     startLocale: locale,

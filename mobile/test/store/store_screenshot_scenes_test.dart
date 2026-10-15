@@ -1,9 +1,11 @@
+import 'package:chosung/local/local_flags.dart';
 import 'package:chosung/onboarding/onboarding_pages.dart';
 import 'package:chosung/screens/onboarding_screen.dart';
 import 'package:chosung/widgets/leaderboard_row.dart';
 import 'package:chosung/widgets/result_sheet.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../integration_test/store_screenshot_scenes.dart';
@@ -200,6 +202,71 @@ void main() {
         });
       }
     }
+
+    // rebase 로 드러난 결함: 티켓 29 가 결과 시트에 넣은 계정 연결 안내는 1회성
+    // 플래그를 플랫폼 채널(secure storage)에서 읽는다. 장면이 그 저장소를 바꿔
+    // 끼우지 않으면 같은 스크립트가 **키체인 상태에 따라 다른 그림**을 낸다 —
+    // 깨끗한 기기에선 안내가 결과 보드를 덮고 두 번째 실행부터는 안 덮는다.
+    // 코디네이터 결정: OVERRIDES §8 의 S2 정의대로 안내는 숨긴다.
+    testWidgets('$language — 결과 장면은 1회성 안내 없이 같은 그림으로 찍힌다', (tester) async {
+      // **깨끗한 기기를 흉내낸다.** `flutter test` 에는 secure storage 플러그인이
+      // 없어서 읽기가 MissingPluginException 으로 죽는다 — 그러면 안내는 어차피
+      // 안 뜨고, 정작 재현하려는 "기기에선 뜬다" 가 사라진다. 그래서 채널에
+      // 처음 쓰는 기기처럼 null 을 돌려주는 대역을 끼운다: 장면이 저장소를 바꿔
+      // 끼우지 않으면 여기서 안내가 결과 보드를 덮는다.
+      final reads = <String>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        const MethodChannel('plugins.it_nomads.com/flutter_secure_storage'),
+        (call) async {
+          if (call.method == 'read') {
+            reads.add('${(call.arguments as Map)['key']}');
+            return null; // 아직 아무것도 안 본 기기
+          }
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          const MethodChannel('plugins.it_nomads.com/flutter_secure_storage'),
+          null,
+        ),
+      );
+
+      setViewSize(tester, phone);
+
+      final scene = storeScreenshotScenes(
+        locale: locale,
+        isIos: true,
+      ).firstWhere((scene) => scene.scene == StoreScene.result);
+
+      // 같은 장면을 두 번 띄운다. 저장소가 기기에 남는 것이었다면 첫 번째에만
+      // 안내가 뜨고 두 번째에는 안 뜬다 — 둘 다 "없음" 이어야 결정론적이다.
+      for (final pass in [1, 2]) {
+        await _pumpScene(tester, scene);
+        expect(
+          find.text('result.link_account'.tr()),
+          findsNothing,
+          reason: '$pass 번째: 1회성 계정 연결 안내가 결과 보드를 덮었다',
+        );
+      }
+
+      // 장면이 기기 저장소를 아예 타지 않는지도 본다 — 타면 그 기기의 상태가
+      // 그림에 섞인다.
+      expect(reads, isEmpty, reason: '장면이 기기 secure storage 를 읽었다: $reads');
+    });
+
+    testWidgets('$language — 장면의 로컬 플래그는 1회성 안내를 모두 켜 둔다', (tester) async {
+      // 안내가 새로 붙어도 장면이 따라가는지 — `LocalFlag.values` 전체를 본다.
+      final store = storeScreenshotFlagStore();
+
+      for (final flag in LocalFlag.values) {
+        expect(
+          await store.isSet(flag),
+          isTrue,
+          reason: '${flag.key} 가 꺼져 있다 — 새 1회성 안내가 스크린샷에 끼어든다',
+        );
+      }
+    });
 
     testWidgets('$language — 모든 장면이 라이트 모드다(기기가 다크여도)', (tester) async {
       setViewSize(tester, phone);
