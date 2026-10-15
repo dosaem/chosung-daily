@@ -3,6 +3,7 @@ import 'package:chosung/ads/google_ad_service.dart';
 import 'package:chosung/config/firebase_bootstrap.dart';
 import 'package:chosung/config/sentry_bootstrap.dart';
 import 'package:chosung/main.dart';
+import 'package:chosung/notifications/notification_bootstrap.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -52,6 +53,12 @@ void main() {
     await bootstrapChosungApp(
       initializeFirebaseFn: () async => FirebaseBootstrap.skipped,
       initializeLocalizationFn: () async {},
+      // 알림 초기화는 플러그인(플랫폼 채널)을 탄다 — 여기서 보려는 건 광고
+      // override 뿐이라 티켓 30 의 "알림 없음" 기본값으로 대신한다.
+      initializeNotificationsFn: () async => NotificationBootstrap(
+        available: false,
+        taps: NotificationTaps(launchedByNotification: false),
+      ),
       start: (app) => started = app,
     );
 
