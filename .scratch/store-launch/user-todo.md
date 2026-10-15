@@ -20,8 +20,8 @@
 | # | 항목 | 상태 | 누가 | 비고 |
 |---|---|---|---|---|
 | 6 | 단어 CSV ko/en 각 120개 이상 | 아직 → **티켓 38 로 워커가 후보 생성** | 워커 → 사람 검수·업로드 | `issues/38-word-candidates-csv.md` |
-| 7 | Firebase 프로젝트 + Android/iOS 앱 등록 파일 2개 | 아직 | Claude(Chrome) | 운영자 Google 계정 로그인 필요 |
-| 8 | GCP 클라이언트 ID 3종(iOS / Android SHA-1 / 웹 `serverClientId`) | 아직 | Claude(Chrome) | Android SHA-1 은 14번 keystore 뒤 |
+| 7 | Firebase 프로젝트 + Android/iOS 앱 등록 파일 2개 | **끝(2026-10-15)** | Claude(gcloud+Orca) | GCP/Firebase 프로젝트 `chosung-daily`(dosaem90 소유, hsseo@dosaem.com 편집자 + 소유자 초대 메일 → **사용자 수락 필요**). 앱 2개 등록, Analytics 연결(Default Account for Firebase). 파일은 `mobile/android/app/google-services.json`·`mobile/ios/Runner/GoogleService-Info.plist`(gitignore) |
+| 8 | GCP 클라이언트 ID 3종(iOS / Android SHA-1 / 웹 `serverClientId`) | **끝(2026-10-15)** | Claude(Orca) | OAuth 브랜딩(Hidden Vowels, 외부) + 웹·iOS·Android(upload)·Android(debug) 클라이언트 4개. 값은 `~/.config/chosung-daily/launch-secrets.env`, 로컬 `.env` 에 `GOOGLE_WEB_CLIENT_ID`·`GOOGLE_IOS_CLIENT_ID`. **남은 것:** Play App Signing SHA-1 (11번 뒤) 을 Firebase·GCP Android 클라이언트에 추가, prod `.env` 전환 |
 
 ## C. 콘솔 (D1, 백엔드 중)
 
@@ -37,7 +37,7 @@
 |---|---|---|---|---|
 | 12 | AdMob 앱 2 + 유닛 6 + UMP 메시지 | 아직 | Claude(Chrome) | AdMob 계정 승인 대기 가능 → 앱 티켓은 테스트 유닛 ID 로 먼저 |
 | 13 | ASC 앱 생성(이름 중복 확인) + 구독 `adfree_monthly` 양쪽(₩1,500) + Apple Grace Period 16일 | 아직 | Claude(Chrome) | 10·11 뒤. 유료 앱 계약·세금/은행 정보는 사용자 |
-| 14 | 업로드 keystore · match · self-hosted 러너 · GitHub secrets | 아직 | Claude(로컬 CLI) + 사용자 | keystore·match 는 로컬에서 Claude 가 생성 가능, 러너 등록 토큰은 GitHub 에서 |
+| 14 | 업로드 keystore · match · self-hosted 러너 · GitHub secrets | **일부 끝(2026-10-15)** | Claude(로컬 CLI) + 사용자 | keystore 생성(`mobile/android/app/upload-keystore.jks`, 비밀번호는 `mobile/android/key.properties`, 둘 다 gitignore — **사용자가 비밀번호 관리자에 백업**). GitHub secrets 9개(KEYSTORE_*·KEY_*·GOOGLE_PLAY_KEY_JSON·FIREBASE_SERVICE_ACCOUNT·FIREBASE_APP_ID·GOOGLE_SERVICES_JSON_BASE64·GOOGLE_SERVICE_INFO_PLIST_BASE64) + variables 2개(API_BASE_URL_PROD·GOOGLE_SERVER_CLIENT_ID) 설정. 서비스 계정 키는 `~/.config/chosung-daily/*.json`. **남은 것:** match(Apple 로그인 뒤), self-hosted 러너, APP_STORE_CONNECT_API_KEY·MATCH_*·FLUTTER_SENTRY_DSN·ADMOB_* |
 
 ## E. 배포·심사 (D3)
 
@@ -50,4 +50,5 @@
 
 ## 기록
 
+- 2026-10-15 (2차): 7·8 완료, 14 일부. Play 서비스 계정 `play-publisher@chosung-daily.iam.gserviceaccount.com` 은 11번에서 Play Console 에 초대(앱 출시 관리 권한). Orca 브라우저에서 Apple 로그인이 안 돼 나머지는 Chrome 으로 진행.
 - 2026-10-15: 1~18 질문·답 완료. 6 → 티켓 38 추가. 7~14·18 은 Claude 가 Chrome 으로 진행하기로. 메모리 `ask-numbered-all-at-once`, `console-setup-by-claude`.
