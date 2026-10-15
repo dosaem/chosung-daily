@@ -282,3 +282,73 @@
 - 빈 슬롯 캡션·기존 버튼 폭·스크롤 배치 등 취향 차이는 결함으로 세지 않았다. UMP canRequestAds 직접 확인, 실제 재선택·광고 렌더링·iOS 실행·어댑티브 크기 실측은 별도 검증 한계다. 프로덕션·NAS·실제 외부 서비스에는 접속하지 않았다.
 
 판정: FAIL
+
+## 라운드 5
+
+### 범위와 결론
+
+- 리뷰어가 Codex 에서 Claude(Fable)로 바뀌었다(코디네이터 메모). 라운드 1~4 의 결함 ID 와 판정 기준을 그대로 잇는다.
+- 검토 HEAD `eabf80d8e346b1c23404d0f7ac0890e0c749f580`(라운드 4 수정 커밋), merge-base `d78e0820ab8bcc3af785df86d589fdf32386bb15`. `git diff main...HEAD`(3-dot, merge-base 기준)와 `git log main..HEAD` 17개 커밋, 티켓·스펙 §A.5/§B.21/§B.23·관련 US·구현 증거 "수정 라운드 4" 절·이전 리뷰를 대조했다. origin/main 은 쓰지 않았다.
+- **로컬 main 이 이동했다**: 지금 main 은 `269a55c`(티켓 35 머지, 수정 커밋 34초 뒤). 이 브랜치는 그 위로 rebase 되지 않았다. `git merge-tree --write-tree main HEAD` 는 충돌 없음이고 티켓 35 는 `mobile/lib` 를 건드리지 않는다(`mobile/test/store/` 2개 추가뿐). 아래 검증은 이 브랜치 HEAD 에서 돌렸고 머지 결과 트리에서는 돌리지 않았다 — 결함이 아니라 머지 시 참고.
+- 이번 라운드의 변경(라운드 4 대비)은 `today_puzzle_controller.dart`·`result_interstitial.dart`·테스트 2개·README 31절·증거 문서뿐이다. UI·디자인·백엔드 변경은 없어 DESIGN_DIR 대조와 `flask db heads` 는 해당 없음(`git diff main...HEAD -- app/ web/ tests/ migrations/ .env.example` 빈 결과).
+- 기존 D-31-1~7 **모두 FIXED, REPEAT 0**. 신규 **BLOCKER 0 / MAJOR 0 / MINOR 1**(D-31-8). 증거의 RED/GREEN 주장은 수정 전 소스를 임시로 되돌려 직접 확인했고, D-31-8 은 임시 테스트 파일로 재현한 뒤 지웠다(작업 트리 clean, 아래 "직접 실행한 검증").
+
+### 티켓 체크박스별 판정
+
+| 체크박스 | 판정 | 직접 확인한 근거 |
+|---|---|---|
+| ApiClient hint-unlock — Dio + Fake | 충족 | 라운드 4 와 동일. 이번 라운드 변경 없음. `dio_api_client_test.dart` 통과. |
+| 순수 광고 게이트·UMP 4종·구독자·오류/재시작·entitlement 초기 null | 충족 | 라운드 4 와 동일. 변경 없음. `ad_gate_test`·`ad_consent_test`·`entitlement_test` 통과. |
+| UMP update → 폼 → SDK canRequestAds → initialize, ATT 이후, 광고 ID | 증거 부족 | 라운드 1·3·4 와 같은 한계(`google_ad_service.dart:28` 이 SDK `canRequestAds()` 대신 ConsentStatus 를 읽고 `ad_gate.dart:30` 이 자체 계산). 코디네이터 메모 3 에 따라 새 근거 없이 결함으로 올리지 않는다. 스펙 미정 항목에 남아 있음을 확인했다. |
+| 배너 예약·실패·구독자 제거·태블릿 폭 재요청, 전면 퍼즐당 1회 | 충족 | 배너는 변경 없음. 전면은 세션 플래그가 계정 세대(`result_interstitial.dart:44,50,62`)로 바뀌었고, 퍼즐 예약은 기기 단위 유지(`:66-67`). 새 테스트 2개가 "옛 계정 제출로 B 의 전면 금지"·"계정 바꿔도 퍼즐당 1회"를 고정하며, 전자는 수정 전 코드에서 실패함을 직접 확인했다. |
+| 보상형 완료→힌트·구독자 무광고·409·실패 안내/비활성 | 충족 | 정상 두 경로·중도 닫힘·409·실패 후 구독 전환·제출/조회 경합·계정 경계(D-31-7) 테스트 통과. 남은 것은 남의 늦은 응답이 새 계정 보드를 한 번 더 버리는 D-31-8(MINOR)뿐이다. |
+| S4 required일 때 개인정보 설정 → 폼 | 충족 | 라운드 4 와 동일. 변경 없음. `records_ad_privacy_test` 통과. |
+| 인터페이스/no-op·위젯 테스트·native audit·목업 대비 | 증거 부족 | 라운드 4 와 같은 한계 — 테스트·골든·APK 빌드는 확인했으나 실제 광고 렌더링·어댑티브 높이 실측은 없다. 검증 한계이지 결함이 아니다. 경로 쌍 표의 계정 경계 행은 채워졌으나 "옛 계정의 늦은 쓰기 응답 × 이미 올라온 새 계정 보드/새 계정의 떠 있는 제출" 칸이 비어 있다(D-31-8). |
+
+### 이전 결함 재판정
+
+| ID / 이전 심각도 | 판정 | 직접 확인한 근거 |
+|---|---|---|
+| D-31-1 / MAJOR | FIXED | 변경 없음. `interstitial_store.dart` 퍼즐 ID 목록, 언어 왕복 테스트 통과(전체 테스트에 포함). |
+| D-31-2 / MAJOR | FIXED | 변경 없음. `today_puzzle_controller.dart:274-277` 의 제출 완료 대기 유지. 회귀 테스트 통과. |
+| D-31-3 / MAJOR | FIXED | 변경 없음. `today_tab.dart:314` 광고 필요 동안만 실패 상태 적용. 테스트 통과. |
+| D-31-4 / MAJOR | FIXED | `_boardFor` 가 계정 인자를 받게 바뀌었지만(`:417-423`) 퍼즐 번호 병합 규칙은 그대로다. 힌트 중 제출 성공/실패·409 재조회 회귀 테스트 통과. |
+| D-31-5 / MAJOR | FIXED | 변경 없음. `result_interstitial.dart:53-58` 퍼즐별 진행 future, `:66-67` 요청 전 예약. 테스트 통과. |
+| D-31-6 / MAJOR | FIXED | 변경 없음. `:66,174-177,348-351` 쓰기 중 읽기 미루기 유지. 테스트 통과. |
+| D-31-7 / MAJOR | FIXED | 라운드 4 재현 절차 그대로인 테스트 `계정이 바뀐 뒤 도착한 힌트 응답은 새 계정 보드를 열지 않는다` 가 수정 전 소스(45bd130 의 두 파일로 임시 교체)에서 `Expected: false / Actual: true` 로 실패하고 HEAD 에서 통과함을 직접 봤다. 보내는 쪽(`:299-302` `sendIfSameAccount`)과 올리는 쪽(`:323`, `_boardFor` 의 `_sameAccount`) 두 문이 있고, 토큰만 바뀌는 입구 테스트 `계정이 바뀐 뒤에는 옛 보드로 힌트를 열지 않는다` 는 `unlockedHintPuzzleIds` 가 비어 있음을 검사한다. 제출 경로(`:227-230`, `_commitNotice :439-442`)도 같은 검사를 지나며 두 제출 테스트가 수정 전 실패·수정 후 통과했다. |
+
+### 신규 결함
+
+#### D-31-8 — MINOR — 옛 계정의 늦은 쓰기 응답이 이미 올라온 새 계정 보드를 한 번 더 버리고 다시 읽는다
+
+- 위치: `mobile/lib/puzzle/today_puzzle_controller.dart:309-312`(힌트 응답 뒤 `_sameAccount` 실패 → `discard()`), 같은 패턴 `:227-230`(제출 성공 응답), `:439-442`(`_commitNotice`). `discard()` 자체는 `:160-167`(세대 증가·`_submitting`/`_unlockingHint` 리셋·상태 null·재조회).
+- 요구: 계정 전환 뒤 화면은 새 계정 보드이고(US 19), 새 계정의 제출은 보드에 쌓이고 끝나면 결과 시트·`puzzle_complete`·전면 광고 순서로 이어진다(US 3a·24·25). 티켓 31 클래스 주석 규칙 1 "쓰기가 떠 있으면 읽기를 미룬다".
+- 원인: 라운드 4 수정은 "남의 응답이면 보드까지 버린다"를 **무조건** 적용한다. 그 근거(남의 보드가 `submitting: true` 로 잠긴 채 남는다)는 토큰만 바뀌는 입구(401 복구)처럼 **옛 보드가 아직 화면에 있을 때**만 성립한다. 일반 전환(`AccountNotifier._adopt` → `discardTodayPuzzle`)에서는 전환 시점에 이미 보드를 버리고 새 계정 보드를 읽어 두었는데, 뒤늦게 온 옛 계정 응답이 `_account.state` 와 다르다는 이유로 그 **새 계정 보드**를 다시 `discard()` 한다. `discard()` 는 세대를 올리고 `_submitting` 을 리셋하므로 그 순간 떠 있던 새 계정의 쓰기 응답까지 버린다.
+- 재현 1(기본): A 보드 로드 → `api.unlockHintGate` 로 힌트 응답 보류 → `replaceWith('guest-b')` + `discard()` 로 B 보드 로드(`fetchTodayPuzzleCalls == 2`, 상태 `TodayPuzzleReady`) → `fetchTodayPuzzleGate` 로 다음 조회 보류 → 힌트 게이트 완료. **기대**: B 보드 그대로, 조회 2회. **실제**: 상태 `null`(스켈레톤)·조회 3회. 임시 테스트 출력 `R5-A fetchCalls=3 stateValue=null`.
+- 재현 2(최악): 위에서 B 보드 로드 뒤 `submitGuessGate` 로 B 의 제출을 보류(`submittedGuesses == 1`, `submitting: true`) → 힌트 게이트 완료 → 제출 게이트 완료. **기대**: B 의 제출이 `true` 로 돌아오고 행이 쌓인다. **실제**: `submit` 이 `false`(세대 불일치로 응답 폐기), 재조회된 보드는 `attempts=0, attemptsLeft=5`(Fake 는 기본 퍼즐을 돌려줌), `_guess` 미삭제·결과 시트·`puzzle_complete`·`markSubmitted` 모두 건너뛴다. 실제 서버에서는 재조회 GET 이 POST 처리 뒤에 오면 행은 보이지만 시트·이벤트·전면은 그대로 빠지고, 앞서면 같은 답을 다시 보낼 수 있다. 임시 테스트 출력 `R5-B submit recorded=false attempts=0 attemptsLeft=5 submitting=false`.
+- MINOR 로 둔 이유: 옛 계정 응답은 Dio `receiveTimeout` 10초(`dio_api_client.dart:25`) 안에 와야 성공 경로를 타는데, 그 안에 내 기록 탭 → 백업 코드 입력 → 전환 → B 보드 로드까지 끝내야 재현 1 이 되고, 거기에 B 의 제출까지 떠 있어야 재현 2 가 된다. 흔히 보이는 증상은 B 보드의 스켈레톤 깜빡임 + GET 1회 추가이고 서버 데이터 손상은 없다. 다만 라운드 4 D-31-7 과 같은 부류(계정 경계 × 늦은 쓰기 응답)의 반대쪽 칸이라 경로 쌍 표에 행을 추가하고, `discard()` 는 **화면의 보드가 아직 옛 계정 것일 때만**(예: 보드를 읽은 계정 `_accountEpoch != _account.state`) 부르고 그 외엔 응답만 버리는 쪽이 맞다.
+- 테스트 공백: `계정이 바뀐 뒤 도착한 힌트 응답은 새 계정 보드를 열지 않는다` 는 Fake 가 즉시 응답해 재조회가 끝난 뒤 상태를 보므로 추가 `discard` 를 알아채지 못한다(`fetchTodayPuzzleCalls` 미검사). 경로 쌍 표에 "옛 계정 늦은 쓰기 응답 × 이미 올라온 새 계정 보드 / 새 계정의 떠 있는 제출" 칸이 없다.
+
+### 직접 실행한 검증
+
+| 명령 | 결과 |
+|---|---|
+| `uv run ruff check .` (루트) | All checks passed, exit 0 |
+| `cd mobile && flutter analyze` | No issues found, exit 0 |
+| `cd mobile && dart format --output=none --set-exit-if-changed .` | Formatted 178 files (0 changed), exit 0 |
+| `cd mobile && flutter test` | 00:50 +636: All tests passed, exit 0 (라운드 4 629 → 636) |
+| 수정 전 소스로 새 테스트 7개(`--name "계정이 바뀐 뒤\|제출 응답을 기다리는 사이\|제출이 실패로 끝나도\|복귀 재조회가 떠 있는 동안\|계정이 바뀌"`) | `45bd130` 의 두 lib 파일로 임시 교체 → +4 -5 Some tests failed(힌트 2·제출 2·전면 세션 1 실패, 복귀 재조회·전면 퍼즐 예약 통과) → `git checkout HEAD --` 로 복원, 트리 clean. 증거의 "5개 RED" 와 일치 |
+| 임시 테스트 `mobile/test/zz_r5_scratch_test.dart`(D-31-8 재현 2건) | 출력 위 결함 항목, 실행 후 삭제·트리 clean |
+| `cd mobile && flutter build apk --debug` | ✓ Built build/app/outputs/flutter-apk/app-debug.apk, exit 0; 코디네이터 메모 4 대로 확인 후 mobile/build 삭제 |
+| 전용 자원으로 `uv run pytest -q` | 1412 passed in 1019.27s (0:16:59), exit 0; 재실행 없이 통과 |
+| `git diff --check main...HEAD` | exit 0 |
+
+백엔드는 기존 전용 DB `chosung_daily_test_t31`, Redis DB 5, 마이그레이션 DB `chosung_daily_test_t31_migrations` 를 `TEST_DATABASE_URL`/`TEST_REDIS_URL`/`TEST_MIGRATION_DATABASE_URL` 로 지정했다(접속 전 ping 으로 세 자원 모두 연결 확인). 이 worktree 엔 `.env` 가 없어 `app/config.py` 의 테스트 기본 접속 형식에 DB 이름만 바꿔 썼고 인증 값은 기록하지 않는다. 새 DB 를 만들지 않았고 기본 DB 로 전환하지 않았다.
+
+### 보안·범위·공유 파일과 참고
+
+- 힌트 쓰기가 제출과 같은 `sendIfSameAccount` 문을 지나므로 토큰만 바뀐 뒤 옛 보드에서 새 계정 unlock 이 서버에 기록되는 길은 막혔다. 서버 인증/CSRF 변경 없음. 시크릿 신규 기록 없음(토큰은 `guest-a`/`guest-b` 문자열, 증거의 접속 문자열은 `...` 처리).
+- README 는 `### 31.` 절(2423행~2503행) 안의 2472행 부근만 바뀌었고 다른 번호 절은 건드리지 않았다. RELEASE·스펙 미정 항목은 이번 라운드 변경 없음. 범위 밖 변경 없음.
+- 참고(결함 아님): ① 로컬 main 이 `269a55c` 로 이동, 충돌 없음·`mobile/lib` 겹침 없음, 머지 트리에서의 테스트는 미실행. ② `google_ad_service.dart:28` canRequestAds 건은 코디네이터 메모대로 미정 항목 유지. ③ 실기기 광고 렌더링·어댑티브 높이·UMP 재선택·iOS 실행은 이전 라운드와 같은 검증 한계. ④ 프로덕션·NAS·실제 외부 서비스 미접속.
+
+판정: PASS
