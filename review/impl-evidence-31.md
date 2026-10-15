@@ -429,3 +429,240 @@ main 이 움직이지 않았다. `git diff --check main...HEAD` exit 0, 작업 �
 
 실기기·실제 광고 호출·스토어·프로덕션 접근은 이 라운드에도 없다 — §8 의 한계가
 그대로다.
+
+## 수정 라운드 2
+
+라운드 2 리뷰(Codex, FAIL)의 신규 **MAJOR 1건(D-31-4)** 을 고쳤다. BLOCKER·REPEAT·
+MINOR 는 없었다. 이전 결함 3건은 리뷰가 모두 FIXED 로 재판정했다.
+
+### D-31-4 — 힌트 응답 대기 중 제출하면 성공한 힌트가 폐기되고 광고를 다시 요구한다
+
+**재현(리뷰의 절차 그대로).** 힌트가 없는 진행 중 퍼즐에서 `unlockHint()` 를
+띄워 놓고(`api.unlockHintGate`) 그 응답 전에 답을 제출해 제출만 네트워크 오류로
+끝낸 뒤, 앞서 성공한 hint-unlock 응답을 전달한다. 수정 전에는 `unlockHint()` 가
+`false` 를 돌려주고 보드의 `hint` 가 `null` 로 남았다 — 화면은 "힌트를 열지
+못했어요" 를 띄우고, 비구독자가 다시 누르면 `_preview()` 가 **보상형 광고부터**
+다시 재생했다.
+
+**원인.** 응답 경합을 `_generation` **하나**로만 끊었다. 그 규칙은 "나중에 떠난
+요청이 이긴다, 먼저 떠난 응답은 버린다" 인데, 보드 전체를 실어 오는 재조회에는
+맞지만 **힌트 한 칸**에는 틀렸다. hint-unlock 의 새 정보는 "서버가 힌트를 열었다"
+뿐이고 시도 행·남은 기회·상태와 겹치지 않는다. 그런데
+
+- `unlockHint()` 는 떠날 때 세대를 N 으로 올리고, 끼어든 제출이 N+1 로 올린다.
+  돌아온 힌트는 `_canCommit(N) == false` 로 **폐기**된다
+  (`today_puzzle_controller.dart:168`, 수정 전).
+- 성공·실패 양쪽이 **떠날 때의 스냅샷**(`puzzle`)에 자기 변경만 얹어 썼다.
+  그래서 반대 순서(힌트가 먼저 도착)에서도 뒤따르는 제출 커밋이
+  `applyGuess(puzzle: <힌트 없던 스냅샷>)` 로 그 힌트를 **되돌렸고**,
+  제출 실패 경로 `_commitNotice(…, puzzle, …)` 도 같은 스냅샷으로 덮었다.
+- 힌트의 409(이미 열림)·끝난 퍼즐·바뀐 퍼즐 재조회도 **떠날 때의 세대**로
+  커밋해서, 응답을 받은 뒤 떠난 조회인데도 그 사이 끝난 제출 때문에 버려졌다.
+  (서버는 이미 열어 둔 힌트를 돌려주고 있었다.)
+
+증상(화면에 힌트가 없다)만 가리려면 UI 에서 다시 조회하면 되지만, 원인은
+"겹치지 않는 변경을 세대 하나로 서로 지운다" 였다.
+
+**수정** (`mobile/lib/puzzle/today_puzzle_controller.dart`).
+
+- `_boardFor(puzzleId)` 를 들였다 — 응답을 올릴 **지금의** 보드를 돌려주고,
+  그 사이 퍼즐이 바뀌었거나(자정·언어) 보드가 없으면 `null`(= 이 응답은 버린다).
+- 힌트 성공은 세대 검사 대신 `_boardFor` 로 커밋한다: 지금 보드에
+  `copyWith(hint:, hintUnlocked: true)` 로 **그 칸만** 올리고
+  `submitting`·`notice` 는 그대로 들고 간다(제출 잠금을 일찍 풀지 않는다 —
+  라운드 1 D-31-2 의 증상이었다).
+- 제출 성공도 `applyGuess(puzzle: board.puzzle, …)` 로 지금 보드에 한 행을
+  쌓고, 제출 실패 안내(`_commitNotice`)도 지금 보드 위에 올린다. 그래서 어느
+  순서로 응답이 와도 시도 행과 힌트가 **둘 다** 남는다.
+- 힌트의 재조회 세 경로는 `_reloadAfterHint()` 로 모았다 — 응답을 받은 뒤
+  떠나는 조회라 **새 세대**로 쓰고, 제출이 아직 떠 있으면 직접 읽지 않고
+  `_refreshQueued` 로 제출 뒤 재조회에 넘긴다(지금 읽는 서버 이력엔 방금 보낸
+  답이 없다 — `submit()` 이 쓰는 규칙과 같다).
+
+세대 번호는 그대로 남는다: 재조회·제출끼리는 여전히 "나중 것이 이긴다" 다
+(`응답 경합` 그룹의 기존 테스트 6개가 그대로 통과한다).
+
+**증명.** 재현 테스트 5개를 먼저 추가해 실패를 고정하고(red) 고쳤다.
+`mobile/test/puzzle/today_puzzle_controller_test.dart` 4개:
+
+| 테스트 | 무엇을 고정하는가 |
+|---|---|
+| 힌트를 기다리는 동안 제출이 실패해도 열린 힌트는 보드에 남는다 | 리뷰의 재현 그대로. 힌트가 남고 `hintUnlocked` true, 제출 실패 안내(offline)도 같이 남고, `unlockedHintPuzzleIds == [41]`(재요청 없음) |
+| 힌트를 기다리는 동안 제출이 성공하면 쌓인 행과 힌트가 모두 남는다 | 시도 1행·남은 기회 4 + 힌트 동시 보존 |
+| 제출 응답보다 힌트가 먼저 와도 제출이 그 힌트를 덮어 지우지 않는다 | 반대 순서. 힌트가 먼저 커밋될 때 `submitting: true` 유지, 뒤이은 제출 커밋이 힌트를 되돌리지 않음 |
+| 힌트가 이미 열려 있었다는 409 는 제출이 끼어들어도 보드를 다시 읽는다 | `_reloadAfterHint` 의 새 세대 — 재조회 결과(열린 힌트)가 버려지지 않음 |
+
+`mobile/test/screens/today_tab_ads_test.dart` 1개 — 화면 경로(실제 `TodayTab`·
+컨트롤러·`HintCard`): "힌트를 기다리는 동안 제출이 실패해도 힌트가 열린다" 는
+광고를 끝까지 본 뒤 힌트 응답을 붙잡고 제출을 실패시킨 다음 힌트를 전달하면
+힌트 문구가 보이고 "힌트를 열지 못했어요" 가 없고 미리 보기 버튼이 사라지며
+`rewardedShowCalls == 1`(= **같은 힌트에 광고를 다시 요구하지 않는다**) 임을 본다.
+
+```
+# 재현(수정 전) — lib 만 수정 직전으로 되돌려 같은 테스트를 돌렸다
+$ git show HEAD~1:mobile/lib/puzzle/today_puzzle_controller.dart \
+    > mobile/lib/puzzle/today_puzzle_controller.dart
+$ cd mobile && flutter test test/puzzle/today_puzzle_controller_test.dart \
+    test/screens/today_tab_ads_test.dart
++15 -1: 응답 경합 힌트를 기다리는 동안 제출이 실패해도 열린 힌트는 보드에 남는다 [E]
+  Expected: true
+    Actual: <false>
++15 -2: 응답 경합 힌트를 기다리는 동안 제출이 성공하면 쌓인 행과 힌트가 모두 남는다 [E]
+  Expected: true
+    Actual: <false>
++15 -3: 응답 경합 제출 응답보다 힌트가 먼저 와도 제출이 그 힌트를 덮어 지우지 않는다 [E]
+  Expected: true
+    Actual: <false>
++15 -4: 응답 경합 힌트가 이미 열려 있었다는 409 는 제출이 끼어들어도 보드를 다시 읽는다 [E]
+  Expected: '서울에 가장 많다'
+    Actual: <null>
+  재조회 결과가 버려지면 안 된다
++36 -5: ... 힌트를 기다리는 동안 제출이 실패해도 힌트가 열린다 [E]
+  Expected: exactly one matching candidate
+    Actual: _TextWidgetFinder:<Found 0 widgets with text "서울에 가장 많다": []>
+00:12 +36 -5: Some tests failed.
+
+# 수정 후 (git checkout -- 으로 수정본 복원)
+$ cd mobile && flutter test test/puzzle/today_puzzle_controller_test.dart \
+    test/screens/today_tab_ads_test.dart
+00:06 +41: All tests passed!
+```
+
+### 고치지 않은 지적 (라운드 2)
+
+- **SDK `canRequestAds` 직접 확인**(체크박스 "증거 부족"). 리뷰가 라운드 1·2 모두
+  "실제 오노출을 확인하지 못했으므로 별도 결함으로 승격하지 않았다" 로 적었고
+  결함 ID 가 없다. 근거와 범위 판단은 라운드 1 절의 같은 항목과 같다 —
+  `UmpStatus.canRequestAds` 가 SDK 와 같은 네 값으로 판정하고, 바꾸려면 게이트·
+  가짜·테스트를 함께 손봐야 해서 결함 수정 범위를 넘는다. 실기기 확인은 §8·티켓 37.
+- **실제 광고 렌더링·어댑티브 높이 실측·네이티브 빌드 재검증·UMP 재선택 결과**:
+  §8 표의 기존 한계이고 이 라운드에서 달라진 게 없다. 이 라운드도 실기기·실제
+  광고·스토어·프로덕션에 접속하지 않았다.
+
+### 수정 라운드 2 검증 (실제 실행 명령과 출력)
+
+```
+$ cd mobile && flutter analyze
+Analyzing mobile...
+No issues found! (ran in 3.1s)
+
+$ cd mobile && dart format --output=none --set-exit-if-changed .
+Formatted 146 files (0 changed) in 0.31 seconds.        # exit 0
+
+$ cd mobile && flutter test        # 티켓 30 통합 rebase 전, main = 1172b9b
+00:40 +480: All tests passed!                           # 리뷰 시점 465 → +5(이번 라운드), rebase 로 main 의 10 개가 더해져 480
+```
+
+```
+$ uv run ruff check .
+All checks passed!                                      # exit 0
+
+$ TEST_DATABASE_URL=...chosung_daily_test_t31 TEST_REDIS_URL=redis://127.0.0.1:6379/5 \
+  TEST_MIGRATION_DATABASE_URL=...chosung_daily_test_t31_migrations uv run pytest -q
+........................................ [100%]
+1412 passed in 1603.52s (0:26:43)                       # exit 0, 재실행 없이 통과
+```
+
+더한 테스트 5개뿐이고 다른 테스트는 고치지 않았다 — 제출↔힌트 경합 4
+(`today_puzzle_controller_test.dart`), 화면 경로 1(`today_tab_ads_test.dart`).
+`lib` 수정은 `mobile/lib/puzzle/today_puzzle_controller.dart` 한 파일이다.
+백엔드는 이 라운드에도 한 줄도 건드리지 않았다
+(`git diff main..HEAD -- app/ web/ tests/ migrations/ .env.example` 빈 결과).
+`migrations/versions/` 변경이 없어 조건부 `flask db heads` 는 해당하지 않는다.
+
+`git rebase main` — 아래 "티켓 30 통합" 절을 보라. 로컬 `main` 이 작업 중에 두 번
+움직였다(`8ddc8fd` → `1172b9b` → `b11f011`). 최종 base 는 `b11f011` 이다. `git diff --check main...HEAD` exit 0,
+작업 트리 clean. 전용 자원만 썼다: DB `chosung_daily_test_t31`, Redis DB 5,
+마이그레이션 DB `chosung_daily_test_t31_migrations`. 접속 문자열의 인증 값은
+문서에 싣지 않는다. 공용 테스트 DB 는 비우지도, 접속하지도 않았다.
+`review/impl-review-31.md` 는 수정하지 않았다.
+
+### 티켓 30 통합 (rebase 기준이 두 번 움직였다)
+
+리뷰가 쓴 기준은 `main = 8ddc8fd` 였는데, 이 라운드 작업 중에 로컬 `main` 이
+**두 번** 움직였다: `1172b9b`(티켓 38 머지) → `b11f011`(티켓 30 앱 로컬 알림
+머지). D-31-4 수정과 전체 테스트(flutter 480 / pytest 1412)는 `1172b9b` 위에서
+돌렸고, 그 뒤 `b11f011` 위로 다시 올렸다. 티켓 30 과는 충돌 5곳이 났고,
+코디네이터 확인을 받아(옵션 A) 아래처럼 **양쪽을 더해서** 해소했다.
+
+| 충돌 | 해소 |
+|---|---|
+| `mobile/android/app/src/main/AndroidManifest.xml` | 알림 리시버 2개(30, `ScheduledNotificationReceiver`·`...BootReceiver`)와 AdMob `APPLICATION_ID` meta-data(31)를 **둘 다** 둔다. 서로 다른 선언이라 더하기로 끝난다 |
+| `mobile/lib/main.dart` (import) | `notification_bootstrap.dart`(30)와 `flutter/foundation.dart`(31, `defaultTargetPlatform`) 둘 다 |
+| `mobile/lib/main.dart` (ProviderScope overrides) | `notificationBootstrapProvider`(30)와 `adServiceProvider = GoogleAdService(...)`(31) 둘 다. 시작 순서는 30 이 정한 Firebase → 국제화 → 알림 → runApp 그대로 |
+| `mobile/lib/screens/records_tab.dart` (S4 설정 리스트) | 두 티켓이 **서로의 자리를 "준비 중" 행으로** 들고 있었다. 30 의 실제 `_NotificationRows()` + 31 의 조건부 광고 개인정보 행을 둘 다 실제 위젯으로 둔다. 개인정보 행은 `showsPrivacyOptions` 가 false 면 **구분선까지 같이** 숨겨 빈 칸을 안 남긴다. 쓰이지 않게 된 `pending` 지역 변수 1줄 제거(analyze 가 잡는다) |
+| `.scratch/store-launch/spec.md` | 30 의 미정 6 항목과 31 의 미정 24 항목 둘 다 |
+| `test/golden/records_light_390.png`, `records_tablet_1024.png` | 아래 골든 갱신 |
+
+**골든 3장 갱신**(`flutter test --update-goldens test/golden/ranking_records_golden_test.dart`).
+충돌한 2장에 더해 `records_notification_off_390.png`(30 의 "알림 꺼짐" 장면)도
+같은 이유로 바뀌어 3장이 됐다. 바뀐 내용은 **두 티켓의 자리 채우기가 서로
+교차한 결과**다:
+
+- 들어온 것(30): "일일 알림 — 오전 9:00" 행, "리마인더" 스위치 행,
+  "그 날 안 풀었으면 저녁 8시에 한 번 더" 힌트 줄, (권한 꺼진 장면에서는)
+  "알림 꺼짐 — 시스템 설정에서 켜기" 안내.
+- 빠진 것(31): "광고 개인정보 설정 — 준비 중" 자리 행. 골든 환경은 UMP
+  privacy options 가 required 가 아니라 **행이 아예 없는 게 맞다**(SCREENS S4,
+  스펙 §B.23). required 인 경우의 노출은 골든이 아니라
+  `test/screens/records_ad_privacy_test.dart` 가 지킨다(통과).
+- 픽셀 차이: `records_light_390` 3.84%(12,643px), `records_tablet_1024`
+  5.15%(40,480px), `records_notification_off_390` 1.01%(3,327px). 3장 모두
+  직접 열어 레이아웃(폰 1열 / 태블릿 T4 2열)과 구분선·빈 칸을 확인했다.
+
+**통합 때문에 고친 테스트 1개.** `test/config/bootstrap_test.dart`
+"시작 트리가 실제 광고 SDK 를 끼운다"(31)가 `initializeNotificationsFn` 을 안 줘서
+머지 뒤 **실제** 알림 초기화를 타고 실패했다. 티켓 30 자신의 테스트와 같은 방식
+(`NotificationBootstrap(available: false, ...)`)으로 대신한다 — 이 테스트가 보는
+건 광고 override 하나뿐이고, 실제 초기화는 플랫폼 채널을 탄다.
+
+**남은 실패 1건은 내 것이 아니다 — main 의 시각 의존 테스트.**
+`test/notifications/notification_controller_test.dart` "앱 시작 OS 에 권한 상태를
+물어보고 그 결과로 예약한다"(티켓 30)가 실패한다. `git archive main(b11f011)` 로
+`mobile/` 만 꺼내 **티켓 31 코드가 하나도 없는 복사본**에서 돌려도 같은 실패다:
+
+```
+$ git archive main mobile | tar -x -C /tmp/.../mainchk && cd /tmp/.../mainchk/mobile
+$ flutter pub get && flutter test test/notifications/notification_controller_test.dart
+00:07 +0 -1: 앱 시작 OS 에 권한 상태를 물어보고 그 결과로 예약한다 [E]
+  Expected: [ ... ]
+    Actual: MappedListIterable<ScheduledNotification, NotificationKind>:[ ... ]
+     Which: at location [0] is NotificationKind:<NotificationKind.reminder>
+            instead of NotificationKind:<NotificationKind.daily>
+00:07 +17 -1: Some tests failed.                        # exit 1
+```
+
+원인은 `notification_plan.dart:154` 가 예약을 **발화 시각 순**으로 정렬
+(`plan..sort((a, b) => a.when.compareTo(b.when))`)하는데 테스트가
+`[daily, 7×reminder]` 순서를 고정한 것이다. 기본 일일 알림 09:00 이 지난 시각에
+돌리면(이 검증은 09:13 KST) 다음 daily 는 **내일** 09:00, 첫 reminder 는 **오늘**
+20:00 이라 reminder 가 앞선다 — 09:00~20:00 사이에는 항상 실패한다. 티켓 30 의
+파일이고 이 티켓의 결함 수정 범위가 아니라 **고치지 않고** 코디네이터에
+에스컬레이션했다(`escalation: main(b11f011) 의 티켓 30 테스트 1건이 시각 의존
+플래키`). 고친다면 티켓 30 쪽에서 `now` 를 주입하거나 순서 대신 집합으로 비교하면 된다.
+
+### 최종 검증 (티켓 30 통합 후, main = b11f011)
+
+```
+$ cd mobile && dart format --output=none --set-exit-if-changed .
+Formatted 166 files (0 changed) in 0.23 seconds.        # exit 0
+
+$ cd mobile && flutter analyze
+Analyzing mobile...
+No issues found! (ran in 3.7s)
+
+$ cd mobile && flutter test
+test/notifications/notification_controller_test.dart: 앱 시작 OS 에 권한 상태를 물어보고 그 결과로 예약한다 [E]
+00:41 +550 -1: Some tests failed.
+# 실패 1건은 위의 main 시각 의존 테스트(티켓 30)다. 티켓 31 의 테스트는 전부 통과한다.
+
+$ cd mobile && flutter build apk --debug
+✓ Built build/app/outputs/flutter-apk/app-debug.apk    # exit 0 — 알림 리시버 + AdMob meta-data 가 같이 들어간 매니페스트로 빌드된다
+```
+
+백엔드(`app/`, `web/`, `tests/`, `migrations/`, `.env.example`)는 이 라운드에 한 줄도
+바뀌지 않았고 `1172b9b`→`b11f011` 사이에도 변경이 없어(`git diff` 빈 결과)
+위의 pytest 1412 통과가 최종 트리에 그대로 해당한다 — 코디네이터 확인을 받아
+재실행하지 않았다. 마이그레이션 변경이 없어 조건부 `flask db heads` 는 해당 없음.
+`git merge-base main HEAD == main`(= `b11f011`), `git diff --check main...HEAD` exit 0,
+작업 트리 clean.
