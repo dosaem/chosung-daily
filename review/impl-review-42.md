@@ -136,3 +136,91 @@
 BLOCKER 0 · MAJOR 1 (D-42-5) · MINOR 2 (D-42-6, D-42-7)
 
 판정: FAIL
+
+## 라운드 2
+
+- 대상: `dosaem/t42-e2e-web` `5d0c5f0`(라운드 1 수정 커밋 1개, 로컬 `main` `d27417c` 위 커밋 3개,
+  clean 트리). 수정 커밋 diff 10파일 +653/−157 — `scripts/e2e/env.sh`·`seed.py`·`e2e_web.sh`·
+  `tests/e2e/web/{lib/game.mjs, specs/07,09,10}`·`tests/test_e2e_scripts.py`·`README.md`·증거.
+  `app/`·`web/`·`migrations/`·`mobile/`·`.scratch/` 여전히 무변경.
+- 증거(`review/impl-evidence-42.md` "수정 라운드 1")를 믿지 않고 전부 직접 돌렸다. 네이티브 변경이
+  없어 apk 빌드는 하지 않았다.
+
+### 1. 직접 돌린 결과 (2026-10-16 01:45~ KST)
+
+| 검증 | 결과 |
+|---|---|
+| `scripts/e2e_web.sh --reporter=line` | **39 통과 / 9 실패 (1.6분)**, 48개(42→48, +6) — 증거와 동일. 실패 9건의 단정은 전부 앱 결함: D-42-1 ×4 · D-42-2 ×4 · D-42-3 ×4 · D-42-4 ×2(한 테스트). 새로 깨진 것 없음 |
+| 스택 | gunicorn ×2(5042/5142) + Celery worker/beat 기동, `chosung_daily_e2e_t42` 마이그레이션 11개, Redis **4**. `down` 뒤 `status` 프로세스 없음 · e2e 스키마 0개 · Redis keyspace 에 db4 없음(비어 있음) · `git status` 0줄 |
+| 산출물 | `e2e-artifacts/web/` 폴더 24개(언어별 분리: `07-offline-{ko,en}`·`07-server-error-{ko,en}`·`10-streak-{ko,en}` 포함), 스크린샷 160장, axe json 50개 — 위반은 `04-backup-restore-{ko,en}/*/axe-records.json` 4개뿐, 전부 `label`(D-42-2) |
+| `uv run ruff check .` | All checks passed |
+| `uv run pytest -q -p no:cacheprovider` (TEST_DATABASE_URL=…/chosung_daily_test_t42, TEST_REDIS_URL=…/5, TEST_MIGRATION_DATABASE_URL=…/chosung_daily_test_t42_migrations) | **1734 passed in 788.45s (0:13:08)**, exit 0 — `tests/test_e2e_scripts.py` 41개 포함(계약 테스트 +21) |
+| `flutter analyze` | No issues found (exit 0) |
+| `flutter test` | +796 All tests passed (exit 0) |
+
+### 2. 이전 결함 판정
+
+| ID | 판정 | 근거(직접 확인) |
+|---|---|---|
+| D-42-5 (MAJOR) Redis 번호 티켓별 미분리 | **FIXED** | `for t in 42 43 44` → `redis://…/4`·`/13`·`/12`, 포트 5042/5142·5043/5143·5044/5144. `E2E_TICKET=99` 는 `source` 와 `scripts/e2e_stack.sh status` 양쪽에서 "배정표에 없다" 로 exit 1(`set -euo pipefail` 경로도 막힘). `E2E_REDIS_DB=9` 직접 지정은 `/9`. `redis()`(flushdb)와 `e2e_redis_url`(앱)이 같은 `E2E_REDIS_DB` 를 읽는다(`env.sh:83`, `e2e_stack.sh:30`). 계약 테스트 4개(`test_resources_carry_the_ticket_number`+Redis, `test_every_ticket_gets_its_own_redis_db`, `test_unassigned_ticket_refuses…`, `test_redis_url_carries_the_assigned_db`) 가 pytest 전체 판에 포함돼 통과. README·`env.sh` 머리말 문구 수정 확인. 단서: 배정표의 **내용**(43→13)은 아래 D-42-8 |
+| D-42-6 (MINOR) 시나리오 4·8 ko 전용 | **FIXED** | `07-offline.spec.mjs:24`·`10-streak.spec.mjs:26` 가 `for (const lang of ["ko","en"])`. 실측 48개 중 +6 전부 통과. en 이 실제로 돈 증거: `10-streak-en/desktop-1280/steps.log` 의 `/me/history` 응답이 `{"en":"success","ko":"none"}` ×2일 + `none` (언어별 칸을 `results[lang]` 로 봄), `07-offline-en/*/steps.log` 3단계·`07-server-error-en` 2단계. 한 판에 `advance-day` 4회(desktop ko·en, mobile ko·en) → 끝난 manifest 가 offset −4…0 으로 ko 5·en 5 전부 소진, 마지막 판 오늘 = `지하철`/`bicycle` — `PINNED` 5개가 정확히 필요한 수. `test_pinned_words_cover_every_day_the_streak_scenario_advances` 가 스펙 언어 수 × 설정 뷰포트 수(+1)로 이를 지킨다 |
+| D-42-7 (MINOR) 운영자 시나리오 `"가나다"` 하드코딩 | **FIXED** | `09-admin.spec.mjs:137-139` 가 `todaysPuzzle` → `nearMiss(answer,"ko")`. 실측에서 mobile-390 의 09-admin 은 desktop streak 2회 뒤라 오늘 ko = **`어린왕자`(4글자)** 였고(manifest offset −2 = 어린왕자), 제출이 채점돼 `07-배정표-오늘과잔량`("교체 불가" 단정) 을 지나 `09-교체-배정확인` 까지 갔다 — 남은 실패는 D-42-4 soft 2건뿐. `test_no_spec_types_a_hardcoded_answer` 가 14곳의 `guess(` 호출을 전부 보고 리터럴 0건 |
+| D-42-1 ~ D-42-4 (앱 결함) | 변동 없음(이 티켓 범위 아님) | 9건 재현 그대로. 수정 티켓 몫 — REPEAT 로 세지 않는다(라운드 1 §3 과 같은 기준) |
+
+### 3. 체크박스 재점검 (라운드 1 에서 "부분 충족" 이었던 것만)
+
+| 항목 | 라운드 2 | 근거 |
+|---|---|---|
+| 시나리오 4 연속 기록 ko·en | 충족 | 위 D-42-6. 7일 그리드는 웹에 없어 `/me/history` 대체(코디네이터 승인, 라운드 1 과 동일) |
+| 시나리오 8 오프라인/서버 오류 ko·en | 충족 | 위 D-42-6 |
+| 공용 스택 스크립트 소유(43·44 재사용) | 충족(단서 D-42-8) | Redis 번호가 티켓별로 갈리고 표 밖 티켓은 거부. 배정표 내용은 코디네이터 확인 필요 |
+| 테스트 자원: DB·Redis 티켓별, 끝나면 정리 | 충족 | DB `…_e2e_t42`·Redis 4·포트 50xx/51xx. `down` 정리 실측 |
+
+나머지 체크박스는 수정 커밋이 건드리지 않았고 라운드 1 판정이 그대로다(E2E 결과·산출물·셀렉터 규칙·외부
+서비스 경계·금지 사항 재확인: push 없음, 시크릿 없음, 공유 파일 `.gitignore`·`README.md` 는 추가만).
+
+### 4. 결함
+
+### D-42-8 (MINOR) 배정표가 "pytest 번호까지 둔다" 고 하면서 티켓 43 의 pytest 번호(13)를 빼놓아, E2E 43 → 13 이 그 번호와 겹친다
+
+- 파일: `scripts/e2e/env.sh:20-28,36`(`43) echo 13`), `tests/test_e2e_scripts.py:84`(`RESERVED_REDIS_DBS = {"0","1","5"}`),
+  `README.md:191-193`, 증거 `review/impl-evidence-42.md:415-416`("티켓 43 의 스택이 실제로 떠 있는 것(`db13:keys=7`)").
+- 사실(이 리뷰 중 직접 관찰, 2026-10-16 01:45 KST): 같은 머신에서 티켓 43 워커의 **pytest** 가
+  `TEST_REDIS_URL=redis://127.0.0.1:6379/13` 로 돌고 있었다(`pgrep -fl pytest`, DB `chosung_daily_test_t43`).
+  라운드 1 리뷰 D-42-5 본문도 "코디네이터가 pytest 용 번호를 … 손으로 배정(42→5, **43→13**)" 이라고 적었다.
+  즉 13 은 티켓 43 의 pytest 번호인데, 수정은 그 13 을 **E2E 티켓 43** 에 배정했고 예약 집합에는 42 의 pytest(5)만 넣었다.
+  증거가 `db13:keys=7` 을 "43 의 E2E 스택" 으로 읽은 것도 이 pytest 였을 가능성이 높다.
+- 왜 문제인가: pytest 의 `app` 픽스처가 **테스트마다** `flushdb`(`tests/conftest.py:29`)를 한다. 티켓 43 이 pytest 전체
+  판(13~15분)과 E2E 스택을 같은 시간에 띄우면(완료 조건이 둘 다다) 픽스처가 E2E 스택의 `puzzle:`/`lb:`/`stats:` 를
+  지우고, 반대로 `down` 의 flushdb 가 pytest 의 Redis 를 지운다 — D-42-5 가 막으려던 것과 같은 모양이다.
+  배정표가 스스로 "유일한 배정 기록 … pytest 번호까지 같은 표에 둔다 — flushdb 가 돌고 있는 남의 판을 지우지 않게"
+  라고 선언하므로, 표에 43 의 pytest 13 이 빠진 것은 그 계약 위반이고 `test_every_ticket_gets_its_own_redis_db` 도 못 잡는다.
+- MAJOR 가 아닌 이유: 이 티켓의 스택(Redis 4)은 0·1·5·13 어느 것과도 겹치지 않아 **이 티켓의 격리는 성립**한다.
+  겹침은 티켓 43 쪽 자원이고 43 의 자체 스크립트(`t43-e2e-ios/scripts/e2e_ios.sh:30`, `E2E_REDIS_DB:-13`)가
+  이미 같은 13 을 쓰고 있어 이 수정이 새로 만든 충돌은 아니다. 번호의 최종 주인은 코디네이터 배정이다.
+- 고치는 방향(참고): 코디네이터가 "13 = 43 의 pytest" 를 확인하면 `env.sh` 표에 `13 pytest 티켓 43` 을 추가하고 E2E 43 을
+  비는 번호로 옮기고(43 의 `e2e_ios.sh` 기본값도 같이), `RESERVED_REDIS_DBS` 에 13 을 넣는다. 티켓 43 이 `e2e_stack.sh` 로
+  갈아타기 전(43 스크립트 NOTE)에 맞추면 된다.
+
+### 5. 참고 (결함 아님)
+
+- R-8 `test_no_spec_types_a_hardcoded_answer` 의 정규식 `guess\([^,]+,\s*["']` 은 `guess(page, "…")` 꼴만 잡는다.
+  템플릿 리터럴(`` ` ``)이나 `const w = "가나다"; guess(page, w)` 는 통과한다. 지금 14곳은 전부 `answer`/`nearMiss`/
+  `wrongGuesses` 에서 오므로 실해는 없다.
+- R-9 `_lang_loop`·`test_pinned_words_cover_…` 도 소스 문자열 매칭이다(R-5 와 같은 성질). 실제 보장은 E2E 한 판이
+  manifest 를 끝까지 소진하며 통과한 것으로 확인했다.
+- R-10 증거 §1 표(`impl-evidence-42.md:26`)와 §8(`:381`)의 "`E2E_TICKET` 하나로 … Redis 번호 … 전부 갈린다" 는
+  수정 후에도 남아 있다(구현자가 "수정 라운드 1" 절이 정확하다고 명시). 43·44 가 §1 만 읽으면 옛 문장을 본다 —
+  한 줄 고치면 좋다.
+- R-2(백업 코드 입력칸 24px)는 D-42-1 수정 뒤 재확인 대상 그대로. R-3(`words_en.csv`)·R-7 변동 없음.
+- 수정 커밋의 `Co-Authored-By` 모델명은 이 리뷰 범위가 아니다.
+
+### 6. 판정 근거 요약
+
+라운드 1 의 MAJOR 1·MINOR 2 는 전부 FIXED 이고 직접 재현으로 확인했다. 요구 누락 없음(ko·en 범위 완결),
+스펙과 다른 동작 없음, 검증 안 하는 테스트 없음(실패 9건은 실제 앱 결함), 보안·시크릿 없음, 범위 밖 변경 없음.
+새 결함은 배정표 내용 1건(MINOR, 코디네이터 확인 사항).
+
+BLOCKER 0 · MAJOR 0 · MINOR 1 (D-42-8) · REPEAT 0 — D-42-5·6·7 FIXED
+
+판정: PASS
