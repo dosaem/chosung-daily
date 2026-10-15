@@ -266,3 +266,62 @@
 라운드 4 잔여 결함 합계: BLOCKER 0 / MAJOR 1 / MINOR 0. 이전 결함 FIXED 5 / REPEAT 0, 신규 D-29-6 1건.
 
 판정: FAIL
+
+## 라운드 5
+
+- 기준: 로컬 `main` = `b11f011`, 구현 `HEAD` = `484d03e`. `git diff main...HEAD`와 `git log main..HEAD`를 직접 확인했다. `origin/main`은 사용하지 않았다.
+- 대조: 티켓 29의 체크박스 8개, 스펙 §A.2·A.6·A.7·B.21 및 US 18·18a·19·20·21·22, CONTEXT, SCREENS S2·S4·T2·T4, MASTER/OVERRIDES(OVERRIDES 우선), 구현 증거와 이전 라운드 리뷰.
+- 앱·테스트·설정·`.scratch/`는 수정하지 않았다. 독립 하네스는 `/tmp`에서 실행했고 실제 provider와 화면을 사용했다. 외부 OAuth·프로덕션 접근, 실제 계정 입력, 새 DB 생성은 하지 않았다.
+
+### 체크박스별 충족 여부
+
+| # | 티켓 요구 | 판정 | 직접 확인한 근거 |
+|---|---|---|---|
+| 1 | ApiClient token-exchange·DELETE /me(Dio + Fake) | 충족 | `dio_api_client.dart:145` 이하와 Dio 테스트에서 method/path/Bearer/body, Apple authorization_code, 본문 없는 204를 확인했다. Fake에도 대응 구현이 있다. |
+| 2 | Google 7.x authenticate·플랫폼별 ID·Apple code·토큰 교체·재조회·로컬 폐기 | 충족 | `social_sign_in.dart`의 initialize/authenticate와 Apple code 전달, Info.plist GIDClientID/URL scheme, Android dart-define, entitlements를 확인했다. 세 계정 경로의 실제 `_adopt`와 D-29-6 독립 재현이 통과한다. |
+| 3 | 플랫폼별 AccountCard·연결 표시·마스킹·전환 안내·오류 문구 | 충족 | 실제 RecordsTab 테스트에서 iOS 두 버튼/Android Google만, 연결 표시·마스킹·전환 안내, ACCOUNT_ALREADY_LINKED/INVALID_ID_TOKEN 문구를 확인했다. Google 아이콘은 이전 라운드의 코디네이터 수용 기준 보정을 유지한다. |
+| 4 | 백업 코드 Bearer GET /me/stats·200 교체/폐기/재조회·401 문구·Provider 교체 | 충족 | 별도 API 없이 검증 응답 stats를 채택하고 secure storage/guestTokenProvider를 교체한다. 401은 기존 토큰을 보존한다. 홈과 7일 기록을 새 조회 전에 비우며, 늦은 옛 계정 응답도 새 상태를 덮지 않는다. |
+| 5 | 첫 완료 후 연결 안내 1회·로컬 플래그 | 충족 | `result_sheet.dart:93` 이하와 위젯 테스트에서 표시 시 플래그 저장, 재표시 생략, 닫기, 내 기록 이동, 기연결 계정 생략을 검증했다. |
+| 6 | destructive 확인·구독 별도 해지·DELETE·로컬 정리·새 게스트·온보딩 유지 | 충족 | 실제 삭제 확인·취소·성공·발급 실패 재시도·다른 계정 복원 후 삭제 테스트가 통과한다. perAccount 키를 지우고 별도 기기 온보딩 저장소는 건드리지 않는다. 최초 홈 조회 경합도 삭제 경로에서 해결됐다. |
+| 7 | 744 adaptive sheet/dialog·S4 열 유지 | 충족 | 두 진입점이 showAdaptiveSheet를 사용한다. 744 Dialog/폭 제한 위젯 테스트와 1024 골든을 확인했고 AccountCard는 T4 왼쪽 열에 있다. |
+| 8 | 지정 위젯 테스트·audit.native·목업 대조 | 충족 | Flutter 전체 545개 통과. 플랫폼·200/401·재조회·삭제·744 폭과 390/1024 골든을 직접 확인했다. audit.native의 수동 점검 범위와 실기기 미검증 범위는 아래에 명시한다. |
+
+### 이전 결함 재판정
+
+| ID | 이전 심각도 | 판정 | 직접 확인한 근거 |
+|---|---|---|---|
+| D-29-1 | MAJOR | FIXED | MyStatsNotifier.adopt/discard가 이전 신원을 비우며, 백업 검증 stats를 채택한다. 소셜 전환 뒤 stats 실패 시 옛 이메일·숫자가 사라지는 실제 컨트롤러/화면 테스트 통과. |
+| D-29-2 | MAJOR | FIXED | 삭제 완료 토큰을 기억한다. 삭제 성공/새 게스트 발급 실패 뒤 재시도에서 DELETE 1회·발급 2회, perAccount 플래그와 stats 폐기를 검증한다. |
+| D-29-3 | MINOR | FIXED | 기존 코디네이터 보정인 Google 중립 아이콘+텍스트를 적용한다. userCheck+Google 라벨, chrome 부재, Apple 분기와 연결됨 골든을 확인했다. |
+| D-29-4 | MAJOR | FIXED | `_deletedToken`을 현재 토큰과 비교한다. A 삭제/발급 실패 → B 복원 → B 삭제에서 DELETE 2회를 컨트롤러와 RecordsTab 테스트로 검증했다. |
+| D-29-5 | MAJOR | FIXED | `_adopt`가 홈을 명시적으로 비운다. B 홈 응답 지연 중 옛 보드·입력창 부재/제출 0회, B 응답 후 제출 재개를 실제 테스트로 확인했다. |
+| D-29-6 | MAJOR | FIXED | `today_puzzle_controller.dart:64`의 `_initialLoad`와 `account_epoch.dart:64`의 `initialStateOrCurrent`가 늦은 최초 응답 대신 현재 상태를 반환한다. A 최초 조회 지연 → B 전환/새 보드 완료 → A 응답 완료 순서가 독립 컨트롤러·화면·소셜/삭제 하네스 모두 통과한다. 새 계정 조회 실패 시 오류 카드 유지도 저장소 테스트가 검증한다. |
+
+### 신규 결함
+
+없음. 확인된 BLOCKER·MAJOR·MINOR는 0건이다.
+
+### 직접 실행한 검증
+
+- `cd mobile && flutter test`: **545 passed**, 약 41초, 종료 코드 0. `/tmp/t29-r5-flutter.log`.
+- `flutter analyze`: **No issues found**, 종료 코드 0. `/tmp/t29-r5-analyze.log`.
+- `cd mobile && dart format --output=none --set-exit-if-changed .`: **154 files, 0 changed**, 종료 코드 0.
+- `uv run ruff check .`: **All checks passed**, 종료 코드 0.
+- `git diff --check main...HEAD`: 오류 없음.
+- D-29-6 기존 독립 컨트롤러: `cd mobile && flutter test /tmp/t29_r4_probe_test.dart --plain-name 'pending initial A load cannot clear completed B board' --reporter expanded` → **1 passed**. `/tmp/t29-r5-d6-controller.log`.
+- D-29-6 기존 독립 화면·소셜/삭제: `cd mobile && flutter test /tmp/t29_r4_widget_probe_test.dart /tmp/t29_r4_paths_probe_test.dart --reporter expanded` → **3 passed**. `/tmp/t29-r5-d6-paths.log`.
+- 조회 경계 추가 독립 검증: `cd mobile && flutter test /tmp/t29_r5_reads_probe_test.dart --reporter expanded` → **6 passed**. `/tmp/t29-r5-reads.log`. stats 재조회·최초 history·재조회 leaderboard를 각각 지연시키고 실제 백업 복원 후 B 상태가 올라온 다음 A 성공 또는 오류 응답을 완료했다. 모든 경우 B 객체 동일성과 오류 부재를 확인했다. 실제 notifier는 override하지 않았고 Fake API의 Future만 Completer로 지연했다.
+- 최초 A/전환 B 홈 응답을 같은 시점에 완료하는 추가 하네스: `cd mobile && flutter test /tmp/t29_r5_simultaneous_probe_test.dart --reporter expanded` → **2 passed**(A 우선/B 우선). `/tmp/t29-r5-simultaneous.log`.
+- `TEST_DATABASE_URL`·`TEST_REDIS_URL`·`TEST_MIGRATION_DATABASE_URL`을 지정한 `uv run pytest -q`: **1412 passed in 1094.55s (0:18:14)**, 종료 코드 0. 기존 `chosung_daily_test_t29`, Redis DB 3, `chosung_daily_test_t29_migrations`를 재사용했다. 새 DB 생성·기본 DB 폴백·간헐 실패 재실행은 없었다. 접속 형식은 구현 증거와 `.env.example`를 따랐으며 자격 증명은 기록하지 않는다. `/tmp/t29-r5-pytest.log`.
+- `git diff --name-only main...HEAD -- migrations`: 빈 출력. 마이그레이션 변경이 없어 조건부 `flask db heads` 대상이 아니다.
+
+### 보안·범위·디자인 및 참고
+
+- Dio의 현재 Bearer 적용, 백업 코드 검증 전 저장 금지·공백 거부, INVALID_ID_TOKEN과 일반 게스트 401 분리, Apple authorization_code 동봉을 확인했다. 백엔드·웹·CSRF·마이그레이션 변경과 새 서버 엔드포인트가 없다. 실제 OAuth 비밀값이나 실서비스 토큰의 신규 기록을 찾지 못했다. 기존 구현 증거의 로컬 예제 접속 문자열은 이 리뷰에 옮기지 않았다.
+- README/RELEASE의 변경은 자기 `### 29.` 절이고 `.env.example`·스펙 변경이 없다. 읽기 세대 공용 래퍼와 7일 기록 폐기는 계정 상태 폐기 요구와 코디네이터의 추가 지시에 부합한다. 티켓 30 시계 주입은 별도 커밋 `6d2940b`이며 기본값 DateTime.now를 유지한다. 테스트가 종류 순서를 강제하던 것을 발화 시각 정렬/종류별 개수로 검증하도록 고친 범위다.
+- `e4_records.png`, `records_linked_390.png`, `records_tablet_1024.png`를 직접 열어 계정 표시·마스킹·헤어라인·T4 열 배치를 대조했다. OVERRIDES 우선 색·타이포·간격, 플랫폼별 버튼, 744 적응성, 시트/삭제 확인의 제목 semantics와 오류 문구를 소스·위젯·골든으로 점검했다. audit.native는 독립 CLI 실행 결과가 아니라 이 수동 점검을 뜻한다. 실제 VoiceOver/TalkBack·네이티브 OAuth 왕복·서명한 iOS 빌드는 실행하지 않았다. 공식 로그인 버튼 에셋/콘솔 등록은 이전 라운드에서 승인된 RELEASE 사람 확인 항목을 유지한다.
+- 탐색 실패도 구분해 기록한다: 기존 `/tmp/t29_r4_probe_test.dart` 전체를 실행하면 D-29-6 외의 `token boundary followed by refresh must not authorize old board`가 실패한다(제출 기대 0/실제 1). 이는 `_adopt`를 우회해 토큰만 직접 바꾼 다음 refresh를 부르는 하네스다. `_load`가 새 계정 세대를 기록하는 동안 옛 보드가 남는 조건이다. 현재 앱의 토큰 변경 호출부는 시작 흐름과 `_adopt`뿐이며, 시작 복구는 플레이 셸 진입 전이고 `_adopt`는 보드를 먼저 폐기한다. 현재 사용자 입력 경로에서 이 조건의 재현을 확인하지 못했으므로 신규 결함으로 올리지 않았다. 원래 D-29-6의 명명된 테스트와 실제 계정 경로 재현은 위와 같이 모두 통과했다.
+
+라운드 5 잔여 결함 합계: BLOCKER 0 / MAJOR 0 / MINOR 0. 이전 결함 FIXED 6 / REPEAT 0, 신규 0건.
+
+판정: PASS
