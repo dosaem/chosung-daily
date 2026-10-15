@@ -1210,6 +1210,17 @@ client_id 와 만료 시각만 넣고 JWT 자체는 넣지 않는다 — 서명�
 오류는 인라인 카드 + 재시도 버튼으로 보여주기로 했는데(OVERRIDES §7), 자동
 재시도가 켜져 있으면 사용자는 수십 초 동안 스켈레톤만 본다.
 
+**구독 상태 흐름(티켓 32).** 구독에 걸린 상태는 두 개뿐이다 — 서버가 말한 권한
+(`entitlementProvider`, 값은 `/subscriptions/verify`·`/me/stats` 응답 그대로)과
+이 기기에서 돌고 있는 구매(`purchaseFlowProvider`: 스토어 구매 상태·검증 중
+여부·상품). 화면은 그 둘을 직접 조합하지 않고 순수 함수
+`subscriptionPhaseFor` 가 만든 `idle/pending/verifying/active/grace/error` 하나를
+읽는다(`subscriptionPhaseProvider`) — S5 Paywall 과 S4 구독 카드가 같은 값을 보기
+때문에 "카드는 구독 중인데 Paywall 은 구매 버튼" 같은 조합이 생기지 않는다. 구매
+흐름은 앱 수명에 매달려 있고(`app.dart` 의 `ref.listen`, 로컬 알림 동기화와 같은
+방식) 시작·포그라운드 복귀마다 스토어와 동기화해 끊긴 구매를 다시 올린다.
+자세한 건 아래 "32." 절.
+
 **SDK 선택.** 패키지는 "스토어 심사와 직접 닿는 것" 위주로만 넣었다: 상태는
 Riverpod, 라우팅은 `go_router`, HTTP 는 `dio`, 토큰은 `flutter_secure_storage`,
 문구는 `easy_localization`(ko/en), 관측은 `sentry_flutter` + `firebase_analytics`.
@@ -1219,6 +1230,8 @@ Riverpod, 라우팅은 `go_router`, HTTP 는 `dio`, 토큰은 `flutter_secure_st
 `--dart-define` 으로 버전을 따로 주입하면 `pubspec.yaml` 과 어긋날 수 있고, 강제
 업데이트 판정이 틀리면 사용자가 앱에 아예 못 들어온다. `url_launcher` 는 업데이트
 화면의 스토어 버튼에 필요하다(설정 화면의 약관·개인정보 링크도 이걸 쓴다).
+`in_app_purchase_storekit` 은 `in_app_purchase` 의 전이 의존성이지만 직접 의존성으로도
+적었다 — iOS 가 StoreKit 2 로 도는지를 테스트가 직접 확인한다(티켓 32).
 Firebase 설정 파일(`google-services.json`, `GoogleService-Info.plist`)은 커밋하지
 않고 `.example` 자리표시자만 둔다. **파일이 없으면 Gradle 플러그인을 적용하지
 않고 런타임 초기화도 건너뛴다** — 그래야 새로 클론한 로컬과 CI 에서 분석·테스트·
@@ -2606,6 +2619,70 @@ US 24). 둘 중 하나만으로는 안 된다: 세션 플래그만 두면 결과
 작업이다 — `mobile/test/config/admob_native_config_test.dart` 가 "아직 테스트
 ID" 라는 사실을 눈에 보이게 들고 있는다. 디버그 빌드는 유닛 ID 도 늘 테스트
 유닛을 쓴다(실제 유닛을 때리면 무효 트래픽으로 계정이 정지된다).
+
+### 32. 구독 구매 — 검증이 끝난 뒤에 완료, 권한은 한 자리에
+
+**순서가 전부다.** 구매 스트림 수신 → (pending 이면 대기) →
+`POST /api/v1/subscriptions/verify {store, receipt}` → **서버가 권한을 돌려준 뒤에야**
+`completePurchase`(iOS finish / Android acknowledge). 스펙 §A.8 의 이 순서를 코드
+한 곳(`mobile/lib/subscription/purchase_controller.dart`
+`_verifyThenComplete`)에서만 지키고, 다른 경로를 두지 않았다. 먼저 완료해 버리면
+서버가 모르는 구매가 "완료" 로 닫혀 권한을 되찾을 길이 영수증 복원뿐이 된다.
+
+거꾸로 **검증이 실패하면 완료하지 않는다**. 그래서 끊긴 구매는 다음 시작의 구매
+스트림(플러그인이 미완료 거래를 다시 올려준다)과 `restorePurchases` 동기화로 다시
+올라간다. Play 는 3일 안에 acknowledge 가 없으면 자동 환불하는데, 서버가 영수증을
+인정하지 못한 구매라면 **환불이 맞는 결말**이라고 봤다 — 돈만 빠지고 권한이 없는
+상태로 남기지 않는다. 영수증 자체가 틀린 경우(400 `RECEIPT_INVALID`)와 스토어가
+답을 못 주는 경우(503 `STORE_UNAVAILABLE`)를 예외 타입으로 가른 이유도 이것이다:
+앞은 다시 올려도 같은 답이라 사용자에게 스토어 문의를 안내하고, 뒤는 그대로 두면
+다음 시작이 재시도가 된다.
+
+**권한의 주인은 하나다.** 31 이 만든 `entitlementProvider` 를 이 티켓이
+`bool?` 에서 서버 응답(`Entitlement`) 전체로 넓혔고, 새 provider 를 만들지
+않았다. S4 카드가 "광고 제거 · 10/31 갱신" 과 "유예 10/20 까지" 를 그려야 하는데
+권한 여부와 갱신일이 다른 곳에 있으면 둘이 어긋난 순간이 화면에 남는다. 광고
+게이트는 거기서 `active` 만 떼어 본다 — 게이트가 날짜 계산을 모르게 두는 쪽이다.
+시각은 받는 즉시 UTC 로 정규화하고 그릴 때만 `toLocal()` 을 거친다(서버는
+타임존을 붙여 보낸다 — `app/schemas/subscription.py`).
+
+**UI 판정도 순수 함수 하나다**(`subscriptionPhaseFor`, 스펙 §B.20). 입력 셋
+(구매 상태·검증 중 여부·권한) → `idle/pending/verifying/active/grace/error`.
+순서가 뜻을 만든다: 돌고 있는 일이 먼저고(버튼을 잠가야 두 번 결제가 안 된다),
+그 다음이 서버가 말한 권한, 실패는 마지막이다 — 권한을 실패 뒤로 밀면 이미
+구독 중인 사람이 두 번째 구매에 실패했을 때 광고 없는 화면에 "실패" 가 뜬다.
+S5 Paywall 과 S4 구독 카드가 이 값을 같이 읽어 세 얼굴이 어긋나지 않는다.
+
+**가격은 상수가 아니다.** 표시 금액은 `ProductDetails.price`(스토어 현지화 문자열)
+그대로이고, ₩1,500 은 한국 Tier 설정값일 뿐이다. 그래서 **가격을 못 읽으면 구매
+버튼을 잠근다** — 금액을 앱이 대신 적으면 지역별 실제 청구액과 다른 숫자를
+보여주게 되고, 그건 스토어 심사 사유다. 상품 ID(`adfree_monthly`)는
+`subscription_state.dart` 한 곳에 있다.
+
+**어느 스토어인지는 영수증이 말한다.** `verificationData.source`
+(`app_store`/`google_play`)를 `store` 로 옮기고, 모르는 출처면 올리지 않는다 —
+`defaultTargetPlatform` 으로 고르면 올린 값과 영수증이 어긋나 서버가 엉뚱한
+스토어 API 로 조회한다. S4 "관리" 가 여는 주소도 같은 이유로 **권한이 온
+스토어**(`entitlement.source`)로 고른다. Android 쪽은 상품까지 딥링크하지 않고
+구독 목록(`play.google.com/store/account/subscriptions`)으로 보낸다 — `?sku=&package=`
+를 붙이려면 패키지명을 Dart 에 한 벌 더 둬야 하고(지금은 `build.gradle.kts`
+한 곳이다) 구독이 하나뿐이라 사용자가 할 일은 같다.
+
+**계정 경계는 29 의 세대 장치를 그대로 쓴다.** 검증 전후로
+`accountEpochProvider` 를 보고, 그 사이 토큰이 바뀌었으면 권한을 반영하지도
+완료하지도 않는다. 그 영수증은 다음 시작에 지금 계정으로 다시 올라가고 서버가
+같은 `store_key` 를 현재 게스트로 재지정한다(스펙 §A.8).
+
+**StoreKit 2 는 켜는 게 아니라 지킨다.** `in_app_purchase_storekit` 0.4.13 은
+StoreKit 2 가 기본값이고 `enableStoreKit2()` 는 그래서 deprecated 다. 호출을
+넣는 대신 기본값이 바뀌면 깨지는 테스트를 뒀다(`test/config/bootstrap_test.dart`
+"iOS 는 StoreKit 2 로 돈다") — 조용히 StoreKit 1 로 돌아가면 영수증이 JWS 가
+아니라 base64 수신확인서로 와서 서버 검증이 전부 실패한다. Android 쪽 Play
+Billing 8+ 확인 절차는 `docs/RELEASE.md` "### 32." 에 있다.
+
+**구매 흐름은 화면이 아니라 앱 수명에 매달린다**(`app.dart` 의 `ref.listen`,
+알림 동기화와 같은 방식). 지난 실행에서 끊긴 거래는 첫 프레임 직후에 스트림으로
+올라오므로, Paywall 을 열 때 비로소 듣기 시작하면 그 거래를 놓친다.
 
 ## 부하 테스트 요약
 
