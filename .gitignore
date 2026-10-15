@@ -23,3 +23,8 @@ logs*/
 .impeccable/config.local.json
 .impeccable/hook.cache.json
 .impeccable/live/
+
+# [42] 웹 E2E 산출물(스크린샷·로그·manifest·Playwright 리포트)과 node 의존성.
+# 스크린샷에 게스트 토큰·백업 코드가 찍히고 로그에 원격 IP 가 남는다 — 커밋하지 않는다.
+e2e-artifacts/
+tests/e2e/web/node_modules/

@@ -149,6 +149,64 @@ uv run flask search-books "데미안" --add 0   # 카카오/알라딘 API 키 �
 uv run flask notify-operator-test           # 운영자 Slack 알림 도착 확인 (SLACK_WEBHOOK_URL)
 ```
 
+## E2E (웹 브라우저)
+
+pytest 는 Flask 테스트 클라이언트까지고, `tests/test_web_js.py` 는 번들을 node 로만
+돌린다. 그 둘이 못 보는 것 — **사람이 실제 브라우저에서 눌러 가는 한 판** — 을 보는 게
+이 E2E 다(티켓 42). mock 서버를 쓰지 않는다: Flask(gunicorn) + MySQL + Redis +
+Celery worker/beat 를 전용 스키마로 띄우고, Playwright(Chromium)가 접근성 라벨·보이는
+텍스트로 화면을 누른다.
+
+```bash
+scripts/e2e_web.sh                          # 한 판 전부 (데스크톱 1280 + 모바일 390)
+scripts/e2e_web.sh --project=desktop-1280   # 뷰포트 하나만
+scripts/e2e_web.sh specs/01-first-visit.spec.mjs
+E2E_KEEP=1 scripts/e2e_web.sh ...           # 끝나고 스택을 남긴다 (디버깅)
+```
+
+`scripts/e2e_web.sh` 가 매번 **DB 를 새로 만든다**(down → up → seed → 테스트 → down).
+처음 한 번은 Playwright 와 Chromium 을 받는다(~90MB, `tests/e2e/web/node_modules` 와
+`~/Library/Caches/ms-playwright`; 둘 다 레포에 안 들어간다).
+
+**소요 시간(실측, M 시리즈 맥)**: 스택 기동 ~25초 · 시드 ~5초 · 시나리오 42개(10개 파일
+× ko/en × 2 뷰포트) 1분~2분 30초 · 정리 ~5초 — **전체 2~3분.** 머신 부하에 따라
+브라우저 쪽이 두 배까지 벌어진다(실측 1.1분 / 2.2분 / 2.5분).
+
+스택만 따로 쓰려면(티켓 43·44 의 앱 E2E 도 같은 스크립트를 쓴다):
+
+```bash
+scripts/e2e_stack.sh up            # DB 생성 + 마이그레이션 + 프로세스 기동
+scripts/e2e_stack.sh seed          # 단어·퍼즐·운영자 계정 (멱등)
+scripts/e2e_stack.sh advance-day   # "하루 지났다" 를 데이터로 만든다
+scripts/e2e_stack.sh status
+scripts/e2e_stack.sh down          # 프로세스 종료 + DB drop + Redis flush
+```
+
+- **쓰는 자원**: MySQL 스키마 `chosung_daily_e2e_t42`(없으면 만들고 `down` 에서 지운다),
+  Redis DB **4**(개발은 0, pytest 는 1), 포트 **5042**(스토어 링크 있음)·**5142**(없음).
+  앱을 두 번 띄우는 이유는 "스토어 링크가 비면 배너·CTA 를 아예 안 그린다" 를 브라우저에서
+  보려면 설정이 다른 인스턴스가 필요해서다. `E2E_TICKET=43` 처럼 바꾸면 전부 갈린다
+  (`scripts/e2e/env.sh`).
+- **시간**: 서버는 KST 벽시계를 그대로 쓴다 — 앱에 테스트용 시계 주입구를 만들지 않기로
+  했다(코디네이터 결정 2026-10-15). 그래서 ① 하루를 넘길 때는 저장된 날짜를 하루 되돌리고
+  (`scripts/e2e/advance_day.py`: `daily_puzzle.puzzle_date`·`guest_stats.last_solved_date`·
+  `daily_stats`·Redis `lb:`/`stats:` 키) ② **KST 자정 ±10분이면 `up`/`seed` 가 거부한다**
+  (실행 중에 "오늘" 이 바뀌면 연속 기록·퍼즐 날짜 검증이 거짓 실패한다).
+- **정답을 아는 방법**: 자정 배정은 무작위라 테스트가 정답을 알 수 없다. 시드가 오늘·내일·
+  모레의 (날짜, 언어)별 단어를 못박고 `e2e-artifacts/seed-manifest.json` 으로 넘긴다 —
+  테스트는 그 파일만 읽고 DB 를 훑지 않는다. 단어 출처는 `data/seed_words.csv`(ko)와
+  `scripts/e2e/words_en.csv`(en, E2E 전용)뿐이다. `data/word-candidates/` 는 읽지 않는다 —
+  실제 출시 정답이 테스트 로그로 샌다.
+- **외부 서비스에 닿지 않는다**: 실제 결제·실제 OAuth 로그인·실제 푸시·실제 Slack 알림을
+  하지 않는다. 운영자 로그인은 시드가 만든 "계정이 이미 연결된" 게스트의 백업 코드를
+  복원 화면에 넣어 대신한다(실제 구글 왕복은 `docs/RELEASE.md` 실기기 체크리스트).
+- **산출물**: `e2e-artifacts/web/<시나리오>/<뷰포트>/` 에 단계별 스크린샷 + `steps.log` +
+  `axe-*.json`, 전체 리포트는 `e2e-artifacts/web/report/`. 전부 gitignore 다 —
+  스크린샷에 게스트 토큰·백업 코드가 찍히고 접근 로그에 원격 IP 가 남는다.
+- **실패를 숨기지 않는다**: 재시도(`retries`)가 0 이고, 찾은 앱 결함은 테스트를 느슨하게
+  고치는 대신 `expect.soft` + 결함 ID 주석으로 남긴다 — 테스트는 계속 실패하고(결함이
+  보인다) 그 시나리오의 나머지는 끝까지 돈다. 결함 목록은 `review/impl-evidence-42.md`.
+
 ## 법적 문서 (`/privacy`, `/terms`)
 
 스토어 심사·구독 화면·Play Data safety 양식이 전부 이 두 URL 을 가리킨다. 한국어·영어가
