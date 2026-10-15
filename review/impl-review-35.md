@@ -182,3 +182,59 @@
 - 집계: 이전 결함 **FIXED 7, REPEAT 0**; 새 결함 **BLOCKER 0, MAJOR 1, MINOR 1**.
 
 판정: FAIL
+
+## 라운드 3
+
+- 대상 HEAD: `1e0f103af4e04b96c144900b8e3598ba5bc509f7`; 기준 로컬 `main`은 `d78e082`(티켓 29 머지 포함)이며 merge-base도 `d78e082`다 — 이번 라운드 사이에 로컬 `main` 위로 rebase 됐다. `git diff main...HEAD`(183 파일), `git log main..HEAD`(14개 커밋) 및 라운드 2 이후 수정 커밋 2개(`f9ee248`, `1e0f103`)를 확인했다. `origin/main`은 사용하지 않았다.
+- 티켓 35, spec §B.25·BASELINE·US 67·미정 4/25, SCREENS S2/S6/T0, OVERRIDES §8과 구현 증거 "수정 라운드 2" 절을 직접 대조했다. 하위 에이전트 없이 검토했고, 코드·테스트·설정·`.scratch`는 수정하지 않았다.
+- 코디네이터의 이번 라운드 메모를 적용했다: (1) rebase 된 통합 상태도 리뷰 대상, (2) 커밋된 PNG의 29~33 미반영과 Play 폰·태블릿 세트가 아직 iOS 캡처라 업로드 전 검사가 실패하는 것은 최종 재촬영 작업 몫 — 단 그 검사가 폰·태블릿 둘 다 실제로 실패하는지 확인, (3) S2 계정 연결 1회성 안내 숨김은 코디네이터 결정, (4) 개인정보처리방침 본문의 대략적 위치 문구는 사람 확인 항목.
+
+### 체크박스별 판정
+
+| 티켓 체크박스 | 판정 | 직접 확인한 근거 |
+|---|---|---|
+| 아이콘·스플래시 SVG/런처/adaptive 및 README 언어 중립 이유 | 충족 | 라운드 2 이후 변경 없음(`git diff 57bbfb0..HEAD`에 아이콘·pubspec·스플래시 파일 없음). 아이콘 테스트 9개가 이번 `flutter test test/store` 37건에 포함되어 통과. |
+| 30px 가독성과 가운데 색 조정 근거 | 충족 | 변경 없음. `design/icon-30px.png`·OVERRIDES §8의 1.43→2.41:1 기록 유지. |
+| 5장×ko/en·라이트·Fake API·S5 제외·캡처 스크립트 | 충족 | D-35-8 수정으로 Play 태블릿도 `SHOT_IS_IOS=false`로 다시 찍는다(아래 FIXED 근거). rebase 후 S2가 기기 키체인 상태에 따라 갈리던 문제를 `localFlagStoreProvider` override로 고정했고, 깨끗한 기기 대역으로 두 번 띄워도 안내가 없음을 Dart 테스트가 검증한다(코디네이터 결정 A). 커밋된 Play PNG 교체는 유예 범위. |
+| 양 스토어 메타데이터·앱 이름·심사 노트·플레이스홀더 | 충족 | D-35-9 수정(`six-letter`) 확인. 그 외 변경 없음. |
+| 수동 업로드 워크플로와 mobile 경로 | 충족 | `.github/workflows/*.yml` 변경 없음. `tests/test_asc_submit_workflow.py`·`test_app_deploy_workflow.py` 통과(실제 Python 블록 실행). |
+| iPad 13인치 태블릿 레이아웃·rail 단언 | 충족 | 변경 없음. 캡처 전 rail 단언(`store_screenshots_test.dart`)은 Play 태블릿 세트(`play_tablet_set`, 같은 iPad 시뮬레이터)에도 그대로 적용된다. 태블릿 폭 온보딩 장 수 테스트 4건 추가 통과. |
+| privacy/support URL·ASC/Play/법적 체크리스트 대조·EULA | 충족 | 변경 없음. `tests/test_store_labels.py`·`test_legal_checklist.py` 통과. 방침 본문 문구는 코디네이터 지정 사람 확인 항목. |
+| 로컬 캡처 실행 결과 파일 목록·업로드는 사람 | 충족 | 증거 §6 목록과 실제 PNG 54개 대조(변경 없음). 업로드는 실행하지 않았다. |
+
+### 이전 결함 판정
+
+라운드 1의 D-35-1~7은 라운드 2에서 FIXED였고, 이번 라운드 diff(`57bbfb0..HEAD`)는 `.github/workflows/`, `docs/play-data-safety.md`, `app_privacy_details.json`, `capture()`/`replace_set()` 본문을 건드리지 않았다. 해당 회귀 테스트가 모두 통과했으므로 **FIXED 유지**로 본다(재현을 다시 돌리지는 않았다).
+
+| ID | 판정 | 직접 확인한 수정과 재현 결과 |
+|---|---|---|
+| D-35-8 | FIXED | (1) `scripts/store_screenshots.sh:142`의 `play_tablet_set`이 `STORE_SHOT_IS_IOS=false`로 `capture ... androidtablet '*.png'`을 호출하고, `run_locale`(`:207`)에서 `cp ipad13_*.png` 대신 이 함수를 쓴다. 스크립트를 직접 source 해 `flutter` 대역으로 돌렸다: 기존 `ipad13_*` 5개가 지워지고 `androidtablet_*` 5개만 남으며 drive 인자에 `SHOT_IS_IOS=false`가 있다. drive가 1을 돌려주면 실패를 돌려주고 기존 세트가 보존된다. (2) `mobile/tool/verify_store_screenshots.py:53`의 `PLAY_IOS_SOURCE_PREFIX`가 폰은 `iphone69`, 태블릿은 `ipad13` 온보딩 지문과 대조한다. 현재 레포에 실행하면 **ko/en 폰 2건 + 태블릿 2건 = 4건 차단, 종료 1**(코디네이터가 확인하라고 한 기대 결과). `ios`는 종료 0. (3) 라운드 2의 재현 2를 고정한 `test_the_verifier_refuses_a_play_tablet_set_copied_from_the_ipad_captures`와 정상 경로 `..._allows_a_tablet_set_shot_in_the_android_layout`, bash 함수 테스트 3건, Dart 태블릿 폭 온보딩 4건이 모두 통과. 잘못된 요구를 단언하던 `..._allows_the_tablet_set_to_reuse_the_ipad_captures`는 제거됐다. README 35 절의 "태블릿은 iPad 재사용이 맞다" 서술도 고쳐졌다. |
+| D-35-9 | FIXED | `mobile/ios/fastlane/metadata/en-US/description.txt:11`·`mobile/android/fastlane/metadata/android/en-US/full_description.txt:11`이 `six-letter word`다. `test_the_english_description_counts_the_example_board_correctly`가 예시 문자열의 칸 수(6)와 본문 단어, 장면 `_enMask` 타일 수를 함께 대조하며 통과. |
+
+### 새 결함
+
+없음. rebase가 드러낸 S2 1회성 안내 결함은 구현 워커가 이번 라운드에 함께 고쳤고(`mobile/integration_test/store_screenshot_scenes.dart:327`, `:357`), 별도 ID를 부여할 잔존 결함이 아니다. 근거: `_resolveNotice`(`mobile/lib/widgets/result_sheet.dart:93`)는 `localFlagStoreProvider`를 읽어 플래그가 없으면 `_LinkAccountNotice`(`result.link_account`)를 띄운다. 장면은 `LocalFlag.values` 전체를 켠 `InMemoryLocalFlagStore`로 override 하므로 기기 저장소를 타지 않는다. 새 Dart 테스트는 secure storage 채널 대역(`read → null`)을 끼워 깨끗한 기기를 흉내내고 장면을 두 번 띄워 둘 다 안내 없음 + 채널 읽기 0건을 단언한다 — override를 빼면 실패하는 구조라 항상 통과하는 테스트가 아니다.
+
+### 직접 실행한 검증
+
+- `uv run ruff check .`: **All checks passed!**
+- `uv run pytest -q tests/test_store_metadata.py tests/test_store_labels.py tests/test_store_screenshot_script.py tests/test_asc_submit_workflow.py tests/test_app_deploy_workflow.py tests/test_legal_checklist.py`: **345 passed in 142.83s**.
+- 전체 백엔드 `uv run pytest -q`: **1509 passed in 1123.52s (0:18:43)**, 종료 코드 0(rebase 된 티켓 29 코드와 통합된 상태).
+- 두 Python 실행 모두 `TEST_DATABASE_URL`은 기존 전용 `chosung_daily_test_t35`(docker `chosung-daily-mysql-1`, 존재 확인), `TEST_REDIS_URL`은 로컬 Redis DB 9, `TEST_MIGRATION_DATABASE_URL`은 기존 `chosung_daily_test_t35_migrations`로 지정했다. 새 DB 생성·기본 DB fallback·간헐 실패·재실행은 없었다. 접속 자격 증명은 문서에 기록하지 않는다.
+- `cd mobile && flutter pub get && flutter analyze --no-pub`: **No issues found!**
+- `cd mobile && flutter test --no-pub test/store --reporter expanded`: **37 passed**(온보딩 플랫폼×폭 8, 결과 장면 결정론 2, 플래그 2 포함).
+- `cd mobile && flutter test --no-pub --reporter compact`: **582 passed**(rebase 된 티켓 29 코드와 통합된 상태).
+- `python3 mobile/tool/verify_store_screenshots.py ios`: 종료 0. `... play`: **종료 1, 4건 차단**(ko/en × 폰 `iphone69_*_06_language` + 태블릿 `ipad13_*_06_language`).
+- 스크립트 함수 직접 실행: `STORE_SHOTS_LIB_ONLY=1 source scripts/store_screenshots.sh` 후 `flutter` 대역으로 `play_tablet_set` 호출 — 정상 5장이면 `ipad13_*` 세트가 `androidtablet_*` 5장으로 교체되고 `--dart-define=SHOT_IS_IOS=false` 전달, drive 실패면 종료 1·기존 세트 보존.
+- `git diff --check main...HEAD`: 통과. `git diff --name-only main...HEAD -- migrations`: 출력 없음 → `flask db heads` 실행 대상 없음.
+- 공유 파일: `README.md`(+106)·`docs/RELEASE.md`(+100)·`docs/legal-checklist.md`(+52)·spec(+2)은 rebase 후에도 **삭제 줄 0, 추가만**이고 README 변경은 `### 35.`(2024행~) 절 안이다. `.env.example`·`mobile/lib/`는 변경 없음.
+
+### 범위·테스트 품질·보안·참고
+
+- 라운드 2 이후 변경은 티켓 범위(캡처 스크립트·검증기·장면·메타데이터 문구·테스트·README 35·증거) 안이다. 앱 런타임 코드 변경은 없다. 실제 키·토큰·비밀번호가 추가된 증거는 없다(diff·증거 문서 grep). NAS/프로덕션/ASC·Play·결제 API 호출, 외부 업로드, push는 하지 않았다. 시뮬레이터 전체 캡처는 추적 자산을 덮으므로 실행하지 않았다.
+- 참고(결함 아님): `mobile/integration_test/store_screenshots_test.dart:24` 주석 "`false` 를 넘기는 자리는 하나다"는 D-35-8 수정으로 두 자리(`fallback_phone_set`·`play_tablet_set`)가 됐다. 동작 영향 없음.
+- 참고: `storeScreenshotFlagStore()`는 `LocalFlag.values`를 전부 켠다. 나중에 "온보딩을 이미 봤다" 같은 기기 단위 플래그(티켓 28 자리)가 추가되면 S6 장면이 `OnboardingScreen`을 직접 띄우므로 영향은 없을 것으로 보이나, 장면이 플래그를 보고 화면을 건너뛰는 구조가 생기면 그때 확인이 필요하다.
+- 최종 재촬영(Play 폰 10장 + 태블릿 10장, 29~33 반영)과 방침 본문 사람 확인은 코디네이터가 지정한 별도 후속 작업이다.
+- 집계: 이전 결함 **FIXED 2(D-35-8, D-35-9), REPEAT 0**(D-35-1~7은 FIXED 유지); 새 결함 **BLOCKER 0, MAJOR 0, MINOR 0**.
+
+판정: PASS
