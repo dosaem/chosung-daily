@@ -345,6 +345,21 @@ Analytics 로 보려면 이벤트가 먼저 필요하다**: 미정 20 이 확정
 
 - (티켓 35 반영) **미정 25 해소 확인 + 새 확인 항목 1건.** 30px 확인 결과 가운데 칸을 `#A8A29E` 로 한 단계 어둡게 했다(`#D6D3D1` 은 배경 `#FAFAF9` 와 1.43:1 이라 30px 에서 칸이 사라진다 → 2.41:1, 양끝 brand 3.41:1). 근거는 OVERRIDES §8·README "35." 이고 앱의 `tile-wrong` 토큰은 그대로다. **새 항목**: 스토어 라벨 1:1 대조에서 "앱 사용 이벤트"(Firebase)가 방침 `privacy#collection` 항목 목록에 없고 `#overseas` 에만 있는 걸 찾았다 — 스토어 두 곳에는 신고하고(실제로 전송한다), 방침 3절에 한 줄을 넣을지는 법적 문서 범위라 `docs/RELEASE.md` "### 35." 의 사람 확인 항목 + `docs/legal-checklist.md` "스토어 라벨 > 차이 3번" 에 남겼다.
 
+- (티켓 33 반영) 미정 19 의 앱 쪽 확정: 재확인 타이머의 판정은 순수 함수
+`nextEntitlementCheck(now, nextCheckAt, foreground)` 하나이고 **경계는 포함**
+(`now >= next_check_at` → 지금 호출)이다 — 서버 `is_recheck_due` 와 같은 경계라
+정각 호출이 곧 스토어 재조회다. 가짜 시계 테스트가 "정확히 그 시각"·"1초 전" 을
+둘 다 못 박았다(`mobile/test/subscription/entitlement_schedule_test.dart`,
+`entitlement_refresh_test.dart`). 여기에 **앱 쪽 하한 5분**을 더했다: 서버는
+스토어 조회 실패나 재조회 대상이 아닌 행(`expired`·`revoked`)에 `last_verified_at`
+을 올리지 않아 `next_check_at` 이 계속 과거로 오고, 그때 "지났으니 지금" 을
+그대로 따르면 응답이 다음 호출을 부르는 고리가 된다. 5분은 미정 18 의 서버
+재조회 상한과 같은 값이라 더 자주 물어도 스토어를 다시 보지 않는다. 또한
+`entitlementProvider.update` 에 **관측 시각**(재확인은 "조회를 떠난 시각")을
+같이 넘겨, 조회가 떠난 뒤 들어온 구매 응답(티켓 32)이 뒤늦게 도착한 **구매 전**
+`/me/stats` 에 덮이지 않게 했다(코디네이터 확정 2026-10-15; 시각을 생략한 갱신은
+"지금" 이라 늘 이겨서 32 는 코드 변경이 없다). 근거는 README "33.".
+
 ## Further Notes
 
 - 운영자 계정은 정확히 두 개: `dosaem90@gmail.com`, `hsseo@dosaem.com`.

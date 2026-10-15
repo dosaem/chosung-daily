@@ -1,6 +1,7 @@
 import 'package:chosung/l10n/app_localization.dart';
 import 'package:chosung/notifications/notification_controller.dart';
 import 'package:chosung/routing/app_router.dart';
+import 'package:chosung/subscription/entitlement_refresh.dart';
 import 'package:chosung/subscription/purchase_controller.dart';
 import 'package:chosung/theme/app_theme.dart';
 import 'package:easy_localization/easy_localization.dart';
@@ -21,9 +22,14 @@ class ChosungApp extends ConsumerWidget {
     // 끊긴 구매는 **첫 프레임 직후** 구매 스트림으로 올라오므로, Paywall 을
     // 열 때 비로소 듣기 시작하면 그 거래를 놓친다(Play 는 3일 내 acknowledge
     // 가 없으면 자동 환불한다).
+    //
+    // 구독 권한 재확인도 같은 이유로 앱 수명에 매달린다(티켓 33) — 포그라운드에
+    // 머무는 동안 `next_check_at` 에 맞춰 `/me/stats` 를 다시 불러야 하고, 그
+    // 타이머가 탭을 옮길 때 끊기면 환불 반영이 세션 내내 안 온다.
     ref
       ..listen(notificationSyncProvider, (_, _) {})
-      ..listen(purchaseFlowProvider, (_, _) {});
+      ..listen(purchaseFlowProvider, (_, _) {})
+      ..listen(entitlementRefreshProvider, (_, _) {});
 
     return MaterialApp.router(
       routerConfig: ref.watch(appRouterProvider),

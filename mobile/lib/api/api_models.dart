@@ -195,7 +195,7 @@ class Entitlement {
 DateTime? _parseInstant(String? raw) =>
     raw == null ? null : DateTime.parse(raw).toUtc();
 
-/// `GET /api/v1/me/stats` 응답. `entitlement` 는 티켓 33 이 더한다 —
+/// `GET /api/v1/me/stats` 응답. `entitlement` 는 티켓 33 이 더했다 —
 /// 구매(32)는 verify 응답으로 같은 [Entitlement] 를 받는다.
 @immutable
 class MyStats {
@@ -204,6 +204,7 @@ class MyStats {
     required this.currentStreak,
     required this.maxStreak,
     required this.solvedCount,
+    required this.entitlement,
     this.linkedAccount,
   });
 
@@ -217,6 +218,9 @@ class MyStats {
       maxStreak: json['max_streak'] as int,
       solvedCount: json['solved_count'] as int,
       linkedAccount: account == null ? null : LinkedAccount.fromJson(account),
+      entitlement: Entitlement.fromJson(
+        json['entitlement'] as Map<String, dynamic>,
+      ),
     );
   }
 
@@ -225,6 +229,10 @@ class MyStats {
   final int maxStreak;
   final int solvedCount;
   final LinkedAccount? linkedAccount;
+
+  /// 광고 게이트가 보는 구독 권한. 서버가 늘 실어 보낸다(구독이 없으면
+  /// `active: false`).
+  final Entitlement entitlement;
 }
 
 /// 가림 타일 한 칸의 종류. 서버 `app/utils/mask.py` 의 `t` 값과 같다.

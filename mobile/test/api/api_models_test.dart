@@ -74,7 +74,14 @@ void main() {
           "current_streak": 3,
           "max_streak": 12,
           "solved_count": 41,
-          "linked_account": {"provider": "google", "email": "a***@b.com"}
+          "linked_account": {"provider": "google", "email": "a***@b.com"},
+          "entitlement": {
+            "active": true,
+            "until": "2026-11-01T00:00:00Z",
+            "status": "active",
+            "source": "apple",
+            "next_check_at": "2026-10-15T13:00:00Z"
+          }
         }
         ''')
             as Map<String, dynamic>,
@@ -86,6 +93,11 @@ void main() {
       expect(stats.solvedCount, 41);
       expect(stats.linkedAccount?.provider, 'google');
       expect(stats.linkedAccount?.email, 'a***@b.com');
+      expect(stats.entitlement.active, isTrue);
+      // 앱은 이 시각에 타이머를 걸고 다시 부른다(스펙 §A.8). 기기 로컬시로
+      // 읽으면 몇 시간씩 틀어지므로 UTC 로 남아 있어야 한다.
+      expect(stats.entitlement.nextCheckAt, DateTime.utc(2026, 10, 15, 13));
+      expect(stats.entitlement.nextCheckAt!.isUtc, isTrue);
     });
 
     test('게스트(미연결)는 linked_account 가 null 이다', () {
@@ -96,7 +108,14 @@ void main() {
           "current_streak": 0,
           "max_streak": 0,
           "solved_count": 0,
-          "linked_account": null
+          "linked_account": null,
+          "entitlement": {
+            "active": false,
+            "until": null,
+            "status": null,
+            "source": null,
+            "next_check_at": null
+          }
         }
         ''')
             as Map<String, dynamic>,
@@ -104,6 +123,9 @@ void main() {
 
       expect(stats.puzzleLanguage, PuzzleLanguage.ko);
       expect(stats.linkedAccount, isNull);
+      expect(stats.entitlement.active, isFalse);
+      // 구독 행이 없으면 다시 물어볼 것도 없다 — 재확인 타이머가 안 걸린다.
+      expect(stats.entitlement.nextCheckAt, isNull);
     });
   });
 

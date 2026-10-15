@@ -4,6 +4,7 @@ import 'package:chosung/ads/ad_providers.dart';
 import 'package:chosung/ads/banner_ad_view.dart';
 import 'package:chosung/api/api_providers.dart';
 import 'package:chosung/app.dart';
+import 'package:chosung/config/clock.dart';
 import 'package:chosung/config/provider_retry.dart';
 import 'package:chosung/guest/guest_token_store.dart';
 import 'package:chosung/onboarding/onboarding_store.dart';
@@ -46,7 +47,16 @@ Future<void> pumpApp(
       ProviderScope(
         retry: noAutoRetry,
         overrides: [
-          apiClientProvider.overrideWithValue(FakeApiClient()),
+          // 서버도 같은 권한을 말해야 한다 — 티켓 33 의 재확인이 시작
+          // `/me/stats` 응답으로 `entitlementProvider` 를 덮는다.
+          apiClientProvider.overrideWithValue(
+            FakeApiClient(stats: fakeMyStats(entitled: entitled ?? false)),
+          ),
+          // 구독 행이 있는 응답에는 `next_check_at` 이 딸려 오고(서버가 늘
+          // 채운다) 재확인이 거기에 타이머를 건다. 기기 시계를 그대로 쓰면
+          // 그 시각이 과거인지 미래인지가 **돌리는 날짜**에 따라 달라진다 —
+          // 이 파일의 단정과는 무관하지만 테스트가 벽시계를 타면 안 된다.
+          clockProvider.overrideWithValue(() => DateTime.utc(2026, 10, 15, 12)),
           guestTokenStoreProvider.overrideWithValue(
             InMemoryGuestTokenStore('guest-token'),
           ),

@@ -29,6 +29,15 @@ class _RecordingAdapter implements HttpClientAdapter {
   void close({bool force = false}) {}
 }
 
+/// 구독이 없는 게스트의 `/me/stats` 권한 조각 — 서버가 늘 실어 보낸다.
+const Map<String, dynamic> _noEntitlement = {
+  'active': false,
+  'until': null,
+  'status': null,
+  'source': null,
+  'next_check_at': null,
+};
+
 ResponseBody _json(Map<String, dynamic> body, int statusCode) =>
     ResponseBody.fromString(
       jsonEncode(body),
@@ -96,6 +105,7 @@ void main() {
         'max_streak': 2,
         'solved_count': 3,
         'linked_account': null,
+        'entitlement': _noEntitlement,
       }, 200),
     );
     final client = _clientWith(adapter, token: 'guest-token');
@@ -119,6 +129,7 @@ void main() {
         'max_streak': 2,
         'solved_count': 3,
         'linked_account': null,
+        'entitlement': _noEntitlement,
       }, 200),
     );
     var token = 'first-token';
@@ -646,6 +657,7 @@ void main() {
           'max_streak': 9,
           'solved_count': 20,
           'linked_account': {'provider': 'apple', 'email': 'a@b.com'},
+          'entitlement': _noEntitlement,
         }, 200),
       );
       final client = _clientWith(adapter, token: 'guest-token');
