@@ -29,6 +29,7 @@ dependencies:
   # 필요하다). 알림을 "로컬 09:00" 에 걸려면 그 이름이 있어야 한다(티켓 30).
   flutter_timezone: ^5.1.1
   go_router: ^17.5.0
+  google_mobile_ads: ^9.1.0
   google_sign_in: ^7.2.0
   lucide_icons: ^0.257.0
   package_info_plus: ^10.2.2

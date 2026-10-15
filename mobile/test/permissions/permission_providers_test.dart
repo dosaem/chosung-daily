@@ -90,6 +90,23 @@ void main() {
       );
     });
 
+    // 프롬프트는 기기당 한 번이다 — 두 번째 실행에서 notDetermined 로 남으면
+    // 광고 게이트(티켓 31)가 ATT 대기로 영원히 닫힌다.
+    test('iOS 두 번째 실행은 시스템에 남은 선택을 읽어온다', () async {
+      final container = _container(
+        isIos: true,
+        tracking: FakeTrackingAuthorization(saved: TrackingStatus.denied),
+      );
+
+      expect(
+        container.read(trackingStatusProvider),
+        TrackingStatus.notDetermined,
+      );
+      await pumpEventQueue();
+
+      expect(container.read(trackingStatusProvider), TrackingStatus.denied);
+    });
+
     test('프롬프트 결과가 상태로 남는다(티켓 31 광고 게이트가 읽는다)', () async {
       final tracking = FakeTrackingAuthorization(result: TrackingStatus.denied);
       final container = _container(isIos: true, tracking: tracking);

@@ -1,3 +1,5 @@
+import 'package:chosung/ads/ad_unit_ids.dart';
+
 /// 빌드 때 주입하는 값들. `--dart-define=API_BASE_URL=https://...` 형태로 넘기고
 /// (`.github/workflows/flutter.yml`), 안 넘기면 로컬 개발 기본값을 쓴다.
 abstract final class AppEnv {
@@ -22,4 +24,23 @@ abstract final class AppEnv {
   /// 틀린" 상태가 되어 오류 메시지가 엉뚱해진다.
   static String? get googleServerClientIdOrNull =>
       googleServerClientId.isEmpty ? null : googleServerClientId;
+
+  /// AdMob 유닛 ID. 워크플로가 **플랫폼별 variable 을 한 벌의 이름으로**
+  /// 넘기므로(`docs/RELEASE.md "34."`) Dart 쪽에 플랫폼 분기가 없다.
+  /// 비어 있으면 테스트 유닛으로 떨어진다(`adUnitIdFor`).
+  static const admobBannerAdUnitId = String.fromEnvironment(
+    'ADMOB_BANNER_AD_UNIT_ID',
+  );
+  static const admobInterstitialAdUnitId = String.fromEnvironment(
+    'ADMOB_INTERSTITIAL_AD_UNIT_ID',
+  );
+  static const admobRewardedAdUnitId = String.fromEnvironment(
+    'ADMOB_REWARDED_AD_UNIT_ID',
+  );
+
+  static String admobAdUnitId(AdFormat format) => switch (format) {
+    AdFormat.banner => admobBannerAdUnitId,
+    AdFormat.interstitial => admobInterstitialAdUnitId,
+    AdFormat.rewarded => admobRewardedAdUnitId,
+  };
 }

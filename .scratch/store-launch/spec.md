@@ -332,6 +332,15 @@ Analytics 로 보려면 이벤트가 먼저 필요하다**: 미정 20 이 확정
 티켓 30 은 이벤트를 추가하지 않았다(스펙 §A.9 는 분석을 요구하지 않는다). 2주 뒤에
 "미주 사용자에게 20:00 이 맞는가" 를 보려면 알림 탭 유입을 구분할 이벤트(예:
 `notification_open(kind)`)를 먼저 정해야 한다.
+- (티켓 31 반영) 미정 24 의 **배너 예약 높이는 실측하지 못했다**. 어댑티브 배너
+높이는 `AdSize.getLargeAnchoredAdaptiveBannerAdSize`(9.1.0 에서
+`getCurrentOrientationAnchoredAdaptiveBannerAdSize` 는 deprecated)가 플랫폼
+채널로만 돌려주는 값이라 단위·위젯 테스트로는 잴 수 없다. 그래서 24 의 잠정값
+(폭 <728 → 50 / ≥728 → 90)을 그대로 두고, **SDK 가 예약을 넘는 크기를 주면 그
+폭에 들어가는 고정 크기(320×50 / 728×90)로 떨어뜨려** 레이아웃이 밀리거나 배너가
+잘리지 않게 했다(`mobile/lib/ads/banner_size.dart`, 단위 테스트 4개). 실측 확인은
+`docs/RELEASE.md` "### 31." 의 실기기 체크리스트로 넘겼고, 값이 다르면 그때
+`AdBannerSlot` 의 상수와 이 줄을 같이 고친다. 근거는 README "31.".
 
 
 - (티켓 35 반영) **미정 25 해소 확인 + 새 확인 항목 1건.** 30px 확인 결과 가운데 칸을 `#A8A29E` 로 한 단계 어둡게 했다(`#D6D3D1` 은 배경 `#FAFAF9` 와 1.43:1 이라 30px 에서 칸이 사라진다 → 2.41:1, 양끝 brand 3.41:1). 근거는 OVERRIDES §8·README "35." 이고 앱의 `tile-wrong` 토큰은 그대로다. **새 항목**: 스토어 라벨 1:1 대조에서 "앱 사용 이벤트"(Firebase)가 방침 `privacy#collection` 항목 목록에 없고 `#overseas` 에만 있는 걸 찾았다 — 스토어 두 곳에는 신고하고(실제로 전송한다), 방침 3절에 한 줄을 넣을지는 법적 문서 범위라 `docs/RELEASE.md` "### 35." 의 사람 확인 항목 + `docs/legal-checklist.md` "스토어 라벨 > 차이 3번" 에 남겼다.

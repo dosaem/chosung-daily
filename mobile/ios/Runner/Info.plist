@@ -17,6 +17,11 @@
 		<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 		<key>CFBundleInfoDictionaryVersion</key>
 		<string>6.0</string>
+		<!-- AdMob 앱 ID(티켓 31). 없으면 SDK 초기화가 앱을 죽인다. 지금은
+		     Google 테스트 앱 ID 이고 실제 ID 는 AdMob 콘솔에서 만든 뒤 바꾼다
+		     (docs/RELEASE.md "### 31."). -->
+		<key>GADApplicationIdentifier</key>
+		<string>ca-app-pub-3940256099942544~1458002511</string>
 		<!-- ATT 프롬프트 문구(영어 기본, 한국어는 ko.lproj/InfoPlist.strings).
 		     이 키가 없으면 requestTrackingAuthorization 호출이 앱을 죽인다. -->
 		<key>NSUserTrackingUsageDescription</key>

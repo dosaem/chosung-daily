@@ -279,6 +279,344 @@ void main() {
       expect(api.fetchTodayPuzzleCalls, 2);
     });
 
+    // 리뷰 r1 D-31-2: 힌트 미리 보기는 제출 잠금과 무관하게 눌릴 수 있는
+    // 버튼이다. 제출 응답을 기다리는 사이에 끼어들면 그 응답이 폐기돼 소비된
+    // 시도가 보드에서 사라진다.
+    test('제출을 기다리는 동안 힌트를 열어도 쌓인 행과 힌트가 모두 남는다', () async {
+      final api = FakeApiClient(puzzle: fakeTodayPuzzle(puzzleId: 41));
+      final container = _container(api);
+      await container.read(todayPuzzleProvider.future);
+
+      final gate = Completer<void>();
+      api.submitGuessGate = gate;
+      final submitting = container
+          .read(todayPuzzleProvider.notifier)
+          .submit('지하촌역');
+
+      // 제출 대기 중의 힌트 탭. 서버에 보내기 전에 제출 결과를 기다려야 한다.
+      final unlocking = container
+          .read(todayPuzzleProvider.notifier)
+          .unlockHint();
+      await pumpEventQueue();
+      expect(api.unlockedHintPuzzleIds, isEmpty, reason: '제출 응답 전에는 보내지 않는다');
+
+      gate.complete();
+      expect(await submitting, isTrue);
+      expect(await unlocking, isTrue);
+
+      final state = _ready(container.read(todayPuzzleProvider).requireValue);
+      expect(state.puzzle.attempts.length, 1, reason: '소비된 시도가 사라지면 안 된다');
+      expect(state.puzzle.attemptsLeft, 4);
+      expect(state.puzzle.hint, '서울에 가장 많다');
+      expect(state.submitting, isFalse);
+      expect(api.unlockedHintPuzzleIds, [41]);
+    });
+
+    test('제출 대기 중 힌트가 실패해도 제출 결과와 잠금 해제가 남는다', () async {
+      final api = FakeApiClient(puzzle: fakeTodayPuzzle(puzzleId: 41))
+        ..unlockHintError = const NetworkApiException(
+          code: networkErrorCode,
+          message: 'offline',
+        );
+      final container = _container(api);
+      await container.read(todayPuzzleProvider.future);
+
+      final gate = Completer<void>();
+      api.submitGuessGate = gate;
+      final submitting = container
+          .read(todayPuzzleProvider.notifier)
+          .submit('지하촌역');
+      final unlocking = container
+          .read(todayPuzzleProvider.notifier)
+          .unlockHint();
+
+      gate.complete();
+      expect(await submitting, isTrue);
+      expect(await unlocking, isFalse);
+
+      final state = _ready(container.read(todayPuzzleProvider).requireValue);
+      expect(state.puzzle.attempts.length, 1);
+      expect(state.puzzle.hint, isNull);
+      expect(
+        state.submitting,
+        isFalse,
+        reason: '입력이 잠긴 채 남으면 재시작 전까지 못 푼다',
+      );
+    });
+
+    // 리뷰 r2 D-31-4: 반대 순서 — 힌트 응답을 기다리는 사이의 제출이다. 힌트는
+    // 시도·순위를 건드리지 않으므로(US 5) 그 사이 답 입력은 살아 있고, 서버는
+    // 이미 힌트를 열었다. 세대 번호로 늦은 힌트 응답을 버리면 화면이 그 힌트를
+    // 잃고 비구독자는 같은 힌트에 광고를 다시 봐야 한다(US 5a).
+    test('힌트를 기다리는 동안 제출이 실패해도 열린 힌트는 보드에 남는다', () async {
+      final api = FakeApiClient(puzzle: fakeTodayPuzzle(puzzleId: 41));
+      final container = _container(api);
+      await container.read(todayPuzzleProvider.future);
+
+      final gate = Completer<void>();
+      api.unlockHintGate = gate;
+      final opening = container.read(todayPuzzleProvider.notifier).unlockHint();
+      await pumpEventQueue();
+      expect(api.unlockedHintPuzzleIds, [41], reason: '힌트는 이미 서버로 떠났다');
+
+      // 힌트 응답을 기다리는 사이의 제출. 이 요청만 끊긴다.
+      api.submitGuessError = const NetworkApiException(
+        code: networkErrorCode,
+        message: 'offline',
+      );
+      final recorded = await container
+          .read(todayPuzzleProvider.notifier)
+          .submit('지하촌역');
+      expect(recorded, isFalse);
+
+      gate.complete();
+      expect(await opening, isTrue);
+
+      final state = _ready(container.read(todayPuzzleProvider).requireValue);
+      expect(state.puzzle.hint, '서울에 가장 많다', reason: '서버가 연 힌트를 잃으면 안 된다');
+      expect(state.puzzle.hintUnlocked, isTrue);
+      expect(state.notice, TodayNotice.offline, reason: '제출 실패 안내는 그대로 남는다');
+      expect(state.submitting, isFalse);
+      expect(
+        api.unlockedHintPuzzleIds,
+        [41],
+        reason: '광고를 다시 보고 다시 열 필요가 없다',
+      );
+    });
+
+    test('힌트를 기다리는 동안 제출이 성공하면 쌓인 행과 힌트가 모두 남는다', () async {
+      final api = FakeApiClient(puzzle: fakeTodayPuzzle(puzzleId: 41));
+      final container = _container(api);
+      await container.read(todayPuzzleProvider.future);
+
+      final gate = Completer<void>();
+      api.unlockHintGate = gate;
+      final opening = container.read(todayPuzzleProvider.notifier).unlockHint();
+      await pumpEventQueue();
+
+      expect(
+        await container.read(todayPuzzleProvider.notifier).submit('지하촌역'),
+        isTrue,
+      );
+
+      gate.complete();
+      expect(await opening, isTrue);
+
+      final state = _ready(container.read(todayPuzzleProvider).requireValue);
+      expect(state.puzzle.attempts.length, 1);
+      expect(state.puzzle.attemptsLeft, 4);
+      expect(state.puzzle.hint, '서울에 가장 많다');
+      expect(state.submitting, isFalse);
+    });
+
+    test('제출 응답보다 힌트가 먼저 와도 제출이 그 힌트를 덮어 지우지 않는다', () async {
+      final api = FakeApiClient(puzzle: fakeTodayPuzzle(puzzleId: 41));
+      final container = _container(api);
+      await container.read(todayPuzzleProvider.future);
+
+      final hintGate = Completer<void>();
+      api.unlockHintGate = hintGate;
+      final opening = container.read(todayPuzzleProvider.notifier).unlockHint();
+      await pumpEventQueue();
+
+      final submitGate = Completer<void>();
+      api.submitGuessGate = submitGate;
+      final submitting = container
+          .read(todayPuzzleProvider.notifier)
+          .submit('지하촌역');
+      await pumpEventQueue();
+
+      // 제출이 아직 떠 있는 동안 힌트가 먼저 돌아온다.
+      hintGate.complete();
+      expect(await opening, isTrue);
+      final waiting = _ready(container.read(todayPuzzleProvider).requireValue);
+      expect(waiting.puzzle.hint, '서울에 가장 많다');
+      expect(waiting.submitting, isTrue, reason: '제출 잠금을 힌트가 풀면 안 된다');
+
+      submitGate.complete();
+      expect(await submitting, isTrue);
+
+      final state = _ready(container.read(todayPuzzleProvider).requireValue);
+      expect(state.puzzle.attempts.length, 1);
+      expect(state.puzzle.hint, '서울에 가장 많다', reason: '제출이 힌트 없던 스냅샷을 쓰면 지워진다');
+      expect(state.submitting, isFalse);
+    });
+
+    test('힌트가 이미 열려 있었다는 409 는 제출이 끼어들어도 보드를 다시 읽는다', () async {
+      final api = FakeApiClient(puzzle: fakeTodayPuzzle(puzzleId: 41))
+        ..unlockHintError = const HintAlreadyUnlockedApiException(
+          code: 'HINT_ALREADY_UNLOCKED',
+          message: '이미 열림',
+        );
+      final container = _container(api);
+      await container.read(todayPuzzleProvider.future);
+
+      final gate = Completer<void>();
+      api.unlockHintGate = gate;
+      final opening = container.read(todayPuzzleProvider.notifier).unlockHint();
+      await pumpEventQueue();
+
+      // 서버 보드에는 힌트가 열려 있다.
+      api
+        ..puzzle = fakeTodayPuzzle(
+          puzzleId: 41,
+          hint: '서울에 가장 많다',
+          hintUnlocked: true,
+        )
+        ..submitGuessError = const NetworkApiException(
+          code: networkErrorCode,
+          message: 'offline',
+        );
+      await container.read(todayPuzzleProvider.notifier).submit('지하촌역');
+
+      gate.complete();
+      expect(await opening, isTrue);
+      await pumpEventQueue();
+
+      final state = _ready(container.read(todayPuzzleProvider).requireValue);
+      expect(state.puzzle.hint, '서울에 가장 많다', reason: '재조회 결과가 버려지면 안 된다');
+      expect(api.fetchTodayPuzzleCalls, 2);
+    });
+
+    // 리뷰 r3, 코디네이터 지시 3: 아래 네 테스트는 "경로 쌍 표" 의 빈 칸을
+    // 메운다 — 리뷰어가 다음 쌍을 찾기 전에 지연 Fake 로 고정한다.
+    test('첫 조회가 끝나기 전에는 제출도 힌트도 서버로 가지 않는다', () async {
+      final api = FakeApiClient(puzzle: fakeTodayPuzzle(puzzleId: 41));
+      final gate = Completer<void>();
+      api.fetchTodayPuzzleGate = gate;
+      final container = _container(api);
+
+      final loading = container.read(todayPuzzleProvider.future);
+      await pumpEventQueue();
+
+      // 보드를 아직 모르면(= 화면은 스켈레톤) 쓸 자리가 없다.
+      final notifier = container.read(todayPuzzleProvider.notifier);
+      expect(await notifier.submit('지하촌역'), isFalse);
+      expect(await notifier.unlockHint(), isFalse);
+      expect(api.submittedGuesses, isEmpty);
+      expect(api.unlockedHintPuzzleIds, isEmpty);
+
+      gate.complete();
+      await loading;
+      expect(api.fetchTodayPuzzleCalls, 1, reason: '첫 조회를 두 번 띄우지 않는다');
+    });
+
+    test('제출 응답을 기다리는 동안 다시 제출해도 서버로 한 번만 간다', () async {
+      final api = FakeApiClient(puzzle: fakeTodayPuzzle(puzzleId: 41));
+      final container = _container(api);
+      await container.read(todayPuzzleProvider.future);
+
+      final gate = Completer<void>();
+      api.submitGuessGate = gate;
+      final first = container.read(todayPuzzleProvider.notifier).submit('지하촌역');
+      await pumpEventQueue();
+
+      // 잠금은 보드(`submitting`)가 들고 있으므로 두 번째 호출은 바로 끊긴다.
+      expect(
+        await container.read(todayPuzzleProvider.notifier).submit('지하철역'),
+        isFalse,
+      );
+      expect(api.submittedGuesses, hasLength(1));
+
+      gate.complete();
+      expect(await first, isTrue);
+      expect(api.submittedGuesses, hasLength(1));
+      final state = _ready(container.read(todayPuzzleProvider).requireValue);
+      expect(
+        state.puzzle.attempts,
+        hasLength(1),
+        reason: '한 번 누른 제출이 두 행이 되면 안 된다',
+      );
+    });
+
+    // 반대 순서(재조회 × 힌트). 힌트가 떠날 때 세대를 올리므로 먼저 떠난 조회의
+    // 응답은 버려진다 — 그 응답엔 힌트가 없으니 쓰면 열린 힌트를 지운다.
+    test('힌트보다 먼저 떠난 재조회가 늦게 도착해도 열린 힌트를 지우지 않는다', () async {
+      final api = FakeApiClient(puzzle: fakeTodayPuzzle(puzzleId: 41));
+      final container = _container(api);
+      await container.read(todayPuzzleProvider.future);
+
+      // 복귀 재조회가 느리다. 이 응답은 힌트 전 보드(힌트 없음)다.
+      final fetchGate = Completer<void>();
+      api.fetchTodayPuzzleGate = fetchGate;
+      final refreshing = container.read(todayPuzzleProvider.notifier).refresh();
+      await pumpEventQueue();
+
+      // 그 사이 보상형을 끝까지 보고 힌트를 연다.
+      final hintGate = Completer<void>();
+      api.unlockHintGate = hintGate;
+      final opening = container.read(todayPuzzleProvider.notifier).unlockHint();
+      await pumpEventQueue();
+      hintGate.complete();
+      expect(await opening, isTrue);
+
+      // 먼저 떠난 조회가 뒤늦게 도착한다.
+      fetchGate.complete();
+      await refreshing;
+      await pumpEventQueue();
+
+      final state = _ready(container.read(todayPuzzleProvider).requireValue);
+      expect(state.puzzle.hint, '서울에 가장 많다', reason: '과거 응답이 힌트를 덮으면 안 된다');
+      expect(state.puzzle.hintUnlocked, isTrue);
+      expect(api.unlockedHintPuzzleIds, [41]);
+    });
+
+    // 리뷰 r3 D-31-6: 힌트 응답을 기다리는 사이의 포그라운드 복귀다. 그때 읽는
+    // 서버 보드엔 방금 연 힌트가 아직 없어서(제출의 `_refreshQueued` 와 같은
+    // 이유) 그 응답이 힌트보다 늦게 도착해 보드를 통째로 갈아 끼우면 열린 힌트가
+    // 사라진다. 화면은 다시 광고 버튼을 띄우고 비구독자는 이미 산 같은 힌트에
+    // 보상형을 다시 봐야 한다(US 4·5a).
+    test('힌트를 기다리는 동안 떠난 복귀 재조회가 열린 힌트를 되돌리지 않는다', () async {
+      final api = FakeApiClient(puzzle: fakeTodayPuzzle(puzzleId: 41));
+      final container = _container(api);
+      await container.read(todayPuzzleProvider.future);
+
+      final hintGate = Completer<void>();
+      api.unlockHintGate = hintGate;
+      final opening = container.read(todayPuzzleProvider.notifier).unlockHint();
+      await pumpEventQueue();
+      expect(api.unlockedHintPuzzleIds, [41], reason: '힌트는 이미 서버로 떠났다');
+
+      // 포그라운드 복귀. 응답을 붙잡아 둬서 힌트보다 늦게 도착하게 만든다.
+      final fetchGate = Completer<void>();
+      api.fetchTodayPuzzleGate = fetchGate;
+      final refreshing = container.read(todayPuzzleProvider.notifier).refresh();
+      await pumpEventQueue();
+      // 눈에 보이는 증상(사라진 힌트)을 먼저 재니 호출 수는 받아만 둔다.
+      final callsDuringHint = api.fetchTodayPuzzleCalls;
+
+      // 힌트 쓰기가 서버에 들어간 뒤 응답이 돌아온다 — 이제 조회해도 힌트가
+      // 같이 온다.
+      api.puzzle = fakeTodayPuzzle(
+        puzzleId: 41,
+        hint: '서울에 가장 많다',
+        hintUnlocked: true,
+      );
+      hintGate.complete();
+      expect(await opening, isTrue);
+      expect(
+        _ready(container.read(todayPuzzleProvider).requireValue).puzzle.hint,
+        '서울에 가장 많다',
+      );
+
+      // 붙잡아 둔 조회 응답이 뒤늦게 도착한다.
+      fetchGate.complete();
+      await refreshing;
+      await pumpEventQueue();
+
+      final state = _ready(container.read(todayPuzzleProvider).requireValue);
+      expect(state.puzzle.hint, '서울에 가장 많다', reason: '서버가 연 힌트를 잃으면 안 된다');
+      expect(state.puzzle.hintUnlocked, isTrue);
+      expect(
+        api.unlockedHintPuzzleIds,
+        [41],
+        reason: '광고를 다시 보고 다시 열 필요가 없다',
+      );
+      expect(callsDuringHint, 1, reason: '힌트 중 재조회는 미룬다 — 첫 보드 조회 하나뿐이다');
+      // 미뤘던 복귀 재조회는 버리지 않는다 — 힌트 뒤에 돌아간다.
+      expect(api.fetchTodayPuzzleCalls, 2);
+    });
+
     test('제출 전에 떠난 조회가 늦게 도착해도 쌓인 행을 지우지 않는다', () async {
       final api = FakeApiClient(puzzle: fakeTodayPuzzle(puzzleId: 7));
       final container = _container(api);
@@ -575,5 +913,189 @@ void main() {
     final today = container.read(todayPuzzleProvider);
     expect(today.hasError, isTrue, reason: '옛 응답이 오류 카드를 지웠다');
     expect(today.value, isNull);
+  });
+  // 리뷰 r4 D-31-7: 힌트 응답은 세대가 아니라 **같은 퍼즐인가** 로 보드에
+  // 올라간다(r2 D-31-4). 그런데 `puzzle_id` 는 날짜·언어로만 갈리는 공용
+  // 번호라 계정이 바뀌어도 같은 번호다 — 옛 계정이 연 힌트가 새 계정 보드를
+  // 연 것처럼 보인다. 서버(`hint_service.py`)는 guest_id+puzzle_id 로 기록해
+  // B 에겐 그 unlock 이 없으니 다음 재조회에서 다시 잠긴다(US 19).
+  test('계정이 바뀐 뒤 도착한 힌트 응답은 새 계정 보드를 열지 않는다', () async {
+    final api = FakeApiClient(puzzle: fakeTodayPuzzle(puzzleId: 41));
+    final container = _container(
+      api,
+      tokenStore: InMemoryGuestTokenStore('guest-a'),
+    );
+    await container.read(todayPuzzleProvider.future);
+
+    // A 가 보상형을 끝까지 보고 힌트를 연다 — 응답은 붙잡아 둔다.
+    final hintGate = Completer<void>();
+    api.unlockHintGate = hintGate;
+    final opening = container.read(todayPuzzleProvider.notifier).unlockHint();
+    await pumpEventQueue();
+    expect(api.unlockedHintPuzzleIds, [41], reason: 'A 의 힌트는 이미 떠났다');
+
+    // 그 사이 내 기록에서 B 로 전환한다(`AccountNotifier._adopt` 와 같은 순서).
+    await container.read(guestTokenProvider.notifier).replaceWith('guest-b');
+    await container.read(todayPuzzleProvider.notifier).discard();
+    final adopted = _ready(container.read(todayPuzzleProvider).requireValue);
+    expect(adopted.puzzle.puzzleId, 41, reason: '같은 날짜·언어라 번호도 같다');
+    expect(adopted.puzzle.hintUnlocked, isFalse, reason: 'B 는 힌트를 열지 않았다');
+
+    // A 의 성공 응답이 뒤늦게 도착한다.
+    hintGate.complete();
+    expect(await opening, isFalse, reason: '남의 응답은 "열렸다" 로 세지 않는다');
+    await pumpEventQueue();
+
+    final state = _ready(container.read(todayPuzzleProvider).requireValue);
+    expect(state.puzzle.hint, isNull, reason: 'A 의 힌트가 B 보드에 올라갔다');
+    expect(state.puzzle.hintUnlocked, isFalse);
+  });
+
+  test('계정이 바뀐 뒤에는 옛 보드로 힌트를 열지 않는다', () async {
+    // D-31-7 의 다른 입구: 제출과 같이(D-29-5) 토큰만 바뀌고 보드는 남는 길
+    // (시작 흐름의 401 복구)이다. `ApiClient` 는 매 요청 지금 토큰을 읽으므로
+    // 옛 보드에서 누른 힌트는 새 계정의 unlock 으로 서버에 기록된다.
+    final api = FakeApiClient(puzzle: fakeTodayPuzzle(puzzleId: 41));
+    final container = _container(
+      api,
+      tokenStore: InMemoryGuestTokenStore('guest-a'),
+    );
+    await container.read(todayPuzzleProvider.future);
+
+    // 새 계정 보드 조회는 붙잡아 둔다 — 옛 보드가 화면에 남은 그 순간을 본다.
+    final gate = Completer<void>();
+    api.fetchTodayPuzzleGate = gate;
+    addTearDown(() {
+      if (!gate.isCompleted) gate.complete();
+    });
+    await container.read(guestTokenProvider.notifier).replaceWith('guest-b');
+    expect(container.read(todayPuzzleProvider).value, isA<TodayPuzzleReady>());
+
+    final opened = await container
+        .read(todayPuzzleProvider.notifier)
+        .unlockHint();
+
+    expect(opened, isFalse);
+    expect(api.unlockedHintPuzzleIds, isEmpty, reason: '남의 계정으로 열면 안 된다');
+    // 남의 보드는 화면에서도 사라진다(새 계정 보드를 읽는 중).
+    expect(container.read(todayPuzzleProvider).value, isNull);
+  });
+  // 경로 쌍 표의 "계정 경계 × 복귀 재조회" 칸(코디네이터 지시 2). 읽기는
+  // `fetchIfSameAccount` 가 막는다 — 세대만으로도 걸리지만 둘 중 하나가 빠지는
+  // 날을 대비해 이 칸도 지연 Fake 로 고정한다.
+  test('복귀 재조회가 떠 있는 동안 계정이 바뀌면 그 응답은 새 보드를 덮지 않는다', () async {
+    final api = FakeApiClient(
+      puzzle: fakeTodayPuzzle(puzzleId: 41, attemptsLeft: 2),
+    );
+    final container = _container(
+      api,
+      tokenStore: InMemoryGuestTokenStore('guest-a'),
+    );
+    await container.read(todayPuzzleProvider.future);
+
+    // A 의 복귀 재조회를 붙잡아 둔다(응답은 호출 시점의 보드 = 남은 기회 2).
+    final gate = Completer<void>();
+    api.fetchTodayPuzzleGate = gate;
+    final refreshing = container.read(todayPuzzleProvider.notifier).refresh();
+    await pumpEventQueue();
+
+    // 그 사이 B 로 전환한다 — B 는 아직 아무것도 제출하지 않았다.
+    await container.read(guestTokenProvider.notifier).replaceWith('guest-b');
+    api
+      ..fetchTodayPuzzleGate = null
+      // B 는 아직 아무것도 제출하지 않았다 — 남은 기회가 기본값(5)이다.
+      ..puzzle = fakeTodayPuzzle(puzzleId: 41);
+    await container.read(todayPuzzleProvider.notifier).discard();
+    expect(
+      _ready(
+        container.read(todayPuzzleProvider).requireValue,
+      ).puzzle.attemptsLeft,
+      5,
+    );
+
+    // 붙잡아 둔 A 의 응답이 뒤늦게 도착한다.
+    gate.complete();
+    await refreshing;
+    await pumpEventQueue();
+
+    expect(
+      _ready(
+        container.read(todayPuzzleProvider).requireValue,
+      ).puzzle.attemptsLeft,
+      5,
+      reason: 'A 의 보드가 B 위에 앉으면 안 된다',
+    );
+  });
+
+  // 경로 쌍 표의 "계정 경계 × 떠 있는 제출" 칸. 보내기 전 거절(위 테스트)과
+  // 달리 여기서는 요청이 **이미 떠난 뒤** 토큰이 바뀐다(401 복구). 쓰지 않는
+  // 것만으로는 모자라다 — 보드가 `submitting: true` 로 잠긴 채 남는다.
+  test('제출 응답을 기다리는 사이 계정이 바뀌면 그 응답도 보드도 버린다', () async {
+    final api = FakeApiClient(puzzle: fakeTodayPuzzle(puzzleId: 41));
+    final container = _container(
+      api,
+      tokenStore: InMemoryGuestTokenStore('guest-a'),
+    );
+    await container.read(todayPuzzleProvider.future);
+
+    final submitGate = Completer<void>();
+    api.submitGuessGate = submitGate;
+    final submitting = container
+        .read(todayPuzzleProvider.notifier)
+        .submit('지하촌역');
+    await pumpEventQueue();
+    expect(api.submittedGuesses, hasLength(1), reason: 'A 의 제출은 이미 떠났다');
+
+    // 토큰만 바뀌는 길(시작 흐름의 401 복구) — 보드는 버려 주지 않는다.
+    await container.read(guestTokenProvider.notifier).replaceWith('guest-b');
+    // 새 계정 보드 조회는 붙잡아 둬서 "버렸다" 를 그 자리에서 본다.
+    final fetchGate = Completer<void>();
+    api.fetchTodayPuzzleGate = fetchGate;
+    addTearDown(() {
+      if (!fetchGate.isCompleted) fetchGate.complete();
+    });
+
+    submitGate.complete();
+    expect(await submitting, isFalse, reason: '남의 보드에 쌓을 수 없다');
+    expect(
+      container.read(todayPuzzleProvider).value,
+      isNull,
+      reason: '잠긴 남의 보드가 남으면 입력이 영구히 막힌다',
+    );
+    expect(api.fetchTodayPuzzleCalls, 2, reason: 'B 의 보드를 새로 읽는다');
+  });
+
+  test('제출이 실패로 끝나도 그 사이 바뀐 계정의 보드에는 안내를 올리지 않는다', () async {
+    // 같은 입구의 실패 경로. 안내는 보드 스냅샷 위에 올라가므로, 막지 않으면
+    // 옛 계정 보드가 새 토큰 위에 다시 세워진다.
+    final api = FakeApiClient(puzzle: fakeTodayPuzzle(puzzleId: 41))
+      ..submitGuessError = const NetworkApiException(
+        code: networkErrorCode,
+        message: 'offline',
+      );
+    final container = _container(
+      api,
+      tokenStore: InMemoryGuestTokenStore('guest-a'),
+    );
+    await container.read(todayPuzzleProvider.future);
+
+    final submitGate = Completer<void>();
+    api.submitGuessGate = submitGate;
+    final submitting = container
+        .read(todayPuzzleProvider.notifier)
+        .submit('지하촌역');
+    await pumpEventQueue();
+
+    await container.read(guestTokenProvider.notifier).replaceWith('guest-b');
+    final fetchGate = Completer<void>();
+    api.fetchTodayPuzzleGate = fetchGate;
+    addTearDown(() {
+      if (!fetchGate.isCompleted) fetchGate.complete();
+    });
+
+    submitGate.complete();
+    expect(await submitting, isFalse);
+    expect(container.read(todayPuzzleProvider).value, isNull);
+    expect(api.fetchTodayPuzzleCalls, 2);
   });
 }

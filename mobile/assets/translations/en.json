@@ -68,7 +68,11 @@
   "hint": {
     "locked": "The hint opens after your third wrong answer",
     "watch_ad": "Watch an ad to peek at the hint",
-    "label": "Hint"
+    "label": "Hint",
+    "preview": "Preview the hint",
+    "ad_unavailable": "Can't load an ad right now",
+    "unlock_failed": "Couldn't open the hint",
+    "ad_not_finished": "Watch the whole ad to open the hint"
   },
   "result": {
     "success_title": "The answer is {answer}!",

@@ -1,8 +1,12 @@
+import 'package:app_tracking_transparency/app_tracking_transparency.dart';
+import 'package:chosung/ads/ad_gate.dart';
+import 'package:chosung/ads/ad_providers.dart';
 import 'package:chosung/api/api_models.dart';
 import 'package:chosung/api/api_providers.dart';
 import 'package:chosung/app.dart';
 import 'package:chosung/config/provider_retry.dart';
 import 'package:chosung/layout/adaptive_scaffold.dart';
+import 'package:chosung/permissions/tracking_permission.dart';
 import 'package:chosung/screens/ranking_tab.dart';
 import 'package:chosung/screens/records_tab.dart';
 import 'package:chosung/startup/startup_controller.dart';
@@ -13,9 +17,12 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
+import '../fakes/fake_ad_service.dart';
 import '../fakes/fake_api_client.dart';
+import '../fakes/fake_permissions.dart';
 import '../layout/adaptive_scaffold_test.dart' show setViewSize;
 
 /// 실제 셸과 같은 자리에 탭을 넣는다 — 폭 판정이 rail 을 뺀 콘텐츠 열 기준이
@@ -29,6 +36,20 @@ Widget _shell({required FakeApiClient api, required Widget tab}) =>
           fakeMyStats(currentStreak: 12, maxStreak: 30, solvedCount: 41),
         ),
         appVersionProvider.overrideWith((ref) async => '1.2.3'),
+        // T4 의 열 배치는 "광고 개인정보 설정" 행이 있는 구성(EEA)에서 본다 —
+        // 그 행은 UMP privacy options 가 required 일 때만 뜬다(티켓 31).
+        isIosProvider.overrideWithValue(false),
+        trackingAuthorizationProvider.overrideWithValue(
+          FakeTrackingAuthorization(saved: TrackingStatus.notSupported),
+        ),
+        adServiceProvider.overrideWithValue(
+          FakeAdService(
+            consent: const UmpStatus(
+              consent: ConsentStatus.obtained,
+              privacyOptionsRequired: true,
+            ),
+          ),
+        ),
       ],
       child: AppLocalizationScope(
         startLocale: const Locale('ko'),

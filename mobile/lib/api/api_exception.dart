@@ -62,9 +62,28 @@ class InvalidIdTokenApiException extends ApiException {
   });
 }
 
+/// 이 퍼즐의 힌트 미리 보기를 이미 썼다(409). 서버에 이미 열려 있으니
+/// 화면이 할 일은 `GET /puzzles/today` 재조회 하나뿐이다 — 보상형 광고를 본
+/// 사람에게 "실패" 를 보여줄 상황이 아니다(US 5a).
+class HintAlreadyUnlockedApiException extends ApiException {
+  const HintAlreadyUnlockedApiException({
+    required super.code,
+    required super.message,
+  });
+}
+
 /// 지금 게스트에 이미 다른 계정이 연결돼 있다(409 `ACCOUNT_ALREADY_LINKED`).
 class AccountAlreadyLinkedApiException extends ApiException {
   const AccountAlreadyLinkedApiException({
+    required super.code,
+    required super.message,
+  });
+}
+
+/// 끝난 퍼즐이다(409). 정답을 이미 보여준 뒤라 힌트를 팔지 않는다
+/// (`app/services/hint_service.py`).
+class AlreadyFinishedApiException extends ApiException {
+  const AlreadyFinishedApiException({
     required super.code,
     required super.message,
   });
@@ -78,7 +97,7 @@ class UnknownApiException extends ApiException {
 const String unknownErrorCode = 'UNKNOWN_ERROR';
 const String networkErrorCode = 'NETWORK_ERROR';
 
-/// 서버 `code` → 예외 타입. 뒤 티켓(30·31·32)이 자기 코드를 더한다.
+/// 서버 `code` → 예외 타입. 뒤 티켓(32·33)이 자기 코드를 더한다.
 const Map<
   String,
   ApiException Function({required String code, required String message})
@@ -90,6 +109,8 @@ _exceptionsByCode = {
   'PUZZLE_CHANGED': PuzzleChangedApiException.new,
   'INVALID_ID_TOKEN': InvalidIdTokenApiException.new,
   'ACCOUNT_ALREADY_LINKED': AccountAlreadyLinkedApiException.new,
+  'HINT_ALREADY_UNLOCKED': HintAlreadyUnlockedApiException.new,
+  'ALREADY_FINISHED': AlreadyFinishedApiException.new,
 };
 
 /// `code` 를 모를 때(본문이 JSON 이 아닌 경우 포함) HTTP status 로 떨어뜨린다.

@@ -4,19 +4,33 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
-/// 잠김(자물쇠 + 안내 + 보상형 버튼) / 열림(힌트 문장).
+/// 잠김(자물쇠 + 안내 + 미리 보기 버튼) / 열림(힌트 문장).
 ///
 /// 서버가 "3번째 오답 뒤" 또는 "힌트 미리 보기를 쓴 뒤" 에만 `hint` 를 채워
 /// 보내므로(스펙 §A.4) 앱은 공개 조건을 다시 계산하지 않는다 — [hint] 가
 /// null 인지만 본다.
 class HintCard extends StatelessWidget {
-  const HintCard({required this.hint, this.onWatchAd, super.key});
+  const HintCard({
+    required this.hint,
+    this.onPreview,
+    this.needsAd = true,
+    this.notice,
+    super.key,
+  });
 
   final String? hint;
 
-  /// 보상형 광고로 힌트를 미리 여는 동작. 광고 SDK 가 들어오는 티켓 31 이
-  /// 넣는다 — 그때까지 버튼은 자리만 잡고 눌리지 않는다.
-  final VoidCallback? onWatchAd;
+  /// 힌트를 미리 여는 동작. null 이면 버튼이 눌리지 않는다 — 광고를 띄울 수
+  /// 없거나 지금 여는 중이다.
+  final VoidCallback? onPreview;
+
+  /// 보상형 광고를 봐야 하는가. 구독자는 false 이고 레이블에서 광고가
+  /// 사라진다(US 32) — "광고 없이" 가 혜택이라 문구가 같으면 안 된다.
+  final bool needsAd;
+
+  /// 버튼 아래 한 줄(광고를 못 불러옴·열기 실패). 토스트로 숨기지 않는다
+  /// (OVERRIDES §7).
+  final String? notice;
 
   @override
   Widget build(BuildContext context) {
@@ -57,10 +71,23 @@ class HintCard extends StatelessWidget {
           if (unlocked == null) ...[
             const SizedBox(height: 12),
             OutlinedButton.icon(
-              onPressed: onWatchAd,
-              icon: const Icon(LucideIcons.play, size: 16),
-              label: Text('hint.watch_ad'.tr()),
+              onPressed: onPreview,
+              // 광고가 필요할 때만 재생 아이콘을 병기한다(OVERRIDES §5).
+              icon: Icon(
+                needsAd ? LucideIcons.play : LucideIcons.lightbulb,
+                size: 16,
+              ),
+              label: Text(
+                needsAd ? 'hint.watch_ad'.tr() : 'hint.preview'.tr(),
+              ),
             ),
+            if (notice case final notice?) ...[
+              const SizedBox(height: 8),
+              Text(
+                notice,
+                style: text.bodySmall?.copyWith(color: colors.mutedForeground),
+              ),
+            ],
           ],
         ],
       ),

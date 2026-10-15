@@ -187,6 +187,9 @@ class FakeApiClient implements ApiClient {
   /// 백업 코드별 `GET /me/stats` 응답. 여기 없는 코드는 401 이다.
   final Map<String, MyStats> statsByToken = {};
 
+  /// `POST /puzzles/today/hint-unlock` 이 돌려줄 힌트.
+  String hintUnlockResponse = '서울에 가장 많다';
+
   /// 넣어두면 그 호출이 이 예외를 던진다.
   Exception? createGuestError;
   Exception? fetchConfigError;
@@ -199,6 +202,7 @@ class FakeApiClient implements ApiClient {
   Exception? updatePuzzleLanguageError;
   Exception? exchangeIdTokenError;
   Exception? deleteAccountError;
+  Exception? unlockHintError;
 
   /// 넣어두면 이 Completer 가 끝날 때까지 오늘 퍼즐 응답을 붙잡는다 —
   /// "로딩 중(스켈레톤)" 화면을 그 상태로 세워두고 보는 데 쓴다.
@@ -217,6 +221,13 @@ class FakeApiClient implements ApiClient {
 
   /// 퍼즐 언어 변경 응답을 붙잡는다 — "바꾸는 중" 상태를 세워두고 본다.
   Completer<void>? updatePuzzleLanguageGate;
+
+  /// 힌트 미리 보기 응답을 붙잡는다 — 광고를 본 직후 "여는 중" 을 세워둔다.
+  Completer<void>? unlockHintGate;
+
+  /// `unlockHint` 가 받은 puzzle_id 들. 구독자가 광고를 거치지 않고도 같은
+  /// 호출을 쓰는지(US 32) 테스트가 직접 본다.
+  final List<int> unlockedHintPuzzleIds = [];
 
   final List<PuzzleLanguage> createGuestLanguages = [];
   int fetchConfigCalls = 0;
@@ -286,6 +297,14 @@ class FakeApiClient implements ApiClient {
     if (submitGuessGate case final gate?) await gate.future;
     if (submitGuessError case final error?) throw error;
     return guessResult;
+  }
+
+  @override
+  Future<String> unlockHint({required int puzzleId}) async {
+    unlockedHintPuzzleIds.add(puzzleId);
+    if (unlockHintGate case final gate?) await gate.future;
+    if (unlockHintError case final error?) throw error;
+    return hintUnlockResponse;
   }
 
   @override

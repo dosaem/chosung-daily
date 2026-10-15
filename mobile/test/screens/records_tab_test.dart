@@ -324,13 +324,15 @@ void main() {
   testWidgets('31·32 가 채울 자리는 전부 있고 아직 눌리지 않는다', (tester) async {
     await _pumpRecords(tester, api: FakeApiClient());
 
+    // 광고 개인정보 설정(`RecordsSlot.adPrivacy`)은 티켓 31 이 채운 뒤로
+    // UMP privacy options 가 required 인 지역에서만 뜬다 — 그 분기는
+    // `records_ad_privacy_test.dart` 가 본다.
     for (final slot in [
       RecordsSlot.account,
       RecordsSlot.subscription,
       RecordsSlot.backupCode,
       RecordsSlot.dailyNotification,
       RecordsSlot.reminder,
-      RecordsSlot.adPrivacy,
       RecordsSlot.howTo,
       RecordsSlot.deleteAccount,
     ]) {
