@@ -11,6 +11,7 @@ import 'package:chosung/api/api_models.dart';
 import 'package:chosung/api/api_providers.dart';
 import 'package:chosung/app.dart';
 import 'package:chosung/config/provider_retry.dart';
+import 'package:chosung/local/local_flags.dart';
 import 'package:chosung/permissions/tracking_permission.dart';
 import 'package:chosung/screens/today_tab.dart';
 import 'package:chosung/startup/startup_controller.dart';
@@ -29,6 +30,7 @@ import '../fakes/fake_api_client.dart';
 import '../fakes/fake_entitlement.dart';
 import '../fakes/fake_permissions.dart';
 import '../fakes/in_memory_interstitial_store.dart';
+import '../fakes/in_memory_local_flag_store.dart';
 import '../layout/adaptive_scaffold_test.dart' show setViewSize;
 
 const _consented = UmpStatus(
@@ -68,6 +70,9 @@ Future<void> pumpToday(
           entitlementProvider.overrideWith(
             () => FakeEntitlement(initial: entitled),
           ),
+          // 결과 시트의 "계정 연결" 안내가 읽는 기기 로컬 플래그(티켓 29).
+          // flutter_secure_storage 는 플랫폼 채널을 탄다.
+          localFlagStoreProvider.overrideWithValue(InMemoryLocalFlagStore()),
         ],
         child: AppLocalizationScope(
           startLocale: const Locale('ko'),

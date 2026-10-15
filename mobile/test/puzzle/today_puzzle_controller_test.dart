@@ -478,6 +478,62 @@ void main() {
       expect(api.fetchTodayPuzzleCalls, 2);
     });
 
+    // 리뷰 r3 D-31-6: 힌트 응답을 기다리는 사이의 포그라운드 복귀다. 그때 읽는
+    // 서버 보드엔 방금 연 힌트가 아직 없어서(제출의 `_refreshQueued` 와 같은
+    // 이유) 그 응답이 힌트보다 늦게 도착해 보드를 통째로 갈아 끼우면 열린 힌트가
+    // 사라진다. 화면은 다시 광고 버튼을 띄우고 비구독자는 이미 산 같은 힌트에
+    // 보상형을 다시 봐야 한다(US 4·5a).
+    test('힌트를 기다리는 동안 떠난 복귀 재조회가 열린 힌트를 되돌리지 않는다', () async {
+      final api = FakeApiClient(puzzle: fakeTodayPuzzle(puzzleId: 41));
+      final container = _container(api);
+      await container.read(todayPuzzleProvider.future);
+
+      final hintGate = Completer<void>();
+      api.unlockHintGate = hintGate;
+      final opening = container.read(todayPuzzleProvider.notifier).unlockHint();
+      await pumpEventQueue();
+      expect(api.unlockedHintPuzzleIds, [41], reason: '힌트는 이미 서버로 떠났다');
+
+      // 포그라운드 복귀. 응답을 붙잡아 둬서 힌트보다 늦게 도착하게 만든다.
+      final fetchGate = Completer<void>();
+      api.fetchTodayPuzzleGate = fetchGate;
+      final refreshing = container.read(todayPuzzleProvider.notifier).refresh();
+      await pumpEventQueue();
+      // 눈에 보이는 증상(사라진 힌트)을 먼저 재니 호출 수는 받아만 둔다.
+      final callsDuringHint = api.fetchTodayPuzzleCalls;
+
+      // 힌트 쓰기가 서버에 들어간 뒤 응답이 돌아온다 — 이제 조회해도 힌트가
+      // 같이 온다.
+      api.puzzle = fakeTodayPuzzle(
+        puzzleId: 41,
+        hint: '서울에 가장 많다',
+        hintUnlocked: true,
+      );
+      hintGate.complete();
+      expect(await opening, isTrue);
+      expect(
+        _ready(container.read(todayPuzzleProvider).requireValue).puzzle.hint,
+        '서울에 가장 많다',
+      );
+
+      // 붙잡아 둔 조회 응답이 뒤늦게 도착한다.
+      fetchGate.complete();
+      await refreshing;
+      await pumpEventQueue();
+
+      final state = _ready(container.read(todayPuzzleProvider).requireValue);
+      expect(state.puzzle.hint, '서울에 가장 많다', reason: '서버가 연 힌트를 잃으면 안 된다');
+      expect(state.puzzle.hintUnlocked, isTrue);
+      expect(
+        api.unlockedHintPuzzleIds,
+        [41],
+        reason: '광고를 다시 보고 다시 열 필요가 없다',
+      );
+      expect(callsDuringHint, 1, reason: '힌트 중 재조회는 미룬다 — 첫 보드 조회 하나뿐이다');
+      // 미뤘던 복귀 재조회는 버리지 않는다 — 힌트 뒤에 돌아간다.
+      expect(api.fetchTodayPuzzleCalls, 2);
+    });
+
     test('제출 전에 떠난 조회가 늦게 도착해도 쌓인 행을 지우지 않는다', () async {
       final api = FakeApiClient(puzzle: fakeTodayPuzzle(puzzleId: 7));
       final container = _container(api);

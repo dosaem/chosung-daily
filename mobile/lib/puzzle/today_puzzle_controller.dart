@@ -32,6 +32,13 @@ class TodayPuzzleNotifier extends AsyncNotifier<TodayState?> {
   bool _submitting = false;
   bool _refreshQueued = false;
 
+  /// 힌트 응답을 기다리는 중인가. 제출과 **같은 이유로** 그 사이의 재조회를
+  /// 미룬다 — 지금 읽는 서버 보드엔 방금 연 힌트가 아직 없어서, 그 응답이 늦게
+  /// 도착해 보드를 갈아 끼우면 열린 힌트가 사라지고 비구독자는 이미 산 같은
+  /// 힌트에 광고를 다시 봐야 한다(US 4·5a). 힌트가 끝난 뒤 읽으면 서버 보드에
+  /// 그 힌트가 들어 있다.
+  bool _unlockingHint = false;
+
   /// 지금 보드를 **어느 계정에서** 읽었는가([accountEpochProvider]). 제출은 이
   /// 값과 지금 계정을 비교해서 남의 계정에 쓰지 않는다(D-29-5).
   int _accountEpoch = 0;
@@ -110,6 +117,7 @@ class TodayPuzzleNotifier extends AsyncNotifier<TodayState?> {
   Future<void> discard() async {
     final generation = ++_generation;
     _submitting = false;
+    _unlockingHint = false;
     _refreshQueued = false;
     state = const AsyncData<TodayState?>(null);
     _commitLoad(await _load(), generation);
@@ -120,7 +128,7 @@ class TodayPuzzleNotifier extends AsyncNotifier<TodayState?> {
   /// 멀쩡한 보드를 잃는다.
   Future<void> refresh() async {
     if (!ref.mounted) return;
-    if (_submitting) {
+    if (_submitting || _unlockingHint) {
       _refreshQueued = true;
       return;
     }
@@ -233,6 +241,7 @@ class TodayPuzzleNotifier extends AsyncNotifier<TodayState?> {
     // 떠 있는 재조회보다 이 요청이 새 것이다. 다만 돌아왔을 때 상태에 쓸지는
     // 세대가 아니라 **같은 퍼즐인가** 로 판정한다 — 아래 참고.
     _generation++;
+    _unlockingHint = true;
     try {
       final hint = await _api.unlockHint(puzzleId: puzzle.puzzleId);
       // 힌트는 보드의 다른 부분(시도 행·남은 기회·상태)과 겹치지 않는 한 칸이고
@@ -264,6 +273,14 @@ class TodayPuzzleNotifier extends AsyncNotifier<TodayState?> {
     } on ApiException {
       // 보드는 멀쩡하다 — 안내는 힌트 카드가 자기 자리에 띄운다.
       return false;
+    } finally {
+      _unlockingHint = false;
+      if (_refreshQueued) {
+        _refreshQueued = false;
+        // 힌트 중 미뤄둔 복귀 재조회. 힌트가 서버에 들어간 뒤에 읽으므로 서버
+        // 보드가 마지막 말이 되면서도 열린 힌트를 같이 들고 온다.
+        unawaited(refresh());
+      }
     }
   }
 
@@ -305,6 +322,9 @@ class TodayPuzzleNotifier extends AsyncNotifier<TodayState?> {
       _refreshQueued = true;
       return;
     }
+    // 이 조회가 힌트 중 미뤄둔 복귀 재조회의 몫까지 한다 — 바로 뒤에 같은 걸 또
+    // 보내지 않는다.
+    _refreshQueued = false;
     final generation = ++_generation;
     _commitLoad(await _load(), generation, notice: notice);
   }

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:chosung/ads/ad_gate.dart';
 import 'package:chosung/ads/ad_service.dart';
 import 'package:flutter/material.dart';
@@ -41,6 +43,11 @@ class FakeAdService implements AdService {
   /// 해제된 배너 수. 다시 로드할 때 이전 광고를 버리는지 본다.
   int bannerDisposals = 0;
 
+  /// 넣어두면 이 Completer 가 끝날 때까지 전면 광고를 붙잡는다(로드·표시가
+  /// 끝나지 않은 상태) — 그 사이 결과 시트를 다시 닫는 순서를 테스트가 직접
+  /// 만들어 보는 데 쓴다.
+  Completer<void>? interstitialGate;
+
   @override
   Future<UmpStatus> requestConsent() async {
     consentRequests++;
@@ -64,6 +71,7 @@ class FakeAdService implements AdService {
   @override
   Future<bool> showInterstitial() async {
     interstitialShowCalls++;
+    if (interstitialGate case final gate?) await gate.future;
     return interstitialShows;
   }
 

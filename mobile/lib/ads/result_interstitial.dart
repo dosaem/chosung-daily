@@ -20,11 +20,29 @@ class ResultInterstitial {
 
   bool _submittedThisSession = false;
 
+  /// 아직 끝나지 않은 퍼즐별 호출. 기록([InterstitialStore])은 광고가 **닫힌
+  /// 뒤**에 남으므로 기록만으로는 "퍼즐당 1회" 를 못 지킨다 — 로드·표시가
+  /// 진행되는 사이 결과 시트를 다시 닫으면 두 호출이 모두 기록 전의 "아직 안
+  /// 띄웠다" 를 읽고 각자 광고를 띄운다. 떠 있는 호출이 있으면 그 future 를
+  /// 그대로 돌려줘 **하나로 합친다** — 두 번째 호출도 방금 뜬 그 광고의 결과를
+  /// 받는다.
+  final Map<int, Future<bool>> _showing = {};
+
   /// 이번 실행에서 보드에 한 행이 쌓였다(제출이 서버까지 갔다).
   void markSubmitted() => _submittedThisSession = true;
 
   /// 결과 시트가 닫힌 뒤에 부른다. 실제로 띄웠으면 true.
-  Future<bool> showAfterResultSheet({required int puzzleId}) async {
+  Future<bool> showAfterResultSheet({required int puzzleId}) {
+    if (_showing[puzzleId] case final showing?) return showing;
+
+    final showing = _show(puzzleId);
+    _showing[puzzleId] = showing;
+    // 끝나면 자리를 비운다 — 로드 실패는 기록을 남기지 않으므로(아래) 그 퍼즐의
+    // 다음 시트 닫힘에서 다시 시도할 수 있어야 한다.
+    return showing.whenComplete(() => _showing.remove(puzzleId));
+  }
+
+  Future<bool> _show(int puzzleId) async {
     if (!_submittedThisSession) return false;
     if (!_ref.read(adGateProvider).canLoadAds) return false;
 

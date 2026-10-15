@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:app_tracking_transparency/app_tracking_transparency.dart';
 import 'package:chosung/ads/ad_gate.dart';
 import 'package:chosung/ads/ad_providers.dart';
@@ -71,6 +73,35 @@ void main() {
     expect(await interstitial.showAfterResultSheet(puzzleId: 41), isTrue);
     expect(ads.interstitialShowCalls, 1);
     expect(store.shown, {41});
+  });
+
+  // 리뷰 r3 D-31-5: 첫 광고의 로드·표시가 끝나기 전에 "결과 보기" 를 다시 열고
+  // 닫으면 두 호출이 모두 기록 전의 "아직 안 띄웠다" 를 읽어 같은 퍼즐에서 두
+  // 번 뜬다. 기록은 광고가 닫힌 뒤에 남으므로 기록만으로는 못 막는다(US 24).
+  test('전면 광고가 떠 있는 동안 시트를 다시 닫아도 퍼즐당 1회다', () async {
+    final gate = Completer<void>();
+    final ads = FakeAdService()..interstitialGate = gate;
+    final store = InMemoryInterstitialStore();
+    final container = _container(ads: ads, store: store);
+    await container.read(adConsentProvider.future);
+    final interstitial = container.read(resultInterstitialProvider)
+      ..markSubmitted();
+
+    final first = interstitial.showAfterResultSheet(puzzleId: 41);
+    await pumpEventQueue();
+    // 시트를 다시 열고 닫았다. 첫 광고는 아직 로드/표시 중이다.
+    final second = interstitial.showAfterResultSheet(puzzleId: 41);
+    await pumpEventQueue();
+
+    gate.complete();
+    expect(await first, isTrue);
+    expect(await second, isTrue, reason: '이미 뜬 그 광고의 결과를 같이 받는다');
+    expect(ads.interstitialShowCalls, 1, reason: '같은 퍼즐에서 두 번 띄우면 안 된다');
+    expect(store.shown, {41});
+
+    // 광고가 닫힌 뒤의 호출은 기록이 막는다.
+    expect(await interstitial.showAfterResultSheet(puzzleId: 41), isFalse);
+    expect(ads.interstitialShowCalls, 1);
   });
 
   test('같은 퍼즐에서 시트를 다시 열어도 두 번 띄우지 않는다', () async {
