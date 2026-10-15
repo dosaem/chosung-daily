@@ -266,8 +266,13 @@ class _PriceCard extends ConsumerWidget {
           const SizedBox(height: 4),
           Text(
             key: PaywallKeys.price,
-            // 스토어 현지화 가격 그대로. 상수(₩1,500)로 박지 않는다.
-            product?.price ?? 'subscription.price_loading'.tr(),
+            // 기간은 SCREENS S5 의 "월 {스토어 현지화 가격}" 규격이고, 가격은
+            // 스토어 현지화 문자열 그대로다. 상수(₩1,500)로 박지 않는다.
+            product == null
+                ? 'subscription.price_loading'.tr()
+                : 'subscription.price_monthly'.tr(
+                    namedArgs: {'price': product.price},
+                  ),
             style: text.titleLarge,
           ),
           const SizedBox(height: 4),

@@ -136,8 +136,9 @@ void main() {
     // 스펙 §B.21 이 못 박은 문구다.
     expect(find.text('광고 없이 힌트 미리 보기'), findsOne);
     expect(find.text('어느 기기에서든 유지'), findsOne);
-    // 가격은 스토어가 알려준 현지화 문자열 그대로다(상수 금지).
-    expect(find.text('₩1,500'), findsOne);
+    // 가격 카드는 SCREENS S5 의 "월 {스토어 현지화 가격}" — 가격 문자열
+    // 자체는 스토어가 알려준 것 그대로다(상수 금지).
+    expect(find.text('월 ₩1,500'), findsOne);
     expect(find.byKey(PaywallKeys.start), findsOne);
     expect(find.byKey(PaywallKeys.restore), findsOne);
     expect(find.text('이용약관'), findsOne);
@@ -176,6 +177,7 @@ void main() {
     expect(find.textContaining('automatically renews'), findsOne);
     expect(find.textContaining('24 hours'), findsOne);
     expect(find.textContaining('Google Play > Subscriptions'), findsOne);
+    expect(find.text('₩1,500 / month'), findsOne);
     expect(find.text('Restore purchases'), findsOne);
   });
 

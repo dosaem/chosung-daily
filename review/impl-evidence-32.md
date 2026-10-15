@@ -272,3 +272,237 @@ $ TEST_DATABASE_URL=...chosung_daily_test_t32 \
   고객센터 안내 문구를 띄운다.
 - 티켓 33(권한 재조회·`next_check_at` 타이머)은 이 티켓 범위가 아니다. `Entitlement`
   에 `nextCheckAt` 자리는 만들어 뒀고 `/me/stats` 파싱은 33 이 더한다.
+
+---
+
+## 수정 라운드 1
+
+`review/impl-review-32.md` 라운드 1(판정 FAIL, MAJOR 2 · MINOR 2). 코디네이터
+메모대로 MINOR 2건도 같이 고쳤다. 결함 ID 별로 (원인 / 수정 / 증명).
+
+### D-32-1 (MAJOR) 시작 동기화가 토큰 복원 전에 verify 를 보내 401 로 끝나고 재전송이 없다
+
+**원인** — 두 가지가 겹친 하나의 구멍이다.
+
+1. `PurchaseFlowNotifier.build()` 가 첫 빌드에서 바로 `_bootstrap()` →
+   `loadProduct()` → `sync()`(= `restorePurchases`) 를 돌렸다. 같은 시점에
+   `guestTokenProvider` 는 secure storage 를 읽는 중이거나(`AsyncLoading`)
+   `StartupNotifier._ensureGuestToken` 이 `POST /guests` 를 기다리는 중이다.
+   `DioApiClient._bearer` 는 토큰이 비면 **서버에 가기 전에**
+   `UnauthorizedApiException` 을 던진다(`dio_api_client.dart:219`).
+2. `_verifyThenComplete` 는 그 예외를 `on ApiException` 으로 받아
+   `_fail(epoch, 'subscription.error_failed')` 를 불렀다. 보낸 적도 없는 요청이
+   "결제를 끝내지 못했어요" 가 됐고, 구매 흐름은 `guestTokenProvider` 를 듣지
+   않으므로 토큰이 도착해도 다음 포그라운드 복귀까지 재전송이 없었다.
+
+**수정** — `mobile/lib/subscription/purchase_controller.dart`
+
+- `_bootstrap()` 이 `await ref.read(guestTokenProvider.future)` 로 토큰을 기다린
+  뒤에 동기화한다. 읽기가 실패해도(플랫폼 채널 없음 등) 구매 흐름은 떠 있어야
+  하므로 `on Exception` 으로 받고 넘어간다 — 값이 뒤늦게 들어오면 아래 `listen`
+  이 받는다.
+- `build()` 에 `ref.listen(guestTokenProvider, …)` 를 걸어 **토큰이 바뀌는
+  자리**(재설치 발급 · 401 복구 · 계정 전환)에서 다시 맞춘다. 알림 동기화
+  (`notification_controller.dart:59`)와 같은 모양이다.
+- `_syncedToken` 으로 같은 토큰에 두 번 돌지 않게 막는다. 복귀 동기화는
+  `AppLifecycleListener` 쪽 그대로다.
+- `on UnauthorizedApiException` 을 `on ApiException` **앞**에 따로 두고 아무
+  것도 하지 않는다 — "실패" 가 아니라 "아직 못 보냄" 이라, 문구를 띄우지 않고
+  거래도 완료하지 않는다. 다음 동기화가 같은 영수증을 다시 올린다.
+
+**증명** — 리뷰의 재현을 테스트로 고정했다
+(`mobile/test/subscription/purchase_controller_test.dart`). 토큰 저장소를
+`InMemoryGuestTokenStore(null)` 로 덮어 "토큰이 아직 없는 실행" 을 만든다.
+
+수정 전(RED, 실제 출력):
+
+```
+00:05 +16 -1: 게스트 토큰이 아직 없으면 시작 동기화를 미루고, 토큰이 오면 그때 맞춘다 [E]
+  Expected: <0>
+    Actual: <1>                       # store.restoreCalls — 토큰 없이 이미 올렸다
+  test/subscription/purchase_controller_test.dart 326:5
+
+00:05 +16 -2: 토큰 없이 올라온 거래는 실패가 아니라 보류다 — 토큰이 오면 다시 올린다 [E]
+  Expected: null
+    Actual: 'subscription.error_failed'   # 리뷰가 적은 바로 그 문구
+  test/subscription/purchase_controller_test.dart 355:5
+```
+
+수정 후(GREEN):
+
+```
+$ cd mobile && flutter test test/subscription/purchase_controller_test.dart
+00:02 +24: All tests passed!
+```
+
+추가한 테스트 4개:
+
+| 테스트 | 무엇을 못 박는가 |
+|---|---|
+| 게스트 토큰이 아직 없으면 시작 동기화를 미루고, 토큰이 오면 그때 맞춘다 | 토큰 전 `restoreCalls == 0`·`verifiedReceipts` 비어 있음·오류 없음 → `replaceWith` 뒤 `restoreCalls == 1`·verify 1건·`entitlement.active` |
+| 토큰 없이 올라온 거래는 실패가 아니라 보류다 — 토큰이 오면 다시 올린다 | 401 에 문구 없음·`phase == idle`·`completed` 비어 있음 → 토큰 도착 뒤 권한 들어오고 `completePurchase` 한 번 |
+| secure storage 읽기가 늦게 끝나도 그 뒤에 verify 를 올린다 (지연 Fake) | 코디네이터 메모 2 — 읽기가 Completer 로 막힌 저장소(`_SlowGuestTokenStore`). 막힌 동안 `restoreCalls == 0`, 풀면 verify 1건·권한 들어옴·`accountEpoch == 0`(29 의 세대 경계 그대로) |
+| 토큰이 그대로면 복귀 전까지 시작 동기화를 두 번 돌리지 않는다 | `_syncedToken` 중복 억제 |
+
+지연 Fake 테스트는 `_bootstrap` 을 원래대로(`loadProduct` → 바로 `sync`)
+돌려놓으면 RED 다(실제 출력):
+
+```
+00:01 +0 -1: secure storage 읽기가 늦게 끝나도 그 뒤에 verify 를 올린다 (지연 Fake) [E]
+  Expected: <0>
+    Actual: <1>      # 토큰을 읽는 중인데 이미 restorePurchases 가 나갔다
+```
+
+### D-32-2 (MAJOR) `flutter analyze` exit 1 — CI "Analyze" 가 깨져 있다
+
+**원인** — `test/subscription/purchase_controller_test.dart:284` 에서 같은
+수신자(`store`)에 대한 두 문장이 캐스케이드로 묶이지 않아
+`cascade_invocations`(very_good_analysis) info 가 떴다.
+`.github/workflows/flutter-ci.yml:48` 의 `flutter analyze` 는 info 도 fatal 이라
+exit 1 이었다.
+
+**수정** — 두 줄을 캐스케이드로 합쳤다.
+
+```dart
+store
+  ..completeError = Exception('platform channel down')
+  ..emit([fakePurchase()]);
+```
+
+**증명** — 수정 전:
+
+```
+$ cd mobile && flutter analyze
+   info • Unnecessary duplication of receiver • test/subscription/purchase_controller_test.dart:284:5 • cascade_invocations
+1 issue found. (ran in 2.4s)
+```
+
+수정 후(새로 쓴 테스트 7개까지 포함해서):
+
+```
+$ cd mobile && flutter analyze
+No issues found! (ran in 3.1s)
+
+$ cd mobile && dart format --output=none --set-exit-if-changed lib test
+Formatted 192 files (0 changed) in 0.29 seconds.      # exit 0
+```
+
+### D-32-3 (MINOR) S5 가격 카드가 "월 {가격}" 이 아니라 "{가격}"
+
+**원인** — `paywall_sheet.dart` 의 `_PriceCard` 가 `product?.price` 를 그대로
+그렸다. S4 카드는 `subscription.card_idle`("광고 없이 플레이 · 월 {price}")로
+기간을 붙이는데 S5 만 빠졌다. `design/SCREENS.md` S5 는 "월 {스토어 현지화
+가격}", 목업 `e5_paywall` 도 "월 ₩1,500" 이다.
+
+**수정** — 번역 키 `subscription.price_monthly` 를 더했다
+(ko `"월 {price}"`, en `"{price} / month"` — S4 카드와 같은 어순). 가격을 아직
+모르면 `price_loading` 그대로다. **가격 문자열 자체는 여전히
+`ProductDetails.price`** 로, 상수 ₩1,500 은 넣지 않았다.
+
+**증명** — `test/subscription/paywall_sheet_test.dart` 의 S5 구성 테스트가
+`find.text('₩1,500')` → `find.text('월 ₩1,500')` 으로 바뀌었고, 영어 테스트에
+`find.text('₩1,500 / month')` 를 더했다. 골든 3장을 다시 떴다.
+
+```
+$ cd mobile && flutter test test/golden/paywall_golden_test.dart     # 수정 전
+Golden "paywall_light_390.png":  Pixel test failed, 0.33%, 1102px diff detected.
+Golden "paywall_dark_390.png":   Pixel test failed, 0.33%, 1102px diff detected.
+Golden "paywall_tablet_744.png": Pixel test failed, 0.14%, 1102px diff detected.
+
+$ cd mobile && flutter test test/golden --update-goldens
+00:04 +20: All tests passed!
+```
+
+새 골든 `paywall_light_390.png` 의 가격 줄은 "월 ₩1,500" 이고 목업 `e5_paywall`
+과 같다. 차이는 그 한 줄뿐이다(1102px = 가격 텍스트 영역).
+
+### D-32-4 (MINOR) Play pending 이 스토어 쪽에서 포기되면 세션 내내 잠긴다
+
+**원인** — `PurchaseFlow.purchase` 가 **스트림 이벤트로만** 바뀌었다. Play 의
+pending(계좌이체·편의점 결제)을 사용자가 포기하면 스토어는 아무 이벤트도 주지
+않고 다음 `queryPurchases` 에서 그 거래를 빼기만 한다. 그래서 `pending` 이
+눌러앉아 `busy` 가 계속 true 였고(`purchase_controller.dart:55`), Paywall 의 두
+버튼과 S4 카드가 앱을 완전히 다시 켤 때까지 "결제 확인 중" 이었다.
+
+**수정** — 조회가 유일한 신호이므로 **조회 결과로 내린다**.
+
+- `sync()` 가 `_pendingSeenSinceSync` 를 내리고 조회한 뒤, 한 틱 양보해
+  (브로드캐스트 스트림이 그때 도착한다) `_dropAbandonedPending()` 을 부른다.
+- 조회 **자체가 실패**하면(`on Exception`) 바로 `return` 한다 — 못 물어본 것을
+  "없다" 로 읽으면 멀쩡한 pending 을 내린다.
+- `PurchaseFlow.copyWith` 에 `clearPurchase` 를 더했다(`purchase` 를 null 로
+  되돌리는 길이 없었다).
+- 조회가 겹치면(복귀 연타) `_syncSeq` 로 **마지막 조회만** 판정한다 — 앞선
+  조회가 뒤엣것이 초기화한 플래그를 보고 멀쩡한 pending 을 내리는 길을 막는다.
+- **iOS 는 내리지 않는다.** pending 거래의 `verificationData.source` 를
+  `_pendingStore` 에 적어 두고 `google_play` 일 때만 내린다. StoreKit 2 의
+  복원은 `currentEntitlements`(이미 권한이 생긴 거래)만 올리므로 승인 대기
+  (Ask to Buy)가 조회에 **없는 것이 정상**이고, 내렸다가는 승인을 기다리는
+  사람의 버튼이 다시 살아난다. Play 의 `queryPurchases` 만 pending 을 포함한
+  전수 조회다.
+
+**증명** — 테스트 4개를 더했다. 수정(= `_dropAbandonedPending()` 호출)을 빼고
+돌리면 RED 다(실제 출력):
+
+```
+00:01 +19 -1: Play 조회에서 사라진 pending 은 내린다 — 세션 내내 잠기지 않는다 [E]
+00:01 +22 -1: Some tests failed.
+```
+
+| 테스트 | 무엇을 못 박는가 |
+|---|---|
+| Play 조회에서 사라진 pending 은 내린다 — 세션 내내 잠기지 않는다 | 포기 뒤 `phase == idle`·`busy == false` |
+| 조회에 pending 이 그대로 있으면 내리지 않는다 | 살아 있는 pending 을 잘못 내리지 않는다 |
+| App Store 승인 대기는 복원 조회에 없어도 내리지 않는다 | SK2 `currentEntitlements` 의미 차이 |
+| 조회 자체가 실패하면 pending 을 내리지 않는다 | 조회 실패 ≠ 거래 없음 |
+
+### 리뷰어 지적 중 고치지 않은 것
+
+없다. BLOCKER 0 · MAJOR 2 · MINOR 2 를 모두 고쳤고, §4 "참고" 5건은 결함이
+아니라는 리뷰어 판단에 동의해 그대로 뒀다. `entitlement_provider.dart` ·
+`api_models.dart` 의 32 설계(`Entitlement?` 상위집합)는 코디네이터 지시대로
+유지했다 — 33 이 머지 뒤 그 위로 통합한다.
+
+### 문서
+
+`README.md` "### 32." 설계 판단에 두 단락을 더했다: ① 영수증은 게스트 토큰이
+생긴 뒤에 올린다(D-32-1 의 근거와 `ref.listen` 선택), ② 스토어가 붙잡은
+pending 은 스토어마다 다르게 푼다(D-32-4 의 Play/iOS 비대칭). 다른 절은
+건드리지 않았다.
+
+`docs/RELEASE.md` "### 32." 의 **실기기·Sandbox 체크리스트에 2줄**을 더했다:
+재설치 첫 실행에서 "구매 복원" 을 누르지 않아도 권한이 돌아오는지(D-32-1),
+Play pending 포기 뒤 복귀하면 버튼이 살아나는지 / iOS 승인 대기는 반대로
+그대로인지(D-32-4). 둘 다 코드로는 못 돌리는 사람 확인이다.
+
+### 재실행 결과
+
+```
+$ cd mobile && flutter analyze
+No issues found! (ran in 2.4s)
+
+$ cd mobile && dart format --output=none --set-exit-if-changed lib test
+Formatted 192 files (0 changed) in 0.26 seconds.
+
+$ cd mobile && flutter test
+00:36 +741: All tests passed!          # 733 → 741 (D-32-1 4건 · D-32-4 4건)
+
+$ uv run ruff check .
+All checks passed!
+```
+
+백엔드(전용 자원 — DB `chosung_daily_test_t32`, Redis DB 6, 마이그레이션 DB
+`chosung_daily_test_t32_migrations`; 접속 값은 기록하지 않는다):
+
+```
+$ TEST_DATABASE_URL=...chosung_daily_test_t32 \
+  TEST_REDIS_URL=redis://localhost:6379/6 \
+  TEST_MIGRATION_DATABASE_URL=...chosung_daily_test_t32_migrations \
+  uv run pytest -q
+1509 passed in 740.85s (0:12:20)
+```
+
+`migrations/` 변경 0건이라 `flask db heads` 는 선행 머지 상태 그대로다
+(`git diff --stat main...HEAD -- migrations` 비어 있음). 이번 라운드도 백엔드
+(`app/`·`tests/`)·웹·스펙은 건드리지 않았다. 로컬 `main`(`4afda89`) 바로 위에
+올라가 있어 rebase 로 옮길 커밋이 없었다.

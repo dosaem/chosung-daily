@@ -222,6 +222,7 @@
     "benefit_devices": "Kept on every device",
     "product_name": "Ad-free subscription",
     "period": "One month — the benefit starts immediately and billing repeats on the same cycle",
+    "price_monthly": "{price} / month",
     "price_loading": "Loading the price…",
     "auto_renew": "This subscription automatically renews unless you cancel at least 24 hours before the current period ends, and your store account is charged.",
     "cancel_how": "You cancel in the store — on iOS, Settings > Apple Account > Subscriptions; on Android, Google Play > Subscriptions.",

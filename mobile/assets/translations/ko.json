@@ -218,6 +218,7 @@
     "benefit_devices": "어느 기기에서든 유지",
     "product_name": "광고 제거 구독",
     "period": "구독 기간 1개월 · 구매 즉시 시작, 같은 주기로 결제 반복",
+    "price_monthly": "월 {price}",
     "price_loading": "가격을 불러오는 중…",
     "auto_renew": "자동 갱신 구독이에요. 기간이 끝나기 24시간 전까지 해지하지 않으면 자동으로 갱신되고, 결제는 스토어 계정에 청구돼요.",
     "cancel_how": "해지는 스토어에서 해요 — iOS 는 설정 > Apple 계정 > 구독, Android 는 Google Play > 구독.",

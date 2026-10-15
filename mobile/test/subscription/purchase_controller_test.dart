@@ -6,6 +6,8 @@ import 'package:chosung/api/api_models.dart';
 import 'package:chosung/api/api_providers.dart';
 import 'package:chosung/config/provider_retry.dart';
 import 'package:chosung/guest/account_epoch.dart';
+import 'package:chosung/guest/guest_token_provider.dart';
+import 'package:chosung/guest/guest_token_store.dart';
 import 'package:chosung/subscription/entitlement_provider.dart';
 import 'package:chosung/subscription/purchase_controller.dart';
 import 'package:chosung/subscription/subscription_state.dart';
@@ -15,6 +17,7 @@ import 'package:in_app_purchase/in_app_purchase.dart';
 
 import '../fakes/fake_api_client.dart';
 import '../fakes/fake_purchase_service.dart';
+import '../fakes/in_memory_guest_token_store.dart';
 
 void main() {
   // AppLifecycleListener(포그라운드 복귀 동기화)는 binding 이 있어야 만들어진다.
@@ -32,13 +35,18 @@ void main() {
 
   tearDown(() => store.dispose());
 
-  ProviderContainer containerWith() {
+  /// [token] 이 null 이면 아직 게스트 토큰이 없는 실행이다(재설치 첫 시작 —
+  /// `StartupNotifier` 가 `POST /guests` 로 발급하는 중).
+  ProviderContainer containerWith({String? token = 'guest-token'}) {
     final container = ProviderContainer(
       retry: noAutoRetry,
       overrides: [
         apiClientProvider.overrideWithValue(api),
         purchaseServiceProvider.overrideWithValue(store),
         analyticsServiceProvider.overrideWithValue(analytics),
+        guestTokenStoreProvider.overrideWithValue(
+          InMemoryGuestTokenStore(token),
+        ),
       ],
     );
     addTearDown(container.dispose);
@@ -279,9 +287,9 @@ void main() {
       active: true,
       until: DateTime.utc(2026, 11),
     );
-    store.completeError = Exception('platform channel down');
-
-    store.emit([fakePurchase()]);
+    store
+      ..completeError = Exception('platform channel down')
+      ..emit([fakePurchase()]);
     await settle();
 
     // 권한은 이미 서버가 준 것이라 그대로 둔다 — 다음 시작의 재전송이 완료를
@@ -303,4 +311,202 @@ void main() {
     expect(container.read(subscriptionPhaseProvider), SubscriptionPhase.idle);
     expect(container.read(purchaseFlowProvider).error, isNull);
   });
+
+  // --- D-32-1: 게스트 토큰이 아직 없을 때의 시작 동기화 ---
+
+  test('게스트 토큰이 아직 없으면 시작 동기화를 미루고, 토큰이 오면 그때 맞춘다', () async {
+    // 재설치 첫 실행: secure storage 는 비어 있고 `StartupNotifier` 가
+    // `POST /guests` 로 토큰을 받아 오는 중이다.
+    final container = containerWith(token: null);
+    store.restorable = [fakePurchase(status: PurchaseStatus.restored)];
+    await settle();
+
+    // verify 는 Bearer 가 필요하다. 토큰 없이 올리면 서버에 가지도 못하고
+    // 401 이라 아무것도 보내지 않는다.
+    expect(store.restoreCalls, 0);
+    expect(api.verifiedReceipts, isEmpty);
+    expect(container.read(purchaseFlowProvider).error, isNull);
+
+    await container.read(guestTokenProvider.notifier).replaceWith('guest-1');
+    await settle();
+
+    expect(store.restoreCalls, 1);
+    expect(api.verifiedReceipts, [
+      (store: SubscriptionStore.google, receipt: 'receipt-1'),
+    ]);
+    expect(container.read(entitlementProvider)?.active, isTrue);
+  });
+
+  test('토큰 없이 올라온 거래는 실패가 아니라 보류다 — 토큰이 오면 다시 올린다', () async {
+    // 스토어는 복원 요청과 무관하게 미완료 거래를 올린다(SK2
+    // `Transaction.updates`). 토큰보다 먼저 올 수 있다.
+    final container = containerWith(token: null);
+    api.verifySubscriptionError = const UnauthorizedApiException(
+      code: 'UNAUTHORIZED',
+      message: '게스트 토큰이 없습니다.',
+    );
+    final purchase = fakePurchase();
+    store
+      ..restorable = [purchase]
+      ..emit([purchase]);
+    await settle();
+
+    // "결제를 끝내지 못했어요" 를 띄우면 안 된다 — 보낸 적도 없다.
+    expect(container.read(purchaseFlowProvider).error, isNull);
+    expect(container.read(subscriptionPhaseProvider), SubscriptionPhase.idle);
+    expect(store.completed, isEmpty);
+
+    api.verifySubscriptionError = null;
+    await container.read(guestTokenProvider.notifier).replaceWith('guest-1');
+    await settle();
+
+    expect(container.read(entitlementProvider)?.active, isTrue);
+    expect(store.completed, [purchase]);
+  });
+
+  test('secure storage 읽기가 늦게 끝나도 그 뒤에 verify 를 올린다 (지연 Fake)', () async {
+    // 재설치가 아니라 "토큰은 있는데 아직 안 읽혔다" 쪽 경쟁이다 — 첫 빌드의
+    // 동기화가 이 읽기를 앞지르면 verify 가 서버에 가지도 못하고 401 이었다.
+    final slow = _SlowGuestTokenStore('guest-token');
+    final container = ProviderContainer(
+      retry: noAutoRetry,
+      overrides: [
+        apiClientProvider.overrideWithValue(api),
+        purchaseServiceProvider.overrideWithValue(store),
+        analyticsServiceProvider.overrideWithValue(analytics),
+        guestTokenStoreProvider.overrideWithValue(slow),
+      ],
+    );
+    addTearDown(container.dispose);
+    store.restorable = [fakePurchase(status: PurchaseStatus.restored)];
+    container.read(purchaseFlowProvider);
+    await settle();
+
+    expect(store.restoreCalls, 0);
+    expect(api.verifiedReceipts, isEmpty);
+    expect(container.read(purchaseFlowProvider).error, isNull);
+
+    slow.release();
+    await settle();
+    await settle();
+
+    expect(store.restoreCalls, 1);
+    expect(api.verifiedReceipts, hasLength(1));
+    expect(container.read(entitlementProvider)?.active, isTrue);
+    // 계정 경계(29)는 그대로다 — 세대가 바뀌지 않았으니 권한이 들어온다.
+    expect(container.read(accountEpochProvider), 0);
+  });
+
+  test('토큰이 그대로면 복귀 전까지 시작 동기화를 두 번 돌리지 않는다', () async {
+    final container = containerWith();
+    await settle();
+    expect(store.restoreCalls, 1);
+
+    // 같은 토큰을 다시 쓰는 길(401 복구가 같은 값을 돌려주는 경우 등).
+    await container
+        .read(guestTokenProvider.notifier)
+        .replaceWith('guest-token');
+    await settle();
+
+    expect(store.restoreCalls, 1);
+  });
+
+  // --- D-32-4: 스토어 쪽에서 포기된 pending ---
+
+  test('Play 조회에서 사라진 pending 은 내린다 — 세션 내내 잠기지 않는다', () async {
+    final container = containerWith();
+    await settle();
+    store.emit([fakePurchase(status: PurchaseStatus.pending)]);
+    await settle();
+    expect(
+      container.read(subscriptionPhaseProvider),
+      SubscriptionPhase.pending,
+    );
+
+    // 사용자가 편의점 결제를 포기했다. Play 는 이벤트를 주지 않고 다음
+    // `queryPurchases` 에서 그 거래를 빼기만 한다.
+    store.restorable = [];
+    await container.read(purchaseFlowProvider.notifier).sync();
+    await settle();
+
+    expect(container.read(subscriptionPhaseProvider), SubscriptionPhase.idle);
+    expect(container.read(purchaseFlowProvider).busy, isFalse);
+  });
+
+  test('조회에 pending 이 그대로 있으면 내리지 않는다', () async {
+    final container = containerWith();
+    await settle();
+    final pending = fakePurchase(status: PurchaseStatus.pending);
+    store
+      ..restorable = [pending]
+      ..emit([pending]);
+    await settle();
+
+    await container.read(purchaseFlowProvider.notifier).sync();
+    await settle();
+
+    expect(
+      container.read(subscriptionPhaseProvider),
+      SubscriptionPhase.pending,
+    );
+  });
+
+  test('App Store 승인 대기는 복원 조회에 없어도 내리지 않는다', () async {
+    // StoreKit 2 복원은 `currentEntitlements`(이미 권한이 생긴 거래)만 올린다
+    // — 승인 대기가 거기 없는 것은 정상이지 포기가 아니다.
+    final container = containerWith();
+    await settle();
+    store.emit([
+      fakePurchase(status: PurchaseStatus.pending, source: 'app_store'),
+    ]);
+    await settle();
+
+    store.restorable = [];
+    await container.read(purchaseFlowProvider.notifier).sync();
+    await settle();
+
+    expect(
+      container.read(subscriptionPhaseProvider),
+      SubscriptionPhase.pending,
+    );
+  });
+
+  test('조회 자체가 실패하면 pending 을 내리지 않는다', () async {
+    final container = containerWith();
+    await settle();
+    store.emit([fakePurchase(status: PurchaseStatus.pending)]);
+    await settle();
+
+    store.restoreError = Exception('store unreachable');
+    await container.read(purchaseFlowProvider.notifier).sync();
+    await settle();
+
+    expect(
+      container.read(subscriptionPhaseProvider),
+      SubscriptionPhase.pending,
+    );
+  });
+}
+
+/// 읽기가 **늦게** 끝나는 토큰 저장소. 재설치가 아니라 "secure storage 가 아직
+/// 안 읽혔다" 쪽 경쟁을 그대로 만든다(D-32-1 재현).
+class _SlowGuestTokenStore implements GuestTokenStore {
+  _SlowGuestTokenStore(this._token);
+
+  final String? _token;
+  final _gate = Completer<void>();
+
+  void release() => _gate.complete();
+
+  @override
+  Future<String?> read() async {
+    await _gate.future;
+    return _token;
+  }
+
+  @override
+  Future<void> write(String token) async {}
+
+  @override
+  Future<void> delete() async {}
 }

@@ -4,8 +4,10 @@ import 'package:chosung/analytics/analytics_event.dart';
 import 'package:chosung/analytics/analytics_service.dart';
 import 'package:chosung/api/api_client.dart';
 import 'package:chosung/api/api_exception.dart';
+import 'package:chosung/api/api_models.dart';
 import 'package:chosung/api/api_providers.dart';
 import 'package:chosung/guest/account_epoch.dart';
+import 'package:chosung/guest/guest_token_provider.dart';
 import 'package:chosung/subscription/entitlement_provider.dart';
 import 'package:chosung/subscription/purchase_service.dart';
 import 'package:chosung/subscription/subscription_state.dart';
@@ -60,8 +62,9 @@ class PurchaseFlow {
     ProductDetails? product,
     String? error,
     bool clearError = false,
+    bool clearPurchase = false,
   }) => PurchaseFlow(
-    purchase: purchase ?? this.purchase,
+    purchase: clearPurchase ? null : (purchase ?? this.purchase),
     verifying: verifying ?? this.verifying,
     restoring: restoring ?? this.restoring,
     product: product ?? this.product,
@@ -85,6 +88,20 @@ class PurchaseFlowNotifier extends Notifier<PurchaseFlow> {
   /// 검증이 떠 있는 영수증들. 키는 거래 ID(없으면 영수증 자체)다.
   final Set<String> _inFlight = {};
 
+  /// 시작 동기화를 이미 돌린 게스트 토큰. `verify` 는 Bearer 가 필요하므로
+  /// **토큰이 있을 때만** 영수증을 올리고, 토큰이 바뀌면 한 번만 다시 맞춘다.
+  String? _syncedToken;
+
+  /// 지금 붙잡혀 있는 pending 거래가 어느 스토어 것인가.
+  SubscriptionStore? _pendingStore;
+
+  /// 이번 [sync] 조회에 pending 거래가 다시 올라왔는가.
+  bool _pendingSeenSinceSync = false;
+
+  /// 가장 최근에 뜬 [sync] 의 번호. 조회가 겹치면(복귀 연타) 뒤엣것만
+  /// 판정한다 — 앞엣것은 뒤엣것이 초기화한 플래그를 보게 된다.
+  int _syncSeq = 0;
+
   ApiClient get _api => ref.read(apiClientProvider);
 
   PurchaseService get _service => ref.read(purchaseServiceProvider);
@@ -98,7 +115,16 @@ class PurchaseFlowNotifier extends Notifier<PurchaseFlow> {
     // 포그라운드 복귀 때 스토어와 다시 맞춘다(스펙 §A.8 재조회 (b)). 권한
     // 쪽 `/me/stats` 재조회는 티켓 33 이 따로 건다.
     final lifecycle = AppLifecycleListener(onResume: () => unawaited(sync()));
-    ref.onDispose(lifecycle.dispose);
+    ref
+      ..onDispose(lifecycle.dispose)
+      // 토큰이 늦게 오는 길이 셋 있다: 재설치 첫 실행의 `POST /guests`,
+      // 시작 흐름의 401 복구, 계정 전환. 그 전에 올린 영수증은 서버에
+      // 가지도 못하고 401 이라, 토큰이 들어오는 자리에서 다시 맞춘다
+      // (알림 동기화 `notification_controller.dart` 와 같은 모양).
+      ..listen(
+        guestTokenProvider,
+        (_, next) => unawaited(_syncWithToken(next.value)),
+      );
 
     unawaited(_bootstrap());
     return const PurchaseFlow();
@@ -106,6 +132,25 @@ class PurchaseFlowNotifier extends Notifier<PurchaseFlow> {
 
   Future<void> _bootstrap() async {
     await loadProduct();
+    // 저장소에 토큰이 남아 있는 보통의 실행은 여기서 바로 맞춘다. 없으면
+    // 위 `listen` 이 발급을 기다린다.
+    final String? token;
+    try {
+      token = await ref.read(guestTokenProvider.future);
+    } on Exception {
+      // 토큰을 못 읽어도 구매 흐름은 떠 있어야 한다(가격·버튼). 읽기가
+      // 끝난 뒤 값이 들어오면 `listen` 이 받는다.
+      return;
+    }
+    if (!ref.mounted) return;
+    await _syncWithToken(token);
+  }
+
+  /// 토큰이 생겼거나 바뀌었을 때 한 번만 스토어와 맞춘다. 같은 토큰으로
+  /// 두 번 돌지 않는다 — 복귀 동기화는 [AppLifecycleListener] 쪽이다.
+  Future<void> _syncWithToken(String? token) async {
+    if (token == null || token.isEmpty || token == _syncedToken) return;
+    _syncedToken = token;
     await sync();
   }
 
@@ -125,12 +170,38 @@ class PurchaseFlowNotifier extends Notifier<PurchaseFlow> {
   /// 스토어 구매 동기화. 올라온 영수증은 스트림을 거쳐 [_onPurchases] 로
   /// 들어가므로 여기서 결과를 다루지 않는다.
   Future<void> sync() async {
+    final seq = ++_syncSeq;
+    _pendingSeenSinceSync = false;
     try {
       await _service.restore();
     } on Exception {
       // 시작·복귀의 자동 동기화라 사용자에게 말할 것이 없다. 권한은 서버
-      // `/me/stats` 가 들고 있고, 다음 복귀에 다시 시도한다.
+      // `/me/stats` 가 들고 있고, 다음 복귀에 다시 시도한다. 조회가 실패한
+      // 것이므로 "조회에 없다" 로 읽어서도 안 된다.
+      return;
     }
+    // 올라온 거래는 브로드캐스트 스트림을 한 틱 늦게 탄다([restore] 와 같은
+    // 이유). 조회 결과가 다 들어온 뒤에 "없다" 를 판정한다.
+    await Future<void>.delayed(Duration.zero);
+    if (!ref.mounted || seq != _syncSeq) return;
+    _dropAbandonedPending();
+  }
+
+  /// Play 의 pending(계좌이체·편의점 결제 등)을 사용자가 포기하면 스토어는
+  /// **아무 이벤트도 주지 않고** 다음 `queryPurchases` 에서 그 거래를 빼기만
+  /// 한다. 그러면 [PurchaseFlow.purchase] 가 pending 에 눌러앉아 Paywall 의
+  /// 두 버튼과 S4 카드가 앱을 다시 켤 때까지 "결제 확인 중" 이다(D-32-4).
+  /// 조회에 없으면 내린다 — 조회가 유일한 신호다.
+  ///
+  /// iOS 는 내리지 않는다: StoreKit 2 의 복원은 `currentEntitlements`(= 이미
+  /// 권한이 생긴 거래)만 올리므로, 승인 대기(Ask to Buy)가 거기 **없는 것이
+  /// 정상**이다. Play 의 `queryPurchases` 만 pending 을 포함한 전수 조회다.
+  void _dropAbandonedPending() {
+    if (state.purchase != PurchaseStatus.pending) return;
+    if (_pendingSeenSinceSync) return;
+    if (_pendingStore != SubscriptionStore.google) return;
+    _pendingStore = null;
+    state = state.copyWith(clearPurchase: true);
   }
 
   /// S5 "구독 시작". 가격을 모르면 버튼이 잠겨 있어 여기까지 오지 않는다.
@@ -184,6 +255,13 @@ class PurchaseFlowNotifier extends Notifier<PurchaseFlow> {
 
       switch (purchase.status) {
         case PurchaseStatus.pending:
+          // 어느 스토어가 붙잡고 있는지 적어 둔다 — 포기 판정이 스토어마다
+          // 다르다([_dropAbandonedPending]).
+          _pendingStore = subscriptionStoreFor(
+            purchase.verificationData.source,
+          );
+          _pendingSeenSinceSync = true;
+          state = state.copyWith(purchase: purchase.status, clearError: true);
         case PurchaseStatus.canceled:
           state = state.copyWith(purchase: purchase.status, clearError: true);
         case PurchaseStatus.purchased:
@@ -238,6 +316,11 @@ class PurchaseFlowNotifier extends Notifier<PurchaseFlow> {
       if (purchase.pendingCompletePurchase) {
         await _service.complete(purchase);
       }
+    } on UnauthorizedApiException {
+      // 아직 **보내지 못한** 것이지 실패한 것이 아니다 — `_authorized()` 가
+      // 토큰이 없으면 서버에 가기 전에 던진다. 실패 문구를 띄우면 재설치
+      // 직후 구독자에게 "결제를 끝내지 못했어요" 가 보인다. 거래는 완료하지
+      // 않은 채 두고, 토큰이 들어오면 위 `listen` 의 동기화가 다시 올린다.
     } on ReceiptInvalidApiException {
       _fail(epoch, 'subscription.error_receipt');
     } on StoreUnavailableApiException {
