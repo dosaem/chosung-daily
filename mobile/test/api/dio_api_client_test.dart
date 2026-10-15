@@ -687,4 +687,68 @@ void main() {
       expect(adapter.requests, isEmpty);
     });
   });
+
+  test('POST /subscriptions/verify 는 스토어·영수증을 보내고 권한을 돌려준다', () async {
+    final adapter = _RecordingAdapter(
+      (_) => _json({
+        'active': true,
+        'until': '2026-11-01T00:00:00+00:00',
+        'status': 'active',
+        'source': 'google',
+        'next_check_at': '2026-10-15T04:00:00+00:00',
+      }, 200),
+    );
+    final client = _clientWith(adapter, token: 'guest-token');
+
+    final entitlement = await client.verifySubscription(
+      store: SubscriptionStore.google,
+      receipt: 'purchase-token',
+    );
+
+    expect(entitlement.active, isTrue);
+    expect(entitlement.until, DateTime.utc(2026, 11));
+    final request = adapter.requests.single;
+    expect(request.path, '/subscriptions/verify');
+    expect(request.method, 'POST');
+    expect(request.data, {'store': 'google', 'receipt': 'purchase-token'});
+    expect(request.headers['Authorization'], 'Bearer guest-token');
+  });
+
+  test('영수증을 인정하지 않으면 RECEIPT_INVALID 예외다 — 재시도하지 않는 쪽', () async {
+    final adapter = _RecordingAdapter(
+      (_) => _json({
+        'code': 'RECEIPT_INVALID',
+        'message': '영수증을 확인할 수 없습니다.',
+      }, 400),
+    );
+    final client = _clientWith(adapter, token: 'guest-token');
+
+    await expectLater(
+      client.verifySubscription(
+        store: SubscriptionStore.apple,
+        receipt: 'bad-jws',
+      ),
+      throwsA(isA<ReceiptInvalidApiException>()),
+    );
+  });
+
+  test('스토어가 답을 못 주면 STORE_UNAVAILABLE 예외다 — 다음 시작에 다시 올린다', () async {
+    final adapter = _RecordingAdapter(
+      (_) => _json({
+        'code': 'STORE_UNAVAILABLE',
+        'message': '스토어에 연결할 수 없습니다.',
+      }, 503),
+    );
+    final client = _clientWith(adapter, token: 'guest-token');
+
+    await expectLater(
+      client.verifySubscription(
+        store: SubscriptionStore.apple,
+        receipt: 'jws',
+      ),
+      // 503 이라도 `code` 가 먼저다 — 호출부가 ServerApiException 과 구별해
+      // "일시적 스토어 장애" 문구를 고른다.
+      throwsA(isA<StoreUnavailableApiException>()),
+    );
+  });
 }

@@ -50,6 +50,8 @@ final adGateProvider = Provider<AdGate>(
   (ref) => adGateFor(
     ump: ref.watch(adConsentProvider).value,
     tracking: ref.watch(trackingStatusProvider),
-    entitled: ref.watch(entitlementProvider),
+    // 권한 여부만 떼어 넘긴다 — 게이트는 갱신일을 모르고, 모르면 광고
+    // 판정이 날짜 계산에 얽히지 않는다.
+    entitled: ref.watch(entitlementProvider)?.active,
   ),
 );

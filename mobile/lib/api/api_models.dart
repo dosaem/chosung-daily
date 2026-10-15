@@ -108,7 +108,95 @@ class LinkedAccount {
   final String? email;
 }
 
-/// `GET /api/v1/me/stats` 응답. `entitlement` 는 구독 티켓(30·31)이 더한다.
+/// 어느 스토어에서 온 구독인가. 서버 `SubscriptionStore` 와 wire 값이 같고,
+/// `POST /subscriptions/verify` 의 `store` 로도 그대로 올라간다.
+enum SubscriptionStore {
+  apple('apple'),
+  google('google')
+  ;
+
+  const SubscriptionStore(this.wire);
+
+  final String wire;
+
+  static SubscriptionStore? fromWire(String? value) {
+    for (final store in SubscriptionStore.values) {
+      if (store.wire == value) return store;
+    }
+    return null;
+  }
+}
+
+/// 서버가 정규화한 구독 상태(스펙 §A.8 상태 정규화). 앱이 쓰는 건 S4 카드의
+/// 세 얼굴(미구독·구독 중·유예 중)뿐이고, 권한 자체는 서버가 판정한
+/// [Entitlement.active] 다 — 앱이 판정표를 다시 구현하지 않는다.
+enum SubscriptionStatus {
+  active('active'),
+  grace('grace'),
+  hold('hold'),
+  expired('expired'),
+  revoked('revoked'),
+  replaced('replaced')
+  ;
+
+  const SubscriptionStatus(this.wire);
+
+  final String wire;
+
+  static SubscriptionStatus? fromWire(String? value) {
+    for (final status in SubscriptionStatus.values) {
+      if (status.wire == value) return status;
+    }
+    return null;
+  }
+}
+
+/// `POST /subscriptions/verify` 응답과 `GET /me/stats` 의 `entitlement`(§A.8).
+///
+/// 모르는 `status`·`source` 라벨은 null 로 떨어뜨리지만 [active] 는 그대로
+/// 쓴다 — 광고를 끌지 말지는 서버 판정이고, 라벨은 S4 카드 문구를 고르는 데만
+/// 쓴다. 반대로 깔면 서버가 상태를 하나 늘리는 순간 구독자에게 광고가 돌아온다.
+@immutable
+class Entitlement {
+  const Entitlement({
+    required this.active,
+    this.until,
+    this.status,
+    this.source,
+    this.nextCheckAt,
+  });
+
+  factory Entitlement.fromJson(Map<String, dynamic> json) => Entitlement(
+    active: json['active'] as bool,
+    until: _parseInstant(json['until'] as String?),
+    status: SubscriptionStatus.fromWire(json['status'] as String?),
+    source: SubscriptionStore.fromWire(json['source'] as String?),
+    nextCheckAt: _parseInstant(json['next_check_at'] as String?),
+  );
+
+  /// 지금 광고를 안 봐도 되는가. 판정표·24h 유예는 서버에 있다(§A.8).
+  final bool active;
+
+  /// 권한이 언제까지인지(UTC). 구독이 없으면 null.
+  final DateTime? until;
+
+  final SubscriptionStatus? status;
+  final SubscriptionStore? source;
+
+  /// 앱이 이 시각 뒤에 `/me/stats` 를 다시 불러 권한을 갱신한다 — 타이머는
+  /// 티켓 33 이 건다.
+  final DateTime? nextCheckAt;
+}
+
+/// 서버는 **타임존을 붙여** 보낸다(`app/schemas/subscription.py`
+/// `EntitlementResponse` docstring). 받은 즉시 UTC 로 정규화해 두고 화면에
+/// 그릴 때만 [DateTime.toLocal] 을 거친다 — 둘을 섞으면 "갱신일" 이 기기
+/// 시간대만큼 틀어진다.
+DateTime? _parseInstant(String? raw) =>
+    raw == null ? null : DateTime.parse(raw).toUtc();
+
+/// `GET /api/v1/me/stats` 응답. `entitlement` 는 티켓 33 이 더한다 —
+/// 구매(32)는 verify 응답으로 같은 [Entitlement] 를 받는다.
 @immutable
 class MyStats {
   const MyStats({

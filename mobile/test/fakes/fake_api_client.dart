@@ -33,6 +33,21 @@ MyStats fakeMyStats({
   linkedAccount: linkedAccount,
 );
 
+/// 서버가 돌려줄 권한. 기본값은 "구독 없음" 이다 — 구독자 테스트만 켠다.
+Entitlement fakeEntitlement({
+  bool active = false,
+  DateTime? until,
+  SubscriptionStatus? status,
+  SubscriptionStore? source,
+  DateTime? nextCheckAt,
+}) => Entitlement(
+  active: active,
+  until: until,
+  status: status ?? (active ? SubscriptionStatus.active : null),
+  source: source ?? (active ? SubscriptionStore.google : null),
+  nextCheckAt: nextCheckAt,
+);
+
 /// ko "지하철역" 의 가림 — 초성 4개가 보이는 타일이다.
 const fakeKoMask = [
   MaskTile(type: MaskTileType.revealed, char: 'ㅈ'),
@@ -180,6 +195,12 @@ class FakeApiClient implements ApiClient {
   List<HistoryDay> history;
   String nextGuestToken;
 
+  /// `POST /subscriptions/verify` 가 돌려줄 권한.
+  Entitlement verifyResponse = fakeEntitlement(
+    active: true,
+    until: DateTime.utc(2026, 11),
+  );
+
   /// `POST /auth/token-exchange` 가 돌려줄 토큰. 지금 토큰과 **다르게** 두면
   /// "다른 기기 기록으로 전환" 이고, 같게 두면 "지금 게스트에 연결" 이다.
   String nextLinkedToken;
@@ -203,6 +224,7 @@ class FakeApiClient implements ApiClient {
   Exception? exchangeIdTokenError;
   Exception? deleteAccountError;
   Exception? unlockHintError;
+  Exception? verifySubscriptionError;
 
   /// 넣어두면 이 Completer 가 끝날 때까지 오늘 퍼즐 응답을 붙잡는다 —
   /// "로딩 중(스켈레톤)" 화면을 그 상태로 세워두고 보는 데 쓴다.
@@ -249,6 +271,13 @@ class FakeApiClient implements ApiClient {
   /// 교환 요청으로 보낸 값들 — provider 별 버튼이 실제로 무엇을 보냈는지 본다.
   final List<({String provider, String idToken, String? authorizationCode})>
   exchangedCredentials = [];
+
+  /// verify 로 올라간 (store, receipt) 를 순서대로 기록한다 — "성공 뒤에만
+  /// 완료" 와 "다음 시작에 재전송" 은 이 목록으로 증명한다.
+  final List<({SubscriptionStore store, String receipt})> verifiedReceipts = [];
+
+  /// verify 응답을 붙잡는다 — "결제 확인 중"(버튼 비활성)을 세워 두는 데 쓴다.
+  Completer<void>? verifySubscriptionGate;
 
   /// 백업 코드 확인에 쓰인 토큰들(`GET /me/stats` with token).
   final List<String> statsTokens = [];
@@ -341,6 +370,18 @@ class FakeApiClient implements ApiClient {
     ));
     if (exchangeIdTokenError case final error?) throw error;
     return nextLinkedToken;
+  }
+
+  @override
+  Future<Entitlement> verifySubscription({
+    required SubscriptionStore store,
+    required String receipt,
+  }) async {
+    verifiedReceipts.add((store: store, receipt: receipt));
+    final response = verifyResponse;
+    if (verifySubscriptionGate case final gate?) await gate.future;
+    if (verifySubscriptionError case final error?) throw error;
+    return response;
   }
 
   @override
