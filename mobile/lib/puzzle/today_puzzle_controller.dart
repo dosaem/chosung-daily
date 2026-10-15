@@ -53,9 +53,32 @@ class TodayPuzzleNotifier extends AsyncNotifier<TodayState?> {
     // 다시 빌드되는 것(= `retry()` 의 `invalidateSelf`)도 상태를 바꾸는 사건이다.
     // Riverpod 은 notifier 객체를 그대로 두고 `build` 만 다시 부르므로 세대를
     // 여기서 올리지 않으면 이전 빌드에서 떠난 응답이 새 보드에 그대로 쓰인다.
-    _generation++;
-    return _load();
+    final generation = ++_generation;
+    return _initialLoad(generation);
   }
+
+  /// 첫 조회. [_load] 를 그대로 돌려주지 않고 한 겹 감싼다 — `build` 가 돌려준
+  /// future 는 프레임워크가 [_commitLoad] 를 거치지 않고 바로 상태에 쓰기
+  /// 때문이다. 그 사이 계정 경계([discard])나 재시도(`invalidateSelf`)가
+  /// 지나갔으면 이 응답은 **남의 것**이라 상태를 건드려선 안 되는데, 쓰기를
+  /// 막을 방법이 없으므로 **지금 상태를 그대로** 돌려줘 그 쓰기를 무해하게
+  /// 만든다. 늦게 끝난 옛 계정 조회가 이미 떠 있는 새 계정 보드를 지워 홈이
+  /// 스켈레톤에 갇히던 길을 끊는다(D-29-6).
+  Future<TodayState?> _initialLoad(int generation) async {
+    final loaded = await AsyncValue.guard(_load);
+    final effective = _canCommit(generation) ? loaded : _currentState(loaded);
+    if (effective case AsyncError(:final error, :final stackTrace)) {
+      // 오류는 그대로 올린다 — 프레임워크가 `AsyncError` 로 적어 화면이 오류
+      // 카드를 고른다(값으로 바꿔 돌려주면 오류가 사라진다).
+      Error.throwWithStackTrace(error, stackTrace);
+    }
+    return effective.value;
+  }
+
+  /// 지금 살아 있는 상태. provider 가 이미 버려졌으면 `state` 를 읽을 수 없어
+  /// [fallback] 을 쓴다 — 그 경우 프레임워크도 결과를 쓰지 않는다.
+  AsyncValue<TodayState?> _currentState(AsyncValue<TodayState?> fallback) =>
+      ref.mounted ? state : fallback;
 
   /// 보드를 읽는다. 떠날 때의 계정을 적어 두고([_accountEpoch]) 돌아올 때
   /// 다시 본다 — 그 사이 계정이 바뀌었으면 이 보드는 **남의 것**이라 null 을

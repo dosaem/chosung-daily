@@ -66,6 +66,49 @@ const _googleCredential = SocialCredential(
   idToken: 'google-id-token',
 );
 
+/// D-29-6 하네스. A 의 **최초** 홈 조회를 붙잡아 둔 채 [cross] 로 계정 경계를
+/// 넘고(연결·전환·삭제 모두 같은 `_adopt` 길이다), 새 계정 보드가 먼저 도착한
+/// **뒤에** 붙잡아 둔 A 응답을 끝낸다. 계정이 바뀐 뒤의 A 응답은 지금 화면에
+/// 아무 영향도 주지 않아야 한다 — `build` 가 돌려준 future 는 프레임워크가
+/// 세대 검사 없이 상태에 쓰므로, "쓰지 말라" 의 null 이 이미 떠 있는 새 보드를
+/// 지워 홈이 스켈레톤에 갇혔다.
+Future<void> _crossAccountDuringFirstLoad({
+  required FakeApiClient api,
+  required ProviderContainer container,
+  required Future<void> Function() cross,
+}) async {
+  final gate = Completer<void>();
+  api.fetchTodayPuzzleGate = gate;
+  addTearDown(() {
+    if (!gate.isCompleted) gate.complete();
+  });
+  // 최초 조회를 띄우고 **기다리지 않는다** — 붙잡힌 그 상태로 경계를 넘는다.
+  final pendingFirstLoad = container.read(todayPuzzleProvider.future);
+
+  // 경계를 넘은 뒤의 조회는 즉시 끝난다 — 붙잡힌 건 A 의 최초 조회뿐이다.
+  api.fetchTodayPuzzleGate = null;
+  await cross();
+  await pumpEventQueue();
+  expect(
+    container.read(todayPuzzleProvider).value,
+    isA<TodayPuzzleReady>(),
+    reason: '새 계정 보드가 먼저 도착해 있어야 이 경합을 볼 수 있다',
+  );
+
+  // 늦게 도착한 A 의 최초 응답.
+  gate.complete();
+  await pendingFirstLoad;
+  await pumpEventQueue();
+
+  final today = container.read(todayPuzzleProvider);
+  expect(
+    today.value,
+    isA<TodayPuzzleReady>(),
+    reason: '계정 경계를 넘은 옛 응답이 새 보드를 지웠다',
+  );
+  expect(today.hasError, isFalse);
+}
+
 void main() {
   // todayPuzzleProvider 가 AppLifecycleListener 를 만든다.
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -139,6 +182,25 @@ void main() {
 
       expect(world.store.token, 'other-device-token');
       expect(world.container.read(accountProvider).switched, isTrue);
+    });
+
+    test('소셜 전환보다 늦게 끝난 최초 홈 조회도 새 계정 보드를 지우지 않는다', () async {
+      // 소셜 연결·전환도 `_adopt` 를 거친다 — D-29-6 은 입구를 가리지 않는다.
+      final api = FakeApiClient(nextLinkedToken: 'other-device-token');
+      final world = _container(
+        api,
+        signIn: _signInReturning(_googleCredential),
+      );
+
+      await _crossAccountDuringFirstLoad(
+        api: api,
+        container: world.container,
+        cross: () => world.container
+            .read(accountProvider.notifier)
+            .link(AccountProvider.google),
+      );
+
+      expect(world.store.token, 'other-device-token');
     });
 
     test('같은 토큰이 오면 전환이 아니라 연결이다', () async {
@@ -391,6 +453,28 @@ void main() {
       expect(api.submittedGuesses.single.guess, '지하촌역');
     });
 
+    test('전환보다 늦게 끝난 최초 홈 조회는 새 계정 보드를 지우지 않는다', () async {
+      final api = FakeApiClient()
+        ..statsByToken['backup-code'] = fakeMyStats(currentStreak: 4);
+      final world = _container(api, signIn: _signInReturning(null));
+
+      await _crossAccountDuringFirstLoad(
+        api: api,
+        container: world.container,
+        cross: () => world.container
+            .read(accountProvider.notifier)
+            .restoreWithBackupCode('backup-code'),
+      );
+
+      expect(world.store.token, 'backup-code');
+      // 보드가 지워지지 않았으니 B 계정으로 그대로 플레이할 수 있다.
+      expect(
+        await world.container.read(todayPuzzleProvider.notifier).submit('지하촌역'),
+        isTrue,
+      );
+      expect(api.submittedGuesses.single.guess, '지하촌역');
+    });
+
     test('401 이면 토큰을 바꾸지 않고 코드가 틀렸다고 말한다', () async {
       final api = FakeApiClient();
       final world = _container(api, signIn: _signInReturning(null));
@@ -447,6 +531,21 @@ void main() {
         isFalse,
       );
       expect(api.submittedGuesses, isEmpty);
+    });
+
+    test('삭제보다 늦게 끝난 최초 홈 조회는 새 게스트 보드를 지우지 않는다', () async {
+      // 삭제 후 새 게스트도 같은 `_adopt` 길이라 D-29-6 경합을 공유한다.
+      final api = FakeApiClient(nextGuestToken: 'fresh-guest');
+      final world = _container(api, signIn: _signInReturning(null));
+
+      await _crossAccountDuringFirstLoad(
+        api: api,
+        container: world.container,
+        cross: () =>
+            world.container.read(accountProvider.notifier).deleteAccount(),
+      );
+
+      expect(world.store.token, 'fresh-guest');
     });
 
     test('새 게스트 발급이 실패해도 앱이 토큰 없이 남지 않는다', () async {

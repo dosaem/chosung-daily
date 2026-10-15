@@ -540,4 +540,40 @@ void main() {
     );
     expect(api.submittedGuesses, isEmpty);
   });
+
+  test('늦게 끝난 첫 조회는 새 계정의 오류 카드도 지우지 않는다', () async {
+    // D-29-6 의 다른 얼굴: 늦은 첫 응답이 상태에 그대로 쓰이면 새 계정 조회가
+    // 남긴 오류 카드까지 덮어, 재시도 버튼도 없는 화면이 된다.
+    final api = FakeApiClient();
+    final gate = Completer<void>();
+    api.fetchTodayPuzzleGate = gate;
+    final container = _container(
+      api,
+      tokenStore: InMemoryGuestTokenStore('guest-a'),
+    );
+    // 이 future 는 `discard` 가 상태를 비우는 순간 그 값으로 끝난다 — 붙잡아
+    // 둔 첫 응답은 그보다 늦게 온다.
+    final pending = container.read(todayPuzzleProvider.future);
+
+    // 새 계정 보드 조회는 실패한다 — 보드가 없으니 오류 카드가 그 자리를 받는다.
+    api
+      ..fetchTodayPuzzleGate = null
+      ..fetchTodayPuzzleError = const NetworkApiException(
+        code: networkErrorCode,
+        message: 'offline',
+      );
+    await container.read(guestTokenProvider.notifier).replaceWith('guest-b');
+    await container.read(todayPuzzleProvider.notifier).discard();
+    expect(await pending, isNull);
+    expect(container.read(todayPuzzleProvider).hasError, isTrue);
+
+    // 늦게 도착한 첫 조회는 성공 응답이지만 남의 계정 것이다.
+    api.fetchTodayPuzzleError = null;
+    gate.complete();
+    await pumpEventQueue();
+
+    final today = container.read(todayPuzzleProvider);
+    expect(today.hasError, isTrue, reason: '옛 응답이 오류 카드를 지웠다');
+    expect(today.value, isNull);
+  });
 }
