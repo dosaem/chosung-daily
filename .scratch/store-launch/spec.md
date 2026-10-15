@@ -228,11 +228,11 @@ chosung.dosaem.com 은 "하루 한 문제 초성 맞추기"가 돌아가는 Flas
 
 ### D. 사람이 해야 하는 일 (순서)
 
-**D0. 티켓 시작 전** — 단어 CSV(ko/en 각 ≥120, 심사 전 en 30일 배정 확인) · Firebase 프로젝트 + 앱 등록(`google-services.json`, `GoogleService-Info.plist`) · GCP iOS 클라이언트 ID, Android 클라이언트(SHA-1 3종), 웹 클라이언트 ID 를 `serverClientId` 로 · Google Books 키(선택)
+**D0. 티켓 시작 전** — 단어 CSV(ko/en 각 ≥120, 심사 전 en 30일 배정 확인; **후보 생성은 티켓 38**, 사람은 검수·업로드만 — 2026-10-15 사용자 결정) · Firebase 프로젝트 + 앱 등록(`google-services.json`, `GoogleService-Info.plist`) · GCP iOS 클라이언트 ID, Android 클라이언트(SHA-1 3종), 웹 클라이언트 ID 를 `serverClientId` 로 · Google Books 키(선택)
 **D1. 백엔드 티켓 중** — Slack Webhook · Sentry 2개 · UptimeRobot · Apple App ID + Sign in with Apple(iOS 번들 ID 를 Services ID 그룹에 추가) · App Store Server API 키 · Sandbox 테스터 · Play 앱 생성·서비스 계정·라이선스 테스터 · 한국 판매자 정보 요건 · **통신판매업 신고 대상 여부 확인(미정 22)·개인정보 보호책임자 지정·주소/전화 공개 결정(미정 21)**
 **D2. 앱 티켓 중** — AdMob 앱 2 + 유닛 6 + UMP 메시지(privacy options 포함) · ASC 앱(이름 중복 확인) · 구독 상품 `adfree_monthly` 양 스토어(한국 ₩1,500 Tier) · **Billing Grace Period: Apple 켬(16일), Play base plan 기본 유예 유지** · EULA 결정 · 개인정보 라벨 · keystore·match·러너·GitHub secrets
 **D3. 배포·심사 전** — NAS 의 기존 compose 프로젝트명·볼륨명 확인(`docker volume ls`) · NAS develop 폴더·`.env.develop`·DNS·터널 · prod `.env` 새 키 · Play Data safety(삭제 URL) · 앱 콘텐츠 설문 · **제출일 기준 target SDK / Billing 8+ 재확인** · 첫 프로덕션 출시 버튼
-모든 가입·콘솔은 운영자 계정 두 개 중 하나(`dosaem90@gmail.com` / `hsseo@dosaem.com`).
+모든 가입·콘솔은 운영자 계정 두 개 중 하나(`dosaem90@gmail.com` / `hsseo@dosaem.com`). **진행 방식(2026-10-15 사용자 결정):** 콘솔·대시보드 설정은 Claude 가 Chrome 조종으로 직접 하고, 사용자는 로그인·결제·약관 동의·최종 출시 버튼만 — 상태는 `user-todo.md`.
 
 ## Testing Decisions
 
@@ -286,8 +286,8 @@ chosung.dosaem.com 은 "하루 한 문제 초성 맞추기"가 돌아가는 Flas
 18. (r4 MINOR, Fable) 만료 ±24h 구간의 재조회가 무상한이라 호출마다 스토어 API 를 때릴 수 있음 — 필요하면 5분 상한 추가, 구독 티켓에서 결정
 19. (r5 MINOR, Sol) 1h TTL 경계 표현 정렬 — 서버 재조회 조건을 `now >= next_check_at` 으로 명시하고, Flutter 가짜 시계 테스트에 정확히 `next_check_at` 시각을 포함해 경계에서 조회를 건너뛰는 해석을 막는다 — 구독 티켓에서 반영
 20. (티켓 작성 중 발견) §B.24 "분석 이벤트 4개" 의 명칭·파라미터가 스펙에 없음 — 티켓 26(구 24)에서 `puzzle_complete(language, success, attempts)`, `share`, `paywall_view`, `subscribe_start` 로 확정하고 여기 결과 기록
-21. (plan-add r1, 사용자 확인) 법적 문서의 사업장 주소(자택)·전화번호·보호책임자 성명 공개 범위 — 티켓 16 워커가 법적 근거를 붙여 `orca orchestration ask`, 답 전에는 미표시. 결과는 `docs/RELEASE.md` "### 16."
-22. (plan-add r1, 사람 D1) 통신판매업 신고 대상 여부(구독 판매 전) — 면제 기준 확인 후 신고하면 `LEGAL_MAIL_ORDER_REG_NO`. 티켓 16 은 신고번호가 비면 그 행을 렌더하지 않는다
+21. (plan-add r1, 사용자 확인) 법적 문서의 사업장 주소(자택)·전화번호·보호책임자 성명 공개 범위 — 티켓 16 워커가 법적 근거를 붙여 `orca orchestration ask`, 답 전에는 미표시. 결과는 `docs/RELEASE.md` "### 16." **사용자 확정(2026-10-15, 번호 목록 질문 2·3·4):** 주소 시·구까지만, 전화 미표시, 보호책임자 직책+이메일 — 티켓 16 의 (b) 결정 그대로. 전문가 검토는 받지 않고 출시(질문 5), RELEASE "### 16." 해당 체크박스는 "보류". 목록은 `.scratch/store-launch/user-todo.md`
+22. (plan-add r1, 사람 D1) 통신판매업 신고 대상 여부(구독 판매 전) — 면제 기준 확인 후 신고하면 `LEGAL_MAIL_ORDER_REG_NO`. 티켓 16 은 신고번호가 비면 그 행을 렌더하지 않는다 **사용자 확정(2026-10-15, 질문 1):** 면제(직전년도 거래 50회 미만)로 미신고, 연간 유료 구독 50건 전에 재검토. 신고 시 공정위 공개 주소 문제가 있어 그때 별도 주소 검토
 23. (plan-add r1) 해외 사용자 최소 고지(EU/영국·캘리포니아 권리 안내) 포함 여부 — 티켓 16 에서 결정·근거 기록(권장: 짧은 "해외 사용자" 절 1개를 ko/en 모두에)
 24. (plan-add r1) 태블릿 expanded(≥840) 2열의 세부 폭(T1 600+320, T4 480+480)·Split View 최소 폭 처리 — 티켓 24·화면 티켓에서 확정하고 README Flutter 절에 기록
 25. **해소(2026-10-14, 사용자 확정)** 앱 아이콘·스크린샷 톤 — 계획 리뷰 r1 의 사용자 확인 항목(다크 배경 `#0F172A` + 흰 "ㅊ" vs Editorial Light). 결정: 라이트 배경 `#FAFAF9` 에 글자 없는 타일 3칸(양끝 brand `#EA580C`, 가운데 `tile-wrong` `#D6D3D1`), 스플래시 동일, 스크린샷 라이트 모드. 근거: 스토어는 앱당 아이콘 하나라 "ㅊ" 은 영어 사용자에게 뜻이 없음. OVERRIDES §8·티켓 35 반영. 30px 가독성은 35 에서 확인(필요 시 가운데 칸 `#A8A29E`)
@@ -349,7 +349,7 @@ Analytics 로 보려면 이벤트가 먼저 필요하다**: 미정 20 이 확정
 
 - 운영자 계정은 정확히 두 개: `dosaem90@gmail.com`, `hsseo@dosaem.com`.
 - 면접 설명 범위: 백엔드 전부 + Flutter 는 상태 흐름·SDK 선택·테스트 경계(README Flutter 절). (r3 MINOR 메모: 제출하는 코드 전체는 작성자가 설명할 수 있어야 하고, 설계 판단 문서만 핵심 중심으로 쓴다는 뜻.)
-- 티켓: `.scratch/store-launch/issues/01~37`(의존성 순, 2026-10-13; 계획 리뷰 r1 반영으로 구 24→24·25, 구 29→30·31 분할; **plan-add r1(2026-10-14)** 로 16(법적 문서 보완)·24(태블릿 뼈대) 삽입 — 구 16→23, 구 23~34→25~36, 대응표는 `review/plan-add-r1-response.md`. 머지·진행 중 티켓(01~13·15·17·19~22) 본문의 번호는 구 번호 그대로다). 미정 항목 중 9·21·22·23(16)·12(04)·13(17)·14(12)·18(13)·19(13·33)·20(26)·24(24)·25(35, 30px 확인)·27(36) 은 해당 티켓에서 확정. plan-add r2(2026-10-14): 36 개인정보 안전성 확보조치 추가(§C.33), 릴리스 문서는 36→37 로 이동(37 Blocked by 에 36). Flutter 루트는 `mobile/`. 앱 아이콘·스플래시·스크린샷은 OVERRIDES §8 그대로 — **2026-10-14 사용자 확정: 라이트 배경 `#FAFAF9` 에 글자 없는 타일 3칸(양끝 brand, 가운데 `tile-wrong`), 스크린샷은 라이트 모드 기준**(이전 "다크 배경 + ㅊ, 다크모드 스크린샷" 폐기, 미정 25). 콘셉트를 또 바꾸려면 OVERRIDES §8 을 먼저 고친다.
+- 티켓: `.scratch/store-launch/issues/01~38`(의존성 순, 2026-10-13; 계획 리뷰 r1 반영으로 구 24→24·25, 구 29→30·31 분할; **plan-add r1(2026-10-14)** 로 16(법적 문서 보완)·24(태블릿 뼈대) 삽입 — 구 16→23, 구 23~34→25~36, 대응표는 `review/plan-add-r1-response.md`. 머지·진행 중 티켓(01~13·15·17·19~22) 본문의 번호는 구 번호 그대로다). 미정 항목 중 9·21·22·23(16)·12(04)·13(17)·14(12)·18(13)·19(13·33)·20(26)·24(24)·25(35, 30px 확인)·27(36) 은 해당 티켓에서 확정. plan-add r2(2026-10-14): 36 개인정보 안전성 확보조치 추가(§C.33), 릴리스 문서는 36→37 로 이동(37 Blocked by 에 36). 2026-10-15: 38 단어 후보 CSV 생성(Blocked by 15·23) 추가, 사용자 할 일·결정 번호 목록은 `.scratch/store-launch/user-todo.md`(콘솔 설정은 Claude 가 Chrome 으로, 출시 버튼만 사용자). Flutter 루트는 `mobile/`. 앱 아이콘·스플래시·스크린샷은 OVERRIDES §8 그대로 — **2026-10-14 사용자 확정: 라이트 배경 `#FAFAF9` 에 글자 없는 타일 3칸(양끝 brand, 가운데 `tile-wrong`), 스크린샷은 라이트 모드 기준**(이전 "다크 배경 + ㅊ, 다크모드 스크린샷" 폐기, 미정 25). 콘셉트를 또 바꾸려면 OVERRIDES §8 을 먼저 고친다.
 - 디자인 파이프라인·스펙 리뷰 규칙은 `~/.claude/CLAUDE.md`·NAS README 에 기록. 리뷰 응답: `review/spec-review-r1-response.md`, `review/spec-review-r2-response.md`.
 - BASELINE 읽기만. ENV.md 의 PostgreSQL/Flyway 기술은 무시(MySQL/Alembic).
 - 티켓 하나 = 워커 하나가 한 세션. §A.1, §A.8, §A.11 은 본문의 분할 지침대로 쪼갠다. 의존성은 `issues/NN-*.md` "Blocked by".

@@ -1,0 +1,53 @@
+# 사용자 할 일·결정 목록 (번호 고정)
+
+2026-10-15 사용자에게 번호를 붙여 한 번에 물은 결과. 번호는 바꾸지 않고 상태만 갱신한다.
+작업 방식(사용자 결정 2026-10-15): **콘솔·대시보드 설정은 Claude 가 Chrome 조종으로 직접 한다.** 사용자는 운영자 계정으로 로그인해 두고, 결제·유료 가입·약관 동의·CAPTCHA 와 **마지막 출시 버튼** 만 직접 누른다. 운영자 계정은 `dosaem90@gmail.com` / `hsseo@dosaem.com` 둘 중 하나. 발급된 키·URL 은 이 문서에 적지 않는다(`.env` 로 직행).
+
+상태: `결정됨` / `아직` / `Claude 진행 중` / `사용자 차례` / `끝`
+
+## A. 결정 (법적 문서)
+
+| # | 항목 | 결정 (2026-10-15) | 반영 위치 |
+|---|---|---|---|
+| 1 | 통신판매업 신고 | **면제(직전년도 거래 50회 미만)로 미신고.** 연간 유료 구독 50건 넘기기 전에 신고. 신고 시 자택 주소가 공정위 사이트에 공개되므로 그때 별도 주소 검토 | `LEGAL_MAIL_ORDER_REG_NO` 비움, RELEASE "### 16." 체크박스는 "면제 — 50건 전 재검토" 로 |
+| 2 | 사업장 주소 표시 | **시·구까지만(현행 유지)** + "상세 주소는 요청 시 이메일로 제공" | `LEGAL_BUSINESS_ADDRESS` 에 축약 주소를 사람이 넣음 |
+| 3 | 전화번호 | **미표시(현행 유지)** | `LEGAL_BUSINESS_PHONE` 비움 |
+| 4 | 보호책임자 | **직책 "운영자" + 이메일(현행 유지)**, 성명 비공개 | `LEGAL_PRIVACY_OFFICER` 비움 |
+| 5 | 전문가 검토 | **안 받고 일단 출시.** 매출 생기면 재검토 | RELEASE "### 16." 의 전문가 검토 체크박스는 "보류" |
+
+## B. 준비물 (D0, 티켓 시작 전)
+
+| # | 항목 | 상태 | 누가 | 비고 |
+|---|---|---|---|---|
+| 6 | 단어 CSV ko/en 각 120개 이상 | 아직 → **티켓 38 로 워커가 후보 생성** | 워커 → 사람 검수·업로드 | `issues/38-word-candidates-csv.md` |
+| 7 | Firebase 프로젝트 + Android/iOS 앱 등록 파일 2개 | 아직 | Claude(Chrome) | 운영자 Google 계정 로그인 필요 |
+| 8 | GCP 클라이언트 ID 3종(iOS / Android SHA-1 / 웹 `serverClientId`) | 아직 | Claude(Chrome) | Android SHA-1 은 14번 keystore 뒤 |
+
+## C. 콘솔 (D1, 백엔드 중)
+
+| # | 항목 | 상태 | 누가 | 비고 |
+|---|---|---|---|---|
+| 9 | Slack Webhook · Sentry 2개(웹·앱) · UptimeRobot | 아직 | Claude(Chrome) | 가입은 사용자, 설정은 Claude |
+| 10 | Apple App ID + Sign in with Apple(Services ID) + App Store Server API 키 + Sandbox 테스터 | 아직 | Claude(Chrome) | Apple Developer 가입(연 $99)은 사용자 |
+| 11 | Play 앱 생성 + 서비스 계정 + 라이선스 테스터 + 한국 판매자 정보 | 아직 | Claude(Chrome) | Play 개발자 등록($25)·판매자 정보(결제 계좌)는 사용자 |
+
+## D. 앱 (D2)
+
+| # | 항목 | 상태 | 누가 | 비고 |
+|---|---|---|---|---|
+| 12 | AdMob 앱 2 + 유닛 6 + UMP 메시지 | 아직 | Claude(Chrome) | AdMob 계정 승인 대기 가능 → 앱 티켓은 테스트 유닛 ID 로 먼저 |
+| 13 | ASC 앱 생성(이름 중복 확인) + 구독 `adfree_monthly` 양쪽(₩1,500) + Apple Grace Period 16일 | 아직 | Claude(Chrome) | 10·11 뒤. 유료 앱 계약·세금/은행 정보는 사용자 |
+| 14 | 업로드 keystore · match · self-hosted 러너 · GitHub secrets | 아직 | Claude(로컬 CLI) + 사용자 | keystore·match 는 로컬에서 Claude 가 생성 가능, 러너 등록 토큰은 GitHub 에서 |
+
+## E. 배포·심사 (D3)
+
+| # | 항목 | 상태 | 누가 | 비고 |
+|---|---|---|---|---|
+| 15 | NAS compose 프로젝트명·볼륨명 확인, develop 폴더·`.env.develop`·DNS·터널 | 아직 | 사용자(NAS) | Claude 는 NAS 접속 안 함. 절차는 RELEASE "### 19/20." |
+| 16 | prod `.env` 새 키(`LEGAL_*`·`LOG_DIR`·`BACKUP_ENCRYPTION_CERT_FILE`·`ACCESS_LOG_RETENTION_DAYS`) | 아직 | 사용자(NAS) | 값 목록은 `.env.example` |
+| 17 | 백업 `age` 개인키 생성 → NAS 밖 두 곳 보관, 공개키 인증서를 NAS 에 | 아직 | Claude(로컬 생성) + 사용자(보관) | RELEASE "### 36." |
+| 18 | Play Data safety · 앱 콘텐츠 설문 · target SDK/Billing 8+ 재확인 · **첫 출시 버튼** | 아직 | Claude(설문 초안·입력) → **출시 버튼은 사용자** | |
+
+## 기록
+
+- 2026-10-15: 1~18 질문·답 완료. 6 → 티켓 38 추가. 7~14·18 은 Claude 가 Chrome 으로 진행하기로. 메모리 `ask-numbered-all-at-once`, `console-setup-by-claude`.
