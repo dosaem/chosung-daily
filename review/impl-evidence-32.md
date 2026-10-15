@@ -715,3 +715,27 @@ apk exit=0                               # `mobile/build` 는 다시 지웠다
 $ uv run ruff check .
 All checks passed!
 ```
+
+백엔드(전용 자원 — DB `chosung_daily_test_t32`, Redis DB 6, 마이그레이션 DB
+`chosung_daily_test_t32_migrations`; 접속 값은 기록하지 않는다). 이 티켓은
+`app/`·`tests/` 를 건드리지 않았고(`git diff --name-only main...HEAD -- app
+tests web .scratch migrations .env.example` 빈 출력), 로컬 `main`(`4501286`)
+위로 rebase 한 뒤에 돌렸다:
+
+```
+$ TEST_DATABASE_URL=...chosung_daily_test_t32 \
+  TEST_REDIS_URL=redis://localhost:6379/6 \
+  TEST_MIGRATION_DATABASE_URL=...chosung_daily_test_t32_migrations \
+  uv run pytest -q
+1509 passed in 998.57s (0:16:38)
+```
+
+`migrations/` 변경 0건이라 `flask db heads` 는 선행 머지 상태 그대로다
+(`git diff --stat main...HEAD -- migrations` 빈 출력).
+
+### 미수정 MINOR
+
+없다. 라운드 2 리뷰의 MINOR 는 0건이었고, "참고 1"(RELEASE 체크리스트)은
+고쳤다. 대조표 5번(Android acknowledge 실패를 앱이 알 수 없다)만 의도적으로
+남겼다 — 플러그인이 결과를 예외로 주지 않고, 우리 처리("완료하지 않은 채
+두고 다음 시작에 재전송")가 이미 안전한 쪽이라 반환형을 바꿀 이유가 없다.
