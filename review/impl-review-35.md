@@ -107,3 +107,78 @@
 - 집계: BLOCKER 0, MAJOR 7, MINOR 0.
 
 판정: FAIL
+
+## 라운드 2
+
+- 대상 HEAD: `2dff1deae3c13dba2b23211dea1bce5b4a59baed`; 기준 로컬 `main`은 확인 시 `d78e082`, merge-base `1172b9b`. `git diff main...HEAD`, `git log main..HEAD`(11개 커밋) 및 이전 리뷰 이후 수정 커밋을 확인했다. `origin/main`은 사용하지 않았다.
+- 티켓 35, spec §B.25·BASELINE·US 67·미정 4/25, SCREENS S6/T0~T4, OVERRIDES §8과 구현 증거를 직접 대조했다. 하위 에이전트 없이 검토했다.
+- 코디네이터의 이번 라운드 메모를 적용했다: rebase 미실행, 29~33 화면의 최종 재촬영, 커밋된 Play 폰 복사본 교체, 방침 본문의 대략적 위치 추가는 별도 작업이다. **현재 이미지가 낡았다는 이유로 결함을 올리지 않는다.** 다만 재촬영 스크립트 자체가 다시 잘못된 플랫폼 장면을 생성하는 경로는 D-35-8로 보고한다.
+
+### 체크박스별 판정
+
+| 티켓 체크박스 | 판정 | 직접 확인한 근거 |
+|---|---|---|
+| 아이콘·스플래시 SVG/런처/adaptive 및 README 언어 중립 이유 | 충족 | SVG의 120 뷰박스·타일 좌표·색, pubspec와 생성 리소스를 대조했다. 아이콘 테스트 9개 통과. README Flutter 절에 이유가 있다. |
+| 30px 가독성과 가운데 색 조정 근거 | 충족 | 30×30 PNG를 직접 열어 세 칸을 확인했다. 실제 픽셀 대비 테스트 통과, OVERRIDES §8·README 35에 1.43→2.41:1 기록이 있다. |
+| 5장×ko/en·라이트·Fake API·S5 제외·캡처 스크립트 | 미충족 | 장면과 실패/교체 처리는 검증됐지만 Play 태블릿 경로는 재실행해도 iOS 전용 온보딩을 복사한다(D-35-8). 현재 Play 폰 재촬영 유예와 구별한다. |
+| 양 스토어 메타데이터·앱 이름·심사 노트·플레이스홀더 | 충족 | 이름·길이·URL·Sandbox/구독/삭제 안내·예약 파일명 변경을 확인했다. 영문 예시의 글자 수 오류는 D-35-9(MINOR). |
+| 수동 업로드 워크플로와 mobile 경로 | 충족 | 수동 트리거·경로·키 정리 및 실제 Python 블록 실행 테스트 통과. 버전 선택·라벨 실패 중단·수동 노트 보존 수정 확인. Play 태블릿 검증 공백은 D-35-8에 포함한다. |
+| iPad 13인치 태블릿 레이아웃·rail 단언 | 충족 | ko/en 각 5장, 모두 2064×2752. 홈 PNG에서 rail·2열을 직접 확인했고, 장면 테스트와 캡처 전 rail 단언도 확인했다. S6은 SCREENS T0에 따른 rail 예외다. |
+| privacy/support URL·ASC/Play/법적 체크리스트 대조·EULA | 충족 | `/privacy`·`/terms`, 표준 EULA 경로, `COARSE_LOCATION`과 Play 대략적인 위치 수집/공유 행·대조표를 확인했다. 방침 본문 추가는 코디네이터 지정 사람 확인 항목이다. |
+| 로컬 캡처 실행 결과 파일 목록·업로드는 사람 | 충족 | 증거 목록과 실제 PNG 54개(iOS 30, Play 스크린샷 20, 등록 자산 4)를 대조했다. 신규 네이티브 캡처 성공으로 해석하지 않는다. 외부 업로드는 실행하지 않았다. |
+
+### 이전 결함 판정
+
+이전 7개 ID의 심각도는 라운드 1의 MAJOR를 유지하되, 아래 FIXED 항목은 이번 라운드 잔존 결함 수에 포함하지 않는다.
+
+| ID | 판정 | 직접 확인한 수정과 재현 결과 |
+|---|---|---|
+| D-35-1 | FIXED | `scripts/store_screenshots.sh:102`의 `capture`가 drive 종료 코드와 정확히 5장을 모두 검사한다. 실제 bash 함수를 source한 테스트에서 0/1/4장 실패와 5장 후 비정상 종료 모두 거부하고 기존 세트를 보존한다. 업로드 검증기도 불완전 세트를 거부한다. |
+| D-35-2 | FIXED | `.github/workflows/asc-submit.yml:205`에서 최초 GET과 쓰기를 분리했다. 네트워크 경계만 대체한 실제 Python 블록 실행에서 DELETE 후 POST 실패는 예외로 종료하고 빌드 첨부/제출하지 않았다. 401이면 DELETE 자체가 없다. 삭제 후 자동 복원은 없지만 명시적 실패 중단이라는 기존 기대를 충족한다. |
+| D-35-3 | FIXED | `.github/workflows/asc-submit.yml:92`, `:148`에서 입력 버전을 받고 필터 및 재대조한다. 구버전이 앞에 있는 재현에서 요청 버전만 수정하고, 요청 버전이 없으면 중단한다. |
+| D-35-4 | FIXED | `docs/play-data-safety.md:37`, `mobile/ios/fastlane/app_privacy_details.json:65`, `docs/legal-checklist.md:188`에 대략적 위치를 수집/공유·광고 목적 범주로 추가했다. 위치 제외 문구는 정확한 위치만 남겼다. 관련 12개 라벨 테스트 통과. |
+| D-35-5 | FIXED | 이전 지적의 폰 경로는 `Platform.isIOS` 또는 `SHOT_IS_IOS=false`를 장면에 전달한다. 실제 플랫폼별 위젯 테스트와 fallback 인자 테스트가 통과했다. 현재 폰 복사본은 `verify_store_screenshots.py play`가 2건 오류/종료 1로 차단한다. 기존 자산 교체는 유예 범위다. 별도 태블릿 복사 경로는 새 D-35-8이다. |
+| D-35-6 | FIXED | `scripts/store_screenshots.sh:88`의 세트 교체와 Play 호출의 `*.png` 소유 패턴을 확인했다. 양방향 재촬영 재현에서 5장만 남고 iOS의 다른 기기 세트는 보존된다. |
+| D-35-7 | FIXED | `.github/workflows/asc-submit.yml:277`에서 사람이 채운 노트에는 notes 필드를 보내지 않는다. 템플릿은 `notes.template.txt`로 옮겨 deliver 예약 파일에서 제외했다. 수동 노트 보존·빈 값/플레이스홀더 최초 채움 테스트 5개 통과. |
+
+### 새 결함
+
+#### D-35-8 — MAJOR — Play 태블릿 재촬영 경로가 iOS 전용 온보딩을 다시 복사하고 검사도 허용함
+
+- 위치: `scripts/store_screenshots.sh:190`, `scripts/store_screenshots.sh:195`, `mobile/tool/verify_store_screenshots.py:102`, `tests/test_store_metadata.py:354`(태블릿 재사용 허용 테스트).
+- 기대: Play 태블릿에도 실제 Android 구성의 언어 선택 장면이 들어가야 한다. SCREENS S6은 ATT 안내를 **iOS만** 추가하며, `mobile/lib/onboarding/onboarding_pages.dart:26`은 화면 폭과 무관하게 Android 3장/iOS 4장을 반환한다.
+- 실제: iPad 캡처는 플랫폼 override 없이 iOS 구성으로 생성되고, 그 5장을 Play `tenInchScreenshots`로 통째로 복사한다. 폰에는 적용한 Android 구성 fallback을 태블릿에는 적용하지 않았다. 검증기는 `phoneScreenshots`만 iOS 온보딩과 비교하고, 태블릿은 “같은 그림”이라는 잘못된 전제로 통과시킨다.
+- 재현 1: 현재 `.../images/tenInchScreenshots/ipad13_en_06_language.png`를 열면 하단 페이지 표시가 **4개**다. ko/en 태블릿 10개 모두 iPad 원본과 바이트가 동일하다. 기존 플랫폼 위젯 테스트의 임시 사본에서 `setViewSize(tester, phone)`만 `tablet`(1024×1366)로 바꾸어 실행했다: ko/en × iOS/Android **4 passed**, 실제 Android 점 3개/iOS 점 4개를 확인했다. 레포 테스트는 수정하지 않았다.
+- 재현 2: `tests/test_store_metadata.py`의 `_fake_mobile`로 임시 정상 폰 세트를 만들고, 양 로케일 `tenInchScreenshots`만 실제 iPad PNG 5장씩으로 교체하여 `_verify(root, 'play')` 실행 → 기대는 iOS 전용 태블릿 장면 거부, 실제는 **종료 0, `screenshots OK: play`**. 기존 `test_the_verifier_allows_the_tablet_set_to_reuse_the_ipad_captures`도 이 잘못된 허용을 고정한다.
+- 영향: 최종 재촬영을 지금 스크립트로 수행해도 Android 태블릿과 다른 온보딩 이미지가 다시 생성되며, 폰을 고치고 나면 업로드 검사까지 통과한다. **기존 PNG 교체를 유예한 것과 다른, 생성/검증 경로의 결함**이다. 플랫폼 장면 차이를 처리한 뒤 태블릿 세트도 재촬영해야 한다.
+
+#### D-35-9 — MINOR — 영문 스토어 설명이 6칸 예시를 5글자로 안내함
+
+- 위치: `mobile/ios/fastlane/metadata/en-US/description.txt:11`, `mobile/android/fastlane/metadata/android/en-US/full_description.txt:11`.
+- 재현: 두 파일의 `P _ R P L _`를 공백 기준으로 세면 6칸이다. 같은 문장은 `for a five-letter word`라고 설명한다.
+- 기대: 실제 보드처럼 칸 수와 단어 길이가 일치하는 설명. 실제: 양 스토어 영문 본문에 6칸을 5글자라고 적었다. 홈 스크린샷도 같은 예시를 `6 letters`로 표시한다.
+- 영향: 게임 규칙을 설명하는 구체적인 예시가 틀렸다. 문체나 취향 지적이 아니라 수치 오류이며, 업로드 동작 자체를 막지는 않는다.
+
+### 직접 실행한 검증
+
+- `uv run ruff check .`: **All checks passed!**
+- `uv run pytest -q tests/test_store_metadata.py tests/test_store_labels.py tests/test_store_screenshot_script.py tests/test_asc_submit_workflow.py tests/test_app_deploy_workflow.py`: **206 passed in 4.60s**.
+- `uv run pytest -q tests/test_legal_checklist.py`: **134 passed in 166.98s (0:02:46)**.
+- 두 Python 실행 모두 `TEST_DATABASE_URL`은 기존 `chosung_daily_test_t35`, `TEST_REDIS_URL`은 로컬 Redis DB 9로 지정했다. 법적 체크리스트 테스트의 실제 Flask/DB fixture가 정상 동작했으며 새 DB 생성·기본 DB fallback·간헐 실패·재실행은 없었다. `TEST_MIGRATION_DATABASE_URL`도 기존 전용 migrations DB로 지정했지만 이번 선택 테스트는 마이그레이션 테스트를 포함하지 않는다. 접속 자격 증명은 문서에 기록하지 않는다.
+- `cd mobile && flutter test test/store --reporter expanded`: **29 passed**.
+- `cd mobile && flutter analyze --no-pub`: **No issues found**, 4.6초.
+- `cd mobile && flutter test --no-pub --reporter compact`: **432 passed**, 약 30초.
+- 임시 태블릿 폭 플랫폼 재현: `flutter test --no-pub /tmp/t35_tablet_platform_review_test.dart --plain-name '온보딩 장 수가 그 플랫폼과 같다'`: **4 passed**. 원래 테스트의 두 상대 import를 절대 URI로 바꾸고 폰 폭을 태블릿 폭으로 바꾼 임시 사본이며, 실제 장면/화면은 레포 코드를 그대로 사용했다.
+- `python3 mobile/tool/verify_store_screenshots.py ios`: 종료 0. `... play`: **종료 1, 현재 폰 복사본 2건 차단**(코디네이터 지정 기대 결과).
+- `git diff --check main...HEAD`: 통과. `git diff --name-only main...HEAD -- migrations`: 출력 없음. 마이그레이션 변경이 없으므로 `flask db heads` 추가 실행 대상 없음.
+
+### 범위·테스트 품질·보안·참고
+
+- 새 테스트는 실제 shell 함수/Python 워크플로 블록/Flutter 위젯을 실행한다. ASC 테스트는 외부 네트워크 경계만 메모리 대역으로 바꿔 실패 후 제출 여부까지 검사한다. 무조건 성공하는 테스트는 아니지만, 태블릿 재사용 허용 테스트는 틀린 요구를 단언한다(D-35-8).
+- 앱 런타임(`app/`, `mobile/lib/`)과 `.env.example` 변경은 없다. README의 기존 Flutter 절 추가는 티켓의 명시 요구이며, 공유 문서 추가는 자기 `35.` 절/행이다. 34의 라벨 테스트 변경은 새 위치 범주와 신고 항목 대조를 유지하는 관련 변경이다. 별도 범위 이탈·공유 파일 규칙 위반은 발견하지 못했다.
+- 실제 키·토큰·비밀번호가 추가된 증거는 발견하지 못했다. 심사 노트는 플레이스홀더이며 워크플로 키 파일은 always 정리한다. 인증/CSRF 런타임 변경은 없다. D-35-2의 실패 시 부분 라벨 상태는 로그와 중단으로 드러나며, 자동 복원까지 보장한다고 해석하지 않는다.
+- NAS/프로덕션/실제 ASC·Play·결제·인증 API 호출, 외부 업로드와 push는 하지 않았다. 시뮬레이터 전체 캡처는 추적 자산을 덮으므로 실행하지 않았다. 전체 백엔드 스위트는 이번 라운드에 재실행하지 않았으며, 이전 증거의 1504 passed를 직접 검증 결과로 인용하지 않는다.
+- 최종 재촬영 및 방침 본문 사람 확인은 별도 후속 작업으로 유지한다. 코드·테스트·설정·`.scratch`를 수정하지 않고 리뷰 문서만 변경한다.
+- 집계: 이전 결함 **FIXED 7, REPEAT 0**; 새 결함 **BLOCKER 0, MAJOR 1, MINOR 1**.
+
+판정: FAIL
