@@ -1,0 +1,138 @@
+name: ASC Diagnose
+
+# TestFlight 테스터·그룹·빌드 상태 진단 + 초대 (재)발송. "테스터가 초대 메일을
+# 못 받았다" 를 콘솔에 로그인하지 않고 쫓는 자리다 — 그룹 설정, 테스터 상태
+# (`state`·`inviteType`), 최신 빌드의 처리 상태·수출규정 값을 한 번에 찍고 초대를
+# 다시 보낸다.
+#
+# 사용: gh workflow run asc-diagnose.yml [-f email=someone@example.com]
+#
+# 이메일은 `testflight-tester.yml` 과 같은 규칙이다 — 입력이 비면
+# `vars.TESTFLIGHT_TESTER_EMAIL`, 둘 다 비면 멈춘다(레포에 개인 주소를 안 적는다).
+#
+# BASELINE: ~/Code/BuildUrPalace/.github/workflows/asc-diagnose.yml.
+# 키는 파일로 떨어뜨리지 않는다(이유는 `asc-status.yml` 머리말).
+
+on:
+  workflow_dispatch:
+    inputs:
+      email:
+        description: '테스터 이메일 (비우면 vars.TESTFLIGHT_TESTER_EMAIL)'
+        required: false
+        default: ''
+
+jobs:
+  diagnose:
+    runs-on: self-hosted
+    steps:
+      - name: Diagnose tester and resend invitation
+        env:
+          API_KEY_JSON: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+          TESTER_EMAIL: ${{ github.event.inputs.email || vars.TESTFLIGHT_TESTER_EMAIL }}
+        run: |
+          python3 - <<'PYEOF'
+          import base64, json, os, subprocess, sys, tempfile, time, urllib.error, urllib.parse, urllib.request
+
+          raw = os.environ.get('API_KEY_JSON', '').strip()
+          if not raw:
+              print("::error::APP_STORE_CONNECT_API_KEY secret 이 없다 (docs/RELEASE.md '34.' D2)")
+              sys.exit(1)
+          d = json.loads(raw)
+          email = os.environ.get('TESTER_EMAIL', '').strip()
+          if not email:
+              print('::error::테스터 이메일이 없다 — -f email=… 이나 '
+                    'vars.TESTFLIGHT_TESTER_EMAIL 을 채운다 (docs/RELEASE.md \'41.\')')
+              sys.exit(1)
+          BUNDLE_ID = 'com.dosaem.chosung'
+
+          def b64(obj):
+              return base64.urlsafe_b64encode(json.dumps(obj, separators=(',', ':')).encode()).rstrip(b'=')
+
+          def der_to_raw(der):
+              assert der[0] == 0x30
+              idx = 2
+              assert der[idx] == 0x02; idx += 1
+              rlen = der[idx]; idx += 1
+              r = der[idx:idx+rlen].lstrip(b'\x00'); idx += rlen
+              assert der[idx] == 0x02; idx += 1
+              slen = der[idx]; idx += 1
+              s = der[idx:idx+slen].lstrip(b'\x00')
+              return r.rjust(32, b'\x00') + s.rjust(32, b'\x00')
+
+          def token():
+              now = int(time.time())
+              si = b64({'alg': 'ES256', 'kid': d['key_id'], 'typ': 'JWT'}) + b'.' + \
+                  b64({'iss': d['issuer_id'], 'iat': now, 'exp': now + 900, 'aud': 'appstoreconnect-v1'})
+              with tempfile.NamedTemporaryFile('w', suffix='.p8', delete=False) as f:
+                  f.write(d['key']); kp = f.name
+              sig = subprocess.run(['openssl', 'dgst', '-sha256', '-sign', kp],
+                                   input=si, capture_output=True).stdout
+              os.unlink(kp)
+              return (si + b'.' + base64.urlsafe_b64encode(der_to_raw(sig)).rstrip(b'=')).decode()
+
+          TOKEN = token()
+          BASE = 'https://api.appstoreconnect.apple.com'
+
+          def api(method, path, body=None, ok=()):
+              req = urllib.request.Request(
+                  BASE + path,
+                  data=json.dumps(body).encode() if body else None,
+                  headers={'Authorization': f'Bearer {TOKEN}', 'Content-Type': 'application/json'},
+                  method=method)
+              try:
+                  resp = urllib.request.urlopen(req)
+                  payload = resp.read()
+                  return json.loads(payload) if payload else {}
+              except urllib.error.HTTPError as e:
+                  detail = e.read().decode()
+                  print(f'{method} {path} -> HTTP {e.code}: {detail[:600]}', file=sys.stderr)
+                  if e.code in ok:
+                      return None
+                  raise
+
+          apps = api('GET', f'/v1/apps?filter[bundleId]={BUNDLE_ID}')
+          if not apps['data']:
+              print(f"::error::ASC 에 {BUNDLE_ID} 앱이 없다 — 먼저 앱을 만든다 (docs/RELEASE.md '35.')")
+              sys.exit(1)
+          app_id = apps['data'][0]['id']
+          print(f'app: {app_id} ({BUNDLE_ID})')
+
+          # 1. 그룹 상태
+          groups = api('GET', f'/v1/betaGroups?filter[app]={app_id}')
+          for g in groups['data']:
+              a = g['attributes']
+              print(f"group '{a['name']}': internal={a['isInternalGroup']}, "
+                    f"allBuilds={a.get('hasAccessToAllBuilds')}, id={g['id']}")
+
+          # 2. 테스터 상태
+          q = urllib.parse.quote(email)
+          testers = api('GET', f'/v1/betaTesters?filter[email]={q}&filter[apps]={app_id}')
+          if not testers['data']:
+              print(f'::error::테스터 {email} 가 이 앱에 없다 — testflight-tester.yml 로 먼저 등록한다')
+              sys.exit(1)
+          tester = testers['data'][0]
+          ta = tester['attributes']
+          print(f"tester {ta['email']}: state={ta.get('state')}, "
+                f"inviteType={ta.get('inviteType')}, id={tester['id']}")
+
+          tgroups = api('GET', f"/v1/betaTesters/{tester['id']}/betaGroups")
+          print('tester groups:', [g['attributes']['name'] for g in tgroups['data']])
+
+          # 3. 최신 빌드 상태 — `nonExemptEnc=None` 이면 Missing Compliance 다
+          #    (asc-build-compliance.yml 로 메운다).
+          builds = api('GET', f'/v1/builds?filter[app]={app_id}&sort=-uploadedDate&limit=3')
+          for b in builds['data']:
+              a = b['attributes']
+              print(f"build {a['version']}: state={a['processingState']}, "
+                    f"nonExemptEnc={a.get('usesNonExemptEncryption')}, expired={a['expired']}")
+
+          # 4. 초대 (재)발송
+          inv = api('POST', '/v1/betaTesterInvitations', {
+              'data': {
+                  'type': 'betaTesterInvitations',
+                  'relationships': {
+                      'app': {'data': {'type': 'apps', 'id': app_id}},
+                      'betaTester': {'data': {'type': 'betaTesters', 'id': tester['id']}},
+                  }}})
+          print('invitation sent:', inv['data']['id'])
+          PYEOF

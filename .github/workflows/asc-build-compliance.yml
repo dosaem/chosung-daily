@@ -1,0 +1,114 @@
+name: ASC Build Compliance
+
+# TestFlight 빌드의 수출 규정(암호화) 신고 — "Missing Compliance" 해제.
+#
+# `mobile/ios/Runner/Info.plist` 의 `ITSAppUsesNonExemptEncryption=false` 가 있으면
+# **새로 올라가는** 빌드는 애초에 Missing Compliance 로 들어오지 않는다(티켓 41).
+# 이 워크플로는 그 키가 들어가기 전에 올린 빌드와, 플랫폼이 값을 비워 올려보낸
+# 빌드를 **나중에** 메워 주는 보정용이다. 값이 이미 있는 빌드는 건드리지 않는다.
+#
+# 사용: gh workflow run asc-build-compliance.yml  (최신 10개 빌드 대상)
+#
+# BASELINE(~/Code/BuildUrPalace/.github/workflows/asc-build-compliance.yml)을 복사해
+# 번들 ID(`com.dosaem.chosung`)만 바꿨다. 키는 파일로 떨어뜨리지 않는다
+# (이유는 `asc-status.yml` 머리말).
+
+on:
+  workflow_dispatch:
+
+jobs:
+  set-compliance:
+    runs-on: self-hosted
+    steps:
+      - name: Set usesNonExemptEncryption=false on latest builds
+        env:
+          API_KEY_JSON: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+        run: |
+          python3 - <<'PYEOF'
+          import base64, json, os, subprocess, sys, tempfile, time, urllib.error, urllib.request
+
+          raw = os.environ.get('API_KEY_JSON', '').strip()
+          if not raw:
+              print("::error::APP_STORE_CONNECT_API_KEY secret 이 없다 (docs/RELEASE.md '34.' D2)")
+              sys.exit(1)
+          d = json.loads(raw)
+          BUNDLE_ID = 'com.dosaem.chosung'
+
+          def b64(obj):
+              return base64.urlsafe_b64encode(json.dumps(obj, separators=(',', ':')).encode()).rstrip(b'=')
+
+          def der_to_raw(der):
+              assert der[0] == 0x30
+              idx = 2
+              assert der[idx] == 0x02; idx += 1
+              rlen = der[idx]; idx += 1
+              r = der[idx:idx+rlen].lstrip(b'\x00'); idx += rlen
+              assert der[idx] == 0x02; idx += 1
+              slen = der[idx]; idx += 1
+              s = der[idx:idx+slen].lstrip(b'\x00')
+              return r.rjust(32, b'\x00') + s.rjust(32, b'\x00')
+
+          def token():
+              now = int(time.time())
+              si = b64({'alg': 'ES256', 'kid': d['key_id'], 'typ': 'JWT'}) + b'.' + \
+                  b64({'iss': d['issuer_id'], 'iat': now, 'exp': now + 900, 'aud': 'appstoreconnect-v1'})
+              with tempfile.NamedTemporaryFile('w', suffix='.p8', delete=False) as f:
+                  f.write(d['key']); kp = f.name
+              sig = subprocess.run(['openssl', 'dgst', '-sha256', '-sign', kp],
+                                   input=si, capture_output=True).stdout
+              os.unlink(kp)
+              return (si + b'.' + base64.urlsafe_b64encode(der_to_raw(sig)).rstrip(b'=')).decode()
+
+          TOKEN = token()
+          BASE = 'https://api.appstoreconnect.apple.com'
+
+          def api(method, path, body=None, ok=()):
+              req = urllib.request.Request(
+                  BASE + path,
+                  data=json.dumps(body).encode() if body else None,
+                  headers={'Authorization': f'Bearer {TOKEN}', 'Content-Type': 'application/json'},
+                  method=method)
+              try:
+                  resp = urllib.request.urlopen(req)
+                  payload = resp.read()
+                  return json.loads(payload) if payload else {}
+              except urllib.error.HTTPError as e:
+                  detail = e.read().decode()
+                  print(f'{method} {path} -> HTTP {e.code}: {detail[:600]}', file=sys.stderr)
+                  if e.code in ok:
+                      return None
+                  raise
+
+          apps = api('GET', f'/v1/apps?filter[bundleId]={BUNDLE_ID}')
+          if not apps['data']:
+              print(f"::error::ASC 에 {BUNDLE_ID} 앱이 없다 — 먼저 앱을 만든다 (docs/RELEASE.md '35.')")
+              sys.exit(1)
+          app_id = apps['data'][0]['id']
+          print(f'app: {app_id} ({BUNDLE_ID})')
+
+          builds = api('GET', f'/v1/builds?filter[app]={app_id}&sort=-uploadedDate&limit=10')
+          if not builds['data']:
+              print('올라간 빌드가 없다 — 할 일 없음')
+              sys.exit(0)
+
+          patched = 0
+          for b in builds['data']:
+              attr = b['attributes']
+              print(f"build {attr['version']}: state={attr['processingState']}, "
+                    f"nonExemptEnc={attr.get('usesNonExemptEncryption')}, expired={attr['expired']}")
+              # 만료된 빌드는 제출에 못 쓰므로 PATCH 가 의미 없다. 값이 이미
+              # 있는(True/False 둘 다) 빌드도 건드리지 않는다 — 사람이 콘솔에서
+              # True 로 답한 빌드를 여기서 False 로 뒤집으면 안 된다.
+              if attr['expired'] or attr.get('usesNonExemptEncryption') is not None:
+                  continue
+              api('PATCH', f"/v1/builds/{b['id']}", {
+                  'data': {
+                      'type': 'builds',
+                      'id': b['id'],
+                      'attributes': {'usesNonExemptEncryption': False},
+                  }})
+              patched += 1
+              print('  -> compliance set to exempt (OS 가 제공하는 HTTPS·Keychain 뿐)')
+
+          print(f'patched {patched} build(s)')
+          PYEOF
