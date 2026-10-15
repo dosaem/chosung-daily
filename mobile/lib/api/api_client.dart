@@ -46,4 +46,26 @@ abstract interface class ApiClient {
 
   /// `GET /me/history?days=` → 최근 [days] 일의 언어별 결과(오래된 날짜부터).
   Future<List<HistoryDay>> fetchMyHistory({int days});
+
+  /// `POST /auth/token-exchange` → 연결·전환된 게스트의 토큰(스펙 §A.6).
+  ///
+  /// [authorizationCode] 는 애플만 보낸다 — 서버가 그걸로 refresh token 을
+  /// 받아 두고, 계정 삭제 때 애플 쪽 연결을 철회한다(§A.7).
+  ///
+  /// 돌아온 토큰이 지금 쓰던 토큰과 **다르면 다른 기기의 기록으로 전환된
+  /// 것**이고, 같으면 지금 게스트에 계정이 새로 붙은 것이다.
+  Future<String> exchangeIdToken({
+    required String provider,
+    required String idToken,
+    String? authorizationCode,
+  });
+
+  /// `DELETE /me` → 계정·기록 전부 삭제(204). 그 뒤 이 토큰은 401 이다.
+  Future<void> deleteAccount();
+
+  /// `GET /me/stats` 를 **[token] 으로** 부른다. 백업 코드(= 다른 기기의 게스트
+  /// 토큰)가 아직 살아 있는지 확인하는 용도라, 저장된 토큰을 쓰는
+  /// [fetchMyStats] 와 달리 토큰을 인자로 받는다. 200 이면 쓸 수 있는 코드고
+  /// 401 이면 아니다 — 백업 코드 전용 엔드포인트는 만들지 않는다(티켓 29).
+  Future<MyStats> fetchMyStatsWithToken(String token);
 }

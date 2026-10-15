@@ -5,6 +5,8 @@ import 'package:chosung/api/api_models.dart';
 import 'package:chosung/api/api_providers.dart';
 import 'package:chosung/app.dart';
 import 'package:chosung/config/provider_retry.dart';
+import 'package:chosung/local/local_flags.dart';
+import 'package:chosung/startup/startup_controller.dart';
 import 'package:chosung/theme/app_theme.dart';
 import 'package:chosung/widgets/result_sheet.dart';
 import 'package:easy_localization/easy_localization.dart';
@@ -14,6 +16,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../fakes/fake_api_client.dart';
+import '../fakes/in_memory_local_flag_store.dart';
 import '../layout/adaptive_scaffold_test.dart' show setViewSize;
 
 /// 목업(`design/stitch/e2_result.html`)과 눈으로 대조할 스크린샷. 카운트다운은
@@ -54,6 +57,8 @@ Widget _app({required Brightness brightness}) => ProviderScope(
   overrides: [
     apiClientProvider.overrideWithValue(FakeApiClient()),
     analyticsServiceProvider.overrideWithValue(NoopAnalyticsService()),
+    localFlagStoreProvider.overrideWithValue(InMemoryLocalFlagStore()),
+    startupStatsProvider.overrideWithValue(fakeMyStats()),
   ],
   child: AppLocalizationScope(
     startLocale: const Locale('ko'),
@@ -72,6 +77,7 @@ Widget _app({required Brightness brightness}) => ProviderScope(
                   context: context,
                   puzzle: _puzzle(),
                   onShowRanking: () {},
+                  onLinkAccount: () {},
                   // KST 2026-10-13 16:47:27 — 다음 퍼즐까지 07:12:33.
                   now: () => DateTime.utc(2026, 10, 13, 7, 47, 27),
                 ),

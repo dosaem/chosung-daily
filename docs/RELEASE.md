@@ -782,3 +782,59 @@ iOS·Android 각각 한 번씩. 기기 시계를 당기지 말고(예약이 밀�
 - [ ] **대기 개수는 최대 8개**(일일 1 + 리마인더 7). Android 는
       `adb shell dumpsys alarm | grep com.dosaem.chosung`, iOS 는 Xcode 디버거에서
       `pendingNotificationRequests()` 로 확인할 수 있다(선택).
+### 29. 앱 계정 연결(구글·애플) — 콘솔 등록과 사람이 채울 값
+
+코드는 다 들어갔고(티켓 29), 아래는 **개발자 콘솔에 앱을 등록해야 채워지는 값**과
+그때 한 번 해야 하는 설정이다. 비어 있으면 앱은 정상으로 뜨고 계정 연결 버튼만
+"로그인하지 못했어요" 로 떨어진다(설정 누락이 조용한 통과가 되지 않게 한 선택).
+
+**1) 구글 — iOS 클라이언트 ID**
+
+1. Google Cloud 콘솔 > 사용자 인증 정보에서 **iOS** 용 OAuth 클라이언트를 만든다
+   (번들 ID `com.dosaem.chosung`).
+2. `mobile/ios/Flutter/Secrets.xcconfig.example` 을 `Secrets.xcconfig` 로 복사하고
+   - `GOOGLE_IOS_CLIENT_ID` = 그 클라이언트 ID
+   - `GOOGLE_IOS_URL_SCHEME` = 역방향 클라이언트 ID(`com.googleusercontent.apps.…`)
+   를 채운다. 이 파일은 gitignore 다(값 자체는 앱 번들에 들어가므로 비밀은 아니지만,
+   콘솔 등록 전 자리표시자가 커밋돼 잘못된 빌드가 나가는 걸 막으려고 뺐다).
+3. 서버 `.env` 의 `GOOGLE_IOS_CLIENT_ID` 에도 **같은 값**을 넣는다 — 서버가 `aud`
+   로 검증한다(티켓 10).
+4. CI/수동 빌드가 쓰는 iOS 머신에도 같은 `Secrets.xcconfig` 가 있어야 한다.
+   GitHub Actions 는 서명 파일과 같은 방식으로 내려받거나 `vars` 에서 써 넣는다.
+
+**2) 구글 — Android serverClientId(= 웹 클라이언트 ID)**
+
+- GitHub repository **variable** `GOOGLE_SERVER_CLIENT_ID` 에 **웹** 클라이언트 ID
+  를 넣는다(`.github/workflows/flutter.yml` 이 `--dart-define` 으로 넘긴다).
+  수동 fastlane 빌드는 같은 이름의 환경변수를 export 한다 — 비면 빌드가 멈춘다.
+- Google Cloud 콘솔에 **Android** 클라이언트도 만들어 릴리스 키스토어 SHA-1 을
+  등록한다. Android 클라이언트 ID 는 `aud` 로 오지 않지만(서명 검증용) 없으면
+  로그인 자체가 안 된다. 서버 `.env` 의 `GOOGLE_WEB_CLIENT_ID` = 위 웹 ID.
+
+**3) 애플 — Sign in with Apple capability**
+
+- Apple Developer > Identifiers > App ID `com.dosaem.chosung` 에서 **Sign in with
+  Apple** 을 켠다. 앱 쪽 `ios/Runner/Runner.entitlements` 는 이미 커밋돼 있으므로,
+  capability 를 켠 뒤 **프로비저닝 프로파일을 다시 받아야**(`match` 재실행) 서명이
+  맞는다. 안 그러면 빌드는 되고 로그인만 오류 1000 으로 떨어진다.
+- 서버 `.env` 의 `APPLE_APP_BUNDLE_ID` = `com.dosaem.chosung`(티켓 10·14).
+
+**4) 사람이 실기기에서 확인할 것**
+
+- [ ] iOS: 구글 연결 → 홈·내 기록이 그 계정 기록으로 바뀐다
+- [ ] iOS: 애플 연결 → 같은 확인. 이메일 가리기를 고르면 카드에 `…@privaterelay.appleid.com`
+      이 마스킹돼 보인다
+- [ ] iOS: 이미 다른 기기에서 쓰던 계정으로 로그인 → "이 계정의 기록으로 전환됐어요"
+- [ ] Android: 구글 연결, 그리고 **애플 버튼이 없는지**(Out of Scope, US 18a)
+- [ ] Android: 웹 "내 기록 백업" 코드를 붙여넣어 애플 계정 기록으로 전환
+- [ ] 양쪽: 설정 > 계정 삭제 → 다이얼로그 → 삭제 후 새 게스트로 시작하고,
+      온보딩은 다시 뜨지 않는다. 같은 토큰으로는 더 이상 조회되지 않는다(401)
+- [ ] 애플 계정을 지운 뒤 iOS 설정 > Apple 계정 > 로그인 암호에서 앱이 사라졌는지
+      (서버 revoke, 티켓 14)
+
+**5) 남은 디자인 작업**
+
+- 연결 버튼은 지금 Lucide 아이콘 없는 텍스트 버튼이다. 구글 브랜드 가이드라인과
+  Apple HIG 는 각자의 **공식 로그인 버튼 에셋**을 요구한다(애플은 심사 항목).
+  콘솔 등록과 함께 `sign_in_with_apple` 의 `SignInWithAppleButton` 과 구글 공식
+  에셋으로 교체하고, 교체 뒤 골든(`records_light_390`)을 다시 찍는다.

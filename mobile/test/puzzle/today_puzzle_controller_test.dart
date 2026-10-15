@@ -4,23 +4,31 @@ import 'package:chosung/api/api_exception.dart';
 import 'package:chosung/api/api_models.dart';
 import 'package:chosung/api/api_providers.dart';
 import 'package:chosung/config/provider_retry.dart';
+import 'package:chosung/guest/guest_token_provider.dart';
+import 'package:chosung/guest/guest_token_store.dart';
 import 'package:chosung/puzzle/today_puzzle_controller.dart';
 import 'package:chosung/puzzle/today_puzzle_state.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../fakes/fake_api_client.dart';
+import '../fakes/in_memory_guest_token_store.dart';
 
-ProviderContainer _container(FakeApiClient api) {
+ProviderContainer _container(FakeApiClient api, {GuestTokenStore? tokenStore}) {
   final container = ProviderContainer(
     retry: noAutoRetry,
-    overrides: [apiClientProvider.overrideWithValue(api)],
+    overrides: [
+      apiClientProvider.overrideWithValue(api),
+      // 토큰을 실제로 바꿔 보는 테스트만 저장소를 끼운다 — 나머지는 보드만 본다.
+      if (tokenStore != null)
+        guestTokenStoreProvider.overrideWithValue(tokenStore),
+    ],
   );
   addTearDown(container.dispose);
   return container;
 }
 
-TodayPuzzleReady _ready(TodayState state) => state as TodayPuzzleReady;
+TodayPuzzleReady _ready(TodayState? state) => state! as TodayPuzzleReady;
 
 void main() {
   // AppLifecycleListener 는 binding 이 있어야 만들어진다.
@@ -471,5 +479,101 @@ void main() {
       expect(state.notice, isNull);
       expect(api.fetchTodayPuzzleCalls, 2);
     });
+  });
+
+  test('계정이 바뀐 뒤에는 옛 보드로 제출하지 않는다', () async {
+    // D-29-5 의 다른 입구: 토큰은 `AccountNotifier._adopt` 말고 시작 흐름의
+    // 401 복구에서도 바뀐다(`StartupNotifier._fetchStats`). 그 길은 보드를
+    // 버려 주지 않으므로, 쓰기 직전의 계정 세대 비교가 마지막 문이다.
+    final api = FakeApiClient();
+    final container = _container(
+      api,
+      tokenStore: InMemoryGuestTokenStore('guest-a'),
+    );
+    final board = await container.read(todayPuzzleProvider.future);
+    expect(board, isA<TodayPuzzleReady>());
+
+    // 새 계정 보드 조회는 붙잡아 둔다 — 옛 보드가 화면에 남은 그 순간을 본다.
+    final gate = Completer<void>();
+    api.fetchTodayPuzzleGate = gate;
+    addTearDown(() {
+      if (!gate.isCompleted) gate.complete();
+    });
+    await container.read(guestTokenProvider.notifier).replaceWith('guest-b');
+    expect(
+      container.read(todayPuzzleProvider).value,
+      isA<TodayPuzzleReady>(),
+      reason: '이 입구는 보드를 버려 주지 않는다 — 그래서 제출이 막아야 한다',
+    );
+
+    final recorded = await container
+        .read(todayPuzzleProvider.notifier)
+        .submit('지하촌역');
+
+    expect(recorded, isFalse);
+    expect(api.submittedGuesses, isEmpty);
+    // 남의 보드는 화면에서도 사라진다(새 계정 보드를 읽는 중).
+    expect(container.read(todayPuzzleProvider).value, isNull);
+  });
+
+  test('첫 조회 중 계정이 바뀌면 그 응답은 보드가 되지 않는다', () async {
+    // `build` 가 돌려준 future 는 프레임워크가 세대 검사 없이 바로 상태에
+    // 쓴다 — 그 사이 계정이 바뀌었으면 옛 계정 보드가 새 토큰 위에 앉는다.
+    final api = FakeApiClient();
+    final gate = Completer<void>();
+    api.fetchTodayPuzzleGate = gate;
+    final container = _container(
+      api,
+      tokenStore: InMemoryGuestTokenStore('guest-a'),
+    );
+    final pending = container.read(todayPuzzleProvider.future);
+
+    await container.read(guestTokenProvider.notifier).replaceWith('guest-b');
+    api.fetchTodayPuzzleGate = null;
+    gate.complete();
+    expect(await pending, isNull);
+
+    expect(container.read(todayPuzzleProvider).value, isNull);
+    expect(
+      await container.read(todayPuzzleProvider.notifier).submit('지하촌역'),
+      isFalse,
+    );
+    expect(api.submittedGuesses, isEmpty);
+  });
+
+  test('늦게 끝난 첫 조회는 새 계정의 오류 카드도 지우지 않는다', () async {
+    // D-29-6 의 다른 얼굴: 늦은 첫 응답이 상태에 그대로 쓰이면 새 계정 조회가
+    // 남긴 오류 카드까지 덮어, 재시도 버튼도 없는 화면이 된다.
+    final api = FakeApiClient();
+    final gate = Completer<void>();
+    api.fetchTodayPuzzleGate = gate;
+    final container = _container(
+      api,
+      tokenStore: InMemoryGuestTokenStore('guest-a'),
+    );
+    // 이 future 는 `discard` 가 상태를 비우는 순간 그 값으로 끝난다 — 붙잡아
+    // 둔 첫 응답은 그보다 늦게 온다.
+    final pending = container.read(todayPuzzleProvider.future);
+
+    // 새 계정 보드 조회는 실패한다 — 보드가 없으니 오류 카드가 그 자리를 받는다.
+    api
+      ..fetchTodayPuzzleGate = null
+      ..fetchTodayPuzzleError = const NetworkApiException(
+        code: networkErrorCode,
+        message: 'offline',
+      );
+    await container.read(guestTokenProvider.notifier).replaceWith('guest-b');
+    await container.read(todayPuzzleProvider.notifier).discard();
+    expect(await pending, isNull);
+    expect(container.read(todayPuzzleProvider).hasError, isTrue);
+
+    // 늦게 도착한 첫 조회는 성공 응답이지만 남의 계정 것이다.
+    api.fetchTodayPuzzleError = null;
+    gate.complete();
+    await pumpEventQueue();
+
+    final today = container.read(todayPuzzleProvider);
+    expect(today.hasError, isTrue, reason: '옛 응답이 오류 카드를 지웠다');
+    expect(today.value, isNull);
   });
 }

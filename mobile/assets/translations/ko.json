@@ -180,5 +180,30 @@
     "daily_body": "초성만 보고 단어를 맞혀보세요.",
     "reminder_title": "아직 안 풀었어요",
     "reminder_body": "연속 기록을 지켜요."
+  },
+  "account": {
+    "description": "어느 기기에서든 같은 기록",
+    "link_google": "구글로 연결",
+    "link_apple": "Apple 로 연결",
+    "linked": "{provider} · {email} 연결됨",
+    "linked_no_email": "{provider} 연결됨",
+    "switched": "이 계정의 기록으로 전환됐어요",
+    "working": "처리하는 중…",
+    "backup_code_title": "다른 기기 기록 불러오기",
+    "backup_code_description": "웹 “내 기록 백업” 에서 복사한 코드를 붙여넣으세요.",
+    "backup_code_label": "백업 코드",
+    "backup_code_submit": "불러오기",
+    "backup_code_cancel": "취소",
+    "delete_title": "계정을 삭제할까요?",
+    "delete_body": "기록·계정이 전부 삭제되고 되돌릴 수 없어요. 구독 중이면 App Store/Google Play 에서 따로 해지해야 해요.",
+    "delete_cancel": "취소",
+    "delete_confirm": "삭제",
+    "deleted": "계정을 삭제하고 새로 시작했어요",
+    "error_already_linked": "이미 다른 계정이 연결돼 있어요",
+    "error_invalid_id_token": "로그인을 확인하지 못했어요. 다시 시도해주세요",
+    "error_backup_code": "올바르지 않은 백업 코드",
+    "error_sign_in": "로그인하지 못했어요. 다시 시도해주세요",
+    "error_network": "네트워크에 연결할 수 없어요",
+    "error_failed": "처리하지 못했어요. 다시 시도해주세요"
   }
 }

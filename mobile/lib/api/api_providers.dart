@@ -9,7 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 /// Dio 구현을 쓴다. 테스트는 `FakeApiClient` 로 이 provider 를 덮는다.
 ///
-/// 토큰은 [guestTokenProvider] 에서 **매 요청마다** 읽는다 — 그래서 티켓 27 이
+/// 토큰은 [guestTokenProvider] 에서 **매 요청마다** 읽는다 — 그래서 티켓 29 가
 /// 토큰을 교체해도 ApiClient 를 다시 만들 필요가 없다.
 final apiClientProvider = Provider<ApiClient>(
   (ref) => DioApiClient.withBaseUrl(

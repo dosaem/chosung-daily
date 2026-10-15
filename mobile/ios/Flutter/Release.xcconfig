@@ -1,2 +1,4 @@
 #include? "Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"
 #include "Generated.xcconfig"
+// 구글 로그인 iOS 클라이언트 ID(티켓 29). 없으면 그냥 건너뛴다 — Secrets.xcconfig.example 참고.
+#include? "Secrets.xcconfig"

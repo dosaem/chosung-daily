@@ -5,10 +5,12 @@ import 'package:chosung/analytics/analytics_service.dart';
 import 'package:chosung/api/api_models.dart';
 import 'package:chosung/layout/adaptive_sheet.dart';
 import 'package:chosung/layout/app_breakpoint.dart';
+import 'package:chosung/local/local_flags.dart';
 import 'package:chosung/puzzle/board_layout.dart';
 import 'package:chosung/puzzle/guess_rules.dart';
 import 'package:chosung/puzzle/share_text.dart';
 import 'package:chosung/puzzle/today_stats_provider.dart';
+import 'package:chosung/records/my_stats_controller.dart';
 import 'package:chosung/share/share_sheet.dart';
 import 'package:chosung/theme/app_colors.dart';
 import 'package:chosung/widgets/puzzle_board.dart';
@@ -26,12 +28,14 @@ Future<void> showResultSheet({
   required BuildContext context,
   required TodayPuzzle puzzle,
   required VoidCallback onShowRanking,
+  required VoidCallback onLinkAccount,
   DateTime Function() now = DateTime.now,
 }) => showAdaptiveSheet<void>(
   context: context,
   builder: (context) => ResultSheet(
     puzzle: puzzle,
     onShowRanking: onShowRanking,
+    onLinkAccount: onLinkAccount,
     now: now,
   ),
 );
@@ -41,6 +45,7 @@ class ResultSheet extends ConsumerStatefulWidget {
   const ResultSheet({
     required this.puzzle,
     required this.onShowRanking,
+    required this.onLinkAccount,
     this.now = DateTime.now,
     super.key,
   });
@@ -53,6 +58,10 @@ class ResultSheet extends ConsumerStatefulWidget {
   /// 부른 쪽이 안다 — 테스트가 라우터 없이 시트를 띄울 수 있게 하려는 분리다.
   final VoidCallback onShowRanking;
 
+  /// 계정 연결 안내를 눌렀을 때 갈 곳(내 기록 탭의 AccountCard). 같은 이유로
+  /// 부른 쪽이 라우터를 안다.
+  final VoidCallback onLinkAccount;
+
   /// 카운트다운이 쓰는 시계. 골든·테스트가 초가 흐르는 숫자를 고정하려고
   /// 끼운다 — 앱에서는 [DateTime.now] 다.
   final DateTime Function() now;
@@ -62,11 +71,39 @@ class ResultSheet extends ConsumerStatefulWidget {
 }
 
 class _ResultSheetState extends ConsumerState<ResultSheet> {
-  /// 계정 연결 안내를 닫았는가. **이 시트 안에서만 기억한다** — "퍼즐당 1회"
-  /// 플래그와 실제 연결 흐름은 티켓 29 가 붙인다.
+  /// 계정 연결 안내를 닫았는가. 이 시트 안에서만 기억한다 — 다시 안 띄우는
+  /// 건 아래 [LocalFlag.linkAccountNoticeSeen] 가 한다.
   bool _noticeDismissed = false;
 
+  /// 이번에 안내를 띄울 차례인가(US 20 "첫 완료 후 한 번"). 기기 플래그를
+  /// 읽어야 알 수 있어서 첫 프레임 뒤에 정해진다.
+  bool _showNotice = false;
+
   bool get _success => widget.puzzle.status == PuzzleStatus.success;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_resolveNotice());
+  }
+
+  /// 계정이 이미 있으면 띄울 이유가 없고, 한 번 띄웠으면 다시 띄우지 않는다.
+  /// **띄우기로 정한 그 자리에서** 플래그를 켠다 — 사용자가 닫았든 그냥
+  /// 넘어갔든 "한 번 봤다" 는 같기 때문이다.
+  Future<void> _resolveNotice() async {
+    if (ref.read(myStatsProvider).value?.linkedAccount != null) return;
+
+    final flags = ref.read(localFlagStoreProvider);
+    if (await flags.isSet(LocalFlag.linkAccountNoticeSeen)) return;
+    await flags.set(LocalFlag.linkAccountNoticeSeen);
+
+    if (mounted) setState(() => _showNotice = true);
+  }
+
+  void _linkAccount() {
+    Navigator.of(context).pop();
+    widget.onLinkAccount();
+  }
 
   Future<void> _share() async {
     final puzzle = widget.puzzle;
@@ -133,8 +170,9 @@ class _ResultSheetState extends ConsumerState<ResultSheet> {
               onPressed: _showRanking,
               child: Text('result.show_ranking'.tr()),
             ),
-            if (!_noticeDismissed)
+            if (_showNotice && !_noticeDismissed)
               _LinkAccountNotice(
+                onTap: _linkAccount,
                 onDismiss: () => setState(() => _noticeDismissed = true),
               ),
           ],
@@ -386,11 +424,12 @@ class _CountdownLine extends StatelessWidget {
   }
 }
 
-/// "기록을 지키려면 계정을 연결하세요 →" 자리(US 20). 지금은 **자리와 닫기만**
-/// 이고, 눌렀을 때의 연결 흐름과 "퍼즐당 1회" 플래그는 티켓 29 가 붙인다.
+/// "기록을 지키려면 계정을 연결하세요 →"(US 20). 누르면 시트를 닫고 내 기록
+/// 탭의 AccountCard 로 간다 — 연결 버튼은 거기 하나뿐이다(티켓 29).
 class _LinkAccountNotice extends StatelessWidget {
-  const _LinkAccountNotice({required this.onDismiss});
+  const _LinkAccountNotice({required this.onTap, required this.onDismiss});
 
+  final VoidCallback onTap;
   final VoidCallback onDismiss;
 
   @override
@@ -412,10 +451,13 @@ class _LinkAccountNotice extends StatelessWidget {
             ),
             const SizedBox(width: 8),
             Expanded(
-              child: Text(
-                'result.link_account'.tr(),
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: colors.mutedForeground,
+              child: InkWell(
+                onTap: onTap,
+                child: Text(
+                  'result.link_account'.tr(),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: colors.mutedForeground,
+                  ),
                 ),
               ),
             ),

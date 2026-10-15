@@ -29,6 +29,7 @@ dependencies:
   # 필요하다). 알림을 "로컬 09:00" 에 걸려면 그 이름이 있어야 한다(티켓 30).
   flutter_timezone: ^5.1.1
   go_router: ^17.5.0
+  google_sign_in: ^7.2.0
   lucide_icons: ^0.257.0
   package_info_plus: ^10.2.2
   sentry_flutter: ^9.30.1
@@ -36,6 +37,7 @@ dependencies:
   # 온보딩 완료 플래그처럼 "비밀이 아닌 기기 로컬 설정" 자리(티켓 28).
   # easy_localization 초기화도 내부에서 이걸 읽는다.
   shared_preferences: ^2.5.4
+  sign_in_with_apple: ^7.0.1
   # `zonedSchedule` 이 받는 TZDateTime. flutter_local_notifications 의 전이
   # 의존성이지만 직접 쓰므로 직접 의존성으로도 적는다(depend_on_referenced_packages).
   timezone: ^0.11.2

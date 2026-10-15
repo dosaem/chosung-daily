@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:chosung/config/clock.dart';
 import 'package:chosung/guest/guest_token_provider.dart';
 import 'package:chosung/notifications/completed_puzzle_dates.dart';
 import 'package:chosung/notifications/notification_bootstrap.dart';
@@ -95,7 +96,7 @@ class NotificationSyncController extends Notifier<List<ScheduledNotification>> {
       // 못 뜰 알림을 걸어두면 나중에 권한이 켜질 때 지난 알림이 쏟아진다.
       final desired = permission.isGranted
           ? planNotifications(
-              now: tz.TZDateTime.now(location),
+              now: tz.TZDateTime.from(ref.read(clockProvider)(), location),
               settings: settings,
               completedKstDates: completed,
             )
@@ -133,7 +134,7 @@ class NotificationSyncController extends Notifier<List<ScheduledNotification>> {
   ///
   /// 제출로 끝난 경우뿐 아니라 **다른 기기에서 푼 날**(앱을 켜자마자 끝난
   /// 보드가 오는 경우)도 같은 길로 들어온다 — 둘을 따로 다룰 이유가 없다.
-  Future<void> _recordCompleted(AsyncValue<TodayState> puzzle) async {
+  Future<void> _recordCompleted(AsyncValue<TodayState?> puzzle) async {
     final today = puzzle.value;
     if (today is! TodayPuzzleReady || !today.puzzle.status.isFinished) return;
 

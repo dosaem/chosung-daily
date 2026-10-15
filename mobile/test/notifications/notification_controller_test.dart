@@ -1,5 +1,6 @@
 import 'package:chosung/api/api_models.dart';
 import 'package:chosung/api/api_providers.dart';
+import 'package:chosung/config/clock.dart';
 import 'package:chosung/config/provider_retry.dart';
 import 'package:chosung/guest/guest_token_provider.dart';
 import 'package:chosung/guest/guest_token_store.dart';
@@ -25,12 +26,23 @@ import '../fakes/in_memory_guest_token_store.dart';
 
 /// 동기화는 "계획 → OS 대기 목록과 diff → 취소/추가" 한 줄이다. 여기서는
 /// 그 흐름을 실제 provider 로 돌리고 OS 경계만 가짜로 바꾼다.
+/// 고정한 기기 시각(로컬 시). 일일 알림 기본값 09:00 **전**이라 계획은 "일일 →
+/// 리마인더" 순으로 나온다 — 09:00 뒤로 바꿔도 이 파일은 통과해야 한다.
+const _fixedHour = 8;
+
 void main() {
   // AppLifecycleListener 는 binding 이 있어야 만들어진다.
   final binding = TestWidgetsFlutterBinding.ensureInitialized();
 
   late tz.Location seoul;
   late tz.Location newYork;
+
+  /// 계획은 "지금" 으로 다음 발화 순간을 고르고 발화 시각 순으로 걸린다. 기기
+  /// 시계를 그대로 쓰면 돌리는 시각이 계획을 바꿔(일일 09:00 은 09:00 을
+  /// 넘기면 '내일', 리마인더 20:00 은 아직 '오늘') 같은 코드가 아침엔 통과하고
+  /// 낮엔 깨진다. 그래서 **시각만** 고정한다 — 날짜는 기기 날짜를 그대로 쓴다
+  /// (완료 날짜 정리가 기기 시계의 KST 날짜를 본다 — `pruneCompletedDates`).
+  late tz.TZDateTime fixedNow;
 
   setUpAll(() {
     tz_data.initializeTimeZones();
@@ -55,6 +67,14 @@ void main() {
     api = FakeApiClient();
     taps = NotificationTaps(launchedByNotification: false);
     addTearDown(taps.dispose);
+    final deviceToday = tz.TZDateTime.now(seoul);
+    fixedNow = tz.TZDateTime(
+      seoul,
+      deviceToday.year,
+      deviceToday.month,
+      deviceToday.day,
+      _fixedHour,
+    );
   });
 
   ProviderContainer container() {
@@ -62,6 +82,7 @@ void main() {
       retry: noAutoRetry,
       overrides: [
         apiClientProvider.overrideWithValue(api),
+        clockProvider.overrideWithValue(() => fixedNow),
         guestTokenStoreProvider.overrideWithValue(
           InMemoryGuestTokenStore('guest-1'),
         ),
@@ -107,10 +128,17 @@ void main() {
       // 28 이 남긴 "앱을 다시 켜면 notDetermined" 는 여기서 메꾼다 —
       // 권한의 정본은 OS 다.
       expect(permission.currentReads, greaterThanOrEqualTo(1));
-      expect(scheduler.scheduled.map((entry) => entry.kind), [
-        NotificationKind.daily,
-        ...List.filled(7, NotificationKind.reminder),
-      ]);
+      expect(
+        scheduler.scheduled.map((entry) => entry.kind),
+        unorderedEquals([
+          NotificationKind.daily,
+          ...List.filled(7, NotificationKind.reminder),
+        ]),
+      );
+      // 거는 순서는 종류가 아니라 **발화 시각** 순이다 — 일일 알림이 몇 시인지에
+      // 따라 그 자리가 달라진다.
+      final when = scheduler.scheduled.map((entry) => entry.when).toList();
+      expect(when, orderedEquals(when.toList()..sort()));
       expect(scheduler.pending.length, 8);
       expect(scheduler.cancelled, isEmpty);
     });
@@ -131,7 +159,7 @@ void main() {
 
     test('이미 걸려 있는 리마인더는 다시 걸지 않는다', () async {
       permission.currentResult = NotificationPermission.granted;
-      final now = tz.TZDateTime.now(seoul);
+      final now = fixedNow;
       final todayId = NotificationPlan.reminderId(now);
       // 걸려 있는 예약은 **울릴 순간까지** 들고 있다(실제 플러그인은 payload
       // 에서 되읽는다) — 그 순간이 계획과 같으면 다시 걸지 않는다.
@@ -181,6 +209,7 @@ void main() {
         retry: noAutoRetry,
         overrides: [
           apiClientProvider.overrideWithValue(api),
+          clockProvider.overrideWithValue(() => fixedNow),
           guestTokenStoreProvider.overrideWithValue(
             InMemoryGuestTokenStore('guest-1'),
           ),
@@ -272,7 +301,7 @@ void main() {
 
     test('그 날짜 리마인더만 취소되고 다음 날 것은 그대로다', () async {
       permission.currentResult = NotificationPermission.granted;
-      final now = tz.TZDateTime.now(seoul);
+      final now = fixedNow;
       finishToday(now);
 
       final result = await start();
@@ -291,7 +320,7 @@ void main() {
 
     test('두 언어 중 하나만 끝내도 그 날짜는 완료로 적힌다', () async {
       permission.currentResult = NotificationPermission.granted;
-      final now = tz.TZDateTime.now(seoul);
+      final now = fixedNow;
       finishToday(now);
       api.puzzle = fakeTodayPuzzle(
         date: DateTime(now.year, now.month, now.day),
@@ -325,7 +354,7 @@ void main() {
 
     test('다시 켜도 저장된 완료 날짜는 그대로 걸러진다', () async {
       permission.currentResult = NotificationPermission.granted;
-      final now = tz.TZDateTime.now(seoul);
+      final now = fixedNow;
       completed.dates = {NotificationPlan.kstDate(now)};
 
       await start();

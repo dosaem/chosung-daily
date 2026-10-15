@@ -5,7 +5,7 @@ import 'package:dio/dio.dart';
 
 /// 지금 유효한 게스트 토큰을 읽어온다. 토큰 상태는 Riverpod provider 가
 /// 들고 있고(`guestTokenProvider`) ApiClient 는 매 요청마다 그 값을 본다 —
-/// 토큰 교체(티켓 27)가 ApiClient 를 다시 만들지 않아도 되게 하려는 분리다.
+/// 토큰 교체(티켓 29)가 ApiClient 를 다시 만들지 않아도 되게 하려는 분리다.
 typedef TokenReader = String? Function();
 
 class DioApiClient implements ApiClient {
@@ -141,17 +141,63 @@ class DioApiClient implements ApiClient {
         .toList(growable: false);
   }
 
+  @override
+  Future<String> exchangeIdToken({
+    required String provider,
+    required String idToken,
+    String? authorizationCode,
+  }) async {
+    final body = await _send<Map<String, dynamic>>(
+      () => _dio.post<Map<String, dynamic>>(
+        '/auth/token-exchange',
+        data: {
+          'provider': provider,
+          'id_token': idToken,
+          // 구글은 보낼 게 없다 — null 이면 키 자체가 빠진다(null-aware element).
+          'authorization_code': ?authorizationCode,
+        },
+        options: _authorized(),
+      ),
+    );
+    return body['token'] as String;
+  }
+
+  @override
+  Future<void> deleteAccount() async {
+    try {
+      // 204 라 본문이 없다 — `_send` 의 `response.data!` 를 타면 안 된다.
+      await _dio.delete<void>('/me', options: _authorized());
+    } on DioException catch (error) {
+      throw _toApiException(error);
+    }
+  }
+
+  @override
+  Future<MyStats> fetchMyStatsWithToken(String token) async {
+    final body = await _send<Map<String, dynamic>>(
+      () => _dio.get<Map<String, dynamic>>(
+        '/me/stats',
+        options: _bearer(token),
+      ),
+    );
+    return MyStats.fromJson(body);
+  }
+
   /// Bearer 가 필요한 호출은 토큰이 없으면 서버까지 가지 않고 401 과 같은
   /// 예외를 낸다 — 호출부가 "토큰 없음" 과 "토큰 만료" 를 따로 다룰 이유가 없다.
-  Options _authorized() {
-    final token = _readToken();
-    if (token == null || token.isEmpty) {
+  Options _authorized() => _bearer(_readToken());
+
+  /// 빈 토큰은 서버까지 보내지 않는다 — 401 이 올 게 뻔하고, 백업 코드 입력이
+  /// 공백뿐일 때도 같은 자리에서 걸린다.
+  Options _bearer(String? token) {
+    final bearer = token?.trim() ?? '';
+    if (bearer.isEmpty) {
       throw const UnauthorizedApiException(
         code: 'UNAUTHORIZED',
         message: '게스트 토큰이 없습니다.',
       );
     }
-    return Options(headers: {'Authorization': 'Bearer $token'});
+    return Options(headers: {'Authorization': 'Bearer $bearer'});
   }
 
   Future<T> _send<T>(Future<Response<T>> Function() request) async {

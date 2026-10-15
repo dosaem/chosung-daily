@@ -491,4 +491,151 @@ void main() {
       expect(adapter.requests, isEmpty);
     });
   });
+
+  group('계정 연결·전환·삭제 (티켓 29)', () {
+    test(
+      'POST /auth/token-exchange 는 provider·id_token 을 Bearer 와 함께 보낸다',
+      () async {
+        final adapter = _RecordingAdapter(
+          (_) => _json({'token': 'linked-token'}, 200),
+        );
+        final client = _clientWith(adapter, token: 'guest-token');
+
+        final token = await client.exchangeIdToken(
+          provider: 'google',
+          idToken: 'id-token',
+        );
+
+        expect(token, 'linked-token');
+        expect(adapter.requests.single.path, '/auth/token-exchange');
+        expect(adapter.requests.single.method, 'POST');
+        // 구글은 authorization_code 가 없다 — 키 자체를 보내지 않는다.
+        expect(adapter.requests.single.data, {
+          'provider': 'google',
+          'id_token': 'id-token',
+        });
+        expect(
+          adapter.requests.single.headers['Authorization'],
+          'Bearer guest-token',
+        );
+      },
+    );
+
+    test('애플은 authorization_code 를 같이 보낸다', () async {
+      final adapter = _RecordingAdapter(
+        (_) => _json({'token': 'linked-token'}, 200),
+      );
+      final client = _clientWith(adapter, token: 'guest-token');
+
+      await client.exchangeIdToken(
+        provider: 'apple',
+        idToken: 'id-token',
+        authorizationCode: 'auth-code',
+      );
+
+      expect(adapter.requests.single.data, {
+        'provider': 'apple',
+        'id_token': 'id-token',
+        'authorization_code': 'auth-code',
+      });
+    });
+
+    test(
+      '401 INVALID_ID_TOKEN 과 409 ACCOUNT_ALREADY_LINKED 는 각각의 예외다',
+      () async {
+        final invalid = _RecordingAdapter(
+          (_) => _json({
+            'code': 'INVALID_ID_TOKEN',
+            'message': 'id_token 검증에 실패했습니다.',
+          }, 401),
+        );
+        final linked = _RecordingAdapter(
+          (_) => _json({
+            'code': 'ACCOUNT_ALREADY_LINKED',
+            'message': '이미 다른 계정이 연결돼 있습니다.',
+          }, 409),
+        );
+
+        await expectLater(
+          _clientWith(
+            invalid,
+            token: 'guest-token',
+          ).exchangeIdToken(provider: 'google', idToken: 'bad'),
+          throwsA(isA<InvalidIdTokenApiException>()),
+        );
+        await expectLater(
+          _clientWith(
+            linked,
+            token: 'guest-token',
+          ).exchangeIdToken(provider: 'google', idToken: 'ok'),
+          throwsA(isA<AccountAlreadyLinkedApiException>()),
+        );
+      },
+    );
+
+    test('DELETE /me 는 본문 없는 204 를 그대로 받는다', () async {
+      final adapter = _RecordingAdapter(
+        (_) => ResponseBody.fromString('', 204),
+      );
+      final client = _clientWith(adapter, token: 'guest-token');
+
+      await client.deleteAccount();
+
+      expect(adapter.requests.single.path, '/me');
+      expect(adapter.requests.single.method, 'DELETE');
+      expect(
+        adapter.requests.single.headers['Authorization'],
+        'Bearer guest-token',
+      );
+    });
+
+    test('백업 코드 확인은 저장된 토큰이 아니라 받은 토큰으로 /me/stats 를 부른다', () async {
+      final adapter = _RecordingAdapter(
+        (_) => _json({
+          'puzzle_language': 'ko',
+          'current_streak': 3,
+          'max_streak': 9,
+          'solved_count': 20,
+          'linked_account': {'provider': 'apple', 'email': 'a@b.com'},
+        }, 200),
+      );
+      final client = _clientWith(adapter, token: 'guest-token');
+
+      final stats = await client.fetchMyStatsWithToken('backup-code');
+
+      expect(stats.currentStreak, 3);
+      expect(stats.linkedAccount?.provider, 'apple');
+      expect(adapter.requests.single.path, '/me/stats');
+      expect(
+        adapter.requests.single.headers['Authorization'],
+        'Bearer backup-code',
+      );
+    });
+
+    test('틀린 백업 코드는 401 이라 UnauthorizedApiException 이다', () async {
+      final adapter = _RecordingAdapter(
+        (_) => _json({
+          'code': 'UNAUTHORIZED',
+          'message': '게스트를 찾을 수 없습니다.',
+        }, 401),
+      );
+      final client = _clientWith(adapter, token: 'guest-token');
+
+      await expectLater(
+        client.fetchMyStatsWithToken('nope'),
+        throwsA(isA<UnauthorizedApiException>()),
+      );
+    });
+
+    test('빈 백업 코드는 서버까지 가지 않는다', () async {
+      final adapter = _RecordingAdapter((_) => _json(const {}, 200));
+      final client = _clientWith(adapter, token: 'guest-token');
+
+      await expectLater(
+        client.fetchMyStatsWithToken('  '),
+        throwsA(isA<UnauthorizedApiException>()),
+      );
+      expect(adapter.requests, isEmpty);
+    });
+  });
 }
