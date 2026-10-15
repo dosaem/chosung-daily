@@ -6,8 +6,15 @@
 // 대역은 브라우저 바깥(localStorage·DOM·fetch·location)뿐이다. app.js 는 한 줄도
 // 고치지 않고, 파일 끝의 자동 `init()` 호출만 떼어낸다(DOM 전체가 필요해진다).
 //
-// 사용법: node deleted_state_harness.mjs <시나리오> <UI문구사전 JSON>
+// 사용법: node deleted_state_harness.mjs <시나리오> <UI문구사전 JSON> [steps|init]
 //         → 결과 JSON 을 stdout 으로.
+//
+// 모드 두 가지:
+//   steps (기본) — `discardDeletedAccountState()` → `ensureToken()` 만 부른다.
+//                  토큰을 버리는 판단 자체를 본다.
+//   init         — 파일 끝의 그 `init()` 을 통째로 돌린다. **순서**를 본다 —
+//                  삭제 안내가 뒤따르는 `restart()` 에 지워지던 결함(D-42-3)은
+//                  조각을 따로 부르면 안 보인다.
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -33,6 +40,9 @@ const SCENARIOS = {
 
 const scenario = SCENARIOS[process.argv[2]];
 if (!scenario) throw new Error(`알 수 없는 시나리오: ${process.argv[2]}`);
+
+const mode = process.argv[4] ?? "steps";
+if (mode !== "steps" && mode !== "init") throw new Error(`알 수 없는 모드: ${mode}`);
 
 // 티켓 17 부터 app.js 는 로드 시점에 `#ui-strings` 의 인라인 JSON 을 읽어 문구
 // 사전을 만든다 — 대역이 그걸 안 주면 번들이 뜨다가 죽는다. 사전은 파이썬 쪽
@@ -98,8 +108,28 @@ const document = {
       },
     };
   },
+  // init 모드가 `bindEvents()`·섹션 토글·언어 칩까지 돈다 — 이 대역에는 그 마크업이
+  // 없으니 빈 목록이다. 우리가 보는 건 DOM 이 아니라 호출 **순서**다.
+  querySelectorAll: () => [],
   createElement: () => ({ ...element }),
 };
+const window = { addEventListener() {} };
+
+// init 모드가 `restart()` 까지 도는 바람에 첫 화면 한 벌(`/me/stats`·`/puzzles/today`·
+// 순위·오늘 통계)이 실제로 조회된다. 비어 있는 응답을 주면 렌더가 터져서 이 하네스가
+// 보려는 **순서**에 닿지 못하므로, 모양만 맞는 최소 응답을 돌려준다. 값은 아무 뜻이 없다.
+const PUZZLE = {
+  date: "2026-10-16",
+  puzzle_id: 1,
+  language: "ko",
+  category: "general",
+  mask: [{ t: "h" }, { t: "h" }],
+  length: 2,
+  attempts: [],
+  status: "in_progress",
+  hint: null,
+};
+const STATS = { current_streak: 0, max_streak: 0, solved_count: 0, linked_account: null, puzzle_language: "ko" };
 
 async function fetchStub(url, options = {}) {
   const method = (options.method ?? "GET").toUpperCase();
@@ -108,9 +138,17 @@ async function fetchStub(url, options = {}) {
   if (method === "POST" && url.endsWith("/guests")) {
     return jsonResponse(200, { token: NEW_TOKEN });
   }
-  // 그 밖의 Bearer 조회 = "이 토큰이 아직 유효한가" 확인.
+  // `guestTokenIsGone` 의 확인 조회(`/me/history?days=1`)와 첫 화면 조회가 같은
+  // 시나리오 상태를 따른다 — 토큰이 죽었으면 전부 401 이다.
   if (scenario.probeStatus === null) throw new TypeError("network error");
-  return jsonResponse(scenario.probeStatus, scenario.probeStatus === 200 ? [] : { code: "UNAUTHORIZED" });
+  if (scenario.probeStatus !== 200) {
+    return jsonResponse(scenario.probeStatus, { code: "UNAUTHORIZED" });
+  }
+  if (url.includes("/puzzles/today/leaderboard")) return jsonResponse(200, { entries: [], me: null });
+  if (url.includes("/puzzles/today/stats")) return jsonResponse(200, { total_solved: 0, by_attempt: {} });
+  if (url.includes("/puzzles/today")) return jsonResponse(200, PUZZLE);
+  if (url.includes("/me/stats")) return jsonResponse(200, STATS);
+  return jsonResponse(200, []);
 }
 
 function jsonResponse(status, payload) {
@@ -133,7 +171,10 @@ const context = createContext({
   URL,
   setTimeout,
   clearTimeout,
-  navigator: { clipboard: { writeText: async () => {} } },
+  navigator: { onLine: true, clipboard: { writeText: async () => {} } },
+  window,
+  setInterval,
+  clearInterval,
   JSON,
   Promise,
   Error,
@@ -141,14 +182,23 @@ const context = createContext({
 });
 runInContext(source, context, { filename: "app.js" });
 
-// init() 의 앞머리와 같은 순서: 삭제 신호 처리 → 토큰 확보.
-await context.discardDeletedAccountState();
-const tokenAfterDiscard = localStorage.getItem(TOKEN_KEY);
-// 수정 라운드 1 부터 `ensureToken()` 은 토큰을 돌려주지 않고 성공 여부만 돌려준다
-// — 발급 실패를 예외가 아니라 화면 상태로 눕히려고 바꿨다(D-18-1). 발급된 토큰은
-// `state.token` 에 있다.
-const issued = await context.ensureToken();
-const issuedToken = issued ? runInContext("state.token", context) : null;
+let tokenAfterDiscard;
+let issuedToken;
+if (mode === "init") {
+  // 통째로. `restart()` 안의 조회는 전부 위 fetchStub 으로 떨어진다.
+  await context.init();
+  tokenAfterDiscard = localStorage.getItem(TOKEN_KEY);
+  issuedToken = runInContext("state.token", context);
+} else {
+  // init() 의 앞머리와 같은 순서: 삭제 신호 처리 → 토큰 확보.
+  await context.discardDeletedAccountState();
+  tokenAfterDiscard = localStorage.getItem(TOKEN_KEY);
+  // 수정 라운드 1 부터 `ensureToken()` 은 토큰을 돌려주지 않고 성공 여부만 돌려준다
+  // — 발급 실패를 예외가 아니라 화면 상태로 눕히려고 바꿨다(D-18-1). 발급된 토큰은
+  // `state.token` 에 있다.
+  const issued = await context.ensureToken();
+  issuedToken = issued ? runInContext("state.token", context) : null;
+}
 
 process.stdout.write(
   JSON.stringify({
@@ -158,6 +208,9 @@ process.stdout.write(
     issuedNewGuest: issuedToken === NEW_TOKEN,
     requests,
     messages,
+    // 사용자가 **끝까지 보는** 문구. D-42-3 은 안내를 적은 직후 빈 문자열이 덮어쓰던
+    // 결함이라, 거쳐 간 문구 목록이 아니라 마지막 값을 봐야 잡힌다.
+    finalMessage: messages.length ? messages[messages.length - 1] : "",
     urlsReplaced: urls,
     finalSearch: location.search,
   }),

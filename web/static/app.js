@@ -1028,26 +1028,33 @@ async function guestTokenIsGone(token) {
 // 누르기만 해도 같은 분기를 타는데(삭제 POST의 CSRF 방어를 안 거친다), 계정 연결도
 // 백업 코드도 없는 플레이어에게 이 토큰은 유일한 복구 수단이다. 그래서 서버에
 // 토큰을 들이밀어 정말 지워졌는지(401) 확인한 뒤에만 버린다.
+//
+// **안내는 여기서 띄우지 않고 "띄워야 한다"만 돌려준다**(D-42-3). 여기서 띄우면
+// 바로 뒤의 `restart()` → `discardLocalPlayState()` → `showMessage("")` 가 지워서
+// 사용자는 되돌릴 수 없는 작업의 유일한 확인을 한 번도 못 본다. 화면을 다 비운
+// 뒤에 띄우는 건 `PUZZLE_CHANGED` 안내와 같은 규칙이다(`handleSubmit`).
+//
+// 돌려주는 값: 삭제가 확인돼 토큰을 버렸으면 `true`.
 async function discardDeletedAccountState() {
   const params = new URLSearchParams(location.search);
-  if (!params.has("deleted")) return;
+  if (!params.has("deleted")) return false;
 
   const token = safeStorageGet(TOKEN_KEY);
   const gone = token ? await guestTokenIsGone(token) : false;
   // 확인을 못 했으면 아무것도 지우지 않고 신호도 주소창에 남긴다 — 새로고침이나
   // 다음 방문에서 다시 확인해야 지워진 계정의 토큰을 계속 들고 돌지 않는다.
-  if (gone === null) return;
+  if (gone === null) return false;
 
   params.delete("deleted");
   const query = params.toString();
   history.replaceState({}, "", location.pathname + (query ? `?${query}` : ""));
   // 가짜 신호였다 — 살아 있는 게스트의 토큰·기록은 그대로 둔다.
-  if (!gone) return;
+  if (!gone) return false;
 
   safeStorageRemove(TOKEN_KEY);
   clearStoredHistory();
 
-  showMessage(t("account_deleted"));
+  return true;
 }
 
 // 로그인 콜백이 끝나면 /?login_token=<새 토큰>으로 돌아온다. 있으면 저장하고
@@ -1127,11 +1134,16 @@ async function init() {
   // 비행기 모드로 들어온 방문자는 첫 요청이 실패하기 전에 이유를 알아야 한다.
   renderOffline(!navigator.onLine);
 
-  await discardDeletedAccountState(); // 삭제가 확인되면 옛 토큰을 먼저 버린다
+  const accountWasDeleted = await discardDeletedAccountState(); // 옛 토큰을 먼저 버린다
   applyLoginTokenFromUrl();
   clearStoredHistory();
 
   await restart();
+
+  // 삭제 안내는 화면을 다 비운 **뒤에** 띄운다 — 먼저 띄우면 `restart()` 의
+  // `discardLocalPlayState()` 가 지운다(D-42-3). 새 게스트 발급이 실패해 `restart()`
+  // 가 인라인 상태 카드에서 멈춰도 안내는 그대로 남는다(`#message` 는 다른 자리다).
+  if (accountWasDeleted) showMessage(t("account_deleted"));
 }
 
 init();

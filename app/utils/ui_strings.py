@@ -34,6 +34,9 @@ UI_STRINGS: dict[str, dict[str, str]] = {
         "backup_desc": "이 코드를 저장해두면 다른 기기에서도 같은 기록으로 이어할 수 있어요.",
         "restore_desc": "백업해둔 코드를 붙여넣으면 그 기록을 이 기기로 가져와요.",
         "backup_code_placeholder": "백업 코드 붙여넣기",
+        # 읽기 전용 백업 코드 칸(`#token-display`)의 aria-label. 값이 늘 채워져
+        # placeholder 를 쓸 수 없어서 따로 둔다(D-42-2).
+        "backup_code_label": "내 백업 코드",
         "copy": "복사",
         "copied": "복사했어요!",
         "restore_submit": "불러오기",
@@ -130,6 +133,7 @@ UI_STRINGS: dict[str, dict[str, str]] = {
         "backup_desc": "Save this code to continue the same record on another device.",
         "restore_desc": "Paste a backup code to bring that record to this device.",
         "backup_code_placeholder": "Paste backup code",
+        "backup_code_label": "My backup code",
         "copy": "Copy",
         "copied": "Copied!",
         "restore_submit": "Restore",

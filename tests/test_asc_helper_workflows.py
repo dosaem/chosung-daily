@@ -10,10 +10,12 @@
 `tests/test_asc_submit_workflow.py` 와 같은 방식이다.
 """
 
+import ast
 import io
 import json
 import re
 import subprocess
+import tempfile
 import textwrap
 import urllib.error
 import urllib.request
@@ -32,6 +34,9 @@ HELPERS = (
     "testflight-tester.yml",
 )
 WITH_EMAIL = ("asc-diagnose.yml", "testflight-tester.yml")
+# `token()` 의 P8 임시 파일을 쓰는 워크플로 전부. `asc-submit.yml` 은 보조가 아니지만
+# **같은 `token()`** 이라 같은 계약을 진다(D-41-1).
+SIGNING_WORKFLOWS = (*HELPERS, "asc-submit.yml")
 
 HEREDOC = re.compile(r"python3 - <<'PYEOF'\n(.*?)\n[ \t]*PYEOF\n", re.DOTALL)
 APP_ID = "APP1"
@@ -94,11 +99,46 @@ def test_every_helper_stops_when_the_api_key_secret_is_empty(name: str):
 @pytest.mark.parametrize("name", HELPERS)
 def test_no_helper_writes_the_api_key_to_disk(name: str):
     """self-hosted 러너는 잡이 끝나도 사용자 맥이 남는다. fastlane 을 안 쓰므로
-    키를 파일로 떨어뜨릴 이유가 없고, 안 떨어뜨리면 지울 것도 없다."""
-    text = _text(name)
+    fastlane 용 `api_key.json` 을 만들 이유가 없다.
 
-    assert "api_key.json" not in text
-    assert "API_KEY_JSON" in text
+    JWT 서명용 P8 임시 파일은 다른 얘기다 — `openssl` 이 파일 경로만 받아서 어쩔 수
+    없이 생기고, 아래 두 테스트가 그게 **반드시 지워지는지**를 본다(D-41-1).
+
+    보는 것은 **실행되는 코드**(heredoc 안의 Python)다. 머리말 주석은 "fastlane 용
+    `api_key.json` 은 만들지 않는다" 처럼 그 파일을 말로 언급해야 하고, 말은 파일을
+    만들지 않는다.
+    """
+    source = _step_source(name)
+
+    assert "api_key.json" not in source
+    assert "API_KEY_JSON" in _text(name)
+
+
+@pytest.mark.parametrize("name", SIGNING_WORKFLOWS)
+def test_the_temp_signing_key_is_removed_in_a_finally(name: str):
+    """D-41-1: `os.unlink(kp)` 가 `try/finally` 의 finally 에 있어야 한다.
+
+    정상 경로의 `unlink` 한 줄로는 모자란다 — `openssl` 이 없거나 죽으면
+    `subprocess.run` 이 던지고 그 줄에 닿지 못해 `/tmp/*.p8` 가 self-hosted 맥에
+    남는다. 글자가 아니라 구문을 본다: 워크플로마다 들여쓰기·줄바꿈이 조금씩
+    달라져도 같은 계약을 지키는지 알 수 있다.
+    """
+    tree = ast.parse(_step_source(name), name)
+    func = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "token"
+    )
+
+    unlinks_in_finally = [
+        call
+        for try_node in (n for n in ast.walk(func) if isinstance(n, ast.Try))
+        for statement in try_node.finalbody
+        for call in ast.walk(statement)
+        if isinstance(call, ast.Call) and ast.unparse(call.func) == "os.unlink"
+    ]
+
+    assert unlinks_in_finally, f"{name} 의 token() 이 임시 P8 를 finally 에서 안 지운다"
 
 
 @pytest.mark.parametrize("name", HELPERS)
@@ -259,4 +299,59 @@ def test_compliance_stops_when_the_secret_is_empty(tmp_path, monkeypatch, capsys
 
     assert exit_code == 1
     assert "APP_STORE_CONNECT_API_KEY" in capsys.readouterr().out
+    assert fake.calls == []
+
+
+# --- D-41-1: JWT 서명용 P8 임시 파일 ------------------------------------------
+#
+# 위 `test_the_temp_signing_key_is_removed_in_a_finally` 는 다섯 워크플로의 **구문**을
+# 본다. 여기서는 `asc-build-compliance.yml` 의 `token()` 을 실제로 돌려서, 서명이
+# 터져도 파일이 남지 않는 것을 디렉터리로 확인한다 — 글자도 구문도 "정말 지워졌나"
+# 는 못 본다. `tempfile.tempdir` 를 `tmp_path` 로 돌려 진짜 `/tmp` 는 건드리지 않는다.
+
+
+def _p8_files(directory: Path) -> list[Path]:
+    return sorted(directory.glob("*.p8"))
+
+
+def test_the_temp_signing_key_is_gone_after_a_normal_run(tmp_path, monkeypatch):
+    key_json = _api_key_json(tmp_path)
+    signing_tmp = tmp_path / "tmp"
+    signing_tmp.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(signing_tmp))
+    fake = FakeAsc(builds=[_build("3")])
+
+    exit_code = run_compliance_step(fake, tmp_path, monkeypatch, API_KEY_JSON=key_json)
+
+    assert exit_code == 0
+    assert fake.patched == [("B-3", False)]
+    assert _p8_files(signing_tmp) == []
+
+
+def test_the_temp_signing_key_is_gone_even_when_openssl_blows_up(tmp_path, monkeypatch):
+    """D-41-1: `openssl` 이 없는(또는 죽는) 러너에서 `subprocess.run` 이 던지면
+    정상 경로의 `os.unlink` 에 닿지 못한다. self-hosted 맥은 잡이 끝나도 남아서
+    그 P8 가 그대로 쌓인다."""
+    key_json = _api_key_json(tmp_path)
+    signing_tmp = tmp_path / "tmp"
+    signing_tmp.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(signing_tmp))
+
+    # 서명(`openssl dgst -sign`)만 터뜨린다 — `run_compliance_step` 이 키를 만들 때
+    # 쓰는 `openssl ecparam` 까지 막으면 `token()` 에 들어가 보지도 못한다.
+    real_run = subprocess.run
+
+    def openssl_is_missing(args, *rest, **kwargs):
+        if "dgst" in args:
+            raise FileNotFoundError("openssl")
+        return real_run(args, *rest, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", openssl_is_missing)
+    fake = FakeAsc(builds=[_build("3")])
+
+    with pytest.raises(FileNotFoundError):
+        run_compliance_step(fake, tmp_path, monkeypatch, API_KEY_JSON=key_json)
+
+    assert _p8_files(signing_tmp) == [], "서명이 터지자 P8 가 남았다"
+    # 토큰을 못 만들었으니 ASC 로는 아무것도 나가지 않았다.
     assert fake.calls == []

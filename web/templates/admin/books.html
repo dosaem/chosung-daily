@@ -21,39 +21,42 @@
 </form>
 
 {% if results %}
-<table class="admin-table">
-  <caption class="admin-table-caption">제목이 50자를 넘는 책은 단어로 넣을 수 없다(정답 길이 제한).</caption>
-  <thead>
-    <tr>
-      <th scope="col">제목</th>
-      <th scope="col">저자</th>
-      <th scope="col">출판사</th>
-      <th scope="col">관리</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for book in results %}
-    <tr>
-      <td class="admin-cell-answer">{{ book.title }}</td>
-      <td>{{ book.author or "" }}</td>
-      <td>{{ book.publisher or "" }}</td>
-      <td class="admin-cell-actions">
-        {# 검색 결과를 다시 조회하지 않으려고 고른 책의 값을 그대로 폼에 싣는다 —
-           구글 쿼터를 두 번 쓰지 않고, 운영자가 본 그 값이 저장된다. #}
-        <form method="post" action="{{ url_for('admin.add_book_word') }}">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-          <input type="hidden" name="q" value="{{ keyword }}" />
-          <input type="hidden" name="title" value="{{ book.title }}" />
-          <input type="hidden" name="author" value="{{ book.author or '' }}" />
-          <input type="hidden" name="publisher" value="{{ book.publisher or '' }}" />
-          <input type="hidden" name="isbn" value="{{ book.isbn or '' }}" />
-          <button class="admin-button" type="submit">단어로 추가</button>
-        </form>
-      </td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+{# 좁은 화면에서는 표만 자기 상자 안에서 가로로 스크롤한다 (이유는 schedule.html, D-42-4). #}
+<div class="admin-table-scroll" tabindex="0">
+  <table class="admin-table">
+    <caption class="admin-table-caption">제목이 50자를 넘는 책은 단어로 넣을 수 없다(정답 길이 제한).</caption>
+    <thead>
+      <tr>
+        <th scope="col">제목</th>
+        <th scope="col">저자</th>
+        <th scope="col">출판사</th>
+        <th scope="col">관리</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for book in results %}
+      <tr>
+        <td class="admin-cell-answer">{{ book.title }}</td>
+        <td>{{ book.author or "" }}</td>
+        <td>{{ book.publisher or "" }}</td>
+        <td class="admin-cell-actions">
+          {# 검색 결과를 다시 조회하지 않으려고 고른 책의 값을 그대로 폼에 싣는다 —
+             구글 쿼터를 두 번 쓰지 않고, 운영자가 본 그 값이 저장된다. #}
+          <form method="post" action="{{ url_for('admin.add_book_word') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+            <input type="hidden" name="q" value="{{ keyword }}" />
+            <input type="hidden" name="title" value="{{ book.title }}" />
+            <input type="hidden" name="author" value="{{ book.author or '' }}" />
+            <input type="hidden" name="publisher" value="{{ book.publisher or '' }}" />
+            <input type="hidden" name="isbn" value="{{ book.isbn or '' }}" />
+            <button class="admin-button" type="submit">단어로 추가</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
 {% elif keyword and not error %}
 <p class="admin-empty">'{{ keyword }}' 로 찾은 결과가 없어요. 제목의 다른 부분으로 검색해주세요.</p>
 {% endif %}

@@ -36,27 +36,23 @@ for (const lang of ["ko", "en"]) {
     await showSection(a.page, "records");
     await a.page.getByRole("button", { name: t.backup_open }).click();
     await expect(a.page.locator("#backup-panel")).toBeVisible();
-    // D-42-1 (결함): 복사 버튼 라벨이 `<built-in method copy of dict object at 0x…>` 로
-    // 나온다. Jinja 의 `{{ t.copy }}` 가 사전 키 "copy" 보다 **dict.copy 메서드**를
-    // 먼저 집는다(`getattr` 우선). 고치지 않고 기록한다(브리프) — soft 로 둬서 이
-    // 시나리오의 나머지(백업 → 복원)는 계속 검증한다. 고쳐지면 soft 를 지우고
-    // 아래 id 클릭을 역할·이름 클릭으로 되돌린다.
-    expect.soft(
-      await a.page.locator("#copy-token-button").textContent(),
-      "D-42-1: 복사 버튼 라벨이 Jinja dict.copy 메서드로 렌더된다",
-    ).toBe(t.copy);
-    await a.page.locator("#copy-token-button").click();
+    // D-42-1 (티켓 46 에서 수정): 라벨이 `<built-in method copy of dict object at 0x…>`
+    // 로 나오던 자리다 — Jinja 의 속성 접근이 사전 키 "copy" 보다 `dict.copy` 메서드를
+    // 먼저 집었다. 이제 역할 + 보이는 이름으로 누른다(이 레포의 셀렉터 규칙).
+    await a.page.getByRole("button", { name: t.copy, exact: true }).click();
     await expect(a.page.locator("#copy-token-done")).toBeVisible();
     const backupCode = await a.page.evaluate(() => navigator.clipboard.readText());
     // 백업 코드 자체는 비밀이다 — 스크린샷에는 남지만(gitignore 된 폴더) 로그에는 길이만.
     art.note(`백업 코드 길이=${backupCode.length} (값은 로그에 남기지 않는다)`);
     expect(backupCode).toMatch(/^[0-9a-f-]{36}$/);
     await art.step(a.page, "A-백업코드-복사");
-    // D-42-2 (결함): 백업 코드 입력칸(`#token-display`)에 라벨이 없다 — axe `label`
-    // (critical). 읽기 전용이지만 스크린리더 사용자는 그 칸이 무엇인지 못 듣는다.
-    expectAxeClean(await axeScan(a.page, art.dir, "records"), [
-      { id: "label", target: "#token-display", defect: "D-42-2" },
-    ]);
+    // D-42-2 (티켓 46 에서 수정): 백업 코드 칸에 라벨이 없어 axe `label`(critical)이
+    // 걸리던 자리다. 읽기 전용이라 placeholder 를 못 써서 `aria-label` 로 붙였다.
+    await expect(a.page.locator("#token-display")).toHaveAttribute(
+      "aria-label",
+      t.backup_code_label,
+    );
+    expectAxeClean(await axeScan(a.page, art.dir, "records"));
     await a.context.close();
 
     // --- 브라우저 B: 빈 브라우저에 코드를 붙여넣는다 ---------------------------

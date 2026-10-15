@@ -154,48 +154,29 @@ test("[10] 운영자: 로그인 → CSV 업로드 → 배정표 확인 → 단�
   const lastRow = page.locator("tbody tr").last();
   const targetDate = (await lastRow.locator(".admin-cell-date").textContent()).trim().split(" ")[0];
   const replaceLink = lastRow.getByRole("link", { name: /교체|배정/ });
-  const href = await replaceLink.getAttribute("href");
 
-  // D-42-4 (결함, 390 폭에서만): 배정표가 뷰포트보다 넓어서 가로 스크롤이 생기고,
-  // 마지막 열(관리)의 교체/배정 링크를 **누를 수 없다** — 옆으로 밀어 가운데에 둬도
-  // 다른 행의 칸이 그 자리의 포인터 이벤트를 가로챈다. 운영자 화면은 폭이 디자인
-  // 시스템 §10 을 의도적으로 벗어난다는 결정이 있지만(README "15."), 그 결과가 폰에서
-  // "누를 수 없는 버튼" 이면 기록할 결함이다. 고치지 않고 두 가지로 남긴다:
-  //   ① 넘침 자체를 단정으로 (아래 soft)
-  //   ② 무엇이 가로채는지 단계 로그에 (art.note)
-  // 그리고 나머지 흐름(교체가 실제로 되는가)은 주소로 들어가 계속 검증한다.
+  // D-42-4 (티켓 46 에서 수정): 390 폭에서 배정표가 **페이지째로** 넘쳐 가로 스크롤이
+  // 생겼고, 마지막 열(관리)의 교체/배정 링크를 옆으로 밀어 가운데에 둬도 다른 행의
+  // 칸이 그 자리의 포인터 이벤트를 가로채 누를 수 없었다. 이제 표만 자기 상자 안에서
+  // 스크롤한다 — 문서는 뷰포트를 안 넘고, 표는 여전히 제 폭을 지킨다(운영자 화면의
+  // 폭 결정 README "15." 은 그대로다).
   const layout = await page.evaluate(() => ({
     doc: document.documentElement.scrollWidth,
     table: document.querySelector(".admin-table").scrollWidth,
+    box: document.querySelector(".admin-table-scroll").clientWidth,
   }));
   const viewportWidth = page.viewportSize().width;
-  art.note(`배정표 폭: 문서 ${layout.doc}px · 표 ${layout.table}px · 뷰포트 ${viewportWidth}px`);
-  expect.soft(
+  art.note(
+    `배정표 폭: 문서 ${layout.doc}px · 표 ${layout.table}px · 상자 ${layout.box}px · 뷰포트 ${viewportWidth}px`,
+  );
+  expect(
     layout.doc,
-    `D-42-4: ${viewportWidth}px 뷰포트에서 배정표가 가로로 넘친다 (문서 ${layout.doc}px)`,
+    `${viewportWidth}px 뷰포트에서 문서가 가로로 넘친다 (문서 ${layout.doc}px)`,
   ).toBeLessThanOrEqual(viewportWidth);
 
-  // 사람처럼 옆으로 밀어 그 칸을 가운데에 둔 뒤, 누를 수 있는지만 본다(실제로 누르지 않는다).
+  // 사람처럼 옆으로 밀어 그 칸을 가운데에 둔 뒤 실제로 누른다 — 주소로 우회하지 않는다.
   await replaceLink.evaluate((el) => el.scrollIntoView({ block: "center", inline: "center" }));
-  const tappable = await replaceLink
-    .click({ trial: true, timeout: 3000 })
-    .then(() => true, () => false);
-  if (!tappable) {
-    const blocker = await replaceLink.evaluate((el) => {
-      const box = el.getBoundingClientRect();
-      const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
-      return {
-        link: `${Math.round(box.x)},${Math.round(box.y)} ${Math.round(box.width)}x${Math.round(box.height)}`,
-        hit: hit ? `${hit.tagName}.${hit.className}`.trim() : null,
-      };
-    });
-    art.note(`D-42-4 링크를 가로채는 요소: ${JSON.stringify(blocker)}`);
-  }
-  expect.soft(tappable, `D-42-4: ${viewportWidth}px 에서 교체/배정 링크를 탭할 수 없다`).toBe(
-    true,
-  );
-  if (tappable) await replaceLink.click();
-  else await page.goto(href);
+  await replaceLink.click({ timeout: 5000 });
   await expect(page.getByRole("heading", { level: 1 })).toContainText(targetDate);
   await page.locator('input[name="q"]').fill(firstWord);
   await page.getByRole("button", { name: "검색" }).click();

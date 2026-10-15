@@ -919,6 +919,15 @@ Android lane 은 빌드 전에 이전 `app-release.aab` 를 지우고, 빌드 �
 - [ ] **스토어 구독 고지 일치.** ASC·Play 콘솔의 구독 설명과 약관 `#subscription` 절의
       가격·결제 주기·자동 갱신·해지 경로가 같은지 확인한다(Apple 3.1.2(a),
       Google Play 구독 정책).
+- [ ] **방침에 추가 필요: 앱이 게스트 토큰을 기기 보안 저장소에 두고, 앱을 지워도
+      남는다는 사실.** `/privacy` `#automatic-collection` 은 **웹의 localStorage** 만
+      적고(브라우저 사이트 데이터 삭제로 지울 수 있다), 앱 쪽 저장 위치
+      (iOS Keychain · Android EncryptedSharedPreferences)와 "앱을 지워도 남아 재설치하면
+      같은 기록으로 이어진다 — 지우는 방법은 앱의 계정 삭제뿐" 을 어디에도 적지 않았다.
+      앱 안내 문구(`mobile/assets/translations/*.json`)에도 없다. 이 동작은 **의도된
+      것**이다(사용자 결정 2026-10-16). 법적 문서라 티켓 46 은 고치지 않았다 — 문안은
+      사람이 정해 `#automatic-collection`(또는 `#collection` 의 "게스트 토큰" 항목)에
+      넣고 `LEGAL_EFFECTIVE_DATE` 를 올린다. 상세는 아래 "### 46.".
 - 접속기록 보관 구성과 백업 덤프 암호화는 **티켓 36 에서 구현했다** — 사람이 할 일(키 생성·
       보관, 월 1회 점검, `LOG_DIR`·`BACKUP_ENCRYPTION_CERT_FILE` 설정)은 아래 "### 36." 에 있다.
 - [ ] 위 값을 채운 뒤 `/privacy?lang=ko|en`·`/terms?lang=ko|en` 에서 "운영자 정보"
@@ -1549,9 +1558,11 @@ NAS 실측으로 확정한 값이다. 다른 서비스를 NAS 에 더한 뒤라�
 
 `flutter.yml`(빌드·업로드)·`appstore-metadata.yml`(메타데이터)·`asc-submit.yml`(제출)
 사이에서 "콘솔에 로그인하지 않고 보고 고치는" 자리다. 전부 기존
-`APP_STORE_CONNECT_API_KEY` secret 하나만 쓰고, 키를 **파일로 떨어뜨리지 않는다**
-(self-hosted 러너는 잡이 끝나도 사용자 맥이 남기 때문에, 지울 필요가 없는 쪽이
-지우는 쪽보다 안전하다).
+`APP_STORE_CONNECT_API_KEY` secret 하나만 쓰고, fastlane 용 `api_key.json` 은
+**만들지 않는다**. JWT 서명에 쓰는 P8 임시 파일만 `openssl` 이 파일 경로를 받아서
+잠깐 생기고, 서명 직후 `try/finally` 로 지운다 — 서명이 실패해도 남지 않는다
+(`asc-submit.yml` 도 같은 `token()` 이다). self-hosted 러너는 잡이 끝나도 사용자
+맥이 남기 때문에 남겨 두면 그대로 쌓인다.
 
 | 워크플로 | 무엇 | 쓰는 때 |
 |---|---|---|
@@ -1600,3 +1611,31 @@ com.dosaem.chosung`(티켓 34 D-34-1)을 그대로 주고, 한국어 `InfoPlist.
 Xcode 로 열기 전에 `pod install` 을 한 번 돌려야 한다 — 안 돌리면 `[CP] Check Pods
 Manifest.lock` 스텝이 "sandbox is not in sync" 로 **빌드를 세운다**. 조용히 깨진
 앱이 나오는 것보다 낫다. CI 는 `flutter.yml` 이 빌드 전에 `pod install` 을 돌린다.
+
+### 46. iOS 키체인에 남는 게스트 토큰 — 방침·안내 확인 결과 (2026-10-16)
+
+E2E 수정 묶음 1(티켓 46)의 확인 항목이다. **고친 것은 없다** — 사실 확인과 사람이
+할 일만 적는다.
+
+**무엇이 그런가.** 앱의 게스트 토큰은 `flutter_secure_storage` 로 iOS Keychain /
+Android EncryptedSharedPreferences 에 들어간다(`mobile/lib/guest/guest_token_store.dart`,
+`accessibility: first_unlock`). **iOS Keychain 은 앱을 지워도 남는다** — 그래서 앱을
+지웠다 다시 깔면 같은 게스트 토큰이 돌아오고 기록이 그대로 이어진다. 레포는 이 성질을
+이미 알고 쓰고 있다: 온보딩 완료 플래그는 일부러 Keychain 이 아니라
+`shared_preferences` 에 둔다(`mobile/lib/onboarding/onboarding_store.dart`, README
+"완료 플래그는 `shared_preferences`, 게스트 토큰은 Keychain").
+
+**사용자 결정(2026-10-16): 의도된 동작으로 유지한다.** 계정 연결도 백업 코드도 없는
+플레이어에게 그 토큰이 유일한 복구 수단이라, 재설치로 기록이 날아가지 않는 쪽이 맞다.
+
+**빠져 있는 것 = 위 "### 16." 의 새 체크박스.** 개인정보처리방침
+(`web/templates/legal/privacy.*.html`)의 `#automatic-collection` 절은 게스트 토큰을
+**웹의 localStorage** 로만 설명하고, `#collection` 의 "게스트 토큰" 항목은 "기기에
+저장합니다" 까지만 적는다. 앱의 저장 위치와 "삭제는 계정 삭제뿐" 은 방침에도, 앱 안내
+문구에도 없다(`mobile/assets/translations/ko.json`·`en.json` 전수 확인 — `account.*`·
+`records.*`·`onboarding.*` 어디에도 저장 방식 설명이 없다).
+
+**법적 문서는 이 티켓이 고치지 않는다**(범위 밖이고 문안은 사람이 정할 일이다). 넣을
+때 함께 볼 것: ko·en 두 벌, `docs/legal-checklist.md` 의 절 ↔ 조문 매핑,
+`app/web.py` 의 `LEGAL_EFFECTIVE_DATE`, 그리고 Play Data safety 답안(같은 "### 16."
+체크박스)의 수집 항목 설명.

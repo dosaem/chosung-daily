@@ -9,10 +9,12 @@ name: ASC Status
 # BASELINE(~/Code/BuildUrPalace/.github/workflows/asc-status.yml)을 복사해 번들 ID
 # (`com.dosaem.chosung`)만 바꿨다. JWT·`api()` 모양은 `asc-submit.yml` 과 같다.
 #
-# 키를 파일로 떨어뜨리지 않는다 — fastlane 을 안 쓰므로 환경변수에서 바로 읽는다.
-# self-hosted 러너는 잡이 끝나도 호스트(사용자 맥)가 남기 때문에, 지울 필요가
-# 없는 쪽이 지우는 쪽보다 안전하다(`appstore-metadata.yml` 은 fastlane 때문에
-# 파일이 필요해서 `Cleanup key` 스텝을 둔다).
+# fastlane 용 `api_key.json` 은 만들지 않는다 — fastlane 을 안 쓰므로 키를 환경변수
+# (`API_KEY_JSON`)에서 바로 읽는다. 다만 JWT 서명은 `openssl dgst -sign` 이 **파일
+# 경로만** 받아서, P8 를 임시 파일로 잠깐 쓰고 서명 직후 `try/finally` 로 지운다
+# (D-41-1 — 실패해도 남지 않는다). self-hosted 러너는 잡이 끝나도 호스트(사용자 맥)가
+# 남기 때문에, 남겨 두면 그대로 쌓인다(`appstore-metadata.yml` 은 fastlane 때문에
+# `api_key.json` 이 필요해서 `Cleanup key` 스텝을 둔다).
 
 on:
   workflow_dispatch:
@@ -53,11 +55,16 @@ jobs:
               now = int(time.time())
               si = b64({'alg': 'ES256', 'kid': d['key_id'], 'typ': 'JWT'}) + b'.' + \
                   b64({'iss': d['issuer_id'], 'iat': now, 'exp': now + 900, 'aud': 'appstoreconnect-v1'})
+              # P8 를 디스크에 잠깐 쓴다 — `openssl dgst -sign` 이 파일 경로만 받는다.
+              # try/finally 가 아니면 openssl 이 없거나 죽었을 때 키가 self-hosted 맥에
+              # 그대로 남는다(D-41-1). 잡이 끝나도 호스트는 폐기되지 않는다.
               with tempfile.NamedTemporaryFile('w', suffix='.p8', delete=False) as f:
                   f.write(d['key']); kp = f.name
-              sig = subprocess.run(['openssl', 'dgst', '-sha256', '-sign', kp],
-                                   input=si, capture_output=True).stdout
-              os.unlink(kp)
+              try:
+                  sig = subprocess.run(['openssl', 'dgst', '-sha256', '-sign', kp],
+                                       input=si, capture_output=True).stdout
+              finally:
+                  os.unlink(kp)
               return (si + b'.' + base64.urlsafe_b64encode(der_to_raw(sig)).rstrip(b'=')).decode()
 
           TOKEN = token()

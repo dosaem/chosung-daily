@@ -22,10 +22,12 @@ E2E_DB="${E2E_DB:-chosung_daily_e2e_t${E2E_TICKET}}"
 #
 #   0   로컬 개발 (`flask run`)
 #   1   pytest 기본 (`TestingConfig`)
-#   4   E2E  티켓 42   ← 이 스택
+#   4   E2E  티켓 42
 #   5   pytest 티켓 42 (`TEST_REDIS_URL`, 코디네이터 배정)
+#   6   pytest 티켓 46 (코디네이터 배정)
 #   12  E2E  티켓 44
-#   13  E2E  티켓 43
+#   13  E2E  티켓 43   (주의: 티켓 43 의 pytest 도 13 을 쓴다 — D-42-8, 미해소)
+#   14  E2E  티켓 46
 #
 # 표에 없는 티켓은 **거부한다**. 기본값으로 떨어지면 조용히 남의 번호를 쓴다 — 새 티켓은
 # 여기 `case` 에 한 줄을 더하면 되고, 겹침·예약 번호는
@@ -35,6 +37,7 @@ e2e_redis_db_for_ticket() {
     42) echo 4 ;;
     43) echo 13 ;;
     44) echo 12 ;;
+    46) echo 14 ;;
     *) return 1 ;;
   esac
 }
