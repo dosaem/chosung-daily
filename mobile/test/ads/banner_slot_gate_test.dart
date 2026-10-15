@@ -46,7 +46,11 @@ Future<void> pumpApp(
       ProviderScope(
         retry: noAutoRetry,
         overrides: [
-          apiClientProvider.overrideWithValue(FakeApiClient()),
+          // 서버도 같은 권한을 말해야 한다 — 티켓 33 의 재확인이 시작
+          // `/me/stats` 응답으로 `entitlementProvider` 를 덮는다.
+          apiClientProvider.overrideWithValue(
+            FakeApiClient(stats: fakeMyStats(entitled: entitled ?? false)),
+          ),
           guestTokenStoreProvider.overrideWithValue(
             InMemoryGuestTokenStore('guest-token'),
           ),

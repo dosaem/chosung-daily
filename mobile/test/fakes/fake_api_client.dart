@@ -19,18 +19,23 @@ AppConfig fakeAppConfig({
   storeUrls: StoreUrls(ios: storeUrlIos, android: storeUrlAndroid),
 );
 
+/// 기본값은 "구독 없는 게스트" 다 — `entitled: false`, `nextCheckAt: null`
+/// 이라 재확인 타이머(티켓 33)가 걸리지 않는다.
 MyStats fakeMyStats({
   PuzzleLanguage puzzleLanguage = PuzzleLanguage.ko,
   int currentStreak = 0,
   int maxStreak = 0,
   int solvedCount = 0,
   LinkedAccount? linkedAccount,
+  bool entitled = false,
+  DateTime? nextCheckAt,
 }) => MyStats(
   puzzleLanguage: puzzleLanguage,
   currentStreak: currentStreak,
   maxStreak: maxStreak,
   solvedCount: solvedCount,
   linkedAccount: linkedAccount,
+  entitlement: fakeEntitlement(active: entitled, nextCheckAt: nextCheckAt),
 );
 
 /// 서버가 돌려줄 권한. 기본값은 "구독 없음" 이다 — 구독자 테스트만 켠다.
@@ -231,6 +236,10 @@ class FakeApiClient implements ApiClient {
   /// "로딩 중(스켈레톤)" 화면을 그 상태로 세워두고 보는 데 쓴다.
   Completer<void>? fetchTodayPuzzleGate;
 
+  /// 같은 쓰임의 `GET /me/stats` 판 — 조회가 떠난 뒤 다른 경로(구매 응답·계정
+  /// 전환)가 끼어드는 순서를 테스트가 직접 만드는 데 쓴다(티켓 33).
+  Completer<void>? fetchMyStatsGate;
+
   /// 같은 방식으로 제출 응답을 붙잡는다 — 제출이 날아간 뒤 응답이 오기 전에
   /// 재조회가 끼어드는 순서를 테스트가 직접 만들어 보는 데 쓴다.
   Completer<void>? submitGuessGate;
@@ -303,8 +312,13 @@ class FakeApiClient implements ApiClient {
   @override
   Future<MyStats> fetchMyStats() async {
     fetchMyStatsCalls++;
+    // 응답은 **호출 시점의** 값이다(`fetchTodayPuzzle` 과 같은 규칙) — 붙잡아
+    // 둔 조회가 그 사이 바뀐 `stats` 를 돌려주면 "늦게 도착한 옛 응답" 을
+    // 테스트가 만들 수 없다.
+    final response = stats;
+    if (fetchMyStatsGate case final gate?) await gate.future;
     if (fetchMyStatsError case final error?) throw error;
-    return stats;
+    return response;
   }
 
   @override
