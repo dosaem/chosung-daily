@@ -45,7 +45,8 @@ DB 는 **named volume 만** 쓴다. DSM 의 `/volume1` ACL 이 호스트 bind mo
       `curl http://127.0.0.1:8089/health` 가 `{"status":"ok"}`.
 - [ ] app 컨테이너에서 `uv run flask db upgrade`.
 - [ ] Cloudflare Tunnel 이 `http://127.0.0.1:8089` 로 붙는지 확인(앱 포트는
-      루프백 바인딩이라 LAN 에서 직접 안 열린다).
+      루프백 바인딩이라 LAN 에서 직접 안 열린다). 라우팅을 새로 붙이거나 고치는
+      절차는 아래 "### 41.".
 
 ## 첫 배포 체크리스트 (develop)
 
@@ -162,7 +163,8 @@ DB 는 **named volume 만** 쓴다. DSM 의 `/volume1` ACL 이 호스트 bind mo
       체크리스트 (prod)", "### 19." (`#15`)
 - [ ] **NAS develop 폴더·`.env.develop`·DNS·터널** — 포트 8090(스펙 미정 8 확정),
       체크아웃은 `/volume1/docker/chosung-daily-develop`. 정해진 develop 주소를
-      `API_BASE_URL_DEV` variable 에 넣는다. 상세: 위 "첫 배포 체크리스트 (develop)" (`#15`)
+      `API_BASE_URL_DEV` variable 에 넣는다. 터널에 호스트네임을 붙이는 절차는 "### 41.".
+      상세: 위 "첫 배포 체크리스트 (develop)" (`#15`)
 - [ ] **prod `.env` 새 키 채우기** — `LEGAL_*`(09·16) · 구독 검증 키와 파일 2개(12) ·
       `ADMIN_EMAILS`(15) · `STORE_URL_IOS`·`STORE_URL_ANDROID`·`APP_STORE_ID`(18) ·
       `LOG_DIR`·`BACKUP_ENCRYPTION_CERT_FILE`·`ACCESS_LOG_RETENTION_DAYS`(36).
@@ -194,11 +196,16 @@ DB 는 **named volume 만** 쓴다. DSM 의 `/volume1` ACL 이 호스트 bind mo
       --release` 후 의존성 트리나 merged manifest 에서 버전을 본다. 플러그인을 올릴
       때마다 다시 본다. 확인이 끝나면 `mobile/build` 를 지운다. 상세: "### 32." (`#18`)
 - [ ] **실기기 체크리스트 전부 통과** — 아래 "실기기 체크리스트 (통합)".
-- [ ] **최종 스크린샷 재촬영**(티켓 40, 진행 중) — 레포의 Play 폰 스크린샷 10장은 지금
-      iPhone 캡처의 바이트 복사본이라 `fastlane release` 가 올리기 전에 **실패한다**.
-      29~33 머지 뒤 세트를 통째로 다시 찍는 작업이 티켓 40 이고, 그 결과(AVD 로 찍었는지
-      iPhone 시뮬레이터의 Android 구성으로 찍었는지)는 **40 머지 후** 아래 "알려진 한계" 와
-      "### 35." 에 반영한다. 상세: "### 35."
+- [x] ~~**최종 스크린샷 재촬영**~~ — 티켓 40 이 전 세트를 다시 찍었다(머지 `d73b1b2`).
+      Play 폰은 Android 에뮬레이터, iOS 3종과 Play 태블릿은 시뮬레이터다. 업로드 전
+      검사(`mobile/tool/verify_store_screenshots.py ios`·`play`)가 둘 다 종료 0 이라
+      **사람이 더 찍을 것은 없다** — 아래 "스토어 자산·메타데이터 업로드" 로 바로 간다.
+      상세: "### 40.", "### 35."
+- [ ] **수출 규정(암호화) 답변이 면제와 맞는지 확인** — `Info.plist` 의
+      `ITSAppUsesNonExemptEncryption=false` 가 ASC 의 수출규정 질문을 자동으로 답한다.
+      첫 제출 때 콘솔에서 그 답이 "면제" 로 들어갔는지 한 번 보고, 그 전에 올린 빌드가
+      Missing Compliance 로 남아 있으면 `gh workflow run asc-build-compliance.yml` 로
+      메운다. 상세: "### 41."
 - [ ] **스토어 자산·메타데이터 업로드** — 스크린샷(iPad 포함)·메타데이터·심사 노트·
       빌드 첨부를 순서대로. dry run → 콘솔에서 Sandbox 계정 입력 → 진짜 제출.
       상세: "### 35."
@@ -227,7 +234,7 @@ DB 는 **named volume 만** 쓴다. DSM 의 `/volume1` ACL 이 호스트 bind mo
 | `FIREBASE_SERVICE_ACCOUNT` | `flutter.yml` | Firebase 서비스 계정 JSON(`firebaseappdistro.admin`) | "### 34." |
 | `GOOGLE_SERVICES_JSON_BASE64` | `flutter.yml` | D0 의 Android 설정 파일(base64). 비면 Firebase 없이 빌드 | "### 34." |
 | `GOOGLE_SERVICE_INFO_PLIST_BASE64` | `flutter.yml` | D0 의 iOS 설정 파일(base64). Xcode 에 추가한 뒤에는 필수 | "### 34." |
-| `APP_STORE_CONNECT_API_KEY` | `flutter.yml`·`appstore-metadata.yml`·`asc-submit.yml` | ASC API 키 JSON(`key_id`/`issuer_id`/`key`) | "### 34." |
+| `APP_STORE_CONNECT_API_KEY` | `flutter.yml`·`appstore-metadata.yml`·`asc-submit.yml`·`asc-status.yml`·`asc-build-compliance.yml`·`asc-diagnose.yml`·`testflight-tester.yml` | ASC API 키 JSON(`key_id`/`issuer_id`/`key`) | "### 34.", "### 41." |
 | `MATCH_PASSWORD` | `flutter.yml` | match 저장소 암호화 비밀번호 | "### 34." |
 | `MATCH_GIT_BASIC_AUTHORIZATION` | `flutter.yml` | `match-certs` 읽기 PAT 를 `user:token` base64 로 | "### 34." |
 | `FLUTTER_SENTRY_DSN` | `flutter.yml` | 앱용 Sentry DSN. 비우면 앱이 Sentry 를 초기화하지 않는다 | "### 34." |
@@ -253,6 +260,7 @@ DB 는 **named volume 만** 쓴다. DSM 의 `/volume1` ACL 이 호스트 bind mo
 | `ADMOB_BANNER_AD_UNIT_ID_IOS` | `flutter.yml` | AdMob iOS 배너 유닛 | "### 31." |
 | `ADMOB_INTERSTITIAL_AD_UNIT_ID_IOS` | `flutter.yml` | 〃 전면 유닛 | "### 31." |
 | `ADMOB_REWARDED_AD_UNIT_ID_IOS` | `flutter.yml` | 〃 보상형 유닛 | "### 31." |
+| `TESTFLIGHT_TESTER_EMAIL` | `testflight-tester.yml`·`asc-diagnose.yml` | 내부 TestFlight 테스터 이메일(운영자 Apple ID). 워크플로 입력을 비웠을 때의 기본값 — 레포에 개인 주소를 커밋하지 않으려고 여기 둔다. 둘 다 비면 워크플로가 멈춘다 | "### 41." |
 
 수동 fastlane lane 은 Actions 가 넘기던 값을 **환경변수로 직접** 줘야 한다 — 이름은
 `--dart-define` 표와 같다("### 34."). 광고 유닛은 올리려는 플랫폼의 값을 플랫폼 접미사
@@ -360,7 +368,9 @@ DB 는 **named volume 만** 쓴다. DSM 의 `/volume1` ACL 이 호스트 bind mo
 | D-38-2 | 티켓 38 이 공유 README 의 `### 07.` 절에 인용 블록을 더했다(자기 번호 절 밖) | 없음 — 내용 손실·기능 변화 없는 문서 경계 위반이다 | `review/impl-review-38.md` "D-38-2" |
 | 구독·권한 실기기 미검증 | 32(구매)·33(재확인 타이머)는 위젯·단위 테스트와 가짜 시계까지만 확인했다. **Sandbox 결제·유예·pending·4040010 폴백은 코드로 증명할 수 없다** | 없음(아직 안 본 것) | 위 "실기기 체크리스트 (통합) > 구독" 이 유일한 확인 경로다 |
 | 배너 어댑티브 높이 | 예약 높이 50/90 은 **잠정값**이다. 실제 높이는 플랫폼 채널로만 나와서 단위·위젯 테스트로 잴 수 없다 | 값이 다르면 배너가 고정 크기(320×50 / 728×90)로 떨어진다 — 레이아웃은 안 밀린다 | 스펙 미정 24, README "24."·"31." |
-| Play 폰 스크린샷 | 레포의 10장이 **iPhone 캡처의 바이트 복사본**이라 업로드 검사에서 막힌다 | `fastlane release` 가 실패한다 | 티켓 40 이 재촬영 중 — AVD 로 찍는지 iPhone 시뮬레이터의 Android 구성으로 찍는지는 **40 머지 후** 이 줄에 반영한다. "### 35." |
+| Play 폰 스크린샷 재촬영 | **해소됐다**(티켓 40 머지 `d73b1b2`). Play 폰 세트는 Android 에뮬레이터로 다시 찍었고 `mobile/tool/verify_store_screenshots.py ios`·`play` 가 둘 다 종료 0 이다. 남은 한계는 **다시 찍을 때**다 — 기본 AVD(`Medium_Phone_API_36.1`)는 `/data` 가 가득 차 `adb install` 이 죽어서, 여유 있는 AVD 를 `ANDROID_AVD` 로 가리켜야 한다 | 지금 레포의 그림으로는 없음. 다시 찍을 사람이 AVD 를 안 고르면 캡처가 iPhone 시뮬레이터의 Android 구성으로 떨어진다(그래도 검사는 통과한다) | `review/impl-review-40.md` · `review/impl-evidence-40.md` §9-7. "### 40." |
+| 공유 파일 규칙 위반 7건 | 티켓이 공유 파일(README·RELEASE)에서 **자기 번호 절 밖**을 고쳤다 — D-01-3(일부)·D-03-1·D-04-1·D-05-1·D-07-1·D-19-3·D-40-1. 전부 리뷰가 MINOR 로 보고 그대로 머지했다 | 없음 — 내용 손실·기능 변화 없는 문서 경계 위반이다(위 D-38-2 와 같은 종류) | `review/impl-review-01.md`·`-03`·`-04`·`-05`·`-07`·`-19`·`-40` 의 각 D 항목 |
+| `### 19.` 검증 명령 재현성 | D-19-1·D-19-2 — compose 파라미터화 로컬 검증 기록의 명령을 **지금 그대로 재현할 수 없다**. `git show HEAD:docker-compose.prod.yml` 는 이제 "고정 이름이 있던 옛 compose" 가 아니고(D-19-2), 임시 env 복사본만으로 돌리려면 그 복사본의 `ENV_FILE` 도 같이 바꿔야 한다(D-19-1) | 없음 — 이미 끝난 1회 검증의 기록이다. 배포 절차(위 "첫 배포 체크리스트", `deploy/deploy.sh`)는 이 명령을 쓰지 않는다 | `review/impl-review-19.md` "D-19-1"·"D-19-2" |
 | D-17-6 (웹) | 영어 전환 응답 대기 중 한국어를 다시 고르고 **동시에** 이전 화면에서 제출해 409 재조회가 겹치면 마지막 언어 선택이 취소된다 | 화면·서버가 en 으로 남는다. 칩을 한 번 더 누르면 복구된다 | 스펙 미정 26, `review/impl-review-17.md` 라운드 5 |
 | 법적 해석 2건 | **축약 주소 표시의 적법성**(전상법 §10①2)과 **스토어 결제 구조에서 운영자가 §13 의 통신판매업자인지** 는 확인하지 않았다 | 없음(법적 위험) | 전문가 검토를 받지 않기로 했다(사용자 할 일 `#5`). "### 16."·`docs/legal-checklist.md` |
 
@@ -1438,11 +1448,155 @@ Billing 7 은 2026-08-31 로 제출 마감):
 **사람 할 일이 없는 티켓은 절이 없다.** 아래 기록에 절이 있는 것은 사람이 콘솔·NAS·
 실기기에서 해야 할 일이 남은 티켓뿐이다 — 예를 들어 **티켓 38**(리더보드 익명 이름 언어
 중립화·en 복수형, 머지됨)은 서버·웹·앱 코드로 끝나서 절이 없고, 남은 한계만 위 "알려진
-한계" 에 있다. **티켓 40**(최종 스토어 스크린샷 재촬영)은 진행 중이라 D3 체크리스트와
-"알려진 한계" 에 자리만 두고, 결과는 40 이 머지된 뒤 `"### 35."` 와 그 한계 줄에 적는다.
+한계" 에 있다. **티켓 40**(최종 스토어 스크린샷 재촬영)은 머지됐다(`d73b1b2`) — 결과는
+`"### 40."` 절이고, D3 체크리스트의 재촬영 항목과 "알려진 한계" 의 그 줄은 **해소된
+상태**로 고쳤다(티켓 41). **티켓 41**(배포 준비 최종 점검)은 자기 절 `"### 41."` 에
+cloudflared 라우팅·수출규정·ASC 보조 워크플로를 적었다.
 
 **옛 티켓 번호 정리.** plan-add r1 의 번호 재배정(구 16→23, 구 23~34→25~36) 전에 머지된
 코드·문서의 주석이 구 번호를 가리키고 있었다. 대응표는 `review/plan-add-r1-response.md`
 §2 이고, 고친 11곳과 "왜 그 11곳만인지" 는 `review/impl-evidence-37.md` 에 있다.
 `tests/test_release_docs.py::test_old_ticket_numbers_are_renumbered` 가 구 번호가 다시
 들어오는 것을 막는다.
+
+### 41. 배포 준비 최종 점검 — cloudflared 라우팅 · 수출 규정 · ASC 보조 워크플로
+
+Phase 6 기준표로 레포 전체를 전수 대조하고(`review/impl-evidence-41.md`) 빠진 것만
+채운 티켓이다. 기능은 바꾸지 않았다. 아래 세 개가 그 "빠진 것" 이고, 네 번째는
+티켓 40 이 남긴 `Podfile.lock` 결함(D-40-2)을 고친 기록이다.
+
+#### 41.1 cloudflared 라우팅 (prod 8089 · develop 8090)
+
+NAS 는 인터넷에 포트를 열지 않는다. 앱 컨테이너는 `127.0.0.1:${APP_PORT}` 에만
+바인딩하고(`docker-compose.prod.yml`), 바깥에서 들어오는 길은 **Cloudflare Tunnel**
+하나뿐이다. 레포가 정하는 값은 이 두 쌍이다 — 호스트네임은 Cloudflare 쪽에서
+운영자가 고른다.
+
+| 인스턴스 | 공개 호스트네임 | 터널이 붙는 곳 |
+|---|---|---|
+| prod | `chosung.dosaem.com` | `http://127.0.0.1:8089` |
+| develop | 운영자가 정한다(예 `chosung-dev.dosaem.com`) | `http://127.0.0.1:8090` |
+
+develop 호스트네임이 정해지면 그 주소의 API 루트(`https://<호스트>/api/v1`)를
+`API_BASE_URL_DEV` variable 에 넣는다(위 "GitHub Actions variables"). 비어 있으면
+`flutter.yml` 의 setup 잡이 빌드를 멈춘다 — 빈 주소로 빌드된 앱은 CI 가 초록이고
+테스터 손에서만 깨지기 때문이다.
+
+**먼저 지금 터널이 어느 방식인지 본다.** cloudflared 는 라우팅을 두 곳 중 한 곳에서
+읽는다. NAS 에서 `docker ps | grep cloudflared` 로 컨테이너를 찾고 그 실행 명령을 본다:
+
+- `cloudflared tunnel run --token …` 또는 `--no-autoupdate tunnel run <이름>` 만
+  있고 `--config` 가 없으면 **대시보드 관리형**이다(라우팅이 Cloudflare 쪽에 있다).
+- `--config /etc/cloudflared/config.yml` 이 있으면 **config.yml 방식**이다.
+
+세 번째 경우로, DSM 패키지나 `systemd` 로 돌고 있으면 `/etc/cloudflared/config.yml`
+존재 여부로 가른다. 어느 쪽인지 확인하는 것은 사람 몫이다 — 이 티켓은 NAS 에
+접근하지 않았다.
+
+**대시보드 관리형일 때.** Cloudflare Zero Trust → Networks → Tunnels → 해당 터널 →
+Public Hostnames → Add a public hostname.
+
+- Subdomain/Domain: 위 표의 호스트네임
+- Service Type: `HTTP`, URL: `127.0.0.1:8090`(develop) / `127.0.0.1:8089`(prod)
+- 저장하면 DNS CNAME 은 Cloudflare 가 자동으로 만든다(별도 DNS 작업 없음)
+
+**config.yml 방식일 때.** `ingress` 에 규칙을 **`service: http_status:404` 앞에**
+넣는다. 그 줄이 마지막이어야 하고, 그 뒤에 넣은 규칙은 영원히 안 맞는다.
+
+```yaml
+tunnel: <터널 UUID>
+credentials-file: /etc/cloudflared/<터널 UUID>.json
+ingress:
+  - hostname: chosung.dosaem.com
+    service: http://127.0.0.1:8089
+  - hostname: chosung-dev.dosaem.com      # develop — 호스트네임은 운영자가 정한다
+    service: http://127.0.0.1:8090
+  - service: http_status:404              # 항상 마지막
+```
+
+고친 뒤 `cloudflared tunnel ingress validate` 로 문법을 보고, 컨테이너를 재시작한다.
+이 방식은 DNS 가 자동이 아니다 — 호스트네임마다 한 번
+`cloudflared tunnel route dns <터널 이름> <호스트네임>` 을 돌려 CNAME 을 만든다.
+
+**붙었는지 확인.** NAS 안에서 `curl -s http://127.0.0.1:8090/health`, 바깥에서
+`curl -s https://<호스트네임>/health` 가 둘 다 `{"status":"ok"}` 다. 바깥만 실패하면
+터널 라우팅, 둘 다 실패하면 컨테이너 쪽이다.
+
+**포트가 겹치지 않는지는 NAS 에서 본다.** develop 8090 은 스펙 미정 8 을 사람이
+NAS 실측으로 확정한 값이다. 다른 서비스를 NAS 에 더한 뒤라면
+`sudo lsof -nP -iTCP -sTCP:LISTEN | grep 809` 로 한 번 더 본다 — 겹치면 `.env.develop`
+의 `APP_PORT` 와 위 터널 라우팅을 **같이** 고친다(한쪽만 고치면 502 다).
+
+#### 41.2 수출 규정(암호화) 신고 — `ITSAppUsesNonExemptEncryption=false`
+
+`mobile/ios/Runner/Info.plist` 에 이 키를 넣었다. 없으면 TestFlight 에 올라간 빌드가
+전부 **"Missing Compliance"** 로 들어가고, 사람이 빌드마다 ASC 콘솔에서 수출규정
+질문에 답할 때까지 심사 제출이 열리지 않는다.
+
+**`false` 인 근거.** 이 앱이 쓰는 암호화는 OS 가 제공하는 것뿐이다 —
+① HTTPS(`dio` → `URLSession`) ② Keychain(`flutter_secure_storage`). `pubspec.yaml`
+에 암호 라이브러리(`crypto`·`pointycastle`·`encrypt` 등)가 없고 `lib/` 에 자체 암호
+구현이 없다(티켓 41 이 전수 확인, `review/impl-evidence-41.md`). 둘 다 Apple 의 면제
+범주다. BASELINE(BuildUrPalace)도 같은 구성에서 `false` 로 출시했다.
+
+**바뀌면 같이 고친다.** 자체 암호화·독자 프로토콜·면제 범위를 넘는 암호 사용을
+들이면 이 값과 이 절을 같이 고치고, 연간 자기분류 보고(ERN) 필요 여부를 다시 본다.
+
+그 전에 올라간 빌드는 이 키의 영향을 받지 않는다 — 아래 `asc-build-compliance.yml`
+로 메운다.
+
+#### 41.3 ASC 보조 워크플로 4개 (전부 `workflow_dispatch`)
+
+`flutter.yml`(빌드·업로드)·`appstore-metadata.yml`(메타데이터)·`asc-submit.yml`(제출)
+사이에서 "콘솔에 로그인하지 않고 보고 고치는" 자리다. 전부 기존
+`APP_STORE_CONNECT_API_KEY` secret 하나만 쓰고, 키를 **파일로 떨어뜨리지 않는다**
+(self-hosted 러너는 잡이 끝나도 사용자 맥이 남기 때문에, 지울 필요가 없는 쪽이
+지우는 쪽보다 안전하다).
+
+| 워크플로 | 무엇 | 쓰는 때 |
+|---|---|---|
+| `asc-status.yml` | 버전 상태·제출 상태 조회(**읽기 전용**) | 제출 뒤 "지금 어디쯤인가" |
+| `asc-build-compliance.yml` | 최신 10개 빌드의 `usesNonExemptEncryption` 이 비어 있으면 `false` 로 채운다 | 41.2 키가 들어가기 전에 올린 빌드가 Missing Compliance 로 남았을 때 |
+| `testflight-tester.yml` | 내부 베타 그룹을 찾거나 만들고 테스터 1명을 넣는다 | 첫 TestFlight 테스터 등록 |
+| `asc-diagnose.yml` | 그룹·테스터 상태·최신 빌드 상태를 찍고 초대를 다시 보낸다 | "초대 메일을 못 받았다" |
+
+```bash
+gh workflow run asc-status.yml
+gh workflow run asc-build-compliance.yml
+gh workflow run testflight-tester.yml -f email=someone@example.com
+gh workflow run asc-diagnose.yml                  # 이메일을 비우면 variable 값
+```
+
+**테스터 이메일을 레포에 적지 않는다.** 입력을 비우면
+`vars.TESTFLIGHT_TESTER_EMAIL` 을 쓰고 둘 다 비면 멈춘다. BASELINE 은 운영자 주소를
+워크플로 기본값에 박아 뒀는데, `asc-submit.yml` 이 심사 연락처를 secret 으로 옮긴
+것과 같은 이유로 variable 로 옮겼다. 내부 그룹이라 그 주소는 **ASC 팀 멤버**여야
+한다(외부 그룹은 베타 심사를 받는다 — 네 워크플로 다 다루지 않는다).
+
+`asc-build-compliance.yml` 은 **값이 이미 있는 빌드를 건드리지 않는다.** 사람이 콘솔
+에서 `true` 로 답한 빌드를 `false` 로 뒤집으면 안 되기 때문이다. 만료된 빌드도
+건너뛴다(제출에 못 쓴다).
+
+#### 41.4 `Podfile.lock` 갱신과 CocoaPods 프로젝트 통합 (D-40-2 해소)
+
+리뷰 40 의 D-40-2 는 "`mobile/ios/Podfile.lock` 이 티켓 30~33 이 더한 플러그인을
+빠뜨린 채 낡았다" 였다. `cd mobile/ios && pod install` 로 갱신했고
+`flutter build ios --no-codesign` 이 종료 0 이다(`Runner.app` 42.7MB).
+
+같이 바뀐 파일이 둘 더 있다 — 커밋된 `Runner.xcodeproj/project.pbxproj` 에 **CocoaPods
+통합이 아예 없었다**(`[CP]` 스텝 0개). `pod install` 이 그걸 채우면서
+`project.pbxproj`(+138행)와 `Runner.xcworkspace/contents.xcworkspacedata`(+3행)도
+바뀐다. 세 파일을 **다 커밋했다** — 안 하면 `pod install` 을 돌릴 때마다 작업 트리가
+더러워지고(리뷰 40 §7 이 실제로 그랬다) "재현 가능한 빌드" 라는 lock 의 목적이 깨진
+채로 남는다.
+
+서명·현지화 설정은 보존됐다. `xcodebuild -project Runner.xcodeproj -target Runner
+-configuration Release -showBuildSettings` 가 `CODE_SIGN_IDENTITY = Apple Distribution`
+/ `CODE_SIGN_STYLE = Manual` / `PROVISIONING_PROFILE_SPECIFIER = match AppStore
+com.dosaem.chosung`(티켓 34 D-34-1)을 그대로 주고, 한국어 `InfoPlist.strings`
+참조(티켓 22 D-22-3)와 `LaunchScreen.storyboard` 참조도 개수가 같다.
+
+**`Pods/` 는 커밋하지 않는다**(`mobile/ios/.gitignore`). 그래서 새로 클론한 자리에서
+Xcode 로 열기 전에 `pod install` 을 한 번 돌려야 한다 — 안 돌리면 `[CP] Check Pods
+Manifest.lock` 스텝이 "sandbox is not in sync" 로 **빌드를 세운다**. 조용히 깨진
+앱이 나오는 것보다 낫다. CI 는 `flutter.yml` 이 빌드 전에 `pod install` 을 돌린다.
