@@ -195,3 +195,80 @@
 3. 라운드 1 "참고" 1~5 는 그대로다.
 
 판정: FAIL
+
+## 라운드 3
+
+**대상:** 수정 커밋 `db495f2`(D-32-5)·`64e7e09`(buy false 문구)·`a6c6d54`·`1429956`(문서), `git diff main...HEAD`(커밋 12개 `4c58a20`…`1429956`, 44 files), 증거 `review/impl-evidence-32.md` "수정 라운드 2" 절(Fake↔플러그인 대조표 포함)
+**리뷰어:** Fable (Final Reviewer) · **날짜:** 2026-10-15
+**추가로 읽은 것:** 라운드 2 수정 diff 전체(`06506b5..HEAD`), `purchase_controller.dart` 전문, `api_models.dart` `Entitlement`/`SubscriptionStatus`, 서버 `app/models/enums.py`·`app/services/entitlement.py` `build_entitlement`/`NO_ENTITLEMENT`·`app/services/subscription_service.py` `verify_receipt`/`_verify_google`, 플러그인 소스 `in_app_purchase_android` 0.5.0(`buyNonConsumable` 193행 `return responseCode == ok`, `completePurchase` 208-227행, `purchaseStatusFromWrapper`), `in_app_purchase_storekit` 0.4.13(SK2 `buyNonConsumable` 178-180행 `purchase` 뒤 `return true`, `SK2PurchaseDetails.pendingCompletePurchase => status == purchased` 108행).
+
+### 0. 직접 돌린 것
+
+| 명령 | 결과 |
+|---|---|
+| `cd mobile && flutter analyze` | **No issues found!**, exit 0 |
+| `cd mobile && dart format --output=none --set-exit-if-changed lib test` | 192 files, 0 changed, exit 0 |
+| `cd mobile && flutter test` | **+745: All tests passed!**, exit 0 (증거 "라운드 2 최종" +745 와 같음; 741 → 745) |
+| `cd mobile && flutter build apk --debug` | `✓ Built build/app/outputs/flutter-apk/app-debug.apk`, exit 0. `mobile/build`·`mobile/android/.kotlin` 삭제함 |
+| `uv run ruff check .` | All checks passed!, exit 0 |
+| `uv run pytest -q` (전용 DB `chosung_daily_test_t32` · Redis DB 6 · `chosung_daily_test_t32_migrations`, 접속 값은 기록하지 않음. 돌리기 전 같은 DB 를 잡은 pytest 프로세스 없음 확인) | **1509 passed in 1027.39s (0:17:07)**, exit 0 (이 티켓은 백엔드를 건드리지 않았다) |
+| `flask db heads` | 돌리지 않음 — `migrations/` 변경 0건 |
+| 범위 | `git diff --stat main...HEAD -- app tests web .env.example .scratch migrations` 빈 출력. 라운드 2 수정이 건드린 공유 파일은 README `### 32.`(2623~2721행, `## 부하 테스트 요약` 앞)·`docs/RELEASE.md` `### 32.`(988행~끝) 자기 절 안이다 |
+| 뮤테이션 확인(앱 코드를 잠깐 바꿨다가 `git checkout` 으로 원복, `git diff` 빈 출력 확인) | ① `_statusOf` 에서 Play `purchaseState` 분기를 지움 → `purchase_controller_test.dart` **2건 실패**("조회에 pending 이 그대로 있으면 내리지 않는다"·"구매 대기 중 복귀해도 '결제 확인 중' 이다"). ② `entitlement.status != null &&` 게이트를 지움 → **1건 실패**("서버가 구독 행을 만들지 못한 응답에는 completePurchase 를 부르지 않는다"). 새 테스트가 플러그인 모양의 입력으로 결함을 실제로 잡는다 |
+
+### 1. 이전 결함 판정
+
+| ID | 이전 | 판정 | 근거 |
+|---|---|---|---|
+| D-32-1 | MAJOR(r1) | FIXED(r2 유지) | 라운드 2 수정 커밋이 토큰 대기·`listen`·`UnauthorizedApiException` 보류를 건드리지 않았다(`purchase_controller.dart:126-157`·`:362`). 관련 테스트 4건 통과 |
+| D-32-2 | MAJOR(r1) | FIXED(r2 유지) | `flutter analyze` 0 issues, exit 0 |
+| D-32-3 | MINOR(r1) | FIXED(r2 유지) | `paywall_sheet.dart` 변경 없음 |
+| D-32-4 | MINOR(r1) | FIXED | `_dropAbandonedPending`(`:201-207`) 그대로. 라운드 2 에서 단서로 달았던 "조회에 pending 이 그대로 있으면 내리지 않는다" 가 이제 **플러그인이 실제로 올리는 입력**(`_asQueried` 가 `restored` + `purchaseState: pending` 으로 바꿈)으로 통과하고, 뮤테이션 ① 에서 실패한다 — 단서 해소 |
+| D-32-5 | MAJOR(r2) | **FIXED** | 두 원인을 다 막았다. (a) `purchase_controller.dart:302-313` `_statusOf` — `purchased`/`restored` 로 올라온 `GooglePlayPurchaseDetails` 의 `billingClientPurchase.purchaseState == PurchaseStateWrapper.pending` 이면 pending 으로 분기해 `_pendingStore`·`_pendingSeenSinceSync` 를 세우고 verify 를 올리지 않는다. 플러그인 소스와 대조: 조회는 `fromPurchase`(`purchaseStatusFromWrapper` 로 pending) 뒤 `..status = restored` 를 덮지만 `billingClientPurchase.purchaseState` 는 그대로 남는다 — 읽는 자리가 맞다. (b) `:359` `entitlement.status != null && purchase.pendingCompletePurchase` — 서버 `NO_ENTITLEMENT`(`entitlement.py:36`, `status=None`) 응답에는 `complete` 를 부르지 않는다. 테스트 3건("구매 대기 중 복귀해도…"·"결제가 끝나면 같은 거래가 purchased 로…"·"서버가 구독 행을 만들지 못한 응답에는…")이 라운드 2 의 재현(pending → `sync()` → 조회가 restored 로 올림)을 그대로 쓰고, `phase == pending`·`busy`·verify 0·`completed` 0·오류 null 을 본다. 뮤테이션 ①②로 테스트가 살아 있음을 확인. Fake 는 `GooglePlayPurchaseDetails`/`SK2PurchaseDetails` 실제 타입으로 바뀌어 플러그인의 `completePurchase` 타입 assert 와도 맞는다. `canceled`·`error` 를 되돌리지 않는 결정(창을 닫은 거래가 pending 으로 돌아가면 버튼이 잠김)은 맞다 |
+
+### 2. 티켓 체크박스 (라운드 2 표에서 바뀐 줄만)
+
+| # | 체크박스 | 판정 | 근거 |
+|---|---|---|---|
+| 3 | 구매 스트림 → pending 대기 → verify → 성공 후에만 `completePurchase` · 재전송 · 복원 결과 verify · Provider 즉시 갱신 | **충족** | D-32-1(토큰 전 보류·재전송)·D-32-5(Play pending 유지·행 없는 응답에 완료 없음) 둘 다 해소. "성공 후에만 완료" 가 이제 `status != null` 로 코드에 박혀 있다 |
+| 1·2·4·5·6·7·8 | — | 충족(라운드 1·2 그대로) | 라운드 2 수정이 바꾼 것이 없다(2 는 `pubspec.yaml` 에 `in_app_purchase_android ^0.5.0` 직접 의존성이 추가됐지만 받는 버전은 lock 그대로 0.5.0 이고 `depend_on_referenced_packages` 를 위한 선언이다) |
+
+범위 밖 변경으로 보이는 것: 없음. `buy` 반환형 `Future<bool>` 과 `start()` 의 false 처리(`64e7e09`)는 Fake↔플러그인 대조에서 나온 같은 체크박스 3 의 결함(Android `launchBillingFlow` non-OK 가 예외가 아니라 false 라 "구독 시작" 을 눌러도 아무 일도 없음)이고 플러그인 소스(`in_app_purchase_android_platform.dart:193`)로 확인했다. SK2 쪽은 `purchase` 가 던지고 늘 `true` 라(`in_app_purchase_storekit_platform.dart:178-180`) 기존 `on Exception` 경로가 맞다.
+
+### 3. 결함
+
+### D-32-6 (MINOR) `completePurchase` 게이트가 앱이 아는 상태 라벨 집합에 묶여 있다 — 서버가 라벨을 하나 늘리면 Play 구매가 영영 acknowledge 되지 않는다
+
+- **파일:** `mobile/lib/subscription/purchase_controller.dart:359` (`entitlement.status != null && …`), `mobile/lib/api/api_models.dart:146-151` (`SubscriptionStatus.fromWire` — 모르는 라벨은 null), `:154-158` (모델 주석 "모르는 `status`·`source` 라벨은 null 로 떨어뜨리지만 … 라벨은 S4 카드 문구를 고르는 데만 쓴다")
+- **무엇:** D-32-5 (b) 가 "행이 있는 응답" 을 `entitlement.status != null` 로 판정한다. 그런데 `status` 는 enum 파싱 결과라 **서버가 모르는 라벨을 보내도 null** 이 된다 — 모델 주석이 "라벨은 카드 문구에만 쓴다" 고 못 박은 이유가 바로 그 경우를 안전하게 두려던 것인데, 이제 그 null 이 `complete` 를 막는다. 서버 `SubscriptionStatus`(`app/models/enums.py:38-51`: active/grace/hold/expired/revoked/replaced)와 앱 enum(`api_models.dart:133-140`)이 **지금은 6개가 정확히 같아** 현재 동작은 맞다. 서버가 라벨을 하나 더하는 순간(예: 일시중지 `paused`) 그 상태의 Play 구매는 verify 200 을 받고 권한도 반영되지만 acknowledge 가 안 나가고, Play 는 3일 뒤 자동 환불한다 — 사용자는 돈을 돌려받고 광고가 돌아오며, 서버에는 "결제했는데 환불됨" 만 남는다.
+- **재현(논리):** `api.verifyResponse = Entitlement(active: true, until: …, status: null /* 모르는 라벨 */, source: google)` → `store.emit([fakePurchase()])` → `completed` 비어 있음. 기대: 행이 있으면(권한이 있든 없든) 완료.
+- **고치는 방향(제안):** "행이 있다" 를 enum 이 아닌 값으로 보라. 서버는 행이 있으면 늘 `next_check_at` 을 채우고(`entitlement.py:98`) 없으면 `NO_ENTITLEMENT` 로 전부 null 이므로 `entitlement.nextCheckAt != null` 이 같은 뜻이면서 라벨 집합에 안 묶인다(또는 `Entitlement` 에 원문 라벨 문자열을 하나 더 들고 그걸 본다). MINOR 로 둔 이유: 지금 라벨 집합이 같아 실기기에서 재현되지 않고, 티켓 범위의 스펙 문장은 다 지키고 있다. 다만 "서버가 상태를 늘리는 순간 환불" 은 데이터·돈이 걸린 길이라 참고가 아니라 결함으로 적는다.
+
+### 4. 코디네이터 메모 항목
+
+**1) 33 통합:** 라운드 2 와 같이 판정에서 제외. 라운드 1 §3-2 표의 `entitlement_provider.dart`·`api_models.dart` 충돌은 그대로 남아 있다(이 라운드 수정이 그 파일들을 건드리지 않았다).
+
+**2) analyze·APK:** 위 §0.
+
+**3) 비동기 경로 쌍 표(라운드 2 §4-3 에서 바뀐 칸):**
+
+| 쌍 | 라운드 3 | 판정 |
+|---|---|---|
+| 구매 중 복귀/재시작 × 거래 아직 pending(Android) | 조회가 `restored`+`purchaseState: pending` 으로 올림 → `_statusOf` 가 pending → 대기 유지, verify·acknowledge 없음 | OK (D-32-5 FIXED, 테스트 + 뮤테이션 ①) |
+| pending 끝남 × 앱 포그라운드 | `onPurchasesUpdated(PURCHASED)` → `purchased`·`purchaseState: purchased` → verify → 행 있음 → acknowledge | OK (테스트 "결제가 끝나면…") |
+| pending 끝남 × 앱 꺼져 있음 | 다음 시작 조회가 `restored`+`purchaseState: purchased` → verify → acknowledge | OK (논리; 조회 경로는 "복원된 구매도 같은 길로…" 테스트) |
+| verify 200 × 행 없음(`NO_ENTITLEMENT`) | 권한은 반영(active false), 완료 안 함 | OK (테스트 + 뮤테이션 ②) |
+| verify 200 × 행 있음 × 앱이 모르는 라벨 | 완료 안 함 → 3일 뒤 Play 환불 | **D-32-6**(지금은 라벨 집합이 같아 안 밟힘) |
+| 구독 시작 × Play 가 결제 창을 못 띄움 | `buy` false → `error_failed` 문구 | OK (테스트 "결제 창을 띄우지 못하면…") |
+| 구독 시작 × SK2 실패 | 예외 → `error_failed` | OK (기존) |
+| 라운드 2 표의 나머지 칸 | 변경 없음 | OK |
+
+### 5. 참고 (결함 아님)
+
+1. **크로스 스토어 edge:** `verify_receipt` 는 게스트의 **모든** 행으로 권한을 만든다. 한 게스트가 Apple 행(active)을 들고 Play 토큰을 올리면 Play 행이 없어도 `status` 가 Apple 것이라 non-null 이다. 지금은 Play pending 토큰을 verify 자체를 안 하므로 닿지 않고, PURCHASED 토큰은 어차피 행이 생긴다 — 영향 없음. D-32-6 을 `nextCheckAt` 으로 고쳐도 같은 성질이다.
+2. 증거 대조표 5번(Android acknowledge 실패를 앱이 알 수 없음)을 미수정으로 남긴 판단에 동의한다 — 완료 안 된 채 다음 시작에 재전송되는 쪽이 안전하다.
+3. `docs/RELEASE.md` `### 32.` 의 사람 확인 줄이 "유지(D-32-5) → 포기(D-32-4) → iOS Ask to Buy" 순서로 나뉘었다 — 라운드 2 참고 1 반영됨.
+4. `flutter build apk --debug` 가 `mobile/android/.kotlin/` 을 만든다(untracked). 산출물과 함께 지웠고 `git status` 는 깨끗하다. `.gitignore` 에 넣을지는 Android 쪽 티켓 몫이라 결함으로 올리지 않는다.
+5. 라운드 1 "참고" 1~5, 라운드 2 "참고" 2~3 은 그대로다.
+
+판정: PASS
