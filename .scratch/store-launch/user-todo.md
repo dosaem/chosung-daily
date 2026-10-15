@@ -45,7 +45,7 @@
 |---|---|---|---|---|
 | 15 | NAS compose 프로젝트명·볼륨명 확인, develop 폴더·`.env.develop`·DNS·터널 | 아직 | 사용자(NAS) | Claude 는 NAS 접속 안 함. 절차는 RELEASE "### 19/20." |
 | 16 | prod `.env` 새 키(`LEGAL_*`·`LOG_DIR`·`BACKUP_ENCRYPTION_CERT_FILE`·`ACCESS_LOG_RETENTION_DAYS`) | 아직 | 사용자(NAS) | 값 목록은 `.env.example` |
-| 17 | 백업 `age` 개인키 생성 → NAS 밖 두 곳 보관, 공개키 인증서를 NAS 에 | 아직 | Claude(로컬 생성) + 사용자(보관) | RELEASE "### 36." |
+| 17 | 백업 openssl CMS 키쌍 생성(개인키 `BACKUP_DECRYPTION_KEY_FILE` → NAS 밖 두 곳 보관, 공개키 인증서 `BACKUP_ENCRYPTION_CERT_FILE` → NAS) | 아직 | Claude(로컬 생성) + 사용자(보관) | RELEASE "### 36." |
 | 18 | Play Data safety · 앱 콘텐츠 설문 · target SDK/Billing 8+ 재확인 · **첫 출시 버튼** | 아직 | Claude(설문 초안·입력) → **출시 버튼은 사용자** | |
 
 ## 기록
