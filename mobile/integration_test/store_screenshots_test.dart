@@ -20,6 +20,12 @@ import 'store_screenshot_scenes.dart';
 /// 이 명령을 돌린다.
 const _locale = String.fromEnvironment('SHOT_LOCALE', defaultValue: 'ko');
 
+/// 어느 플랫폼 구성으로 찍을지. 비우면 **이 기기**를 따른다(보통 그게 맞다).
+/// `false` 를 넘기는 자리는 하나다: Android 에뮬레이터가 없을 때 Play 폰 세트를
+/// iPhone 시뮬레이터에서 찍는 경우 — 그때도 그림은 Android 구성이어야 한다
+/// (Play 는 실제 앱 경험을 요구한다. 최종 리뷰 D-35-5).
+const _isIosOverride = String.fromEnvironment('SHOT_IS_IOS');
+
 void main() {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
@@ -38,7 +44,20 @@ void main() {
       'store screenshots: $_locale, ${size.width}x${size.height}, $breakpoint',
     );
 
-    for (final scene in storeScreenshotScenes(locale: const Locale(_locale))) {
+    // 장면은 **이 기기의** 플랫폼으로 만든다 — iOS 를 박아 두면 Android
+    // 에뮬레이터에서 찍어도 iPhone 온보딩(ATT 1장 추가)이 나온다(D-35-5).
+    final isIos = _isIosOverride.isEmpty
+        ? Platform.isIOS
+        : _isIosOverride == 'true';
+    final scenes = storeScreenshotScenes(
+      locale: const Locale(_locale),
+      isIos: isIos,
+    );
+    debugPrint(
+      'store screenshots: isIos=$isIos (기기 ${Platform.operatingSystem})',
+    );
+
+    for (final scene in scenes) {
       await tester.pumpWidget(scene.app);
       // 폰트·가짜 응답이 실제 시간으로 끝난다 — 고정 대기 + settle 로 맞춘다.
       await Future<void>.delayed(const Duration(seconds: 2));

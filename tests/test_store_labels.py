@@ -139,11 +139,61 @@ def test_the_table_and_the_play_answers_declare_the_same_data_types():
     assert table == answers
 
 
+# `docs/play-data-safety.md` 의 "이 표에 **없는** 것" 표.
+NOT_COLLECTED_HEADER = ("Play 데이터 유형", "왜 아닌가")
+
+
+def test_the_coarse_location_admob_estimates_is_declared_not_excluded():
+    """AdMob 이 IP 로 추정하는 **대략적인 위치**도 신고 대상이다(최종 리뷰 D-35-4).
+
+    방침 `#overseas` 의 AdMob 행이 이미 "광고 요청 정보(대략적 위치…)" 를 이전
+    항목으로 적고 있다 — 그런데 Play 답안은 "SDK 가 직접 받고 우리가 수집하지
+    않는다" 는 이유로 정확한 위치와 대략적인 위치를 **둘 다** 제외했다. 자체 서버
+    저장 여부나 위치 권한 유무는 신고 제외 근거가 아니고(AdMob 데이터 공개 ·
+    Play Data safety 설명), 그대로 두면 배포용 답안 정본이 축소 신고가 된다.
+    """
+    assert "대략적 위치" in _overseas_text(), "방침 AdMob 행이 바뀌었다 — 대조 기준부터 본다"
+
+    play_types = {row[1] for row in _table(DATA_SAFETY, DATA_SAFETY_HEADER)}
+    assert "위치 > 대략적인 위치" in play_types, "Play 답안에 대략적인 위치가 없다"
+
+    excluded = [row[0] for row in _table(DATA_SAFETY, NOT_COLLECTED_HEADER)]
+    assert not [row for row in excluded if "대략적인 위치" in row], (
+        f"대략적인 위치를 아직 제외하고 있다: {excluded}"
+    )
+    assert "정확한 위치" in " ".join(excluded), "정확한 위치는 그대로 미수집이다"
+
+    assert "COARSE_LOCATION" in _asc_categories(), "ASC 라벨에 대략적인 위치가 없다"
+
+
+def test_the_coarse_location_is_shared_with_admob_and_tracks_the_user():
+    """SDK 가 기기 밖으로 보내는 값이라 공유고, ATT 프롬프트를 띄우므로 추적이다."""
+    entries = {
+        entry["category"]: entry for entry in json.loads(ASC_LABELS.read_text(encoding="utf-8"))
+    }
+    coarse = entries["COARSE_LOCATION"]
+
+    assert coarse["purposes"] == ["THIRD_PARTY_ADVERTISING"]
+    assert "DATA_USED_TO_TRACK_YOU" in coarse["data_protections"]
+
+    row = next(row for row in _label_rows() if row[1].strip("`") == "COARSE_LOCATION")
+    assert "AdMob" in row[3]
+
+    play_row = next(
+        row
+        for row in _table(DATA_SAFETY, DATA_SAFETY_HEADER)
+        if row[1] == "위치 > 대략적인 위치"
+    )
+    assert play_row[2] == "예", "수집"
+    assert play_row[3].startswith("예"), "공유"
+
+
 @pytest.mark.parametrize(
     ("category", "item"),
     [
         ("OTHER_DATA_TYPES", "애플 refresh token"),
         ("OTHER_DIAGNOSTIC_DATA", "접속·오류 기록"),
+        ("COARSE_LOCATION", "광고 요청 정보"),
     ],
 )
 def test_the_two_labels_found_by_the_cross_check_are_declared(category, item):

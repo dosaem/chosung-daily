@@ -7,6 +7,7 @@ fastlane 이 올리는 것은 **레포의 파일 그대로**다 — 글자 수 �
 """
 
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -108,7 +109,12 @@ def test_the_category_is_a_word_puzzle_game():
 # --- 심사 노트 -------------------------------------------------------------
 
 REVIEW_INFORMATION = IOS_METADATA / "review_information"
-NOTES = REVIEW_INFORMATION / "notes.txt"
+# `notes.txt` 가 아니라 `notes.template.txt` 다 — fastlane deliver 는
+# `review_information/` 의 예약 이름(`notes.txt` 등)을 보면 심사 상세를 PATCH 해서
+# 사람이 콘솔에 넣은 Sandbox 계정을 덮는다(최종 리뷰 D-35-7,
+# `tests/test_asc_submit_workflow.py`). 올리는 쪽은 `asc-submit.yml` 의 Python
+# 스텝 하나로 모으고, 그 스텝이 콘솔 값과 플레이스홀더를 구분한다.
+NOTES = REVIEW_INFORMATION / "notes.template.txt"
 
 # ASC `appStoreReviewDetails.notes` 한도.
 NOTES_LIMIT = 4000
@@ -191,12 +197,176 @@ def test_upload_workflows_delete_the_api_key_afterwards(name):
     assert all(step.get("if") == "always()" for step in cleanup)
 
 
-def test_the_metadata_workflow_refuses_to_upload_without_screenshots():
-    """iPad 스크린샷 없이 제출하면 심사가 막힌다 — 비어 있으면 먼저 멈춘다."""
-    text = (WORKFLOWS / "appstore-metadata.yml").read_text(encoding="utf-8")
+VERIFIER = MOBILE / "tool" / "verify_store_screenshots.py"
 
-    assert "fastlane/screenshots" in text
-    assert "scripts/store_screenshots.sh" in text
+IOS_SETS = {("ko", "iphone69"), ("ko", "ipad13"), ("en-US", "iphone69"), ("en-US", "ipad13")}
+
+
+def _step_script(workflow: str, step_name: str) -> str:
+    steps = next(iter(_workflow(workflow)["jobs"].values()))["steps"]
+    matching = [step for step in steps if step.get("name") == step_name]
+    assert matching, f"{workflow}: '{step_name}' 스텝이 없다"
+    return matching[0]["run"]
+
+
+# 실제 파일 이름의 장면 조각(`StoreScene.slug`). 마지막 장이 플랫폼으로 갈리는
+# 온보딩이라 검사가 그 이름을 본다.
+SCENE_SLUGS = ("01_home", "02_result", "03_leaderboard", "04_records", "06_language")
+
+
+def _write_set(directory: Path, prefix: str, count: int, body: str = "x") -> list[Path]:
+    directory.mkdir(parents=True, exist_ok=True)
+    written = []
+    for index in range(count):
+        slug = SCENE_SLUGS[index] if index < len(SCENE_SLUGS) else f"{index:02d}_extra"
+        path = directory / f"{prefix}_ko_{slug}.png"
+        path.write_text(f"{body}{slug}")
+        written.append(path)
+    return written
+
+
+def _fake_mobile(tmp_path: Path, *, ios=None, play_phone=None, play_tablet=None) -> Path:
+    """`verify_store_screenshots.py` 가 보는 폴더 모양만 만든다."""
+    root = tmp_path / "mobile"
+    for locale, prefix in IOS_SETS:
+        count = EXPECTED_SHOTS if ios is None else ios.get((locale, prefix), EXPECTED_SHOTS)
+        _write_set(
+            root / "ios" / "fastlane" / "screenshots" / locale,
+            prefix,
+            count,
+            body=f"{locale}-{prefix}-",
+        )
+    for locale in PLAY_LOCALES:
+        images = root / "android" / "fastlane" / "metadata" / "android" / locale / "images"
+        _write_set(
+            images / "phoneScreenshots",
+            "android",
+            EXPECTED_SHOTS if play_phone is None else play_phone.get(locale, EXPECTED_SHOTS),
+            body=f"play-phone-{locale}-",
+        )
+        _write_set(
+            images / "tenInchScreenshots",
+            "ipad13",
+            EXPECTED_SHOTS if play_tablet is None else play_tablet.get(locale, EXPECTED_SHOTS),
+            body=f"play-tablet-{locale}-",
+        )
+    return root
+
+
+def _verify(root: Path, target: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["python3", str(VERIFIER), target, str(root)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+# 한 세트 = OVERRIDES §8 의 5장.
+EXPECTED_SHOTS = 5
+
+
+def test_the_upload_steps_verify_the_screenshot_sets_before_uploading():
+    """글자 수·경로만 보던 검사는 "1장만 찍히고 drive 가 죽은" 상태를 통과시켰다
+    (최종 리뷰 D-35-1). 두 업로드 경로가 모두 검사를 **먼저** 돌리는지 본다.
+    """
+    assert "verify_store_screenshots.py ios" in _step_script(
+        "appstore-metadata.yml", "Check screenshots exist"
+    )
+
+    fastfile = (MOBILE / "android" / "fastlane" / "Fastfile").read_text(encoding="utf-8")
+    release = fastfile.split("lane :release", 1)[1].split("upload_to_play_store", 1)[0]
+    assert "verify_store_screenshots.py play" in release, "Play 업로드 전 검사가 없다"
+
+
+def test_the_verifier_passes_on_complete_sets(tmp_path):
+    for target in ("ios", "play", "both"):
+        result = _verify(_fake_mobile(tmp_path / target), target)
+        assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize(
+    ("label", "kwargs", "target"),
+    [
+        ("iPad 세트가 중간에 깨졌다", {"ios": {("ko", "ipad13"): 1}}, "ios"),
+        ("6.9\" 세트가 없다", {"ios": {("en-US", "iphone69"): 0}}, "ios"),
+        ("세트가 누적됐다", {"ios": {("ko", "iphone69"): 10}}, "ios"),
+        ("Play 폰 세트가 비었다", {"play_phone": {"ko-KR": 0}}, "play"),
+        ("Play 폰 세트가 누적됐다", {"play_phone": {"en-US": 10}}, "play"),
+        ("Play 태블릿 세트가 반쪽이다", {"play_tablet": {"ko-KR": 3}}, "play"),
+    ],
+)
+def test_the_verifier_refuses_a_broken_set(label, kwargs, target, tmp_path):
+    result = _verify(_fake_mobile(tmp_path, **kwargs), target)
+
+    assert result.returncode == 1, f"{label}: 그대로 올리려 했다\n{result.stdout}"
+    assert "::error::" in result.stdout
+
+
+def _ios_phone_scenes(root: Path, locale: str = "ko") -> list[Path]:
+    directory = root / "ios" / "fastlane" / "screenshots" / locale
+    return sorted(directory.glob("iphone69_*.png"))
+
+
+def _play_phone_dir(root: Path, locale: str = "ko-KR") -> Path:
+    images = root / "android" / "fastlane" / "metadata" / "android" / locale / "images"
+    phone_dir = images / "phoneScreenshots"
+    for path in phone_dir.glob("*.png"):
+        path.unlink()
+    return phone_dir
+
+
+def test_the_verifier_refuses_a_play_phone_set_copied_from_the_iphone_captures(tmp_path):
+    """D-35-5: Android 에뮬레이터가 없던 날 iPhone 캡처를 Play 폰 세트로 복사하면
+    iOS 에만 있는 ATT 안내 장이 들어간 그림이 Play 에 올라간다 — 올리기 전에 막는다.
+    """
+    root = _fake_mobile(tmp_path)
+    phone_dir = _play_phone_dir(root)
+    for source in _ios_phone_scenes(root):
+        (phone_dir / source.name).write_bytes(source.read_bytes())
+
+    result = _verify(root, "play")
+
+    assert result.returncode == 1, result.stdout
+    assert "iOS 온보딩 캡처" in result.stdout
+
+
+def test_the_verifier_allows_the_fallback_set_shot_in_the_android_layout(tmp_path):
+    """AVD 없이 iPhone 시뮬레이터에서 **Android 구성**으로 찍은 세트는 통과한다.
+
+    온보딩 말고 네 장면(홈·결과·순위·내 기록)은 두 플랫폼이 같은 그림이라 iOS 세트와
+    바이트가 같다 — 그걸 복사본으로 보면 정상 경로가 막힌다. 갈리는 장면은 온보딩
+    하나다.
+    """
+    root = _fake_mobile(tmp_path)
+    phone_dir = _play_phone_dir(root)
+    for source in _ios_phone_scenes(root):
+        body = source.read_bytes()
+        if "06_language" in source.name:
+            body = body + b"-android-onboarding"
+        (phone_dir / source.name.replace("iphone69_", "androidui_")).write_bytes(body)
+
+    result = _verify(root, "play")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_the_verifier_allows_the_tablet_set_to_reuse_the_ipad_captures(tmp_path):
+    """태블릿은 같은 코드·같은 그림이라 iPad 캡처 재사용이 맞다 — 폰과 다르다."""
+    root = _fake_mobile(tmp_path)
+    ipad = sorted((root / "ios" / "fastlane" / "screenshots" / "ko").glob("ipad13_*.png"))
+    tablet_dir = (
+        root / "android" / "fastlane" / "metadata" / "android" / "ko-KR" / "images"
+        / "tenInchScreenshots"
+    )
+    for path in tablet_dir.glob("*.png"):
+        path.unlink()
+    for source in ipad:
+        (tablet_dir / source.name).write_bytes(source.read_bytes())
+
+    result = _verify(root, "play")
+
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_the_submit_workflow_keeps_the_review_contact_out_of_the_repo():
@@ -218,5 +388,5 @@ def test_the_submit_workflow_keeps_the_review_contact_out_of_the_repo():
 def test_the_submit_workflow_reads_the_review_notes_from_the_repo():
     text = (WORKFLOWS / "asc-submit.yml").read_text(encoding="utf-8")
 
-    assert "fastlane/metadata/review_information/notes.txt" in text
+    assert "fastlane/metadata/review_information/notes.template.txt" in text
     assert "fastlane/app_privacy_details.json" in text

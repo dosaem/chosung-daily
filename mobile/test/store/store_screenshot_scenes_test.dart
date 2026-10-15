@@ -1,3 +1,5 @@
+import 'package:chosung/onboarding/onboarding_pages.dart';
+import 'package:chosung/screens/onboarding_screen.dart';
 import 'package:chosung/widgets/leaderboard_row.dart';
 import 'package:chosung/widgets/result_sheet.dart';
 import 'package:easy_localization/easy_localization.dart';
@@ -44,7 +46,8 @@ void main() {
       testWidgets('$language · $label — 장면마다 그 화면의 내용이 보인다', (tester) async {
         setViewSize(tester, size);
 
-        for (final scene in storeScreenshotScenes(locale: locale)) {
+        final scenes = storeScreenshotScenes(locale: locale, isIos: true);
+        for (final scene in scenes) {
           await _pumpScene(tester, scene);
 
           switch (scene.scene) {
@@ -74,7 +77,7 @@ void main() {
     testWidgets('$language — 태블릿 폭의 셸 장면은 rail 로 찍힌다', (tester) async {
       setViewSize(tester, tablet);
 
-      for (final scene in storeScreenshotScenes(locale: locale)) {
+      for (final scene in storeScreenshotScenes(locale: locale, isIos: true)) {
         await _pumpScene(tester, scene);
 
         expect(
@@ -96,7 +99,7 @@ void main() {
     testWidgets('$language — 폰 폭의 셸 장면은 하단 탭 바로 찍힌다', (tester) async {
       setViewSize(tester, phone);
 
-      for (final scene in storeScreenshotScenes(locale: locale)) {
+      for (final scene in storeScreenshotScenes(locale: locale, isIos: true)) {
         await _pumpScene(tester, scene);
 
         expect(
@@ -121,6 +124,7 @@ void main() {
 
       final scene = storeScreenshotScenes(
         locale: locale,
+        isIos: true,
       ).firstWhere((scene) => scene.scene == StoreScene.leaderboard);
       await _pumpScene(tester, scene);
 
@@ -157,12 +161,45 @@ void main() {
       }
     });
 
+    // 최종 리뷰 D-35-5: 장면이 플랫폼을 iOS 로 박아 둬서, Android 에뮬레이터에서
+    // 찍어도 ATT 안내 1장이 붙은 iPhone 온보딩(4장)이 나왔다. Play 는 실제 앱
+    // 경험을 보여 주도록 요구한다 — 찍는 기기의 구성이 그대로 나와야 한다.
+    for (final isIos in [true, false]) {
+      final platform = isIos ? 'iOS' : 'Android';
+
+      testWidgets('$language · $platform — 온보딩 장 수가 그 플랫폼과 같다', (
+        tester,
+      ) async {
+        setViewSize(tester, phone);
+
+        final scene = storeScreenshotScenes(
+          locale: locale,
+          isIos: isIos,
+        ).firstWhere((scene) => scene.scene == StoreScene.language);
+        await _pumpScene(tester, scene);
+
+        final pages = onboardingPages(isIos: isIos);
+        for (var index = 0; index < pages.length; index++) {
+          expect(
+            find.byKey(OnboardingKeys.dot(index)),
+            findsOneWidget,
+            reason: '$platform 은 ${pages.length}장이다',
+          );
+        }
+        expect(
+          find.byKey(OnboardingKeys.dot(pages.length)),
+          findsNothing,
+          reason: '$platform 에 없는 장이 그려졌다 — ${pages.length}장이어야 한다',
+        );
+      });
+    }
+
     testWidgets('$language — 모든 장면이 라이트 모드다(기기가 다크여도)', (tester) async {
       setViewSize(tester, phone);
       tester.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
       addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
 
-      for (final scene in storeScreenshotScenes(locale: locale)) {
+      for (final scene in storeScreenshotScenes(locale: locale, isIos: true)) {
         await _pumpScene(tester, scene);
 
         final context = tester.element(find.byType(Scaffold).first);
@@ -204,7 +241,7 @@ Future<List<StoreScreenshotScene>> _pumpAndCollect(
   required Size size,
 }) async {
   final scenes = <StoreScreenshotScene>[];
-  for (final scene in storeScreenshotScenes(locale: locale)) {
+  for (final scene in storeScreenshotScenes(locale: locale, isIos: true)) {
     await _pumpScene(tester, scene);
     expect(find.byType(MaterialApp), findsOneWidget, reason: scene.fileName);
     scenes.add(scene);

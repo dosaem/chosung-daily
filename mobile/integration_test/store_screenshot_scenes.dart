@@ -118,7 +118,15 @@ class StoreScreenshotScene {
 }
 
 /// 한 로케일의 5장. 순서가 스토어에 올라가는 순서다.
-List<StoreScreenshotScene> storeScreenshotScenes({required Locale locale}) {
+///
+/// `isIos` 는 **찍는 기기의 플랫폼**이다. 온보딩 장 수가 여기서 갈려서
+/// (`onboardingPages`: iOS 는 ATT 안내 1장이 더 붙는다) 고정값을 넣으면 Android
+/// 에뮬레이터에서 찍어도 iPhone 구성이 나온다 — Play 는 실제 앱 경험을 보여
+/// 주도록 요구한다(최종 리뷰 D-35-5).
+List<StoreScreenshotScene> storeScreenshotScenes({
+  required Locale locale,
+  required bool isIos,
+}) {
   final isKorean = locale.languageCode == 'ko';
   final language = isKorean ? PuzzleLanguage.ko : PuzzleLanguage.en;
   final mask = isKorean ? fakeKoMask : _enMask;
@@ -211,6 +219,7 @@ List<StoreScreenshotScene> storeScreenshotScenes({required Locale locale}) {
         scene: StoreScene.home,
         api: api(),
         locale: locale,
+        isIos: isIos,
         selectedIndex: 0,
         tab: const TodayTab(),
       ),
@@ -222,6 +231,7 @@ List<StoreScreenshotScene> storeScreenshotScenes({required Locale locale}) {
         scene: StoreScene.result,
         api: api(finished: true),
         locale: locale,
+        isIos: isIos,
         selectedIndex: 0,
         tab: const TodayTab(),
       ),
@@ -234,6 +244,7 @@ List<StoreScreenshotScene> storeScreenshotScenes({required Locale locale}) {
         scene: StoreScene.leaderboard,
         api: api(),
         locale: locale,
+        isIos: isIos,
         selectedIndex: 1,
         tab: const RankingTab(),
       ),
@@ -245,6 +256,7 @@ List<StoreScreenshotScene> storeScreenshotScenes({required Locale locale}) {
         scene: StoreScene.records,
         api: api(),
         locale: locale,
+        isIos: isIos,
         selectedIndex: 2,
         tab: const RecordsTab(),
       ),
@@ -256,6 +268,7 @@ List<StoreScreenshotScene> storeScreenshotScenes({required Locale locale}) {
         scene: StoreScene.language,
         api: api(),
         locale: locale,
+        isIos: isIos,
         home: const OnboardingScreen(),
       ),
     ),
@@ -272,12 +285,14 @@ Widget _shell({
   required StoreScene scene,
   required FakeApiClient api,
   required Locale locale,
+  required bool isIos,
   required int selectedIndex,
   required Widget tab,
 }) => _root(
   scene: scene,
   api: api,
   locale: locale,
+  isIos: isIos,
   home: Builder(
     builder: (context) => AdaptiveScaffold(
       selectedIndex: selectedIndex,
@@ -302,6 +317,7 @@ Widget _root({
   required StoreScene scene,
   required FakeApiClient api,
   required Locale locale,
+  required bool isIos,
   required Widget home,
 }) => ProviderScope(
   // 장면 하나 = provider 그래프 하나. 키가 없으면 장면을 잇따라 띄울 때
@@ -313,8 +329,8 @@ Widget _root({
     startupStatsProvider.overrideWithValue(api.stats),
     analyticsServiceProvider.overrideWithValue(NoopAnalyticsService()),
     appVersionProvider.overrideWith((ref) async => '1.0.0'),
-    // 온보딩 장 수는 플랫폼으로 갈린다 — 스크린샷은 iOS 구성(4장)으로 찍는다.
-    isIosProvider.overrideWithValue(true),
+    // 온보딩 장 수는 플랫폼으로 갈린다 — 찍는 기기를 그대로 따른다.
+    isIosProvider.overrideWithValue(isIos),
   ],
   child: AppLocalizationScope(
     startLocale: locale,

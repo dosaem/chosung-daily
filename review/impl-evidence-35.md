@@ -680,3 +680,312 @@ worktree 에서 돈 pytest 는 이 하나뿐이다(실행 전 `ps` 로 확인).
    > 리더보드 `display` = `"게스트 #" + guest.id 16진 4자리`.
    38 이 응답을 `anon_tag` 로 바꾸면서 이 줄을 안 고쳤다. **스펙은 38 소관이고 이
    티켓이 건드릴 자리가 아니라 고치지 않았다** — 코디네이터에게 보고한다.
+
+## 수정 라운드 1
+
+최종 리뷰 라운드 1(`review/impl-review-35.md`, 대상 HEAD `f243b61`)의 MAJOR 7건을
+고쳤다. BLOCKER·MINOR·REPEAT 는 없었다. 리뷰 파일은 고치지 않았다.
+
+**코디네이터 범위 메모(2026-10-15)를 따랐다:**
+
+1. **이 라운드는 rebase 하지 않았다** — 베이스는 `1172b9b` 그대로다(스크린샷
+   재촬영이 앱 티켓 머지 후 별도 작업이라서). 그래서 과제 지시의 `git rebase main`
+   은 **의도적으로 건너뛴다**.
+2. **법적 문서(개인정보처리방침) 본문은 건드리지 않았다.** D-35-4 를 고치면서
+   방침에 더할 항목이 생겨서 `docs/RELEASE.md` "### 35." 에 "방침에 추가 필요:
+   광고 요청 정보(대략적 위치)" 사람 확인 항목으로 남겼다(아래 D-35-4).
+3. **Play 세트가 iPhone 복사본으로 나가지 않게 검사로 막았다**(아래 D-35-5).
+
+### 리뷰 전에 없던 것 — 워크플로·스크립트를 "돌려 보는" 테스트
+
+리뷰가 지적한 공백(`워크플로 실패 경로는 실행하지 않는다`)이 D-35-1~3·7 의 공통
+원인이다. 그래서 재현 테스트를 **글자 검사가 아니라 실행**으로 만들었다.
+
+- `tests/test_asc_submit_workflow.py` — `asc-submit.yml` 의 `python3 - <<'PYEOF'`
+  블록을 **YAML 에서 꺼내 `exec`** 한다(사본을 두지 않는다 — 사본은 워크플로가
+  바뀌면 낡는다). 바깥으로 나가는 지점은 `urllib.request.urlopen` 하나라서 그
+  자리만 메모리 대역(`FakeAsc`: ASC + iris 라우팅, 호출 순서·상태 기록)으로 막으면
+  실제 호출 없이 전체 흐름이 돈다. JWT 서명은 테스트가 그 자리에서 만드는 EC P-256
+  키로 진짜 `openssl` 을 쓴다(네트워크·계정·실제 키 없음).
+- `tests/test_store_screenshot_script.py` — `scripts/store_screenshots.sh` 를
+  `STORE_SHOTS_LIB_ONLY=1` 로 **source** 해 판정 함수만 가져오고 `flutter` 를 shell
+  함수로 덮어 "몇 장을 만들고 어떤 코드로 끝났는지" 를 테스트가 정한다. 스크립트
+  하단에 lib-only 가드를 넣은 것이 이 때문이다(시뮬레이터·에뮬레이터가 필요한 메인
+  흐름은 돌지 않는다).
+
+### D-35-1 — 한 장만 찍고 실패해도 캡처 성공 처리
+
+- **원인**: `capture()` 가 `flutter drive` 의 종료 코드를 `|| true` 로 버리고,
+  산출물도 "0장인지" 만 봤다. 업로드 쪽 `appstore-metadata.yml` 도 폴더 전체 PNG 가
+  0장인지만 세서 반쪽 세트를 막지 못했다.
+- **수정**: `capture()` 가 종료 코드를 받아(`|| drive_exit=$?`) **코드와 장 수(5)를
+  둘 다** 본다. 하나라도 어긋나면 사유를 찍고 실패를 돌려주며 **기존 세트를
+  건드리지 않는다**. 기대 장수는 `EXPECTED_SHOTS`(기본 5)이고
+  `tests/test_store_screenshot_script.py` 가 `StoreScene` 장면 수와 갈리지 않는지
+  본다. 업로드 쪽은 `mobile/tool/verify_store_screenshots.py` 로 바꿨다 —
+  로케일×기기마다 5장을 센다(6.5" 는 선택이라 0 또는 5).
+- **증명**: 재현(옛 검사)과 수정 후.
+
+```
+# 옛 업로드 검사: 1장만 있어도 통과했다
+$ cd <tmp> && bash -c 'count=$(find fastlane/screenshots -name "*.png" | wc -l | tr -d " ")
+  echo "screenshots: $count"; [ "$count" -eq 0 ] && exit 1'
+screenshots: 1
+old check exit=0
+
+$ uv run pytest -q tests/test_store_screenshot_script.py
+12 passed in 0.43s
+```
+
+`test_capture_fails_when_the_drive_run_did_not_produce_the_whole_set[1]` 은 lib-only
+가드를 넣은 직후(판정 수정 전) **실패**했다 — `capture_exit=0` 으로 1장을 결과
+폴더로 옮겼다. 수정 후 통과한다.
+
+### D-35-2 — 개인정보 라벨 삭제 후 실패를 삼켜 부분 상태로 제출 진행
+
+- **원인**: `try` 하나가 **인증 확인(GET)과 되돌릴 수 없는 쓰기(DELETE/POST)를 같이**
+  감쌌다. 그래서 삭제 뒤의 실패도 "iris auth 미지원 — ASC UI 값 유지" 로 찍고
+  넘어가, `dry_run=false` 면 **비었거나 반쪽인 신고 상태로 심사 제출까지** 갔다.
+- **수정**: 두 단계로 갈랐다. GET 이 실패하면(팀 키 401) 아무것도 지우지 않고
+  `SKIPPED` 로 넘어간다. GET 이 됐으면 거기서부터는 복구가 불가능하므로(지운 라벨의
+  id 는 돌아오지 않는다) 실패를 삼키지 않고 `::error::` 로 상태를 알리고 **다시
+  raise 해 스텝을 실패시킨다** — 빌드 첨부·제출로 넘어가지 않는다. `docs/RELEASE.md`
+  "### 35." 의 라벨 체크박스에 두 로그의 뜻을 적었다.
+- **증명**: 재현 테스트가 수정 전 `DID NOT RAISE HTTPError` 로 실패했다(예외를 삼키고
+  제출까지 진행). 수정 후:
+
+```
+$ uv run pytest -q tests/test_asc_submit_workflow.py -k privacy
+3 passed, 7 deselected
+```
+
+`test_a_write_failure_after_the_delete_fails_the_step_instead_of_submitting` 이
+`fake.submitted is False` · `fake.attached_build is None` · 로그에 `SKIPPED` 없음을
+단언한다. `test_privacy_labels_are_left_alone_when_iris_rejects_the_team_key` 는
+401 때 `DELETE` 호출이 **아예 없음**을 단언한다.
+
+### D-35-3 — 입력한 app_version 과 다른 버전에 빌드/심사정보를 붙임
+
+- **원인**: ① 워크플로가 `APP_VERSION` 을 deliver 스텝에만 주고 Python 스텝에는
+  주지 않았다. ② 버전 선택이 상태 필터 + `limit=1` 이라 목록 앞의 반려된 구버전을
+  집었고, fallback 은 상태 조건조차 없었다.
+- **수정**: 스텝 `env` 에 `APP_VERSION` 을 넣고(비면 `assert` 로 멈춘다),
+  `filter[versionString]={APP_VERSION}` + 편집 가능 상태로 질의한 뒤 **클라이언트에서
+  다시 `versionString` 을 대조**한다(서버가 필터를 흘려도 엉뚱한 버전으로 가지
+  않게). 없으면 fallback 없이 `assert` 로 멈춘다. `docs/RELEASE.md` 의 업로드 순서에
+  `-f app_version=1.0.0` 을 두 명령에 같이 적었다.
+- **증명**: 리뷰의 재현(`0.9.0 / REJECTED` 가 첫 행)으로 수정 전 `selected=0.9.0`
+  이었고, 수정 후:
+
+```
+$ uv run pytest -q tests/test_asc_submit_workflow.py -k version
+2 passed, 8 deselected in 0.08s
+```
+
+`test_the_step_works_on_the_version_the_dispatch_asked_for` 는 `V-NEW` 를 골랐고
+구버전 id(`V-OLD`)가 **어떤 호출 URL 에도 없음**을 단언한다.
+`test_the_step_stops_when_the_asked_version_does_not_exist` 는 멈추고 빌드 첨부·제출을
+하지 않음을 단언한다. 정상 경로도 막히지 않는지 끝까지 돌려 본다 —
+`test_the_whole_step_still_submits_the_asked_version`(`dry_run=false`,
+`build_number=42` → `attached_build=B42`, `SUBMITTED FOR REVIEW`).
+
+### D-35-4 — AdMob SDK 의 대략적 위치 수집을 Data safety 에서 제외
+
+- **원인**: "SDK 가 직접 받고 우리가 수집하지 않는다" 를 신고 제외 근거로 썼다.
+  자체 서버 저장 여부·위치 권한 유무는 근거가 아니다 — SDK 가 기기 밖으로 보내면
+  수집이고 받는 자가 있으면 공유다. 방침 `#overseas` 의 AdMob 행은 **그때도**
+  "광고 요청 정보(대략적 위치·기기 종류 등 SDK 가 수집하는 값)" 를 이전 항목으로
+  적고 있었다(ko `privacy.ko.html:182`, en `privacy.en.html:198`) — 즉 방침과 스토어
+  신고가 어긋난 상태였다. 기존 테스트는 표끼리의 범주 일치만 봐서 못 잡았다.
+- **수정**(세 곳을 같이):
+  - `docs/play-data-safety.md` §2 에 `위치 > 대략적인 위치`(수집 예 · 공유 예
+    Google AdMob · 필수 · 광고 또는 마케팅) 행을 넣고, "이 표에 없는 것" 의
+    `정확한 위치 / 대략적인 위치` 행을 **`정확한 위치` 만**으로 좁혔다(공식 근거 링크
+    2건 포함).
+  - `mobile/ios/fastlane/app_privacy_details.json` 에 `COARSE_LOCATION` /
+    `THIRD_PARTY_ADVERTISING` / `NOT_LINKED` + `USED_TO_TRACK` 를 더했다(광고 ID 두
+    행과 같은 축).
+  - `docs/legal-checklist.md` "스토어 라벨" 대조표에 행을 더하고, "대조에서 찾은
+    차이" 에 왜 틀렸는지·무엇으로 고쳤는지를 적었다.
+  - 티켓 34 의 `tests/test_app_deploy_workflow.py` 도 같이 고쳤다 — `COLLECTED` 표가
+    ASC 범주를 1:1 로 열거하고(`test_privacy_details_lists_exactly_what_the_app_collects`)
+    광고 범주의 추적 신고를 지키므로(`test_advertising_identifiers_are_declared_as_tracking`),
+    새 범주를 그 두 곳에 넣지 않으면 "신고하지 않은 수집" 쪽으로 깨진다. 34 가
+    더한 다른 단언은 건드리지 않았다.
+- **법적 문서는 고치지 않았다**(코디네이터 메모 2). 방침 3절 "수집하는 정보" 의 항목
+  목록에는 이 항목이 없다 — Firebase "앱 사용 이벤트" 와 같은 성격이라
+  `docs/RELEASE.md` "### 35." 에 **"방침에 추가 필요: 광고 요청 정보(대략적 위치)"**
+  사람 확인 항목으로 남겼다.
+- **증명**: 새 테스트 2개가 수정 전 실패했다(`대략적인 위치를 아직 제외하고 있다`,
+  `KeyError: 'COARSE_LOCATION'`). 수정 후:
+
+```
+$ uv run pytest -q tests/test_store_labels.py
+12 passed in 0.02s
+
+$ uv run pytest -q tests/test_legal_checklist.py
+134 passed in 143.36s (0:02:23)
+```
+
+### D-35-5 — Android 캡처까지 iOS 온보딩을 강제해 실제 Android 와 다름
+
+- **원인 둘**: ① 장면 루트가 `isIosProvider.overrideWithValue(true)` 로 플랫폼을
+  박아, Android 에뮬레이터에서 찍어도 iPhone 구성(ATT 안내 1장 추가 = 4장)이 나왔다.
+  ② 에뮬레이터가 없으면 iOS 세트를 **그대로 복사**해 Play 폰 세트로 썼다 — 그림이
+  실제 Android 와 다르다.
+- **수정**:
+  - `storeScreenshotScenes({required Locale locale, required bool isIos})` 로
+    바꿨다. 캡처는 `Platform.isIOS` 를 넘긴다.
+  - 대체 경로는 복사를 버리고 **iPhone 시뮬레이터에서 Android 구성으로 찍는다**
+    (`--dart-define=SHOT_IS_IOS=false`, 세트 prefix `androidui`). Play 는 규격이
+    자유롭고 우리 캡처에는 OS 상태바가 없다.
+  - 그래도 과거 복사본이 올라가지 않게 **올리기 전 검사**를 넣었다(코디네이터 메모
+    3): `mobile/tool/verify_store_screenshots.py` 가 Play 폰 세트에 **iOS 온보딩
+    캡처와 바이트까지 같은 파일**이 있으면 실패시킨다. `android/fastlane/Fastfile`
+    의 `release` lane 이 `upload_to_play_store` **전에** 이 스크립트를 돌린다.
+  - **왜 온보딩 장만 비교하나.** 처음에는 Play 폰 세트의 아무 파일이든 iPhone 세트와
+    바이트가 같으면 실패시켰는데, 그러면 위의 정상 대체 경로가 막힌다 — 플랫폼으로
+    갈리는 장면은 온보딩 하나고, 나머지 네 장(홈·결과·순위·내 기록)은 두 플랫폼이
+    같은 그림이라 **같은 바이트인 것이 정상**이다. 그래서 판정 대상을
+    `PLATFORM_DIVERGENT_SCENE`(`06_language`) 로 좁혔다. 전체 복사(지금 레포 상태)는
+    온보딩 장도 같이 복사되므로 그대로 걸린다. 양쪽 방향을 테스트로 못 박았다 —
+    `test_the_verifier_refuses_a_play_phone_set_copied_from_the_iphone_captures`,
+    `test_the_verifier_allows_the_fallback_set_shot_in_the_android_layout`.
+  - 태블릿 세트는 반대로 iPad 캡처 재사용이 맞아서(같은 코드·같은 그림, Play 는
+    폭·비율만 본다) 통과시킨다
+    (`test_the_verifier_allows_the_tablet_set_to_reuse_the_ipad_captures`).
+- **지금 상태를 숨기지 않는다**: 레포에 커밋된 Play 폰 10장은 **여전히 iPhone 캡처의
+  바이트 복사본**이다(에뮬레이터 없이 돌린 결과). 그래서 지금 `fastlane release` 를
+  돌리면 **업로드 전에 실패한다** — 의도한 동작이다. 29~33 머지 후 최종 재촬영에서
+  AVD(또는 `androidui` 대체 세트)로 바꾼다. `docs/RELEASE.md` "### 35." 의 Play 폰
+  체크박스에 그대로 적었다.
+
+```
+$ cd mobile && python3 tool/verify_store_screenshots.py ios
+screenshots OK: ios — 로케일마다 5 장씩
+ios exit=0
+
+$ cd mobile && python3 tool/verify_store_screenshots.py play
+::error::.../ko-KR/images/phoneScreenshots/iphone69_ko_06_language.png: iOS 온보딩 캡처(iphone69_ko_06_language.png)와 바이트까지 같다 — Play 는 실제 앱 경험을 요구하는데 ...
+::error::.../en-US/images/phoneScreenshots/iphone69_en_06_language.png: (같은 사유)
+스크린샷 세트 2건이 올릴 수 없는 상태다 (docs/RELEASE.md '35.')
+play exit=1
+```
+
+플랫폼 판정 쪽 재현: 수정 전 상태(`overrideWithValue(true)`)로 되돌려 새 테스트를
+돌리면 **실패**한다.
+
+```
+$ flutter test test/store --plain-name "Android — 온보딩 장 수가 그 플랫폼과 같다"
+Android 에 없는 장이 그려졌다 — 3장이어야 한다
+00:02 +0 -2: Some tests failed.
+```
+
+수정 후 `flutter test test/store` 는 **29 passed**(리뷰 때 25 + 플랫폼 테스트 4).
+
+### D-35-6 — Android 정상 재촬영 시 폰 세트가 10장으로 누적
+
+- **원인**: `capture()` 가 결과 폴더를 그대로 두고 새 파일만 옮겼다. prefix 가 다르면
+  (`iphone69_*` ↔ `android_*`) 덮이지 않아 두 세트가 같이 남는다 — Play 기기
+  유형별 상한 8장을 넘는다.
+- **수정**: `replace_set <dir> <glob>` 을 넣고, 캡처 성공 시 **그 세트가 소유한
+  파일만** 지운 뒤 새로 넣는다. 소유 glob 은 5번째 인자이고, iOS deliver 폴더는 기기
+  3종이 prefix 로 같이 사니 기본값 `${prefix}_*.png`, Play 폴더는 기기 유형 하나라
+  `'*.png'` 를 넘겨 폴더째 바꾼다. Play 태블릿 복사와 대체 폰 세트도 같은 규칙을
+  쓴다. 검사 쪽(`verify_store_screenshots.py`)도 "5장" 과 Play 상한 8장을 센다.
+- **증명**: 재현 테스트가 수정 전 10장(`iphone69_* + android_*`)으로 실패했다. 수정 후
+  `test_capture_replaces_the_previous_phone_set_instead_of_piling_up` 과
+  `test_the_android_fallback_replaces_the_phone_set_too` 가 통과하고,
+  `test_capture_keeps_the_other_device_sets_in_the_shared_ios_folder` 가 반대 방향
+  (iOS 폴더의 iPad 세트는 남아야 한다)을 지킨다.
+
+### D-35-7 — 사람이 콘솔에 채운 Sandbox 심사 노트를 제출 때 플레이스홀더로 덮음
+
+- **원인 둘**: ① Python 스텝이 기존 `notes` 를 읽지도 않고 매번 레포 노트로 PATCH
+  했다. ② `fastlane deliver` 도 `review_information/notes.txt` 를 보면 심사 상세를
+  **자기가** PATCH 한다(fastlane 2.232.2 `deliver/lib/deliver/upload_metadata.rb`
+  의 `REVIEW_INFORMATION_VALUES` / `review_information(version)` — 폴더에 예약 이름이
+  있으면 값을 담아 `update` 한다). 즉 노트 한 칸에 쓰는 쪽이 셋(레포·deliver·사람)
+  이었다.
+- **수정**: 소유권을 **순서로** 갈랐다.
+  - 레포 파일은 **첫 채움**이다. Python 스텝이 콘솔 노트를 먼저 읽고,
+    플레이스홀더(`<SANDBOX_TESTER_EMAIL>`·`<SANDBOX_TESTER_PASSWORD>`)가 남아 있거나
+    비었을 때만 레포 노트를 올린다. 사람이 채운 뒤에는 `notes` 를 아예 보내지 않고
+    `review notes: ASC 콘솔 값 유지` 를 찍는다.
+  - deliver 가 끼어들지 못하게 정본 파일 이름을
+    `review_information/notes.template.txt` 로 바꿨다(`git mv`). deliver 는 그 폴더의
+    **예약 이름만** 읽으므로 이제 심사 상세를 건드리지 않는다(남은 파일
+    `demo_required.txt` 는 fastlane 의 인식 목록에 없다 → `app_review_information`
+    이 비어 `review_information()` 이 바로 return 한다).
+  - `docs/RELEASE.md` "### 35." 에 순서(dry run → 콘솔 입력 → 진짜 제출)와 "콘솔
+    노트를 처음부터 다시 받고 싶으면 그 칸을 비우고 다시 돌린다" 를 적었다.
+- **증명**: 수정 전 `manual_note_preserved=False` / `placeholder_written=True`.
+  수정 후:
+
+```
+$ uv run pytest -q tests/test_asc_submit_workflow.py -k notes
+5 passed, 5 deselected
+```
+
+`test_the_step_does_not_overwrite_review_notes_a_human_filled_in` 이 콘솔 값이 그대로
+남는 것을, `test_the_step_fills_empty_or_placeholder_review_notes_from_the_repo` 가
+반대 방향(빈 값·플레이스홀더면 올린다)을, `test_fastlane_deliver_cannot_touch_the_review_notes`
+가 `review_information/` 에 deliver 예약 이름이 없다는 것을 지킨다.
+
+### 리뷰어 지적이 틀렸다고 본 것
+
+없다. MAJOR 7건 모두 재현되어 전부 고쳤다.
+
+### 미수정 MINOR
+
+리뷰 라운드 1 은 MINOR 0건이었다. 10.9 에 적어 둔 두 건(Android 네이티브 캡처 폴백 ·
+`spec.md` 의 옛 `display` 필드)은 그대로 남는다 — 첫 건은 이번 수정으로 **검사가
+막는 상태**가 됐고(D-35-5), 둘째는 38 소관이라 이 티켓이 건드리지 않는다.
+
+### 수정 라운드 1 — 전체 재실행
+
+```
+$ uv run ruff check .
+All checks passed!
+
+$ cd mobile && flutter analyze
+No issues found!
+
+$ cd mobile && flutter test
+All tests passed!   # 432 (리뷰 때 428 + 플랫폼 테스트 4)
+
+$ TEST_DATABASE_URL=...chosung_daily_test_t35 \
+  TEST_REDIS_URL=redis://localhost:6379/9 \
+  TEST_MIGRATION_DATABASE_URL=...chosung_daily_test_t35_migrations \
+  uv run pytest -q
+1504 passed in 1167.41s (0:19:27)
+
+$ uv run flask db heads
+b1c7d4e0a932 (head)
+
+$ git diff --check
+(출력 없음)
+```
+
+리뷰 때 1468 → **1504**다. 늘어난 36개가 이번 라운드의 재현 테스트다
+(`tests/test_asc_submit_workflow.py` 11 + `tests/test_store_screenshot_script.py` 12 +
+`tests/test_store_metadata.py` 에 더한 13). 전용 자원만 썼다 — DB
+`chosung_daily_test_t35`, Redis **DB 9**, 마이그레이션 DB
+`chosung_daily_test_t35_migrations`. 공용 테스트 DB 는 건드리지 않았고 새 DB 도 만들지
+않았다. 실행 전 `ps` 로 이 worktree 의 고아 pytest 가 없는 것을 확인했다(다른
+worktree 의 pytest 는 돌고 있었지만 DB·Redis 가 티켓별로 갈라져 있다).
+
+**첫 전체 실행은 2건 실패했다**(기록으로 남긴다):
+
+1. `tests/test_app_deploy_workflow.py::test_privacy_details_lists_exactly_what_the_app_collects`
+   — 진짜 결함이었다. 34 의 `COLLECTED` 표가 ASC 범주를 1:1 로 열거하는데
+   `COARSE_LOCATION` 을 넣지 않아서 깨졌다. D-35-4 의 일부로 그 표와
+   `test_advertising_identifiers_are_declared_as_tracking` 에 더했다.
+2. `tests/test_store_metadata.py::test_the_verifier_refuses_a_play_phone_set_copied_from_the_iphone_captures`
+   — 실행 **중간에** 검사 범위를 온보딩 장으로 좁히는 수정을 해서, 수집 시점의
+   테스트 모듈과 디스크의 스크립트가 어긋난 artifact다. 트리를 고정하고 다시 돌려
+   위의 1504 passed 를 받았다.
+
+**rebase 는 하지 않았다** — 코디네이터 범위 메모대로 베이스는 `1172b9b` 그대로다
+(`git merge-base HEAD main` = `1172b9b`). 로컬 `main` 위로 올리는 일은 최종 스크린샷
+재촬영 작업이 함께 한다.

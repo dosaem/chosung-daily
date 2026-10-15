@@ -35,6 +35,7 @@ Play Console → 앱 콘텐츠 → **데이터 보안** 설문의 답안이다. 
 | 구독 식별자 | 금융 정보 > 구매 내역 | 예 | 예 (Google, Apple) | 선택 | 앱 기능 | 구매 토큰·거래 ID·만료 시각. 결제 수단은 서버로 오지 않는다 |
 | 광고 ID | 기기 또는 기타 ID | 예 | 예 (Google AdMob) | 필수 | 광고 또는 마케팅 | SDK 가 직접 보내고 서버에 저장하지 않는다 |
 | 광고 ID(노출·클릭 측정) | 앱 활동 > 앱 내 상호작용 | 예 | 예 (Google AdMob) | 필수 | 광고 또는 마케팅, 분석 | 광고 노출·클릭. 구독자는 광고 자체가 없다 |
+| 광고 요청 정보(대략적 위치) | 위치 > 대략적인 위치 | 예 | 예 (Google AdMob) | 필수 | 광고 또는 마케팅 | 위치 권한은 쓰지 않는다 — AdMob SDK 가 광고 요청의 IP 로 추정한다(방침 `#overseas` AdMob 행). 기기 밖으로 나가는 값이라 신고한다 |
 | 앱 사용 이벤트 | 앱 활동 > 앱 내 상호작용 | 예 | 예 (Google Firebase) | 필수 | 분석, 앱 기능 | 퍼즐 완료·공유·구독 화면 조회·구독 시작 4개(방침 `#overseas` Firebase 행) |
 | 접속·오류 기록(Sentry) | 앱 정보 및 성능 > 비정상 종료 로그 | 예 | 예 (Sentry) | 필수 | 앱 기능 | 오류 스택. 요청 본문·쿠키·IP·식별자는 보내지 않는다 |
 | 접속·오류 기록(Sentry) | 앱 정보 및 성능 > 진단 | 예 | 예 (Sentry) | 필수 | 앱 기능 | 느린 요청·지연 정보 |
@@ -46,7 +47,7 @@ Play Console → 앱 콘텐츠 → **데이터 보안** 설문의 답안이다. 
 |---|---|
 | 이름 / 주소 / 전화번호 | 받지 않는다. 로그인은 OAuth 고 받는 건 이메일·식별자뿐이다 |
 | 결제 정보 | 스토어가 처리하고 서버로 오지 않는다(방침 `#collection` 구독 식별자) |
-| 정확한 위치 / 대략적인 위치 | 앱이 위치 권한을 쓰지 않는다. AdMob 이 IP 로 추정하는 값은 SDK 가 직접 받고 우리가 수집하지 않는다 |
+| 정확한 위치 | 위치 권한(`ACCESS_FINE_LOCATION`)이 없고 GPS 를 읽지 않는다. **대략적인 위치는 위 표에 있다** — AdMob 이 IP 로 추정하는 값은 우리 서버에 저장하지 않아도 SDK 가 기기 밖으로 보내므로 수집·공유 신고 대상이다([AdMob 데이터 공개](https://developers.google.com/admob/android/privacy/play-data-disclosure), [Play Data safety 설명](https://support.google.com/googleplay/android-developer/answer/10787469?hl=en)) |
 | 연락처 / 사진 / 동영상 / 오디오 / 파일 | 권한 자체가 없다(`AndroidManifest.xml`) |
 | 검색 기록 | 앱에 검색이 없다. 운영자 화면의 단어 검색은 플레이어 앱 밖이다 |
 | 설치된 앱 / 기기 ID(광고 ID 외) | 수집하지 않는다 |

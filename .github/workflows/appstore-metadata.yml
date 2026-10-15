@@ -45,17 +45,12 @@ jobs:
 
       # 스크린샷이 없으면 deliver 가 "업로드할 게 없다" 고 조용히 지나간다 —
       # iPad 스크린샷 없이 제출하면 심사가 막히므로(BASELINE 1.0.0 반려 원인)
-      # 올리기 전에 폴더를 직접 센다.
+      # 올리기 전에 직접 센다. **세트 단위로** 센다: 전체 PNG 가 0 장인지만 보면
+      # 캡처가 중간에 깨져 iPad 세트가 2장만 있는 상태도 통과하고, deliver 는 그걸
+      # 그대로 올린다. 검사 내용은 스크립트 주석에 있다(6.5" 는 선택이라 없으면
+      # 넘기고, 있으면 온전해야 한다).
       - name: Check screenshots exist
-        env:
-          APP_VERSION: ${{ github.event.inputs.app_version || '1.0.0' }}
-        run: |
-          count=$(find fastlane/screenshots -name '*.png' | wc -l | tr -d ' ')
-          echo "screenshots: $count"
-          if [ "$count" -eq 0 ]; then
-            echo "::error::fastlane/screenshots 가 비었다 — scripts/store_screenshots.sh 를 먼저 돌린다 (docs/RELEASE.md '35.')"
-            exit 1
-          fi
+        run: python3 ../tool/verify_store_screenshots.py ios
 
       - name: Upload metadata & screenshots
         env:

@@ -2065,16 +2065,44 @@ OVERRIDES §8·스펙 미정 25).
 하나뿐이라 서버 없이 결정적이고, 배너 슬롯은 넣지 않았다(구독자에게는 사라지는
 영역이고 스토어 그림에 빈 회색 띠를 넣을 이유가 없다).
 
+**장면의 플랫폼은 찍는 기기를 따른다.** 온보딩 장 수가 플랫폼으로 갈리는데
+(`onboardingPages`: iOS 는 ATT 안내 1장이 더 붙는다) 장면이 `isIos` 를 `true` 로
+박아 두면 Android 에뮬레이터에서 찍어도 iPhone 구성(4장)이 나온다 — Play 는 실제 앱
+경험을 보여 주도록 요구한다. 그래서 `storeScreenshotScenes(isIos:)` 를 받고,
+시뮬레이터 캡처는 `Platform.isIOS` 를 넘긴다. 에뮬레이터가 없어 iPhone 시뮬레이터로
+Play 폰 세트를 대신 찍을 때는 `--dart-define=SHOT_IS_IOS=false` 로 **Android 구성**
+으로 찍는다(해상도는 Play 가 안 보고, 우리 캡처에는 OS 상태바가 없다).
+
+**캡처는 "세트" 단위로만 성공한다.** `scripts/store_screenshots.sh` 의 `capture()`
+는 `flutter drive` 의 **종료 코드와 장 수를 둘 다** 보고, 5장이 다 나오지 않으면
+실패를 돌려주고 기존 세트를 그대로 둔다 — 2장째 장면에서 rail 단언이 깨지면 1장만
+생기는데 "0장만 아니면 성공" 으로 보면 새 1장과 과거 4장이 섞인 세트가 올라간다.
+성공하면 그 세트가 가진 파일만 지우고 새로 넣는다(iOS deliver 폴더는 기기 3종이
+prefix 로 같이 살고, Play 는 기기 유형별 폴더라 폴더째 바꾼다 — 안 그러면 대체
+세트와 새 세트가 함께 남아 기기 유형별 8장 제한을 넘는다). 올리는 쪽은
+`mobile/tool/verify_store_screenshots.py` 가 먼저 돈다 — 전체 PNG 수가 아니라
+**로케일×기기마다 5장**을 세고, Play 폰 세트에 **iOS 온보딩 캡처와 바이트까지 같은
+파일**이 있으면 실패시킨다(iOS 에만 있는 ATT 안내 장이 든 그림이다). 비교 대상을
+온보딩 장으로 좁힌 이유는 나머지 네 장면이 두 플랫폼에서 같은 그림이라 **같은
+바이트인 것이 정상**이기 때문이다. 태블릿 세트도 반대로 iPad 캡처 재사용이
+맞아서(같은 코드·같은 그림, Play 는 폭·비율만 본다) 통과시킨다.
+`appstore-metadata.yml` 과 `android/fastlane/Fastfile` 의 `release` lane 이 각각
+올리기 전에 이 스크립트를 돌린다.
+
 **스토어 라벨은 세 곳이 한 벌이어야 해서 테스트로 묶었다.** 같은 사실을 방침
 (`privacy#collection`·`#overseas`)·ASC 개인정보 라벨(`app_privacy_details.json`)·Play
-데이터 보안(`docs/play-data-safety.md`) 세 곳에 적는다. 1:1 대조에서 차이 3건이
-나왔고(애플 refresh token 과 접속기록이 ASC 라벨에 없었다 — 각각
-`OTHER_DATA_TYPES`·`OTHER_DIAGNOSTIC_DATA` 로 더했다; "앱 사용 이벤트" 는 방침
-`#collection` 목록에 없고 `#overseas` 에만 있어 사람 확인 항목으로 남겼다),
-대조표와 근거는 `docs/legal-checklist.md` "스토어 라벨" 절,
+데이터 보안(`docs/play-data-safety.md`) 세 곳에 적는다. 1:1 대조에서 차이 4건이
+나왔고(애플 refresh token·접속기록이 ASC 라벨에 없었다 — 각각
+`OTHER_DATA_TYPES`·`OTHER_DIAGNOSTIC_DATA`; AdMob 의 **대략적인 위치**를 두 스토어
+에서 모두 빼고 있었다 — `COARSE_LOCATION` / "위치 > 대략적인 위치" 로 더했다;
+"앱 사용 이벤트" 는 방침 `#collection` 목록에 없고 `#overseas` 에만 있어 사람 확인
+항목으로 남겼다), 대조표와 근거는 `docs/legal-checklist.md` "스토어 라벨" 절,
 `tests/test_store_labels.py` 가 세 곳이 갈라지면 깨진다. 접속기록만 `LINKED` 인
 이유는 행위자와 원격 IP 가 남기 때문이다 — Sentry 는 요청 본문·IP·식별자를 아예
-보내지 않아서 `NOT_LINKED` 다.
+보내지 않아서 `NOT_LINKED` 다. **"우리 서버에 저장하지 않는다" 는 신고 제외 근거가
+아니다** — SDK 가 기기 밖으로 보내면 수집이고 받는 자가 있으면 공유다. 위치 권한을
+쓰지 않아도 AdMob 은 광고 요청의 IP 로 위치를 추정한다(방침 `#overseas` AdMob 행이
+이미 그렇게 적고 있었다). 정확한 위치만 미수집으로 남는다.
 
 **심사 연락처는 레포에 적지 않는다.** BASELINE 의 `asc-submit.yml` 은 이름·전화
 번호·이메일을 워크플로에 박아 뒀는데, 공개 레포라 secret(`ASC_REVIEW_CONTACT_*`)
@@ -2082,6 +2110,16 @@ OVERRIDES §8·스펙 미정 25).
 콘솔에 사람이 넣어 둔 값이 지워진다. Sandbox 테스터 계정도 같은 이유로 심사 노트에
 플레이스홀더만 두고, `demo_user.txt`·`demo_password.txt` 는 만들지 않았다(파일이
 있으면 deliver 가 그 값으로 콘솔을 덮어쓴다).
+
+**심사 노트의 주인은 순서로 갈린다.** 노트는 한 칸인데 쓰는 쪽이 둘이다 — 레포
+파일과, Sandbox 계정을 넣는 사람. 그래서 **레포 파일은 첫 채움, 콘솔은 그 뒤의
+정본**으로 정했다: `asc-submit.yml` 의 Python 스텝은 콘솔 노트를 먼저 읽어
+플레이스홀더(`<SANDBOX_TESTER_EMAIL>` 등)가 남아 있거나 비었을 때만 레포 노트를
+올리고, 사람이 채운 뒤에는 건드리지 않는다. 그리고 정본 파일 이름을
+`review_information/notes.template.txt` 로 뒀다 — `fastlane deliver` 는 그 폴더의
+예약 이름(`notes.txt`·`demo_user.txt` 등)을 보면 심사 상세를 **자기가** PATCH 해서
+(fastlane 2.232.2 `deliver/lib/deliver/upload_metadata.rb`
+`REVIEW_INFORMATION_VALUES`) 그 규칙을 돌아 나간다. 지금은 쓰는 길이 하나다.
 
 ## 웹 수동 체크리스트
 

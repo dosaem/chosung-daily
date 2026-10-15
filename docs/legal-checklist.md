@@ -185,16 +185,18 @@ ko/en 양쪽에 둔다 — 처리의 법적 근거, 권리, 감독기관 신고�
 | 구독 식별자 | `PURCHASE_HISTORY` | 금융 정보 > 구매 내역 | Google, Apple |
 | 광고 ID | `DEVICE_ID` | 기기 또는 기타 ID | AdMob |
 | 광고 ID(노출·클릭 측정) | `ADVERTISING_DATA` | 앱 활동 > 앱 내 상호작용 | AdMob |
+| 광고 요청 정보(대략적 위치) | `COARSE_LOCATION` | 위치 > 대략적인 위치 | AdMob |
 | 앱 사용 이벤트 | `PRODUCT_INTERACTION` | 앱 활동 > 앱 내 상호작용 | Firebase |
 | 접속·오류 기록(Sentry 오류) | `CRASH_DATA` | 앱 정보 및 성능 > 비정상 종료 로그 | Sentry |
 | 접속·오류 기록(Sentry 성능) | `PERFORMANCE_DATA` | 앱 정보 및 성능 > 진단 | Sentry |
 | 접속·오류 기록(접속기록·접근 로그) | `OTHER_DIAGNOSTIC_DATA` | 앱 정보 및 성능 > 기타 앱 성능 데이터 | 없음 |
 
-### 대조에서 찾은 차이 2건 (둘 다 티켓 35 에서 고쳤다)
+### 대조에서 찾은 차이 (티켓 35 에서 고쳤다)
 
 | 차이 | 왜 생겼나 | 어떻게 고쳤나 |
 |---|---|---|
 | **애플 refresh token 이 ASC 라벨에 없었다** | 티켓 34 는 "ASC 범주에 대응 항목이 없고 `USER_ID` 와 같은 축" 으로 보고 행을 만들지 않았다(`review/impl-evidence-34.md` §7) | ASC 에는 그 자리가 있다 — **"기타 데이터"(`OTHER_DATA_TYPES`)**. 방침 `#collection`·`#overseas`(애플 행)가 이미 "보관하고 철회 때 Apple 로 보낸다" 고 적고 있어 신고 대상이다. `OTHER_DATA_TYPES` / `APP_FUNCTIONALITY` / `DATA_LINKED_TO_YOU` 로 넣었다 |
+| **AdMob 의 대략적인 위치를 두 스토어에서 모두 빼고 있었다** | Play 답안이 "SDK 가 직접 받고 우리가 수집하지 않는다" 는 이유로 정확한 위치와 대략적인 위치를 같이 제외했고, ASC 라벨에도 위치 범주가 없었다. 방침 `#overseas` 의 AdMob 행은 그때도 "광고 요청 정보(대략적 위치…)" 를 이전 항목으로 적고 있었다 | 자체 서버 저장 여부·위치 권한 유무는 신고 제외 근거가 아니다 — SDK 가 기기 밖으로 보내면 수집이고, 받는 자가 있으면 공유다([AdMob 데이터 공개](https://developers.google.com/admob/android/privacy/play-data-disclosure), [Play Data safety 설명](https://support.google.com/googleplay/android-developer/answer/10787469?hl=en)). Play 는 "위치 > 대략적인 위치"(수집 예·공유 예·필수·광고 또는 마케팅), ASC 는 `COARSE_LOCATION` / `THIRD_PARTY_ADVERTISING` / `NOT_LINKED` + `USED_TO_TRACK` 로 넣었다. 광고 ID 두 행과 같은 축이다 |
 | **접속기록이 ASC 라벨에 없었다** | 34 당시 방침의 "접속·오류 기록" 은 Sentry 뿐이었고, DB 접속기록·접근 로그 파일은 **그 뒤 티켓 36** 이 만들었다. 34 의 라벨(`CRASH_DATA`·`PERFORMANCE_DATA`, 둘 다 `NOT_LINKED`)은 36 이 늘린 수집을 모른다 | **`OTHER_DIAGNOSTIC_DATA`** 를 더했다. Sentry 와 달리 행위자(`guest.<id>` / 가린 운영자 이메일)와 원격 IP 가 남아 **`DATA_LINKED_TO_YOU`** 다. Sentry 두 행은 그대로 `NOT_LINKED`(요청 본문·IP·식별자를 보내지 않는다 — `app/observability.py`) |
 
 ### 대조에서 찾은 차이 3번 — 고치지 않고 남긴 것
