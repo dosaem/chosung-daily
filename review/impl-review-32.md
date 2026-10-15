@@ -110,4 +110,88 @@
 4. **`_EntitledRow` 의 "관리" 는 `source` 가 null 이면 숨는다** — 서버가 상태 라벨을 늘려 `source` 를 모르는 값으로 보내는 경우. 권한은 유지되므로 안전한 쪽이다.
 5. 목업 대비 차이 3건(혜택 문구 "무제한" 제거, S4 설정 행 1줄, 헤더 닫기·streak 생략)은 스펙·OVERRIDES 근거가 있고 증거 §5 에 기록돼 있다 — 이의 없음.
 
+판정(라운드 1): FAIL
+
+## 라운드 2
+
+**대상:** 수정 커밋 `8f9ca76`("수정 32: 라운드 1 — …"), `git diff main...HEAD`(커밋 7개 `2ed89d0`…`8f9ca76`), 증거 `review/impl-evidence-32.md` "수정 라운드 1" 절
+**리뷰어:** Fable (Final Reviewer) · **날짜:** 2026-10-15
+**추가로 읽은 것:** `in_app_purchase_android` 0.5.0 소스(`in_app_purchase_android_platform.dart` `restorePurchases`, `google_play_purchase_details.dart`, `pigeon_converters.dart`), `riverpod` 3.3.2 `AsyncValue.value`, 서버 `app/services/subscription_service.py` `_verify_google` · `app/services/subscription_status.py`, `app/api/subscriptions.py`, 코디네이터 리뷰 메모(msg_61fefa482f0a).
+
+### 0. 직접 돌린 것
+
+| 명령 | 결과 |
+|---|---|
+| `cd mobile && flutter analyze` | **No issues found!**, exit 0 (D-32-2 해소) |
+| `cd mobile && dart format --output=none --set-exit-if-changed lib test` | 192 files, 0 changed, exit 0 |
+| `cd mobile && flutter test` | **+741: All tests passed!**, exit 0 (증거 "+741" 과 같음; 733 → 741) |
+| `cd mobile && flutter build apk --debug` (코디네이터 메모 2) | `app-debug.apk` 생성, exit 0. `mobile/build` 삭제함 |
+| `uv run ruff check .` | All checks passed!, exit 0 |
+| `uv run pytest -q` (전용 DB `chosung_daily_test_t32` · Redis DB 6 · `chosung_daily_test_t32_migrations`, 접속 값은 기록하지 않음) | **1509 passed in 790.33s (0:13:10)**, exit 0 (증거와 같음; 이 티켓은 백엔드를 건드리지 않았다) |
+| `flask db heads` | 돌리지 않음 — `migrations/` 변경 0건 |
+| 범위 | `app/`·`tests/`·`web/`·`.env.example`·`.scratch/` 변경 0건. 수정 커밋이 건드린 공유 파일은 README `### 32.`(2623~2704행 안)·`docs/RELEASE.md` `### 32.`(988행~끝) 자기 절 안이다 |
+
+재현용 임시 테스트 1개를 `mobile/test/subscription/` 에 만들어 돌린 뒤 지웠다(D-32-5, 아래). 커밋에 남지 않았고 `git status` 는 깨끗하다.
+
+### 1. 이전 결함 판정
+
+| ID | 라운드 1 | 판정 | 근거 |
+|---|---|---|---|
+| D-32-1 | MAJOR | **FIXED** | `purchase_controller.dart:133-155` — `_bootstrap` 이 `await ref.read(guestTokenProvider.future)` 뒤에 `_syncWithToken`, `build` 의 `ref.listen(guestTokenProvider, …)` 가 토큰 변경(재설치 발급·401 복구·계정 전환)마다 `_syncWithToken`, `_syncedToken` 으로 같은 토큰 중복 억제. `:319-323` `on UnauthorizedApiException` 을 `on ApiException` 앞에 두어 문구도 완료도 없이 보류. 테스트 4건(`purchase_controller_test.dart` "게스트 토큰이 아직 없으면…"·"토큰 없이 올라온 거래는 실패가 아니라 보류다…"·"secure storage 읽기가 늦게 끝나도…(지연 Fake)"·"토큰이 그대로면…두 번 돌리지 않는다")이 라운드 1 의 재현 그대로를 못 박는다 — 토큰 전 `restoreCalls == 0`·`verifiedReceipts` 비어 있음·오류 null, 토큰 뒤 verify 1건·`entitlement.active`·`completed` 1건. 리스너의 `next.value` 는 riverpod 3.3.2 에서 오류 상태에도 던지지 않고 null 을 돌려주므로(`async_value.dart:551`) 저장소 읽기 실패 때도 `listen` 이 터지지 않는다. `guestTokenProvider.clear()`(null) 는 동기화하지 않고, 다음 발급 토큰이 `_syncedToken` 과 다르므로 그때 돈다 |
+| D-32-2 | MAJOR | **FIXED** | `flutter analyze` 0 issues, exit 0 (위 §0). `purchase_controller_test.dart:290-292` 캐스케이드 |
+| D-32-3 | MINOR | **FIXED** | `paywall_sheet.dart:266-276` `subscription.price_monthly`(ko `"월 {price}"`, en `"{price} / month"` — `card_idle` 과 같은 어순), 가격 문자열은 여전히 `product.price`. 골든 `paywall_light_390.png` 를 직접 열어 "월 ₩1,500" 확인. 테스트 `find.text('월 ₩1,500')`·`find.text('₩1,500 / month')` |
+| D-32-4 | MINOR | **FIXED**(지적한 "포기" 경로) | `purchase_controller.dart:172-205` — `sync()` 가 플래그를 내리고 조회한 뒤 한 틱 양보해 `_dropAbandonedPending()`, 조회 실패면 내리지 않음, `_syncSeq` 로 마지막 조회만 판정, `google_play` 일 때만 내림. 테스트 "Play 조회에서 사라진 pending 은 내린다"·"조회 자체가 실패하면…"·"App Store 승인 대기는…" 이 각각을 본다. **단** "조회에 pending 이 그대로 있으면 내리지 않는다" 는 플러그인이 만들지 않는 입력(조회 결과의 `status == pending`)을 가정한 테스트다 — 그 경로의 실제 동작은 새 결함 D-32-5 |
+
+### 2. 티켓 체크박스 (라운드 1 표에서 바뀐 줄만)
+
+| # | 체크박스 | 판정 | 근거 |
+|---|---|---|---|
+| 3 | 구매 스트림 → pending 대기 → verify → 성공 후에만 `completePurchase` · 재전송 · 복원 결과 verify · Provider 즉시 갱신 | **미충족(일부)** | D-32-1 의 "다음 시작" 경로는 해소됐다. 그러나 Android 에서 **아직 결제 대기인** Play 거래는 시작·복귀 조회에서 `pending` 이 아니라 `restored` 로 올라와 "pending 이면 대기" 가 깨지고, 권한 없는 응답에도 `completePurchase`(acknowledge)가 나간다 — D-32-5 |
+| 5 | S5 Paywall 구성 | 충족 | 가격 카드 "월 {가격}" 으로 SCREENS S5 45행과 같아졌다(D-32-3) |
+| 1·2·4·6·7·8 | — | 충족(라운드 1 그대로) | 수정 커밋이 바꾼 것이 없다 |
+
+### 3. 결함
+
+### D-32-5 (MAJOR) Android: 아직 결제 대기인 Play 거래가 시작·복귀 조회에서 `restored` 로 올라와 "결제 확인 중" 대기가 풀리고, 권한 없는 200 응답에 acknowledge 까지 나간다
+
+- **파일:** `mobile/lib/subscription/purchase_controller.dart:256-269` (`_onPurchases` 가 `purchase.status` 만 보고 분기), `:312-318` (`entitlement == null` 만 거르고 `active == false`·행 없음이어도 `complete`), `mobile/test/subscription/purchase_controller_test.dart` "조회에 pending 이 그대로 있으면 내리지 않는다"(`restorable` 에 `status: pending` — 플러그인이 만들지 않는 입력), `mobile/test/fakes/fake_purchase_service.dart:86-90` (`restore()` 가 `restorable` 의 status 를 그대로 올림)
+- **사실 확인(플러그인·서버 소스):**
+  - `in_app_purchase_android` 0.5.0 `in_app_purchase_android_platform.dart:256-266` — `restorePurchases()` 는 `queryPurchases(inapp)`+`queryPurchases(subs)` 결과 **전부**에 `details..status = PurchaseStatus.restored` 를 씌운다. `purchaseState == pending` 인 거래도 예외가 아니다(`fromPurchase` 가 `pending` 으로 만든 뒤 덮어씀). `google_play_purchase_details.dart:23` `pendingCompletePurchase = !isAcknowledged` → pending 거래는 true.
+  - 서버 `app/services/subscription_service.py` `_verify_google` — `SUBSCRIPTION_STATE_PENDING` 은 `status None` → 행을 만들지 않고 `None` → `verify_receipt` 는 `build_entitlement(find_by_guest…)` 로 **200 + `active: false`** 를 돌려준다(미정 항목 14). `app/api/subscriptions.py:18` 200.
+- **실제 흐름(Android):** 구매 → `onPurchasesUpdated(PENDING)` → `pending`(버튼 잠김) ✔ → 사용자가 앱을 내렸다 올림(또는 재시작) → `sync()` → `queryPurchases` 가 같은 거래를 `restored`·`pendingCompletePurchase=true` 로 올림 → `_verifyThenComplete` 가 `state.purchase = restored`·`verifying` → verify → 200 `active:false` → `entitlementProvider.update(권한 없음)` → `pendingCompletePurchase` 라 `_service.complete()` = **`acknowledgePurchase(pending 토큰)`** → 플러그인은 non-OK `BillingResult` 를 던지지 않으므로 오류 없이 끝 → phase **idle**("구독 시작" 다시 활성). 이후 복귀마다 같은 verify + acknowledge 가 반복된다. 편의점·계좌이체 결제는 몇 시간 걸리므로 그 사이 복귀 한 번이면 반드시 밟는다.
+- **재현(임시 테스트, 삭제함):** `containerWith()` → `store.emit([fakePurchase(status: pending, purchaseID: null)])` → `phase == pending` 확인 → `api.verifyResponse = fakeEntitlement()`(active false) → `store.restorable = [fakePurchase(status: restored, purchaseID: null)]`(플러그인이 실제로 올리는 모양) → `sync()` + 2틱 → 실제 출력 `phase=SubscriptionPhase.idle busy=false verified=[(receipt-1, google)] completed=1 error=null`. 기대: `pending` 유지·verify 없음·`completed` 0.
+- **어긋나는 것:** 스펙 §A.8 159행 "구매 스트림 수신 → **(pending 이면 대기)** → verify → **서버 성공 응답(entitlement) 후에만** `completePurchase`"·티켓 체크박스 3 "pending 대기(버튼 비활성 '결제 확인 중')", 컨트롤러 주석 규칙 1 "서버가 권한을 돌려준 뒤에만 `completePurchase`". Play 쪽 지침도 PENDING 거래는 acknowledge 하지 않는다(PURCHASED 에서만). 결제가 끝나면 `PURCHASED` 가 따로 올라와 정상 verify·acknowledge 되므로 **데이터 손상·이중 과금은 없다** — 사용자에게 보이는 건 대기 표시가 사라지고 "구독 시작" 을 다시 누르면 Play 가 거절해 "결제를 끝내지 못했어요" 가 뜨는 것, 서버에는 복귀마다 불필요한 verify 다.
+- **왜 MAJOR:** 스펙 문장과 티켓 체크박스를 실기기에서 깨고(모든 Play pending 결제가 밟는 경로), D-32-4 수정의 "그대로 있으면 내리지 않는다" 테스트가 플러그인이 내지 않는 입력으로만 통과해 실제 동작을 검증하지 않는다. 라운드 1 에도 있던 결함이다(라운드 1 §3-3 "pending × 앱 재시작 OK" 는 내 오판 — `queryPurchases` 결과를 `pending` 그대로 올린다고 봤다).
+- **고치는 방향(제안):** `_onPurchases` 에서 Android 는 `status` 가 아니라 `GooglePlayPurchaseDetails.billingClientPurchase.purchaseState == PurchaseStateWrapper.pending` 을 보고 pending 으로 다룬다(`_pendingSeenSinceSync` 도 그때 올린다 — 그러면 D-32-4 의 "그대로 있으면 내리지 않는다" 가 실제로 성립한다). 더해 서버가 행을 안 만든 응답(`entitlement.status == null`)에는 `complete` 를 부르지 않는다. `FakePurchaseService.restore()` 는 플러그인처럼 `google_play` 거래에 `restored` 를 씌워 올리게 바꿔 테스트 입력을 실제와 맞춘다.
+
+### 4. 코디네이터 메모 항목
+
+**1) 33 통합:** 판정에서 제외. 라운드 1 §3-2 표는 참고로만 남긴다.
+
+**2) analyze·APK:** 위 §0 — analyze info 포함 0건·exit 0, `flutter build apk --debug` exit 0, `mobile/build` 삭제.
+
+**3) 비동기 경로 쌍 표(라운드 1 §3-3 에서 바뀐 칸):**
+
+| 쌍 | 라운드 2 | 판정 |
+|---|---|---|
+| 시작 동기화 × 토큰 미복원(저장소 읽기 중) | `_bootstrap` 이 `guestTokenProvider.future` 를 기다림 | OK (지연 Fake 테스트) |
+| 시작 동기화 × 토큰 없음(재설치, `POST /guests` 중) | `.future` 가 null → 동기화 안 함 → `replaceWith` 때 `listen` 이 동기화 | OK (테스트) |
+| 스트림이 토큰보다 먼저 거래를 올림(SK2 `Transaction.updates`) | 401 → 보류(문구·완료 없음) → 토큰 도착 뒤 `listen` 동기화가 재전송 | OK (테스트) |
+| 토큰 갱신(401 복구·계정 전환 `replaceWith`) × 시작 동기화 | 새 토큰 ≠ `_syncedToken` → 재동기화, verify 는 새 계정으로 | OK |
+| 같은 토큰 재설정 | `_syncedToken` 같음 → 재동기화 없음(복귀 동기화는 따로) | OK (테스트) |
+| `clear()`(null) | 동기화 없음, 다음 발급 때 돔 | OK |
+| 토큰 저장소 읽기 실패 | `_bootstrap` `on Exception` 으로 넘어감, 리스너 `next.value` 는 null | OK |
+| 구매 중 복귀/재시작 × 거래 아직 pending(Android) | 조회가 `restored` 로 올림 → 대기 풀림 + acknowledge | **D-32-5** |
+| pending × 스토어 쪽 포기(Android) | 조회에 없음 → 내림 | OK (D-32-4) |
+| pending × 복귀(iOS Ask to Buy) | 조회(`currentEntitlements`)에 없어도 유지 | OK (테스트) |
+| 복귀 연타(조회 겹침) | `_syncSeq` 로 마지막 조회만 판정 | OK |
+| 조회 실패 × pending | 내리지 않음 | OK (테스트) |
+| verify × 계정 전환(epoch) · verify 성공 × `complete` 예외 · 구매 × 복원 동시 | 라운드 1 과 같음 | OK |
+
+### 5. 참고 (결함 아님)
+
+1. `docs/RELEASE.md` "### 32." 에 더한 사람 확인 줄 "Play pending 포기 뒤 복귀하면 버튼이 살아나는지" 는 D-32-5 상태에선 포기하지 **않아도** 살아나므로 판별이 안 된다 — D-32-5 를 고친 뒤 "포기 전 복귀는 계속 '결제 확인 중', 포기 후 복귀는 풀림" 두 줄로 나누는 편이 맞다.
+2. 증거 §재실행의 "+741" 은 내 실행과 같다. 라운드 1 증거의 "No issues found" 불일치(D-32-2)는 사라졌다.
+3. 라운드 1 "참고" 1~5 는 그대로다.
+
 판정: FAIL
