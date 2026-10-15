@@ -267,6 +267,34 @@ void main() {
     // 리뷰 r2 D-31-4: 광고까지 다 본 뒤 힌트 응답을 기다리는 사이에도 답 입력은
     // 살아 있다. 그 제출이 실패해도 서버가 이미 열어 준 힌트는 화면에 남아야
     // 한다 — 버리면 비구독자는 같은 힌트에 광고를 다시 봐야 한다(US 5a).
+    // 리뷰 r3, 코디네이터 지시 3 — 경로 쌍 "힌트 × 힌트". 컨트롤러는 같은 퍼즐의
+    // 두 번째 요청을 막지 않으므로(보드의 `hint` 는 응답 전까지 null 이다) 여기서
+    // 막는다: 요청이 떠 있는 동안 버튼이 꺼져 있어야 보상형을 두 번 보지도,
+    // hint-unlock 을 두 번 보내지도 않는다.
+    testWidgets('힌트를 여는 동안에는 버튼이 꺼져 있다', (tester) async {
+      final api = FakeApiClient()..hintUnlockResponse = '서울에 가장 많다';
+      final ads = FakeAdService();
+
+      await pumpToday(tester, api: api, ads: ads);
+
+      final gate = Completer<void>();
+      api.unlockHintGate = gate;
+      await tapAndSettle(tester, previewButton());
+
+      expect(api.unlockedHintPuzzleIds, [1], reason: '첫 요청은 떠났다');
+      expect(previewEnabled(tester), isFalse, reason: '응답을 기다리는 동안은 못 누른다');
+
+      await tester.runAsync(() async {
+        gate.complete();
+        await Future<void>.delayed(Duration.zero);
+      });
+      await tester.pumpAndSettle();
+
+      expect(find.text('서울에 가장 많다'), findsOne);
+      expect(ads.rewardedShowCalls, 1, reason: '보상형을 두 번 보지 않는다');
+      expect(api.unlockedHintPuzzleIds, [1], reason: 'hint-unlock 은 한 번뿐이다');
+    });
+
     testWidgets('힌트를 기다리는 동안 제출이 실패해도 힌트가 열린다', (tester) async {
       final api = FakeApiClient()..hintUnlockResponse = '서울에 가장 많다';
       final ads = FakeAdService();
@@ -333,7 +361,7 @@ void main() {
       await dismissSheet(tester);
 
       expect(ads.interstitialShowCalls, 1);
-      expect(store.shown, {1});
+      expect(store.reserved, {1});
     });
 
     testWidgets('구독자는 뜨지 않는다', (tester) async {

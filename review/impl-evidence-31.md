@@ -666,3 +666,252 @@ $ cd mobile && flutter build apk --debug
 재실행하지 않았다. 마이그레이션 변경이 없어 조건부 `flask db heads` 는 해당 없음.
 `git merge-base main HEAD == main`(= `b11f011`), `git diff --check main...HEAD` exit 0,
 작업 트리 clean.
+
+## 수정 라운드 3
+
+리뷰 `review/impl-review-31.md` "라운드 3" 의 판정 **FAIL — 신규 MAJOR 2건
+(D-31-5·D-31-6), BLOCKER 0 / MINOR 0 / REPEAT 0**. 두 건 모두 결함으로 인정해
+고쳤고, 각각 리뷰에 적힌 재현 순서를 **실패하는 테스트로 먼저 고정**한 뒤 원인을
+고쳤다. 아래 "증명" 칸은 수정 전 그 테스트가 실제로 실패하는 출력(RED)과 수정 후의
+통과 출력(GREEN) 둘 다다 — RED 는 테스트만 둔 채 `lib/` 수정만 임시로 되돌려 받았다.
+
+코디네이터가 이 라운드에 세 가지를 더 지시했고(**"한 라운드에 결함 하나씩 나오는
+패턴을 끊어라"**), 세 가지 모두 이 절에 반영했다:
+
+1. D-31-5 는 검사와 기록을 두 단계로 나누지 말고 **광고 요청을 시작하는 순간
+   원자적으로 예약**한다 — 실패 시 예약을 풀지 않는 정책을 골랐고 근거를 적었다.
+2. D-31-6 은 보드를 바꾸는 모든 비동기 경로를 **하나의 직렬화 지점**으로 모았다 —
+   컨트롤러 클래스 주석의 두 줄 규칙과 `_writingBoard`/`_refreshQueued`/
+   `_endBoardWrite`/`_readBoard` 네 자리다.
+3. 이 컨트롤러·전면 광고의 **경로 쌍을 표로 만들고 빈 칸을 지연 Fake 테스트로
+   메웠다** — 아래 "경로 쌍 표".
+
+이 라운드는 리뷰 라운드 3 이후 움직인 **로컬 `main` = `d78e082`(티켓 29 머지)**
+위로 rebase 하는 작업까지 포함한다. §수정 라운드 3 끝의 "통합" 절에 그 충돌 해소를
+적었다.
+
+### D-31-5 — MAJOR — 전면 로드 중 결과 시트 재진입으로 같은 퍼즐 광고 중복 노출
+
+**원인.** 노출 기록(`InterstitialStore`)은 광고가 **닫힌 뒤**에 남는다
+(`result_interstitial.dart` 의 `markShown` 은 `showInterstitial()` 을 await 한
+다음 줄이다). 그래서 "기록을 읽고 → 광고를 띄우고 → 기록을 남긴다" 사이에 창이
+있고, 그 창에서 들어온 두 번째 호출도 `hasShown == false` 를 읽어 **자기 광고를
+따로 로드**한다. `GoogleAdService.showInterstitial` 은 로드가 끝나면 기록을 다시
+보지 않고 바로 표시하므로, 두 번째 로드가 첫 광고가 닫힌 뒤에 완료되면 같은 퍼즐에서
+두 번 뜬다. `_openResult` 의 `await` 는 자기 호출만 기다리고 "결과 보기" 버튼을
+잠그지 않으므로 사용자는 그 창에서 시트를 다시 열고 닫을 수 있다. 저장 용량(D-31-1)
+과 무관한 **검사-후-행동(check-then-act) 경합**이다.
+
+**수정** (`mobile/lib/ads/result_interstitial.dart`,
+`mobile/lib/ads/interstitial_store.dart`). 코디네이터 지시대로 **검사와 기록을 두
+단계로 나누지 않는다**. 두 겹으로 막는다:
+
+1. **떠 있는 호출을 퍼즐별로 들고 있다**(`Map<int, Future<bool>> _showing`). 같은
+   퍼즐의 두 번째 호출은 **그 future 를 그대로 받는다** — 지도에 넣는 건 첫 `await`
+   전의 동기 구간이라 두 호출이 같이 통과할 틈이 구조적으로 없다. 두 번째 호출도
+   방금 뜬 그 광고의 결과를 받으므로 호출부의 반환값 의미가 바뀌지 않는다.
+2. **광고를 요청하기 전에 저장소에 예약한다.** `InterstitialStore` 의 뜻을
+   "띄웠다"(`hasShown`/`markShown`)에서 **"그 퍼즐의 한 번을 썼다"**
+   (`hasReserved`/`reserve`)로 바꾸고, `showInterstitial()` **앞**으로 옮겼다.
+   광고가 뜬 채로 앱이 죽어 표시 결과를 못 받아도 다시 켤 때 또 뜨지 않는다 —
+   메모리 지도로는 못 막는 경우다. 저장 키(`interstitial_shown_puzzle_ids`)는 담는
+   것과 타입이 같고 이 티켓은 아직 출시 전이라 그대로 뒀다.
+
+**실패 정책 (코디네이터가 적으라고 한 항목).** **로드·표시가 실패해도 예약을 풀지
+않는다** — 그 퍼즐의 한 번은 쓴 것으로 센다. 이전 동작(실패면 기록 없음)을 바꾼
+것이고, 바꾼 이유는 둘이다. ① 풀어 주면 "결과 보기" 를 누를 때마다 실패한 로드를
+다시 요청해 같은 퍼즐에서 몇 번이고 AdMob 을 때린다(무효 트래픽). ② "퍼즐당 1회" 의
+경계가 **실패 횟수에 따라 흐려져** 리뷰가 세 라운드 동안 같은 자리를 다시 짚게 된다.
+잃는 건 실패한 노출 한 번뿐이다. 바뀐 테스트는
+`result_interstitial_test.dart` "광고가 뜨지 않아도 그 퍼즐의 한 번은 쓴 것이다"
+(이전 이름 "광고가 뜨지 않으면 퍼즐 플래그를 남기지 않는다").
+
+**증명.** 재현 테스트 `mobile/test/ads/result_interstitial_test.dart`
+"전면 광고가 떠 있는 동안 시트를 다시 닫아도 퍼즐당 1회다". 리뷰의 "첫 로드를
+지연한다" 를 표현하려고 `FakeAdService.interstitialGate`(Completer)를 더했다 —
+`fetchTodayPuzzleGate` 와 같은 방식이다. 첫 호출을 **await 하지 않고** 두 번째를
+부르고, 그 뒤 gate 를 풀어 두 호출을 모은다.
+
+```
+# 수정 전(테스트만 둔 채 lib/ 되돌림) — RED
+$ cd mobile && flutter test --no-pub test/ads/result_interstitial_test.dart
+전면 광고가 떠 있는 동안 시트를 다시 닫아도 퍼즐당 1회다 [E]
+  Expected: <1>
+    Actual: <2>
+  같은 퍼즐에서 두 번 띄우면 안 된다
+  test/ads/result_interstitial_test.dart 99:5
+
+# 수정 후 — GREEN (예약 정책 2건 포함 10개)
+$ cd mobile && flutter test --no-pub test/ads/result_interstitial_test.dart
++10: All tests passed!
+```
+
+예약을 **요청 전에** 적는다는 것 자체도 테스트로 고정했다 —
+"표시 결과를 받기 전에 이미 예약이 적혀 있다"(gate 로 광고를 붙잡은 상태에서
+`store.reserved == {41}` 을 확인) 와 "광고가 뜨지 않아도 그 퍼즐의 한 번은 쓴
+것이다"(실패 뒤 두 번째 호출이 로드를 또 때리지 않는다). 저장소 자체의 순수 계산은
+`interstitial_store_test.dart` 4개가 이름만 바뀐 채 그대로 통과한다.
+
+### D-31-6 — MAJOR — 힌트 요청 중 복귀 재조회가 성공한 힌트를 다시 잠근다
+
+**원인.** `refresh()` 는 `_submitting` 만 보고 미룬다. 힌트가 떠 있는 동안에도
+세대를 올리고 `GET /puzzles/today` 를 보내는데, 그때 서버 보드엔 방금 연 힌트가
+**아직 없다**(hint-unlock 쓰기가 끝나지 않았다). 힌트 성공은 세대를 바꾸지 않고 같은
+퍼즐의 보드에 그 칸만 병합하므로(r2 D-31-4 수정), 뒤늦게 도착한 GET 이 최신 세대로
+인정돼 `_commitLoad` 가 보드를 통째로 `hint=null`·`hintUnlocked=false` 로 갈아
+끼운다. HintCard 는 다시 광고 버튼을 띄우고 비구독자는 **이미 산 같은 힌트에 보상형을
+다시 봐야 한다**(US 4·5a). 원인은 세대 번호가 아니라 **힌트 쓰기가 끝나기 전에 조회를
+보낸 것** 이고, 제출(`_refreshQueued`)이 이미 같은 이유로 같은 처방을 쓰고 있었다.
+
+**수정** (`mobile/lib/puzzle/today_puzzle_controller.dart`). 코디네이터 지시대로
+경로마다 조건을 따로 쓰지 않고 **직렬화 지점 하나**로 모았다. 클래스 주석에 규칙을
+두 줄로 적어 두고, 코드에서는 네 자리가 그 규칙의 전부다:
+
+| 자리 | 하는 일 |
+|---|---|
+| `bool get _writingBoard => _submitting \|\| _unlockingHint` | **읽기를 미룰지 판정하는 단 하나의 조건.** 쓰기를 하나 더할 때 조건을 다시 쓰다가 한 곳을 빼먹는 길을 없앴다 |
+| `bool _refreshQueued` | 쓰기 때문에 미뤄둔 읽기. 제출·힌트가 **같은 큐**를 쓴다 |
+| `void _endBoardWrite()` | 쓰기가 끝나면(성공·실패 모두) 미뤄둔 읽기를 돌리는 **단 하나의 자리.** 제출·힌트의 `finally` 가 각자 복사해 갖고 있던 4줄을 여기로 합쳤다 |
+| `Future<void> _readBoard(generation, {notice})` | 읽기 응답이 `_commitLoad` 로 가는 **단 하나의 통로.** 복귀 재조회·계정 경계·제출 409·힌트 뒤 재조회가 전부 이걸 쓴다 |
+
+규칙 자체는 두 줄이다. **① 쓰기가 떠 있으면 읽기를 미룬다**(지금 읽는 서버 보드엔
+방금 보낸 답·힌트가 아직 없다) — 미루는 것이지 버리는 것이 아니라서 복귀 재조회는
+쓰기 뒤에 반드시 한 번 돌아간다. **② 읽기가 떠 있으면 쓰기가 세대를 올려 그 응답을
+버린다**(읽기는 보드를 통째로 갈아 끼우므로 쓰기보다 과거면 쓸 수 없다). 쓰기 응답은
+세대로 버리지 않고 `_boardFor` 로 **지금의 보드에 병합**한다(r2 D-31-4). 그래서 "늦은
+응답이 더 최신 성공 상태를 덮는" 길이 두 방향 모두 막힌다 — D-31-6 은 ①이 힌트에
+빠져 있어서 생긴 구멍이었다.
+
+`_reloadAfterHint`(409·끝난 퍼즐·바뀐 퍼즐 경로)는 자기가 그 조회를 하므로
+`_refreshQueued` 를 소비해 바로 뒤에 같은 GET 을 또 보내지 않는다.
+
+**증명.** 재현 테스트 `mobile/test/puzzle/today_puzzle_controller_test.dart`
+"힌트를 기다리는 동안 떠난 복귀 재조회가 열린 힌트를 되돌리지 않는다". 리뷰의 순서를
+그대로 쓴다: `unlockHintGate` 로 힌트를 붙잡고 → `refresh()` → `fetchTodayPuzzleGate`
+로 GET 응답을 붙잡아 힌트보다 늦게 도착하게 만들고 → 서버 보드에 힌트를 쓴 뒤 힌트
+응답을 풀고 → 마지막에 GET 응답을 푼다. 눈에 보이는 증상(사라진 힌트)을 먼저 재고
+미룸 여부(호출 수)는 뒤에서 확인한다.
+
+```
+# 수정 전(테스트만 둔 채 lib/ 되돌림) — RED. 리뷰가 적은 "실제" 그대로다.
+$ cd mobile && flutter test --no-pub test/puzzle/today_puzzle_controller_test.dart \
+    --plain-name '힌트를 기다리는 동안 떠난 복귀 재조회가 열린 힌트를 되돌리지 않는다'
+응답 경합 힌트를 기다리는 동안 떠난 복귀 재조회가 열린 힌트를 되돌리지 않는다 [E]
+  Expected: '서울에 가장 많다'
+    Actual: <null>
+     Which: not an <Instance of 'String'>
+  서버가 연 힌트를 잃으면 안 된다
+  test/puzzle/today_puzzle_controller_test.dart 517:7
+
+# 수정 후 — GREEN (기존 경합 테스트 포함 29개)
+$ cd mobile && flutter test --no-pub test/puzzle/today_puzzle_controller_test.dart
++29: All tests passed!
+```
+
+### 경로 쌍 표 (코디네이터 지시 3)
+
+보드·전면 광고를 바꾸는 비동기 경로를 쌍으로 모두 적고, 각 쌍을 **지연 Fake**
+(`unlockHintGate`·`submitGuessGate`·`fetchTodayPuzzleGate`·`interstitialGate`)로
+고정했다. "A 가 떠 있는 동안 B 가 시작" 순서다.
+
+| A(떠 있음) × B(시작) | 규칙 | 고정 테스트 | 이번 추가 |
+|---|---|---|---|
+| 첫 조회 × 복귀 재조회 | 두 번째 조회를 아예 띄우지 않는다 | `첫 조회가 끝나기 전의 복귀는 그 조회를 기다린다 — 두 번 읽지 않는다` | |
+| 첫 조회 × 제출 / 힌트 | 보드를 모르면 쓸 자리가 없다 — 서버로 안 보낸다 | `첫 조회가 끝나기 전에는 제출도 힌트도 서버로 가지 않는다` | **추가** |
+| 복귀 재조회 × 복귀 재조회 | 나중에 떠난 쪽이 이긴다(세대) | `느린 재조회 뒤에 떠난 재조회가 이긴다` | |
+| 복귀 재조회 × 제출 | 쓰기가 세대를 올려 늦은 조회를 버린다 | `제출 전에 떠난 조회가 늦게 도착해도 쌓인 행을 지우지 않는다` | |
+| 복귀 재조회 × 힌트 | 같음 — 늦은 조회가 열린 힌트를 지우지 못한다 | `힌트보다 먼저 떠난 재조회가 늦게 도착해도 열린 힌트를 지우지 않는다` | **추가** |
+| 제출 × 복귀 재조회 | 조회를 미루고 제출 뒤에 돌린다 | `제출을 기다리는 동안엔 재조회가 보드를 건드리지 않는다 — 잠금도 유지된다` | |
+| 제출 × 힌트 | 힌트를 제출 뒤로 **줄 세운다**(버리지 않는다) | `제출을 기다리는 동안 힌트를 열어도 쌓인 행과 힌트가 모두 남는다`, `제출 대기 중 힌트가 실패해도 제출 결과와 잠금 해제가 남는다` | |
+| 제출 × 제출 | 보드의 `submitting` 잠금이 두 번째를 끊는다 | `제출 응답을 기다리는 동안 다시 제출해도 서버로 한 번만 간다` | **추가** |
+| 힌트 × 제출 | 힌트 응답을 세대로 버리지 않고 지금 보드에 병합(r2 D-31-4) | `힌트를 기다리는 동안 제출이 실패해도 열린 힌트는 보드에 남는다`, `…제출이 성공하면 쌓인 행과 힌트가 모두 남는다`, `제출 응답보다 힌트가 먼저 와도 제출이 그 힌트를 덮어 지우지 않는다` | |
+| 힌트 × 복귀 재조회 | **조회를 미루고 힌트 뒤에 돌린다(D-31-6 이 이 칸이었다)** | `힌트를 기다리는 동안 떠난 복귀 재조회가 열린 힌트를 되돌리지 않는다` | **추가** |
+| 힌트 × 힌트 | 컨트롤러는 막지 않는다 — **화면이** 응답 대기 중 버튼을 끈다 | `힌트를 여는 동안에는 버튼이 꺼져 있다`(위젯) | **추가** |
+| 힌트 409 뒤 재조회 × 제출 | 재조회를 새 세대로 써서 서버가 연 힌트를 받는다 | `힌트가 이미 열려 있었다는 409 는 제출이 끼어들어도 보드를 다시 읽는다` | |
+| 전면 광고 × 결과 시트 재진입 | **떠 있는 호출에 같은 future 를 돌려준다(D-31-5 가 이 칸이었다)** | `전면 광고가 떠 있는 동안 시트를 다시 닫아도 퍼즐당 1회다` | **추가** |
+| 전면 광고 × 앱 재시작 | 요청 **전에** 예약하므로 표시 결과를 못 받아도 다시 안 뜬다 | `표시 결과를 받기 전에 이미 예약이 적혀 있다`, `이미 띄운 퍼즐은 다시 시작해도 건너뛴다` | **추가** |
+| 전면 광고 × 언어 왕복 | 퍼즐 ID 목록을 들고 있다(r1 D-31-1) | `언어를 왕복해도 퍼즐마다 1회다` | |
+| 계정 경계(`discard`) × 떠 있는 조회·제출 | 세대 + 계정 epoch 로 남의 응답을 버린다 | 티켓 29 의 `account_controller_test`·`records_account_test` 가 소유 — 이 티켓은 `discard()` 가 `_unlockingHint` 도 같이 비우게 한 줄만 더했다 | |
+
+빈 칸 없이 모든 쌍에 고정 테스트가 있다. **컨트롤러 테스트 35개 · 전면 광고 테스트
+10개 · 오늘 탭 광고 위젯 테스트 14개**가 전부 통과한다(아래 최종 검증).
+
+### 고치지 않은 지적
+
+- **`google_ad_service.dart:28` 이 SDK `canRequestAds()` 대신 `getConsentStatus()`
+  를 읽는다** (라운드 1·3 "증거 부족"). 리뷰어가 두 라운드 모두 "실제 오노출을
+  단정하지 않아 **별도 결함 수에 넣지 않았다**" 로 명시했고 이번 라운드 결함 목록
+  (D-31-5·D-31-6)에도 없다. 고치려면 `UmpStatus` 가 SDK 의 허용값을 직접 실어야
+  하고, 그러면 `ad_gate.dart:30` 의 순수 판정과 UMP 4종·구독자·ATT 테스트 전부가
+  같이 바뀐다 — 결함 수정 범위를 넘는 설계 변경이라 이 라운드에서 하지 않았다.
+  실측(실기기 UMP 재선택)이 없으면 어느 쪽도 증명되지 않는 항목이기도 하다.
+  스펙 "미정 항목" 으로 남긴다.
+- **MINOR 0건** 이라 "미수정 MINOR" 는 없다.
+
+### 통합 — 로컬 `main` = `d78e082`(티켓 29 머지) 위로 rebase
+
+리뷰 라운드 3 의 기준 main 은 `b11f011` 이었는데 그 뒤 티켓 29(앱 계정 연결·전환·
+백업 코드·삭제)가 머지돼 `d78e082` 가 됐다. 15개 커밋을 그 위로 rebase 하며 해소한
+충돌은 전부 **양쪽 의도를 같이 살리는** 쪽으로 끝냈다:
+
+| 파일 | 충돌 | 해소 |
+|---|---|---|
+| `mobile/lib/api/api_exception.dart` | 29 의 `INVALID_ID_TOKEN`·`ACCOUNT_ALREADY_LINKED` 와 31 의 `HINT_ALREADY_UNLOCKED`·`ALREADY_FINISHED` 가 같은 자리에 추가 | 네 예외·네 코드 매핑 모두 유지. 주석의 "뒤 티켓" 은 남은 `32·33` 으로 갱신 |
+| `mobile/pubspec.yaml`·`pubspec.lock` | `google_sign_in`(29) vs `google_mobile_ads`(31) | 둘 다 유지, `flutter pub get` 으로 lock 재생성 |
+| `mobile/test/fakes/fake_api_client.dart` | 29 의 토큰 교환·백업 코드 필드 vs 31 의 `hintUnlockResponse`·`unlockHintError` | 양쪽 전부 유지 |
+| `mobile/lib/config/app_env.dart` | 29 의 `googleServerClientId` vs 31 의 AdMob 유닛 ID 3종 | 양쪽 전부 유지 |
+| `mobile/lib/screens/records_tab.dart` | import 블록 | 양쪽 전부 유지 |
+| `mobile/lib/screens/today_tab.dart` | 29 가 `_openResult` 에 `onLinkAccount` 추가 vs 31 이 "시트 닫힌 뒤 전면 광고" 로 바꿈 | 둘 다 — `onLinkAccount` 를 넘기고, 시트가 닫힌 뒤 `showAfterResultSheet` 를 부른다 |
+| `mobile/ios/Flutter/{Debug,Release}.xcconfig` | 29 의 `#include? "Secrets.xcconfig"` vs 31 의 `CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES` | 양쪽 전부 유지 |
+| `mobile/lib/puzzle/today_puzzle_controller.dart` | 29 가 `_load()` 를 `Future<AsyncValue<TodayState?>?>` 로 바꿔 호출부가 `AsyncValue.guard(_load)` 를 더 쓰지 않는다 / 29 의 `_accountEpoch`·`discard()` 와 31 의 `_submitDone`·`_unlockingHint`·`_reloadAfterHint` 가 같은 자리 | 31 의 호출부 4곳을 `await _load()` 로 맞추고 필드·분기는 양쪽 전부 유지 |
+| `mobile/test/golden/records_{light_390,tablet_1024,notification_off_390}.png` | 29 의 계정 카드와 31 의 광고 개인정보 행이 같은 화면 | `flutter test test/golden --update-goldens` 로 재생성 후 골든 17장 전부 통과 확인 |
+
+rebase 중 드러난 두 줄도 같은 커밋에 담았다 — 둘 다 29 와 31 이 만나서 생긴 것이다:
+
+- `discard()`(29, 계정 경계에서 보던 보드를 버린다)가 `_submitting`·`_refreshQueued`
+  를 비우면서 `_unlockingHint` 는 안 비우면, 계정이 바뀐 직후의 복귀 재조회가 옛
+  계정의 힌트 응답이 돌아올 때까지 미뤄진다. 같은 자리에 한 줄 더해 같이 비운다.
+- `today_tab_ads_test` 의 결과 시트가 29 의 "계정 연결" 안내를 읽으면서
+  `flutter_secure_storage` 플랫폼 채널을 타 `MissingPluginException` 으로 깨졌다.
+  다른 29 테스트들과 같이 `localFlagStoreProvider` 를 `InMemoryLocalFlagStore` 로
+  덮는다.
+
+### 최종 검증 (main = `d78e082`)
+
+```
+$ cd mobile && dart format --output=none --set-exit-if-changed .
+Formatted 178 files (0 changed) in 0.21 seconds.        # exit 0
+
+$ cd mobile && flutter analyze
+Analyzing mobile...
+No issues found! (ran in 2.3s)                          # exit 0
+
+$ cd mobile && flutter test
+00:22 +629: All tests passed!                           # exit 0
+# 이 라운드가 더한 테스트 6개(경로 쌍 표의 "추가" 5칸 + 전면 예약 1개) 포함.
+# 라운드 2 에서 에스컬레이션한 티켓 30 의 시각 의존 테스트도 이번 실행 시각에는 통과했다.
+# 그 플래키는 여전히 티켓 30 쪽 문제이고 이 티켓은 건드리지 않았다(코디네이터도 무시 지시).
+
+$ cd mobile && flutter build apk --debug
+Running Gradle task 'assembleDebug'...                             56.5s
+✓ Built build/app/outputs/flutter-apk/app-debug.apk     # exit 0
+# 확인 후 mobile/build 는 지웠다(이전 라운드와 같다).
+
+$ uv run ruff check .
+All checks passed!                                      # exit 0
+
+$ TEST_DATABASE_URL=...chosung_daily_test_t31 TEST_REDIS_URL=redis://127.0.0.1:6379/5 \
+  TEST_MIGRATION_DATABASE_URL=...chosung_daily_test_t31_migrations uv run pytest -q
+........................................ [100%]
+1412 passed in 954.09s (0:15:54)                        # exit 0
+
+$ git diff --check main...HEAD                          # exit 0
+```
+
+백엔드 pytest 는 리뷰가 지정한 전용 자원(DB `chosung_daily_test_t31`, Redis DB 5,
+마이그레이션 DB `chosung_daily_test_t31_migrations`)으로 **rebase 된 트리에서 다시
+돌렸다**(위 출력). 공용 테스트 DB 는 비우지 않았고 새 DB 를 만들지도 않았다. 그 뒤의
+변경은 `mobile/` 과 이 문서뿐이다 —
+`git diff main...HEAD -- app/ web/ tests/ migrations/ .env.example` 는 빈 결과이고
+마이그레이션 변경이 없어 조건부 `flask db heads` 는 해당 없음.
+`git merge-base main HEAD == main`(= `d78e082`), 작업 트리 clean.

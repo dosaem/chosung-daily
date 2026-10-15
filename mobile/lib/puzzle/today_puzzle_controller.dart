@@ -19,25 +19,47 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 /// 값이 null 이면 **보드를 아직 모른다** 다(= 화면은 스켈레톤). 첫 조회 전과
 /// 계정이 바뀐 직후가 그 상태다([discard]) — 로딩·오류를 `TodayState` 안에
 /// 또 세지 않으려고 "없음" 만 null 로 둔다(`MyStatsNotifier` 와 같은 방식).
+///
+/// ## 늦은 응답이 새 상태를 덮지 못하게 하는 규칙 (리뷰 r3 D-31-6)
+///
+/// 보드를 바꾸는 비동기 경로는 **읽기**(첫 조회·복귀 재조회·힌트 뒤 재조회·계정
+/// 경계)와 **쓰기**(제출·힌트) 둘뿐이고, 둘의 경합은 한 쌍의 규칙으로만 끊는다:
+///
+/// 1. **쓰기가 떠 있으면 읽기를 미룬다**([_writingBoard] → [_refreshQueued],
+///    쓰기가 끝나면 [_endBoardWrite] 가 돌린다). 지금 읽는 서버 보드엔 방금 보낸
+///    답·힌트가 **아직 없어서**, 그 응답을 그대로 쓰면 쌓인 행이나 열린 힌트가
+///    사라진다. 미루는 것이지 버리는 것이 아니다 — 복귀 재조회는 쓰기 뒤에
+///    반드시 한 번 돌아간다.
+/// 2. **읽기가 떠 있으면 쓰기가 세대를 올려 그 응답을 버린다**([_generation],
+///    [_canCommit]). 읽기는 보드를 통째로 갈아 끼우므로 쓰기보다 과거면 쓸 수
+///    없다. 반대로 쓰기 응답은 세대로 버리지 않고 **지금의 보드에 병합**한다
+///    ([_boardFor]) — 겹치지 않는 칸이라 서로를 되돌릴 이유가 없다(r2 D-31-4).
+///
+/// 그래서 읽기 응답은 [_readBoard] → [_commitLoad] 한 곳으로만, 쓰기 응답은
+/// [_boardFor] 한 곳으로만 상태에 올라간다. 경로 쌍별 고정 테스트는
+/// `test/puzzle/today_puzzle_controller_test.dart` 그룹 "응답 경합" 과
+/// `review/impl-evidence-31.md` "경로 쌍 표" 에 있다.
 class TodayPuzzleNotifier extends AsyncNotifier<TodayState?> {
   /// 응답 경합을 끊는 세대 번호. 조회·제출은 **떠날 때** 이 번호를 올리고,
   /// 응답이 돌아오면 자기 번호가 아직 최신일 때만 상태에 쓴다. 먼저 떠난 느린
   /// 응답이 나중에 도착해 새 보드를 과거로 되돌리는 걸 막는다.
   int _generation = 0;
 
-  /// 제출 응답을 기다리는 중인가. 그 사이의 재조회는 보드를 건드리지 않고
-  /// [_refreshQueued] 로 미룬다 — 지금 읽는 서버 이력엔 방금 보낸 답이 아직
-  /// 없어서, 그대로 쓰면 제출한 행이 사라지고 제출 잠금까지 풀려 같은 답이
-  /// 두 번 들어간다.
+  /// 제출 응답을 기다리는 중인가. 그대로 쓰면 제출한 행이 사라지고 제출 잠금까지
+  /// 풀려 같은 답이 두 번 들어간다.
   bool _submitting = false;
-  bool _refreshQueued = false;
 
-  /// 힌트 응답을 기다리는 중인가. 제출과 **같은 이유로** 그 사이의 재조회를
-  /// 미룬다 — 지금 읽는 서버 보드엔 방금 연 힌트가 아직 없어서, 그 응답이 늦게
-  /// 도착해 보드를 갈아 끼우면 열린 힌트가 사라지고 비구독자는 이미 산 같은
-  /// 힌트에 광고를 다시 봐야 한다(US 4·5a). 힌트가 끝난 뒤 읽으면 서버 보드에
-  /// 그 힌트가 들어 있다.
+  /// 힌트 응답을 기다리는 중인가. 그대로 쓰면 열린 힌트가 사라지고 비구독자는
+  /// 이미 산 같은 힌트에 보상형 광고를 다시 봐야 한다(US 4·5a).
   bool _unlockingHint = false;
+
+  /// 보드에 **쓰는** 요청이 떠 있는가. 읽기를 미룰지는 이 하나로만 판정한다 —
+  /// 경로마다 조건을 다시 쓰면 쓰기를 하나 더할 때 한 곳을 빼먹는다(클래스 주석
+  /// 규칙 1).
+  bool get _writingBoard => _submitting || _unlockingHint;
+
+  /// 쓰기가 떠 있어서 미뤄둔 읽기. 쓰기가 끝나면 [_endBoardWrite] 가 돌린다.
+  bool _refreshQueued = false;
 
   /// 지금 보드를 **어느 계정에서** 읽었는가([accountEpochProvider]). 제출은 이
   /// 값과 지금 계정을 비교해서 남의 계정에 쓰지 않는다(D-29-5).
@@ -98,6 +120,20 @@ class TodayPuzzleNotifier extends AsyncNotifier<TodayState?> {
     });
   }
 
+  /// 읽기 응답이 상태에 올라가는 **단 하나의 자리**(클래스 주석). 첫 조회만
+  /// 예외다 — 프레임워크가 `build` 의 future 를 직접 쓰므로 [_initialLoad] 가
+  /// 같은 역할을 한다.
+  Future<void> _readBoard(int generation, {TodayNotice? notice}) async =>
+      _commitLoad(await _load(), generation, notice: notice);
+
+  /// 쓰기가 끝나면(성공·실패 모두) 한 번 부른다. 미뤄둔 읽기를 돌린다 — 쓰기
+  /// 결과를 상태에 쓴 뒤에 돌리므로 서버 보드가 마지막 말이 된다(US 3a·3b).
+  void _endBoardWrite() {
+    if (!_refreshQueued) return;
+    _refreshQueued = false;
+    unawaited(refresh());
+  }
+
   /// 오류 카드의 재시도 버튼. 처음부터 다시 돌린다(스켈레톤 → 결과).
   void retry() => ref.invalidateSelf();
 
@@ -120,7 +156,7 @@ class TodayPuzzleNotifier extends AsyncNotifier<TodayState?> {
     _unlockingHint = false;
     _refreshQueued = false;
     state = const AsyncData<TodayState?>(null);
-    _commitLoad(await _load(), generation);
+    await _readBoard(generation);
   }
 
   /// 포그라운드 복귀·알림 탭·보드의 인라인 재시도. 이미 보드가 있으면
@@ -128,7 +164,7 @@ class TodayPuzzleNotifier extends AsyncNotifier<TodayState?> {
   /// 멀쩡한 보드를 잃는다.
   Future<void> refresh() async {
     if (!ref.mounted) return;
-    if (_submitting || _unlockingHint) {
+    if (_writingBoard) {
       _refreshQueued = true;
       return;
     }
@@ -137,8 +173,7 @@ class TodayPuzzleNotifier extends AsyncNotifier<TodayState?> {
     // 검사로 버릴 수 없다 — 그래서 두 번째 조회를 아예 띄우지 않는다.)
     if (state.isLoading && !state.hasValue) return;
 
-    final generation = ++_generation;
-    _commitLoad(await _load(), generation);
+    await _readBoard(++_generation);
   }
 
   /// 답을 제출한다. 보드에 한 행이 쌓였으면 true — 그때만 화면이 입력창을 비운다.
@@ -189,11 +224,7 @@ class TodayPuzzleNotifier extends AsyncNotifier<TodayState?> {
       return true;
     } on PuzzleChangedApiException {
       // 시도는 소비되지 않았다. 새 퍼즐을 읽어와 그 위에 메시지를 올린다.
-      _commitLoad(
-        await _load(),
-        generation,
-        notice: TodayNotice.puzzleChanged,
-      );
+      await _readBoard(generation, notice: TodayNotice.puzzleChanged);
       return false;
     } on NetworkApiException {
       _commitNotice(generation, puzzle, TodayNotice.offline);
@@ -205,12 +236,7 @@ class TodayPuzzleNotifier extends AsyncNotifier<TodayState?> {
       _submitting = false;
       _submitDone = null;
       submitDone.complete();
-      if (_refreshQueued) {
-        _refreshQueued = false;
-        // 제출 중 미뤄둔 복귀 재조회. 제출 결과를 쓴 뒤에 돌리므로 서버 보드가
-        // 마지막 말이 된다(US 3a·3b).
-        unawaited(refresh());
-      }
+      _endBoardWrite();
     }
   }
 
@@ -275,12 +301,9 @@ class TodayPuzzleNotifier extends AsyncNotifier<TodayState?> {
       return false;
     } finally {
       _unlockingHint = false;
-      if (_refreshQueued) {
-        _refreshQueued = false;
-        // 힌트 중 미뤄둔 복귀 재조회. 힌트가 서버에 들어간 뒤에 읽으므로 서버
-        // 보드가 마지막 말이 되면서도 열린 힌트를 같이 들고 온다.
-        unawaited(refresh());
-      }
+      // 힌트 중 미뤄둔 복귀 재조회. 힌트가 서버에 들어간 뒤에 읽으므로 서버
+      // 보드가 마지막 말이 되면서도 열린 힌트를 같이 들고 온다.
+      _endBoardWrite();
     }
   }
 
@@ -325,8 +348,7 @@ class TodayPuzzleNotifier extends AsyncNotifier<TodayState?> {
     // 이 조회가 힌트 중 미뤄둔 복귀 재조회의 몫까지 한다 — 바로 뒤에 같은 걸 또
     // 보내지 않는다.
     _refreshQueued = false;
-    final generation = ++_generation;
-    _commitLoad(await _load(), generation, notice: notice);
+    await _readBoard(++_generation, notice: notice);
   }
 
   /// 이 응답을 아직 상태에 써도 되는가. 그 사이 provider 가 버려졌거나(재시도)

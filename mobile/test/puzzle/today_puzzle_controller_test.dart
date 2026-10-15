@@ -478,6 +478,89 @@ void main() {
       expect(api.fetchTodayPuzzleCalls, 2);
     });
 
+    // 리뷰 r3, 코디네이터 지시 3: 아래 네 테스트는 "경로 쌍 표" 의 빈 칸을
+    // 메운다 — 리뷰어가 다음 쌍을 찾기 전에 지연 Fake 로 고정한다.
+    test('첫 조회가 끝나기 전에는 제출도 힌트도 서버로 가지 않는다', () async {
+      final api = FakeApiClient(puzzle: fakeTodayPuzzle(puzzleId: 41));
+      final gate = Completer<void>();
+      api.fetchTodayPuzzleGate = gate;
+      final container = _container(api);
+
+      final loading = container.read(todayPuzzleProvider.future);
+      await pumpEventQueue();
+
+      // 보드를 아직 모르면(= 화면은 스켈레톤) 쓸 자리가 없다.
+      final notifier = container.read(todayPuzzleProvider.notifier);
+      expect(await notifier.submit('지하촌역'), isFalse);
+      expect(await notifier.unlockHint(), isFalse);
+      expect(api.submittedGuesses, isEmpty);
+      expect(api.unlockedHintPuzzleIds, isEmpty);
+
+      gate.complete();
+      await loading;
+      expect(api.fetchTodayPuzzleCalls, 1, reason: '첫 조회를 두 번 띄우지 않는다');
+    });
+
+    test('제출 응답을 기다리는 동안 다시 제출해도 서버로 한 번만 간다', () async {
+      final api = FakeApiClient(puzzle: fakeTodayPuzzle(puzzleId: 41));
+      final container = _container(api);
+      await container.read(todayPuzzleProvider.future);
+
+      final gate = Completer<void>();
+      api.submitGuessGate = gate;
+      final first = container.read(todayPuzzleProvider.notifier).submit('지하촌역');
+      await pumpEventQueue();
+
+      // 잠금은 보드(`submitting`)가 들고 있으므로 두 번째 호출은 바로 끊긴다.
+      expect(
+        await container.read(todayPuzzleProvider.notifier).submit('지하철역'),
+        isFalse,
+      );
+      expect(api.submittedGuesses, hasLength(1));
+
+      gate.complete();
+      expect(await first, isTrue);
+      expect(api.submittedGuesses, hasLength(1));
+      final state = _ready(container.read(todayPuzzleProvider).requireValue);
+      expect(
+        state.puzzle.attempts,
+        hasLength(1),
+        reason: '한 번 누른 제출이 두 행이 되면 안 된다',
+      );
+    });
+
+    // 반대 순서(재조회 × 힌트). 힌트가 떠날 때 세대를 올리므로 먼저 떠난 조회의
+    // 응답은 버려진다 — 그 응답엔 힌트가 없으니 쓰면 열린 힌트를 지운다.
+    test('힌트보다 먼저 떠난 재조회가 늦게 도착해도 열린 힌트를 지우지 않는다', () async {
+      final api = FakeApiClient(puzzle: fakeTodayPuzzle(puzzleId: 41));
+      final container = _container(api);
+      await container.read(todayPuzzleProvider.future);
+
+      // 복귀 재조회가 느리다. 이 응답은 힌트 전 보드(힌트 없음)다.
+      final fetchGate = Completer<void>();
+      api.fetchTodayPuzzleGate = fetchGate;
+      final refreshing = container.read(todayPuzzleProvider.notifier).refresh();
+      await pumpEventQueue();
+
+      // 그 사이 보상형을 끝까지 보고 힌트를 연다.
+      final hintGate = Completer<void>();
+      api.unlockHintGate = hintGate;
+      final opening = container.read(todayPuzzleProvider.notifier).unlockHint();
+      await pumpEventQueue();
+      hintGate.complete();
+      expect(await opening, isTrue);
+
+      // 먼저 떠난 조회가 뒤늦게 도착한다.
+      fetchGate.complete();
+      await refreshing;
+      await pumpEventQueue();
+
+      final state = _ready(container.read(todayPuzzleProvider).requireValue);
+      expect(state.puzzle.hint, '서울에 가장 많다', reason: '과거 응답이 힌트를 덮으면 안 된다');
+      expect(state.puzzle.hintUnlocked, isTrue);
+      expect(api.unlockedHintPuzzleIds, [41]);
+    });
+
     // 리뷰 r3 D-31-6: 힌트 응답을 기다리는 사이의 포그라운드 복귀다. 그때 읽는
     // 서버 보드엔 방금 연 힌트가 아직 없어서(제출의 `_refreshQueued` 와 같은
     // 이유) 그 응답이 힌트보다 늦게 도착해 보드를 통째로 갈아 끼우면 열린 힌트가

@@ -72,7 +72,7 @@ void main() {
 
     expect(await interstitial.showAfterResultSheet(puzzleId: 41), isTrue);
     expect(ads.interstitialShowCalls, 1);
-    expect(store.shown, {41});
+    expect(store.reserved, {41});
   });
 
   // 리뷰 r3 D-31-5: 첫 광고의 로드·표시가 끝나기 전에 "결과 보기" 를 다시 열고
@@ -97,7 +97,7 @@ void main() {
     expect(await first, isTrue);
     expect(await second, isTrue, reason: '이미 뜬 그 광고의 결과를 같이 받는다');
     expect(ads.interstitialShowCalls, 1, reason: '같은 퍼즐에서 두 번 띄우면 안 된다');
-    expect(store.shown, {41});
+    expect(store.reserved, {41});
 
     // 광고가 닫힌 뒤의 호출은 기록이 막는다.
     expect(await interstitial.showAfterResultSheet(puzzleId: 41), isFalse);
@@ -144,7 +144,7 @@ void main() {
     )..markSubmitted()).showAfterResultSheet(puzzleId: 42);
 
     expect(shown, isTrue);
-    expect(store.shown, {41, 42});
+    expect(store.reserved, {41, 42});
   });
 
   test('구독자는 전면 광고가 없다 (US 26)', () async {
@@ -159,7 +159,7 @@ void main() {
 
     expect(shown, isFalse);
     expect(ads.interstitialShowCalls, 0);
-    expect(store.shown, isEmpty);
+    expect(store.reserved, isEmpty);
   });
 
   test('동의가 없으면 전면 광고도 없다', () async {
@@ -200,19 +200,43 @@ void main() {
     expect(ads.interstitialShowCalls, 2);
   });
 
-  // 로드 실패를 "띄웠다" 로 기록하면 그 퍼즐의 기회를 날린다.
-  test('광고가 뜨지 않으면 퍼즐 플래그를 남기지 않는다', () async {
+  // 리뷰 r3 D-31-5 정책: 예약은 광고를 요청하기 **전에** 적고 실패해도 풀지
+  // 않는다. 풀어 주면 "결과 보기" 를 누를 때마다 실패한 로드를 다시 때린다.
+  test('광고가 뜨지 않아도 그 퍼즐의 한 번은 쓴 것이다', () async {
     final ads = FakeAdService(interstitialShows: false);
     final store = InMemoryInterstitialStore();
     final container = _container(ads: ads, store: store);
     await container.read(adConsentProvider.future);
+    final interstitial = container.read(resultInterstitialProvider)
+      ..markSubmitted();
 
-    final shown = await (container.read(
+    expect(await interstitial.showAfterResultSheet(puzzleId: 41), isFalse);
+    expect(ads.interstitialShowCalls, 1);
+    expect(store.reserved, {41}, reason: '요청 전에 예약했고 실패로 풀지 않는다');
+
+    // 같은 퍼즐의 시트를 다시 닫아도 로드를 또 때리지 않는다.
+    expect(await interstitial.showAfterResultSheet(puzzleId: 41), isFalse);
+    expect(ads.interstitialShowCalls, 1);
+  });
+
+  // 광고가 떠 있는 동안 앱이 죽어도(표시 결과를 못 받는다) 다시 켤 때 또 뜨면
+  // 안 된다 — 예약이 요청 전에 적혀 있어야 가능하다.
+  test('표시 결과를 받기 전에 이미 예약이 적혀 있다', () async {
+    final gate = Completer<void>();
+    final ads = FakeAdService()..interstitialGate = gate;
+    final store = InMemoryInterstitialStore();
+    final container = _container(ads: ads, store: store);
+    await container.read(adConsentProvider.future);
+
+    final showing = (container.read(
       resultInterstitialProvider,
     )..markSubmitted()).showAfterResultSheet(puzzleId: 41);
+    await pumpEventQueue();
 
-    expect(shown, isFalse);
-    expect(ads.interstitialShowCalls, 1);
-    expect(store.shown, isEmpty);
+    expect(ads.interstitialShowCalls, 1, reason: '광고는 떠 있다');
+    expect(store.reserved, {41}, reason: '표시가 끝나기 전에 예약이 남는다');
+
+    gate.complete();
+    expect(await showing, isTrue);
   });
 }
