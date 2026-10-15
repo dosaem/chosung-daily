@@ -5,6 +5,7 @@ import 'package:chosung/subscription/subscription_state.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:in_app_purchase_android/billing_client_wrappers.dart';
 import 'package:in_app_purchase_android/in_app_purchase_android.dart';
+import 'package:in_app_purchase_storekit/in_app_purchase_storekit.dart';
 
 /// 스토어가 알려줄 상품. 가격은 **스토어 현지화 문자열**이라 테스트도 숫자가
 /// 아니라 문자열을 그대로 본다(상수로 박지 않는 것이 이 티켓의 요구다).
@@ -46,6 +47,24 @@ PurchaseDetails fakePurchase({
       pendingComplete: pendingComplete,
     );
   }
+  if (source == 'app_store') {
+    // iOS 는 StoreKit 2 로 돈다(스펙 §B.18) → 플러그인이 올리는 타입은
+    // [SK2PurchaseDetails] 다. 이쪽은 `pendingCompletePurchase` 가
+    // **`status == purchased` 로 고정된 getter** 라 [pendingComplete] 를 받지
+    // 않는다 — 복원·승인 대기 거래를 finish 하지 않는 것이 실제 동작이다.
+    return SK2PurchaseDetails(
+      productID: productID,
+      purchaseID: purchaseID,
+      verificationData: PurchaseVerificationData(
+        localVerificationData: receipt,
+        serverVerificationData: receipt,
+        source: source,
+      ),
+      transactionDate: '1760000000000',
+      status: status,
+    );
+  }
+  // 우리가 모르는 스토어(테스트의 'amazon') — 플랫폼 타입이 없는 자리다.
   return PurchaseDetails(
     productID: productID,
     purchaseID: purchaseID,
@@ -107,6 +126,11 @@ class FakePurchaseService implements PurchaseService {
   ProductDetails? product = fakeProduct();
   Exception? loadProductError;
   Exception? buyError;
+
+  /// `buy()` 가 "결제 창을 띄웠다" 를 돌려줄지. Play 는 못 띄워도 예외가
+  /// 아니라 **false** 다(`launchBillingFlow` non-OK) — 그때는 스트림에도
+  /// 아무 것도 오지 않는다. iOS(SK2)는 실패 때 던지므로 [buyError] 쪽이다.
+  bool buyLaunched = true;
   Exception? restoreError;
   Exception? completeError;
 
@@ -134,9 +158,10 @@ class FakePurchaseService implements PurchaseService {
   }
 
   @override
-  Future<void> buy(ProductDetails product) async {
+  Future<bool> buy(ProductDetails product) async {
     bought.add(product);
     if (buyError case final error?) throw error;
+    return buyLaunched;
   }
 
   @override

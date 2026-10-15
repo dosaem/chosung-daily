@@ -266,6 +266,23 @@ void main() {
     expect(store.bought.single.id, adFreeMonthlyProductId);
   });
 
+  test('결제 창을 띄우지 못하면(Play: 예외 없이 false) 사유를 띄운다', () async {
+    // Android `buyNonConsumable` 은 `launchBillingFlow` 가 non-OK 면 던지지
+    // 않고 false 를 돌려주며 `onPurchasesUpdated` 도 부르지 않는다 — 문구를
+    // 띄우지 않으면 버튼을 눌러도 아무 일도 일어나지 않는다.
+    final container = containerWith();
+    await settle();
+    store.buyLaunched = false;
+
+    await container.read(purchaseFlowProvider.notifier).start();
+
+    expect(store.bought.single.id, adFreeMonthlyProductId);
+    expect(
+      container.read(purchaseFlowProvider).error,
+      'subscription.error_failed',
+    );
+  });
+
   test('가격을 모르면 결제 창을 띄우지 않고 사유를 남긴다', () async {
     store.product = null;
     final container = containerWith();

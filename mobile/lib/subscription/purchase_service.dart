@@ -19,7 +19,12 @@ abstract interface class PurchaseService {
   Future<ProductDetails?> loadProduct();
 
   /// 스토어 결제 창을 띄운다. 결과는 [purchases] 로 온다.
-  Future<void> buy(ProductDetails product);
+  ///
+  /// **결제 창을 띄웠는가**를 돌려준다. Play 는 띄우지 못해도 예외가 아니라
+  /// `false` 이고(`launchBillingFlow` non-OK) 그때는 `onPurchasesUpdated` 도
+  /// 부르지 않으므로, 부르는 쪽이 문구를 띄워야 한다. iOS(StoreKit 2)는
+  /// 실패를 예외로 던지고 늘 `true` 다.
+  Future<bool> buy(ProductDetails product);
 
   /// 스토어 구매 동기화(`restorePurchases`/`queryPurchases`). 결과도
   /// [purchases] 로 온다.
@@ -41,8 +46,9 @@ class NoopPurchaseService implements PurchaseService {
   @override
   Future<ProductDetails?> loadProduct() async => null;
 
+  /// 결제 창을 띄운 적이 없으니 false 다.
   @override
-  Future<void> buy(ProductDetails product) async {}
+  Future<bool> buy(ProductDetails product) async => false;
 
   @override
   Future<void> restore() async {}
@@ -72,13 +78,12 @@ class StorePurchaseService implements PurchaseService {
   }
 
   @override
-  Future<void> buy(ProductDetails product) async {
-    // 구독은 소모성이 아니다 — `buyConsumable` 로 사면 Android 가 구매를
-    // 소비해 버려 다음 조회에서 사라진다.
-    await InAppPurchase.instance.buyNonConsumable(
-      purchaseParam: PurchaseParam(productDetails: product),
-    );
-  }
+  Future<bool> buy(ProductDetails product) =>
+      // 구독은 소모성이 아니다 — `buyConsumable` 로 사면 Android 가 구매를
+      // 소비해 버려 다음 조회에서 사라진다.
+      InAppPurchase.instance.buyNonConsumable(
+        purchaseParam: PurchaseParam(productDetails: product),
+      );
 
   @override
   Future<void> restore() => InAppPurchase.instance.restorePurchases();

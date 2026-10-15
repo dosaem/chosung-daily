@@ -638,3 +638,80 @@ Formatted 192 files (0 changed) in 0.23 seconds.
 $ cd mobile && flutter test
 00:39 +744: All tests passed!          # 741 → 744 (D-32-5 3건)
 ```
+
+### Fake ↔ 실제 플러그인 대조표 (코디네이터 요청)
+
+D-32-5 는 "Fake 가 실제와 다른 입력을 만든다" 에서 나왔다. 그래서
+`test/fakes/fake_purchase_service.dart` 의 모든 면을 플러그인 소스와 한 줄씩
+대조했다 — `in_app_purchase_android` 0.5.0, `in_app_purchase_storekit` 0.4.13
+(StoreKit **2**, 스펙 §B.18 · `bootstrap_test` 가 지킨다), 읽은 파일은
+`lib/src/in_app_purchase_android_platform.dart`,
+`lib/src/types/google_play_purchase_details.dart`,
+`lib/src/pigeon_converters.dart`,
+`lib/src/billing_client_wrappers/purchase_wrapper.dart`,
+`lib/src/in_app_purchase_storekit_platform.dart`,
+`lib/src/store_kit_2_wrappers/sk2_transaction_wrapper.dart`,
+`lib/src/types/app_store_purchase_details.dart`,
+`darwin/.../StoreKit2/InAppPurchasePlugin+StoreKit2.swift`.
+
+| # | 자리 | 실제 플러그인 | 라운드 2 전 Fake | 처리 |
+|---|---|---|---|---|
+| 1 | 조회가 올리는 `status` | Android: `queryPurchases` 결과 **전부**에 `restored` 를 덮어쓴다(pending 포함, `restorePurchases` 255-266행) | `restorable` 을 그대로 올렸다 → 조회 결과에 `pending` 이 있을 수 있다고 가정 | **고침** — `_asQueried` 가 Play 거래에 `restored` 를 씌운다. D-32-5 의 뿌리 |
+| 2 | 거래 객체 타입 | Android 는 `GooglePlayPurchaseDetails`(원본 상태가 `billingClientPurchase.purchaseState` 에 남는다), iOS(SK2)는 `SK2PurchaseDetails`. 두 플랫폼의 `completePurchase` 가 **타입을 assert 한다**(android 208-214행, storekit 221-225행) | 양쪽 다 밋밋한 `PurchaseDetails` → 실기기라면 `complete` 가 assert 로 죽는 입력이었고, Play 원본 상태를 읽을 길이 없었다 | **고침** — `google_play`→`GooglePlayPurchaseDetails`, `app_store`→`SK2PurchaseDetails`, 모르는 출처만 밋밋한 `PurchaseDetails` |
+| 3 | `pendingCompletePurchase` | Android: `!billingClientPurchase.isAcknowledged`(pending 거래도 true). iOS(SK2): **`status == purchased` 로 고정된 getter** — 복원·승인 대기 거래는 false | Fake 가 `pendingComplete` 로 아무 값이나 넣을 수 있었다(iOS 복원 거래에 true) | **고침** — Android 는 `isAcknowledged` 로 받고, iOS 는 getter 그대로(인자를 받지 않는다) |
+| 4 | `buy()` 실패 | Android: 결제 창을 못 띄워도 **던지지 않고 false**(`launchBillingFlow` non-OK, 179-194행). 그때 `onPurchasesUpdated` 도 안 와서 스트림이 조용하다. iOS(SK2): `SK2Product.purchase` 가 던지고 늘 `true` | `buyError` 로 **던지는 길만** 있었다 → Android 의 false 를 아무도 못 봤다 | **발견 → 고침** (코디네이터 판단, 아래 §"결제 창을 못 띄우는 길") |
+| 5 | `complete()` 실패 | Android: non-OK `BillingResult` 를 **값으로** 돌려주고 던지지 않는다. 이미 acknowledge 된 거래는 바로 ok. iOS(SK2): `SK2Transaction.finish` 가 플랫폼 예외를 던질 수 있다 | `completeError` 로 던지는 길만 | **미수정(의도)** — `PurchaseService.complete` 가 `Future<void>` 로 Android 의 결과를 버린다. 앱이 acknowledge 실패를 알 길이 없는 건 플러그인 한계이고, 우리 처리는 "완료하지 않은 채 둔다"(다음 시작의 재전송, Play 는 3일 미acknowledge 자동 환불)로 이미 안전한 쪽이다. 고치려면 서비스 반환형·문구 정책이 바뀌어 범위 밖 |
+| 6 | `restore()` 실패 | Android: 조회 응답 중 하나라도 non-OK 면 `InAppPurchaseException` 을 던지고 **스트림에 아무 것도 올리지 않는다**(throw 가 `add` 보다 앞, 268-276행). iOS(SK2): 네이티브가 `sendTransactionUpdates` **먼저** 하고 검증 실패 건이 있으면 그 뒤에 실패를 돌려준다 | `restoreError` 를 `emit` 보다 먼저 던진다 | **일치(Android)** — iOS 의 "일부 올린 뒤 실패" 는 우리 쪽에서 더 보수적으로 끝난다(`sync()` 가 `_pendingSeenSinceSync` 를 내리지 않아 pending 유지). 안전한 방향이라 그대로 |
+| 7 | `loadProduct()` 실패 | 양쪽 다 **던지지 않고** `notFoundIDs`·`error` 를 담은 응답을 돌려준다(Android 는 `PlatformException` 을 응답으로 바꿔 담는다, 113-131행) | `product = null` 과 `loadProductError`(던짐) 둘 다 | **일치** — 실제 경로는 `product = null` 쪽이고(`StorePurchaseService` 가 `firstOrNull`), 던지는 길은 채널 예외용 여분이다. 둘 다 "가격을 모른다" 하나로 끝난다 |
+| 8 | 구매 스트림 | 양쪽 다 broadcast — 늦게 듣기 시작하면 그 사이 거래를 놓친다. 같은 거래를 복원·복귀마다 다시 올린다 | broadcast `StreamController`, 같은 거래 재방출을 테스트가 직접 한다 | **일치** (`_inFlight` 가 중복 verify 를 막는다 — 테스트 "같은 거래가 여러 번 올라와도…") |
+| 9 | `purchaseID` | Android = `purchase.orderId`(Play 는 pending 거래에 주지 않을 수 있다). iOS(SK2) = `id > 0 ? id.toString() : null` 인 **숫자 문자열** | `'tx-1'` 고정, 테스트가 `null` 도 넣는다 | **일치(영향 없음)** — `_inFlight` 키가 `purchaseID ?? receipt` 라 null 이어도 영수증으로 떨어진다. SK2 의 숫자 문자열은 `complete` 쪽 `int.parse` 용이고 우리 코드는 파싱하지 않는다 |
+| 10 | iOS 복원 범위 | 네이티브 `restorePurchases` 는 `Transaction.currentEntitlements`(= 이미 권한이 생긴 거래)만 `.restored` 로 올린다(Swift 285-305행) | `restorable` 을 테스트가 직접 정한다 | **일치** — D-32-4 의 "iOS 는 조회에 없어도 pending 을 내리지 않는다" 비대칭이 이 소스로 확인된다 |
+
+### 결제 창을 못 띄우는 길 (대조표 4 — 발견 → 수정)
+
+**원인:** `PurchaseService.buy` 가 `Future<void>` 라 `InAppPurchase.instance
+.buyNonConsumable` 의 반환값을 버렸다. Android 는 `launchBillingFlow` 가
+non-OK 면 예외가 아니라 `false` 를 돌려주고(`in_app_purchase_android_platform
+.dart:179-194` `return billingResultWrapper.responseCode == BillingResponse.ok`)
+`onPurchasesUpdated` 도 부르지 않는다. `start()` 는 `on Exception` 만 보고
+있었으므로 **"구독 시작" 을 눌러도 아무 문구 없이 아무 일도 일어나지 않는다.**
+iOS(SK2)는 반대로 실패를 던지므로 기존 처리가 맞다.
+
+**수정:** `buy` 를 `Future<bool>`("결제 창을 띄웠는가")로 바꾸고, `start()` 가
+false 면 `subscription.error_failed`("결제를 끝내지 못했어요")를 띄운다.
+`NoopPurchaseService` 는 창을 띄운 적이 없으니 false 다(실제 트리는
+`main.dart` 가 덮고 `bootstrap_test` 가 지킨다). Fake 에 `buyLaunched` 를 더해
+그 길을 테스트가 만든다.
+
+**증명(고치기 전 → 후):**
+
+```
+$ cd mobile && flutter test test/subscription/purchase_controller_test.dart \
+    --plain-name '결제 창을 띄우지 못하면'
+  Expected: 'subscription.error_failed'
+    Actual: <null>
+00:03 +0 -1: Some tests failed.          # start() 고치기 전
+
+$ cd mobile && flutter test
+00:51 +745: All tests passed!            # 744 → 745
+```
+
+### 재실행 결과 (라운드 2 최종)
+
+```
+$ cd mobile && flutter analyze
+No issues found! (ran in 5.0s)
+
+$ cd mobile && dart format --output=none --set-exit-if-changed lib test
+Formatted 192 files (0 changed) in 0.24 seconds.
+
+$ cd mobile && flutter test
+00:51 +745: All tests passed!            # 741 → 745 (D-32-5 3건 · buy false 1건)
+
+$ cd mobile && flutter build apk --debug
+✓ Built build/app/outputs/flutter-apk/app-debug.apk
+apk exit=0                               # `mobile/build` 는 다시 지웠다
+
+$ uv run ruff check .
+All checks passed!
+```

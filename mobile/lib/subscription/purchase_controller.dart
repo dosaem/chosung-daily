@@ -219,12 +219,20 @@ class PurchaseFlowNotifier extends Notifier<PurchaseFlow> {
     }
 
     state = state.copyWith(clearError: true);
+    final bool launched;
     try {
-      await _service.buy(product);
+      launched = await _service.buy(product);
     } on Exception {
       if (!ref.mounted) return;
       state = state.copyWith(error: 'subscription.error_failed');
+      return;
     }
+    // Play 는 결제 창을 띄우지 못해도 예외가 아니라 false 를 돌려주고
+    // `onPurchasesUpdated` 도 부르지 않는다 — 여기서 문구를 띄우지 않으면
+    // 버튼을 눌러도 아무 일도 일어나지 않는다. iOS(StoreKit 2)는 실패를
+    // 예외로 던지므로 위 `on Exception` 으로 온다.
+    if (!ref.mounted || launched) return;
+    state = state.copyWith(error: 'subscription.error_failed');
   }
 
   /// S5 "구매 복원". 되찾을 구독이 있으면 스트림으로 올라와 검증을 타고
