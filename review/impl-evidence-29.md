@@ -991,3 +991,358 @@ All checks passed!
 | `mobile/test/...` (4개 파일) | 재현 테스트 6개 + 언어 경계 폐기 1개, 하네스에 토큰 저장소 주입 자리 |
 | `README.md` | 홈 보드 폐기와 계정 세대 문단, `_serverDeleted` → `_deletedToken` 명칭 정정 |
 | 티켓 30 통합분 | `lib/notifications/notification_controller.dart`(시그니처), `test/screens/records_tab_test.dart`(스크롤·행 판정), `test/golden/ranking_records_golden_test.dart`(하네스), S4 골든 4장, `pubspec.yaml`, 번역 2개 |
+
+## 수정 라운드 4
+
+라운드 4 리뷰의 잔여 결함은 MAJOR 1건(D-29-6)이고 BLOCKER·REPEAT·MINOR 는
+없다. 리뷰의 재현 순서를 그대로 저장소 테스트로 고정해 실패를 먼저 보고
+(red) 원인을 고쳤다. 리뷰어 지적이 틀렸다고 본 것은 없다.
+
+작업 중에 **리뷰와 무관한 선행 실패** 1건을 만났다 — 티켓 30 테스트의 벽시계
+의존이다. 내 변경이 원인이 아님을 분리해 확인하고 코디네이터에게 물었고,
+"네 브랜치에서 테스트만 고치고 별도 커밋으로" 라는 지시를 받아 그대로 했다
+(아래 별도 절).
+
+### D-29-6 — MAJOR — 늦게 끝난 최초 홈 조회가 이미 로드된 새 계정 보드를 지움
+
+**재현(리뷰의 입력 그대로, 저장소 테스트로 고정).** A 로 앱을 열어 최초
+`GET /puzzles/today` 를 `fetchTodayPuzzleGate` 로 붙잡은 채 계정 경계를 넘고
+(B 의 백업 코드 복원 / 소셜 연결 / 삭제 후 새 게스트), **B 보드가 먼저
+도착**하게 한 다음 붙잡아 둔 A 응답을 끝낸다. 세 입구가 같은
+`AccountNotifier._adopt` 를 쓰므로 하네스도 하나다
+(`_crossAccountDuringFirstLoad`). 수정 전:
+
+```
+$ cd mobile && flutter test test/account/account_controller_test.dart --plain-name '늦게 끝난' --reporter expanded
+00:00 +0 -1: 구글·애플 연결 소셜 전환보다 늦게 끝난 최초 홈 조회도 새 계정 보드를 지우지 않는다 [E]
+  Expected: <Instance of 'TodayPuzzleReady'>
+    Actual: <null>
+  계정 경계를 넘은 옛 응답이 새 보드를 지웠다
+00:00 +0 -2: 백업 코드 전환보다 늦게 끝난 최초 홈 조회는 새 계정 보드를 지우지 않는다 [E]
+  Expected: <Instance of 'TodayPuzzleReady'>
+    Actual: <null>
+  계정 경계를 넘은 옛 응답이 새 보드를 지웠다
+00:00 +0 -3: 계정 삭제 삭제보다 늦게 끝난 최초 홈 조회는 새 게스트 보드를 지우지 않는다 [E]
+  Expected: <Instance of 'TodayPuzzleReady'>
+    Actual: <null>
+  계정 경계를 넘은 옛 응답이 새 보드를 지웠다
+00:00 +0 -3: Some tests failed.
+```
+
+실제 `TodayTab` 에서도 같다 — B 보드가 한 번 뜬 뒤 사라지고 스켈레톤만 남았다.
+
+```
+$ cd mobile && flutter test test/screens/today_tab_test.dart --plain-name '전환 뒤 늦게 끝난' --reporter expanded
+  Expected: exactly one matching candidate
+  Actual: _TypeWidgetFinder:<Found 0 widgets with type "PuzzleBoard": []>
+   Which: means none were found but one was expected
+계정 경계를 넘은 옛 응답이 새 계정 보드를 지웠다
+00:00 +0 -1: Some tests failed.
+```
+
+같은 결함의 다른 얼굴도 재현했다 — 새 계정 조회가 **실패**해 오류 카드가 선
+뒤에 늦은 A 응답이 도착하면 그 오류 카드까지 지워, 재조회도 재시도 버튼도
+없는 스켈레톤이 된다.
+
+```
+$ cd mobile && flutter test test/puzzle/today_puzzle_controller_test.dart --plain-name '오류 카드도 지우지' --reporter expanded
+00:00 +0 -1: 늦게 끝난 첫 조회는 새 계정의 오류 카드도 지우지 않는다 [E]
+  Expected: true
+    Actual: <false>
+  옛 응답이 오류 카드를 지웠다
+```
+
+**원인.** `build()` 가 돌려준 future 는 Riverpod 이 **직접** 상태에 쓴다 —
+`_commitLoad` 의 세대 검사(`_canCommit`)를 거치지 않는다. 라운드 3 은 이걸
+알고 "쓰지 말라" 를 **돌려주는 값** 쪽에서 판정하게 했다(`_load` 가 계정이
+바뀌면 `null`). 그런데 그 `null` 은 "현재 상태를 건드리지 말라" 가 아니라
+"현재 상태를 null 로 만들어라" 로 반영된다. 그 사이 `discard()` 가 B 보드를
+이미 올려놨으면 그 보드가(또는 B 조회 실패가 세운 오류 카드가) 지워진다.
+`discard()` 는 새 조회와 상태 교체는 하지만 **이미 떠난 build future 를
+무효화할 수단이 없다** — Riverpod 은 그 future 를 취소하지 않는다.
+
+라운드 3 의 D-29-5 와 증상·조건이 다르다: 그쪽은 "옛 보드가 남아 새 계정에
+제출" 이고, 이쪽은 "새 보드가 지워져 아무것도 못 함" 이다. 쓰기 가드와 보드
+폐기는 그대로 유효하다.
+
+**수정**(`mobile/lib/puzzle/today_puzzle_controller.dart`). 첫 조회를
+`_initialLoad(generation)` 으로 한 겹 감싼다. 세대가 지나갔으면(계정 경계
+`discard()` 또는 `retry()` 의 `invalidateSelf`) **지금 상태를 그대로**
+돌려줘 프레임워크의 쓰기를 무해하게 만든다 — 값이면 같은 값, 오류면
+`Error.throwWithStackTrace` 로 같은 오류를 다시 던져 오류 카드를 지킨다.
+provider 가 이미 버려졌으면 `state` 를 읽지 않고 받은 값을 돌려준다(그 경우
+프레임워크도 결과를 쓰지 않는다). 증상을 가리는 게 아니라 "남의 응답은 현재
+상태를 바꾸지 않는다" 를 쓰기가 일어나는 그 자리에서 보장한다.
+
+다른 길을 고르지 않은 이유:
+
+- `build` 가 즉시 `null` 을 돌려주고 조회를 따로 띄우기: 첫 화면 상태가
+  `AsyncLoading` 이 아니라 `AsyncData(null)` 이 되어 `refresh()` 의 "첫
+  조회가 안 끝났으면 두 번째 조회를 띄우지 않는다" 판정(`state.isLoading &&
+  !state.hasValue`)과 최초 실패의 오류 카드 경로가 같이 바뀐다. 결함 수정
+  범위를 넘는다.
+- 남의 응답을 끝나지 않는 future 로 바꾸기: 그 조회가 영원히 매달린다.
+
+**증명.**
+
+```
+$ cd mobile && flutter test test/account/account_controller_test.dart test/puzzle/today_puzzle_controller_test.dart test/screens/today_tab_test.dart test/notifications/notification_controller_test.dart
+00:07 +96: All tests passed!
+```
+
+이 라운드가 더한 테스트는 5개다 — 계정 경계 세 입구(소셜 연결·백업 코드
+전환·삭제 후 새 게스트) 각각 1개, 실제 `TodayTab` 에서 보드·입력창이 남는지
+1개, 새 계정 조회 실패 시 오류 카드가 남는지 1개. 리뷰가 지적한 기존 테스트
+공백("실제 `_adopt` 가 B 보드를 먼저 로드한 뒤 A 가 완료되는 경우")을 그대로
+메운다.
+
+### 같이 고친 선행 실패 — 티켓 30 알림 테스트의 벽시계 의존 (코디네이터 지시)
+
+**증상.** 전체 `flutter test` 에서 `test/notifications/notification_controller_test.dart`
+의 '앱 시작 OS 에 권한 상태를 물어보고 그 결과로 예약한다' 가 실패했다.
+
+```
+  Expected: [NotificationKind.daily, NotificationKind.reminder × 7]
+    Actual: [NotificationKind.reminder, NotificationKind.daily, reminder × 6]
+     Which: at location [0] is <reminder> instead of <daily>
+  test/notifications/notification_controller_test.dart 110:7
+```
+
+**원인.** `planNotifications` 는 계획을 **발화 시각 순**으로 정렬한다
+(`mobile/lib/notifications/notification_plan.dart:154`). 일일 알림 기본값은
+09:00, 리마인더는 20:00 이다. 로컬 09:00~20:00 사이에 돌리면 일일 알림은
+'내일 09:00' 로 밀리고 오늘 리마인더는 '오늘 20:00' 이라 순서가 뒤집힌다 —
+즉 그 시간대에는 **항상** 실패한다(실행 시각 09:05 KST). 리뷰어는 09:00 전에
+돌려 537 passed 를 받았을 것이다. 같은 이유로 '다시 켜도 저장된 완료 날짜는
+그대로 걸러진다' 는 20:00 뒤에 깨진다(계획이 내일부터 시작해 오늘 완료가
+걸러낼 대상이 없다).
+
+**내 변경과의 인과 분리.** 티켓 29 패치를 되돌린 `HEAD` 원본
+(`git show HEAD:mobile/lib/puzzle/today_puzzle_controller.dart`)으로 3회
+연속 같은 실패를 재현했다.
+
+```
+$ for i in 1 2 3; do flutter test test/notifications/notification_controller_test.dart --plain-name 'OS 에 권한 상태를 물어보고'; done
+00:01 +0 -1: (tearDownAll)
+00:01 +0 -1: (tearDownAll)
+00:01 +0 -1: (tearDownAll)
+```
+
+**지시.** 코디네이터에게 물었고(`orca orchestration ask`) "지금 `main` 도
+09:00~20:00 KST 에는 같은 이유로 깨지므로 먼저 머지되는 쪽이 고치는 게 맞다.
+범위는 그 테스트가 고정 시각을 쓰게 바꾸는 것만. 앱 동작(발화 시각 정렬)은
+맞으니 바꾸지 마라. 시계 주입점이 없어 넣어야 하면 기본값이 지금 동작과 같은
+최소 주입만. D-29-6 과 섞지 말고 별도 커밋으로. 고정 시각을 09:00 전/후 두
+경우로 돌려 둘 다 통과하는 것도 확인" 을 받았다.
+
+**수정.** 앱 동작은 그대로 두고 테스트만 고쳤다.
+
+- `mobile/lib/config/clock.dart`(새 파일): `clockProvider` — "지금" 을 읽는
+  자리. 기본값이 `DateTime.now` 라 앱 동작은 동일하고, 테스트만 고정 시각을
+  끼운다. 호출 자리는 `NotificationSyncController.sync()` 한 곳이다.
+- 테스트는 **시각만** 고정한다(`_fixedHour`, 날짜는 기기 날짜). 완료 날짜
+  정리가 기기 시계의 KST 날짜를 보기 때문에(`pruneCompletedDates`) 날짜까지
+  고정하면 다음 날 깨진다. 벽시계를 읽던 테스트 4곳도 이 값을 쓴다.
+- 예약 순서 단언은 종류 순서 대신 "일일 1 + 리마인더 7"(순서 무관)과 **발화
+  시각 오름차순**을 본다 — 그게 실제 계약이다.
+
+**확인.** `_fixedHour` 를 8(09:00 전)·10(09:00 후)으로 각각 돌려 둘 다
+통과했다.
+
+```
+$ _fixedHour = 8  → flutter test test/notifications/  → 00:06 +55: All tests passed!
+$ _fixedHour = 10 → flutter test test/notifications/notification_controller_test.dart → 00:03 +18: All tests passed!
+```
+
+참고로 21(20:00 뒤)로 두면 '다시 켜도 저장된 완료 날짜는 그대로 걸러진다' 가
+`Expected: length 6 / Actual: length 7` 로 깨진다 — 그 테스트의 전제(오늘
+리마인더가 계획에 있다)가 20:00 뒤에는 성립하지 않기 때문이다. 앱 동작이 아닌
+테스트 전제라서 고정 시각을 09:00 전(8)으로 두는 선택으로 끝냈다. 티켓 30
+쪽에서 "20:00 뒤" 를 따로 보고 싶으면 그 테스트에만 다른 고정 시각을 주면
+된다(후속 제안, 이 티켓에서는 손대지 않았다).
+
+### 미수정 MINOR
+
+라운드 4 리뷰의 MINOR 는 0건이다. 이전 라운드에 적어 둔 미수정 MINOR 는
+그대로다(라운드 2·3 절 참고).
+
+### 리뷰 지적 중 고치지 않은 것
+
+없다. D-29-6 은 리뷰의 재현 순서대로 재현됐고 원인도 리뷰가 지목한 자리와
+같았다.
+
+### rebase 와 재실행
+
+```
+$ git rebase main
+Current branch dosaem/t29-app-account-link-switch-delete is up to date.
+$ git merge-base --is-ancestor main HEAD && echo ok
+ok
+$ git status --short
+(빈 출력)
+$ git diff --check main...HEAD
+(빈 출력)
+$ git diff --name-only main...HEAD -- migrations
+(빈 출력 — 이 티켓에 마이그레이션 변경이 없어 `flask db heads` 는 확인 대상이 아니다)
+
+$ cd mobile && flutter test
+00:38 +542: All tests passed!
+
+$ flutter analyze
+No issues found!
+
+$ cd mobile && dart format --output=none --set-exit-if-changed .
+Formatted 154 files (0 changed)
+
+$ uv run ruff check .
+All checks passed!
+```
+
+```
+$ export TEST_DATABASE_URL='mysql+pymysql://chosung:chosung@localhost:3306/chosung_daily_test_t29?charset=utf8mb4'
+$ export TEST_REDIS_URL='redis://localhost:6379/3'
+$ export TEST_MIGRATION_DATABASE_URL='mysql+pymysql://chosung:chosung@localhost:3306/chosung_daily_test_t29_migrations?charset=utf8mb4'
+$ uv run pytest -q
+1412 passed in 1518.57s (0:25:18)   (exit=0)
+```
+
+백엔드는 이번 라운드에도 한 줄도 건드리지 않았다 — `git diff --name-only
+main...HEAD` 에 `app/`·`migrations/`·`tests/` 가 없다(변경은 `mobile/`,
+`review/`, `README.md` 뿐). 그래서 이 pytest 결과는 이 HEAD 에 그대로
+유효하다. 전용 자원(DB `chosung_daily_test_t29`, Redis DB 3, 마이그레이션
+전용 `..._migrations`)만 썼고 공용 테스트 DB 를 비우거나 새 DB 를 만들지
+않았다. 자격 증명 값은 기록하지 않는다(접속 형식은 `.env.example` 과 같다).
+마이그레이션 변경이 없으므로 `flask db heads` 는 확인 대상이 아니다.
+
+앱 테스트는 537 → **542** 다(이 라운드가 더한 5개). 커밋은 2개다 — D-29-6
+수정과 티켓 30 알림 테스트의 고정 시각(코디네이터 지시대로 분리).
+
+### 바뀐 파일 (이 라운드)
+
+| 파일 | 무엇 |
+|---|---|
+| `mobile/lib/puzzle/today_puzzle_controller.dart` | `_initialLoad` — build 가 돌려주는 첫 조회가 계정 경계를 넘었으면 현재 상태를 그대로 돌려준다(D-29-6) |
+| `mobile/test/account/account_controller_test.dart` | 계정 경계 세 입구의 재현 테스트 3개 + 공유 하네스 `_crossAccountDuringFirstLoad` |
+| `mobile/test/screens/today_tab_test.dart` | 실제 `TodayTab` 에서 새 보드·입력창이 남는지 |
+| `mobile/test/puzzle/today_puzzle_controller_test.dart` | 새 계정 조회 실패 시 오류 카드가 남는지 |
+| `mobile/lib/config/clock.dart` | **새 파일.** `clockProvider`(기본값 `DateTime.now`) — 알림 테스트의 고정 시각 주입점 |
+| `mobile/lib/notifications/notification_controller.dart` | `sync()` 가 그 provider 로 "지금" 을 읽는다(동작 동일) |
+| `mobile/test/notifications/notification_controller_test.dart` | 고정 시각(`_fixedHour`)과 순서 무관 단언 — 벽시계 의존 제거 |
+
+### 코디네이터 추가 지시 — 계정 세대를 "읽기" 에도 (D-29-6 원칙)
+
+D-29-6 을 고친 뒤 코디네이터가 원칙을 보냈다(사용자가 추가 라운드 승인):
+"지난 라운드의 `accountEpochProvider` 를 쓰기만이 아니라 **읽기**에도
+적용해라 — 계정 데이터를 읽는 모든 조회는 요청 시점의 세대를 들고 가고,
+응답이 왔을 때 세대가 바뀌었으면 그 응답(성공·실패·null 모두)을 상태에
+반영하지 않고 버린다. 화면마다 따로 막지 말고 조회 진입점 한 곳(또는 공용
+래퍼)에서 처리해라. 남겨 둔 7일 그리드(`historyProvider`) 옛 값 문제도 같은
+장치로 해결되면 같이 닫아라." 그대로 했다.
+
+**공용 래퍼 두 개**(`mobile/lib/guest/account_epoch.dart`).
+
+- `AccountEpochNotifier.fetchIfSameAccount` — 쓰기 쪽 `sendIfSameAccount` 와
+  짝이다. 떠날 때의 세대를 적어 두고 응답이 오면 다시 봐서, 바뀌었으면
+  성공·실패 어느 쪽이든 `null`("이 응답은 남의 것이다, 반영하지 마라")을
+  돌려준다. **"쓰지 말라" 를 값의 자리에서 말하지 않는 것**이 핵심이다 —
+  그게 D-29-6 의 원인이었다(조회가 돌려준 null 을 부른 쪽이 "현재 상태를
+  비우라" 로 읽었다).
+- `initialStateOrCurrent` — `AsyncNotifier.build` 가 돌려준 future 는
+  프레임워크가 commit 을 건너뛰고 바로 상태에 쓰므로, 버릴 응답에는 **지금
+  상태**를 그대로 돌려줘 그 쓰기를 무해하게 만든다. 오류였으면 같은 오류를
+  다시 던져 오류 카드가 그대로 남는다.
+
+**이 래퍼를 지나는 조회**: 홈 보드(`GET /puzzles/today`), 내 기록 숫자
+(`GET /me/stats` — `refresh`·`adopt` 둘 다), 7일 그리드(`GET /me/history`),
+순위(`GET /puzzles/today/leaderboard`). 순위는 오늘·언어로 갈리는 공용
+데이터지만 `me` 표시는 계정 것이라 같이 걸었다(동작은 그대로 — 폐기는 하지
+않고 늦은 응답만 버린다).
+
+걸지 않은 조회와 근거: `todayStatsProvider`(결과 시트 분포)는 시트와 함께
+버려지는 `isAutoDispose` 1회성 조회다 — 계정 경계는 그 시트를 띄운 보드를
+먼저 폐기하므로 남는 상태가 없다. 시작 흐름(`startupProvider`)의
+`GET /me/stats` 는 자기가 토큰 교체를 하는 쪽이라 세대의 "바깥" 이고, 그
+경로의 401 복구는 이미 세대를 올리는 두 자리 중 하나다(`clear`).
+
+**7일 그리드(라운드 3 의 미해결 관찰)를 닫았다.** `historyProvider` 를
+`FutureProvider` → `HistoryNotifier`(`AsyncNotifier<List<HistoryDay>?>`)로
+바꿔 홈 보드와 같은 `discard` 를 붙였다. 값이 null 이면 "아직 모른다"(=
+스켈레톤)다. `AccountNotifier._adopt` 는 무효화가 아니라 `discardHistory(ref)`
+를 부른다. 제출 뒤 재조회(`refreshHistory`)와 오류 줄의 재시도(`retry`)는
+**provider 가 없으면 만들지 않는다** — 내 기록 탭을 안 열어 본 사용자에게
+조회가 한 번 더 나가면 안 된다(`discardTodayPuzzle` 과 같은 규칙).
+
+**재현 → 수정 확인.** 세 테스트 모두 수정 전 red 를 먼저 봤다(히스토리 관련
+lib 파일만 `git checkout HEAD --` 로 되돌려 확인).
+
+```
+$ cd mobile && flutter test test/account/account_controller_test.dart --plain-name '7일' --reporter expanded   # 수정 전
+00:00 +0 -1: 백업 코드 전환하면 7일 칸도 비워지고 새 계정 값으로 채워진다 [E]
+  Expected: null
+    Actual: [
+  옛 계정의 7일 칸이 남았다
+00:00 +0 -2: 백업 코드 전환보다 늦게 끝난 최초 7일 조회는 새 계정 칸을 지우지 않는다 [E]
+  Expected: [
+    Actual: <null>
+00:00 +0 -2: Some tests failed.
+
+$ cd mobile && flutter test test/screens/records_account_test.dart --plain-name '7일 칸이 비워지고' --reporter expanded   # 수정 전
+Expected: no matching candidates
+  Actual: _TypeWidgetFinder:<Found 1 widget with type "SevenDayGrid": [
+   Which: means one was found but none were expected
+옛 계정의 7일 칸이 남았다
+00:00 +0 -1: Some tests failed.
+
+$ cd mobile && flutter test test/account/account_controller_test.dart test/screens/records_account_test.dart   # 수정 후
+00:02 +2: All tests passed!   (해당 3개)
+```
+
+실제 `RecordsTab` 에서도 전환 중에는 `SevenDayGrid` 가 사라지고(스켈레톤) B 의
+칸이 도착하면 그 자리를 받는다. 7일 조회를 붙잡는 `fetchMyHistoryGate` 를
+가짜 ApiClient 에 더했다(`fetchTodayPuzzleGate` 와 같은 방식, 응답은 호출
+시점의 값).
+
+### 추가 지시 반영 후 재실행
+
+```
+$ cd mobile && flutter test
+00:43 +545: All tests passed!
+
+$ flutter analyze
+No issues found!
+
+$ cd mobile && dart format --output=none --set-exit-if-changed .
+Formatted 154 files (0 changed)
+
+$ cd mobile && flutter build apk --debug
+✓ Built build/app/outputs/flutter-apk/app-debug.apk
+exit=0
+
+$ uv run ruff check .
+All checks passed!
+
+$ git status --short
+(빈 출력)
+$ git merge-base --is-ancestor main HEAD && echo ok
+ok
+```
+
+앱 테스트는 537 → **545** 다(이 라운드가 더한 8개 — D-29-6 5개, 7일 그리드 3개).
+커밋은 4개다 — D-29-6 수정, 티켓 30 알림 테스트 고정 시각, 읽기 쪽 계정 세대와
+7일 그리드, README 설계 판단.
+
+### 바뀐 파일 (추가 지시 반영분)
+
+| 파일 | 무엇 |
+|---|---|
+| `mobile/lib/guest/account_epoch.dart` | `fetchIfSameAccount`(읽기 래퍼)와 `initialStateOrCurrent`(build future 의 쓰기를 무해하게) |
+| `mobile/lib/puzzle/today_puzzle_controller.dart` | 조회가 래퍼를 지난다, `_commitLoad` 가 버릴 응답을 알아본다, 7일 칸 재조회는 `refreshHistory` |
+| `mobile/lib/records/history_controller.dart` | `FutureProvider` → `HistoryNotifier`(`discard`·`refresh`·`retry` + 래퍼) |
+| `mobile/lib/records/my_stats_controller.dart` | `refresh`·`adopt` 가 래퍼를 지난다 |
+| `mobile/lib/ranking/leaderboard_controller.dart` | `me` 표시 때문에 늦은 응답을 버린다(폐기는 안 함) |
+| `mobile/lib/account/account_controller.dart` | `_adopt` 가 7일 칸도 폐기 |
+| `mobile/lib/screens/records_tab.dart` | 7일 칸 오류 줄의 재시도가 notifier 의 `retry()` |
+| `mobile/test/account/account_controller_test.dart` | 7일 칸 재현 2개 |
+| `mobile/test/screens/records_account_test.dart` | 실제 화면에서 7일 칸 폐기 1개 |
+| `mobile/test/fakes/fake_api_client.dart` | `fetchMyHistoryGate` |
+| `README.md` | "읽기도 같은 문을 지난다" 와 7일 그리드 폐기를 설계 판단에 |
