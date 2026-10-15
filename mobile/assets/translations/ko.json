@@ -199,7 +199,7 @@
     "backup_code_submit": "불러오기",
     "backup_code_cancel": "취소",
     "delete_title": "계정을 삭제할까요?",
-    "delete_body": "기록·계정이 전부 삭제되고 되돌릴 수 없어요. 구독 중이면 App Store/Google Play 에서 따로 해지해야 해요.",
+    "delete_body": "기록·계정이 전부 삭제되고 되돌릴 수 없어요. 이 기기에 저장된 식별자도 새 값으로 바뀌어서, 앱을 지웠다 다시 깔아도 이 기록으로 돌아올 수 없어요. 구독 중이면 App Store/Google Play 에서 따로 해지해야 해요.",
     "delete_cancel": "취소",
     "delete_confirm": "삭제",
     "deleted": "계정을 삭제하고 새로 시작했어요",

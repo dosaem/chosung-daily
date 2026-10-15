@@ -141,6 +141,7 @@ PRIVACY_PHRASES_KO = [
     "118",  # 개인정보침해신고센터
     "1833-6972",  # 개인정보 분쟁조정위원회
     "쿠키",
+    "기기 보안 저장소",  # 앱의 게스트 토큰 저장 위치 (티켓 47)
     "광고 ID 초기화",
     "법적 근거",  # 해외 사용자 절(GDPR 처리 근거)
     "시행일",
@@ -159,6 +160,7 @@ PRIVACY_PHRASES_EN = [
     "118",
     "1833-6972",
     "cookie",
+    "device secure storage",  # 티켓 47
     "reset the advertising id",
     "legal basis",
     "supervisory authority",
@@ -262,6 +264,116 @@ def test_deleted_data_names_are_a_subset_of_the_policy_items(client, web_login, 
 
     assert deleted, "삭제 페이지에 항목 목록이 없다 — 세션이 안 심겼을 수 있다"
     assert deleted <= collected, f"방침에 없는 항목: {sorted(deleted - collected)}"
+
+
+# --- 티켓 47: 앱이 기기 보안 저장소에 두는 게스트 토큰 ----------------------
+#
+# iOS 키체인은 앱을 지워도 남아 재설치하면 같은 기록으로 이어진다 — **의도된 동작**
+# 이고(사용자 결정 2026-10-16), 그래서 방침이 저장 위치·존속·지우는 방법을 적는다.
+# 아래 네 테스트가 그 고지를 구현에 묶는다: 자동 수집 절에 문구가 있는지(과장 문구가
+# 없는지까지) + 권리 행사 절이 "앱 삭제 ≠ 삭제" 를 적는지 + 토큰이 정말 그 저장소에
+# 들어가는지 + "계정 삭제가 기기 토큰을 바꾼다" 가 정말 그런지.
+
+DEVICE_STORAGE_WORDING = {
+    "ko": {
+        "required": [
+            "기기 보안 저장소",
+            "iOS 키체인",
+            "Android 암호화 저장소",
+            "앱을 지워도 남습니다",
+            "계정 삭제",
+            "새로 발급한 토큰으로 바뀌어",
+        ],
+        # 과장: 앱 삭제가 지워준다거나, 키체인에서 토큰을 직접 지울 수 있다는 말.
+        "forbidden": ["앱을 지우면 함께 지워집니다", "키체인에서 직접 지울 수"],
+    },
+    "en": {
+        "required": [
+            "device secure storage",
+            "ios keychain",
+            "android encrypted storage",
+            "survives deleting the app",
+            "delete account",
+            "replaces the guest token",
+        ],
+        "forbidden": ["deleting the app removes it", "clear the keychain yourself"],
+    },
+}
+
+
+@pytest.mark.parametrize("language", ["ko", "en"])
+def test_privacy_discloses_the_app_device_secure_storage(client, language):
+    """`#automatic-collection` 이 앱의 저장 위치·iOS 존속·지우는 방법을 적는다."""
+    # 문구가 줄바꿈에 걸쳐 있을 수 있어 공백을 한 칸으로 줄이고 본다 — 확인하려는 건
+    # 템플릿의 줄 나눔이 아니라 그 문장이 본문에 있는지다.
+    section = re.sub(
+        r"\s+", " ", _section(_page(client, "privacy", language), "automatic-collection")
+    ).lower()
+    wording = DEVICE_STORAGE_WORDING[language]
+
+    for phrase in wording["required"]:
+        assert phrase.lower() in section, f"{language} 자동 수집 절에 없는 문구: {phrase}"
+    for phrase in wording["forbidden"]:
+        assert phrase.lower() not in section, f"{language} 자동 수집 절의 과장 문구: {phrase}"
+
+
+@pytest.mark.parametrize("language", ["ko", "en"])
+def test_rights_section_says_deleting_the_app_is_not_deletion(client, language):
+    """"앱을 지우는 것만으로는 안 된다" 는 권리 행사 절에도 있어야 찾을 수 있다."""
+    section = re.sub(
+        r"\s+", " ", _section(_page(client, "privacy", language), "rights")
+    ).lower()
+    expected = "앱을 지우는 것만으로는" if language == "ko" else "deleting the app is not deletion"
+
+    assert expected in section
+
+
+def test_the_app_still_keeps_the_guest_token_in_the_platform_secure_storage():
+    """방침이 적은 저장 위치(iOS 키체인 / Android 암호화 저장소)의 근거.
+
+    저장소를 `shared_preferences` 같은 평범한 로컬 설정으로 바꾸면 "기기 보안 저장소"
+    와 "iOS 는 앱을 지워도 남는다" 가 둘 다 거짓이 된다 — 그때 여기서 깨진다.
+    """
+    store = (
+        REPO_ROOT / "mobile" / "lib" / "guest" / "guest_token_store.dart"
+    ).read_text(encoding="utf-8")
+
+    assert "flutter_secure_storage" in store
+    assert "FlutterSecureStorage" in store
+    assert "KeychainAccessibility" in store
+
+    # 온보딩 플래그는 일부러 같은 저장소를 쓰지 않는다(앱을 지웠다 다시 깐 사람에게
+    # 온보딩을 다시 보여주려고) — 그 대비가 "키체인은 남는다" 의 레포 안 근거다.
+    onboarding = (
+        REPO_ROOT / "mobile" / "lib" / "onboarding" / "onboarding_store.dart"
+    ).read_text(encoding="utf-8")
+
+    assert "shared_preferences" in onboarding
+    assert "flutter_secure_storage" not in onboarding
+
+
+def test_app_deletion_replaces_the_stored_guest_token():
+    """방침 `#destruction`·`#automatic-collection` 의 "기기에 저장된 토큰도 새 토큰으로
+    바뀐다" 는 문장의 근거 — 앱의 계정 삭제가 서버 삭제 뒤 새 토큰을 받아 덮어쓴다."""
+    controller = (
+        REPO_ROOT / "mobile" / "lib" / "account" / "account_controller.dart"
+    ).read_text(encoding="utf-8")
+    body = controller[controller.index("Future<void> deleteAccount()") :]
+    body = body[: body.index("Future<void> _adopt(")]
+
+    assert "_api.deleteAccount()" in body
+    assert "_api.createGuest(" in body
+    assert "_adopt(token)" in body
+
+    # `_adopt` 가 부르는 `replaceWith` 가 저장소에 **쓴다**(지우고 비워 두지 않는다).
+    provider = (
+        REPO_ROOT / "mobile" / "lib" / "guest" / "guest_token_provider.dart"
+    ).read_text(encoding="utf-8")
+
+    assert (
+        "Future<void> replaceWith(String token) async {\n    await _store.write(token);"
+        in provider
+    )
 
 
 # --- 사업자 정보는 레포에 없다 ---------------------------------------------

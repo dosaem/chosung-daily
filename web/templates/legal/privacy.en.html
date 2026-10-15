@@ -40,9 +40,15 @@
 <dl>
   <dt>Guest token</dt>
   <dd>
-    A random string that identifies your records. The server issues it on your first visit or
-    first launch and your device stores it. The backup code shown under "back up my records"
-    is this token. Retention: until you delete your account.
+    A random string that identifies your records. It is a random value that carries no personal
+    identifiers such as your name or email, and it exists so that your records continue without
+    sign-up or sign-in. The server issues it on your first visit or first launch and your device
+    stores it &mdash; in your browser's localStorage on the web, and in the
+    <strong>device secure storage</strong> (iOS Keychain · Android encrypted storage) in the
+    apps. <strong>On iOS it stays in the Keychain even after you delete the app</strong>, so
+    reinstalling on the same device continues the same records. Section 10 below covers where it
+    is kept and how to clear it. The backup code shown under "back up my records" is this token.
+    Retention: until you delete your account.
   </dd>
 
   <dt>Account email</dt>
@@ -243,7 +249,9 @@
     <strong>Procedure</strong>: when a deletion request arrives (web <code>/account/delete</code>,
     "Delete account" in the app, or an email request) a single transaction deletes your attempt
     history, streak, linked account, subscription identifier, hint records, and guest token, and
-    removes today's leaderboard entry. There is no "kept after deletion" period.
+    removes today's leaderboard entry. There is no "kept after deletion" period. Deleting from
+    the app also replaces the guest token in the device secure storage with a newly issued one
+    at the same moment, so that device cannot get back into the deleted records (section 10).
   </li>
   <li>
     <strong>Method</strong>: database rows are deleted immediately and cannot be recovered from
@@ -273,6 +281,8 @@
     <strong>Deletion</strong>: web
     <a href="/account/delete?lang=en">chosung.dosaem.com/account/delete</a>, or "Delete account"
     at the bottom of the My Records screen in the app. This cannot be undone.
+    <strong>Deleting the app is not deletion</strong> &mdash; on iOS the guest token stays in the
+    device secure storage even after the app is gone (section 10).
   </li>
   <li>
     <strong>Access, correction, suspension</strong>: write to the email in section 12 below and
@@ -299,16 +309,34 @@
   <li>Backups: taken daily and kept for 14 days, with restore rehearsals. Dumps are stored encrypted with a public key, and the decryption key is not kept on the server.</li>
 </ul>
 
-<h2 id="automatic-collection">10. Automatic collection — cookies, advertising IDs, analytics SDKs</h2>
+<h2 id="automatic-collection">10. Automatic collection — cookies, device storage, advertising IDs, analytics SDKs</h2>
 <dl>
   <dt>Cookies</dt>
   <dd>
     On the web we use a signed session <strong>cookie</strong> to keep you signed in and to hold
     the deletion confirmation form together. We use no advertising or analytics cookies. You can
     refuse or clear cookies in your browser settings; if you refuse them, linking an account and
-    the web deletion page stop working. The guest token is not a cookie — it lives in your
-    browser's localStorage and clearing site data removes it (that device then cannot continue
-    its records).
+    the web deletion page stop working. The guest token on the web is not a cookie — it lives
+    in your browser's localStorage and clearing site data removes it (that device then cannot
+    continue its records). Where the apps keep it is the "Device secure storage" entry below.
+  </dd>
+
+  <dt>Device secure storage (the guest token in the apps)</dt>
+  <dd>
+    The apps keep the guest token, and device markers such as "you have already seen this
+    notice", in the <strong>device secure storage</strong> (iOS Keychain · Android encrypted
+    storage). This exists so your records continue without signing in, and the only one of these
+    values sent to the server is the guest token that authenticates your requests.
+    <strong>The iOS Keychain survives deleting the app</strong> &mdash; reinstalling on the same
+    device brings back the same guest token and your records continue (on Android it is removed
+    together with the app). To clear your records so they do not come back, use
+    "Delete account" (at the bottom of the My Records screen in the app) or the web
+    page <a href="/account/delete?lang=en">chosung.dosaem.com/account/delete</a>
+    <strong>before</strong> you delete the app: that deletes your records on the server, and
+    deleting from the app also replaces the guest token in the device secure storage with a
+    newly issued one on the spot, so there is no way back into the deleted records.
+    <strong>Deleting the app alone removes neither your records on the server nor the token in
+    the iOS Keychain.</strong>
   </dd>
 
   <dt>Advertising ID (IDFA / Advertising ID)</dt>

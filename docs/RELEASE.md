@@ -919,15 +919,13 @@ Android lane 은 빌드 전에 이전 `app-release.aab` 를 지우고, 빌드 �
 - [ ] **스토어 구독 고지 일치.** ASC·Play 콘솔의 구독 설명과 약관 `#subscription` 절의
       가격·결제 주기·자동 갱신·해지 경로가 같은지 확인한다(Apple 3.1.2(a),
       Google Play 구독 정책).
-- [ ] **방침에 추가 필요: 앱이 게스트 토큰을 기기 보안 저장소에 두고, 앱을 지워도
-      남는다는 사실.** `/privacy` `#automatic-collection` 은 **웹의 localStorage** 만
-      적고(브라우저 사이트 데이터 삭제로 지울 수 있다), 앱 쪽 저장 위치
-      (iOS Keychain · Android EncryptedSharedPreferences)와 "앱을 지워도 남아 재설치하면
-      같은 기록으로 이어진다 — 지우는 방법은 앱의 계정 삭제뿐" 을 어디에도 적지 않았다.
-      앱 안내 문구(`mobile/assets/translations/*.json`)에도 없다. 이 동작은 **의도된
-      것**이다(사용자 결정 2026-10-16). 법적 문서라 티켓 46 은 고치지 않았다 — 문안은
-      사람이 정해 `#automatic-collection`(또는 `#collection` 의 "게스트 토큰" 항목)에
-      넣고 `LEGAL_EFFECTIVE_DATE` 를 올린다. 상세는 아래 "### 46.".
+- [ ] **반영됨(티켓 47) — 운영자 최종 확인: 앱이 게스트 토큰을 기기 보안 저장소에 두고,
+      앱을 지워도 남는다는 사실.** `/privacy` 의 `#collection`("게스트 토큰" 항목)·
+      `#automatic-collection`(새 "기기 보안 저장소" 항목)·`#destruction`·`#rights` 에
+      ko·en 두 벌로 넣었고 `LEGAL_EFFECTIVE_DATE` 를 **2026-10-16** 으로 올렸다. 앱
+      안내는 계정 삭제 확인 시트(`account.delete_body`)에 한 줄을 더했다. 운영자가
+      `/privacy?lang=ko|en` 의 3절·10절을 눈으로 읽고 문안을 승낙하면 이 칸을 닫는다.
+      상세는 아래 "### 47.".
 - 접속기록 보관 구성과 백업 덤프 암호화는 **티켓 36 에서 구현했다** — 사람이 할 일(키 생성·
       보관, 월 1회 점검, `LOG_DIR`·`BACKUP_ENCRYPTION_CERT_FILE` 설정)은 아래 "### 36." 에 있다.
 - [ ] 위 값을 채운 뒤 `/privacy?lang=ko|en`·`/terms?lang=ko|en` 에서 "운영자 정보"
@@ -1628,7 +1626,8 @@ Android EncryptedSharedPreferences 에 들어간다(`mobile/lib/guest/guest_toke
 **사용자 결정(2026-10-16): 의도된 동작으로 유지한다.** 계정 연결도 백업 코드도 없는
 플레이어에게 그 토큰이 유일한 복구 수단이라, 재설치로 기록이 날아가지 않는 쪽이 맞다.
 
-**빠져 있는 것 = 위 "### 16." 의 새 체크박스.** 개인정보처리방침
+**빠져 있던 것 = 위 "### 16." 의 그 체크박스**(아래 설명은 티켓 46 시점의 상태다 —
+티켓 47 이 전부 채웠다). 개인정보처리방침
 (`web/templates/legal/privacy.*.html`)의 `#automatic-collection` 절은 게스트 토큰을
 **웹의 localStorage** 로만 설명하고, `#collection` 의 "게스트 토큰" 항목은 "기기에
 저장합니다" 까지만 적는다. 앱의 저장 위치와 "삭제는 계정 삭제뿐" 은 방침에도, 앱 안내
@@ -1657,3 +1656,55 @@ Android EncryptedSharedPreferences 에 들어간다(`mobile/lib/guest/guest_toke
 - **롤백**: 새 app 이 healthy 가 안 되면 스크립트가 새것만 지우고 1 로 끝난다 — 옛
   app 이 그대로 서비스 중이므로 급할 게 없다. 원인은 `docker logs --tail 50 <새 id>`
   (스크립트가 찍어준다).
+체크박스)의 수집 항목 설명. → **티켓 47 에서 넣었다**(아래 "### 47.").
+
+### 47. 기기 보안 저장소 고지를 방침에 넣었다 (2026-10-16)
+
+위 "### 46." 이 남긴 빈 칸을 채운 티켓이다. **기능은 바꾸지 않았다** — 방침 문안과
+앱 안내 한 줄, 그리고 그 고지를 구현에 묶는 테스트뿐이다.
+
+**코드에서 확인한 사실**(문안은 이것만 적는다).
+
+| 무엇 | 어디 | 근거 |
+|---|---|---|
+| 게스트 토큰 | iOS 키체인 / Android 암호화 저장소 (`flutter_secure_storage` 11.x, `accessibility: first_unlock`) | `mobile/lib/guest/guest_token_store.dart` |
+| 기기 플래그("이 안내를 이미 봤다") | 같은 저장소. 값은 `'1'` 하나뿐이고 서버로 가지 않는다 | `mobile/lib/local/local_flags.dart` |
+| 온보딩 완료 플래그 | **같은 저장소가 아니다** — `shared_preferences`(앱을 지우면 사라진다) | `mobile/lib/onboarding/onboarding_store.dart` |
+| iOS: 앱 삭제 후 존속 | 키체인 항목은 앱을 지워도 남아 재설치 시 같은 토큰이 돌아온다. **의도된 동작**(사용자 결정 2026-10-16) | 위 "### 46." · `onboarding_store.dart` 주석 |
+| Android: 앱 삭제 시 소멸 | EncryptedSharedPreferences 는 앱 데이터라 앱과 함께 지워진다(`allowBackup` 을 따로 선언하지 않았고, 자동 백업이 파일을 되살려도 복호화 키는 Keystore 에 있어 함께 백업되지 않는다) | `mobile/android/app/src/main/AndroidManifest.xml` |
+| 계정 삭제가 하는 일 | `DELETE /me` → `clearPerAccount()` → **새 게스트 토큰을 발급받아 저장소에 덮어쓴다**(지우고 비워 두지 않는다) | `mobile/lib/account/account_controller.dart` · `guest_token_provider.dart` |
+| 웹 | 토큰은 `localStorage` 의 `chosung_token` — 방침에 이미 있었다 | `web/static/app.js` |
+
+그래서 방침은 "계정 삭제가 **기기 식별자를 제거한다**" 가 아니라 "**새로 발급한 토큰
+으로 바뀌어 지운 기록으로 돌아갈 수 없다**" 로 적었다 — 앱은 토큰 없이 돌지 않으므로
+빈 칸으로 두는 구현이 아니다.
+
+**고친 자리.**
+
+- `web/templates/legal/privacy.{ko,en}.html`
+  - `#collection` "게스트 토큰": 무작위 값(개인 식별 정보 아님)·왜 쓰는지·웹/앱 저장
+    위치·iOS 존속 + 10절 참조.
+  - `#automatic-collection`: 제목에 "기기 저장소" 를 넣고 **새 항목 "기기 보안
+    저장소(앱의 게스트 토큰)"** 를 쿠키 다음에 뒀다 — 무엇·어디·왜·iOS 존속·지우는 법
+    ("앱을 지우는 것만으로는 지워지지 않는다" 를 못 박는다). 쿠키 항목은 localStorage
+    설명이 앱까지 덮는 것처럼 읽히지 않게 새 항목을 가리킨다.
+  - `#destruction` 절차: 앱 삭제가 기기 토큰까지 새 토큰으로 바꾼다는 한 문장.
+  - `#rights` 삭제 항목: "앱을 지우는 것만으로는 지워지지 않습니다".
+- `app/web.py`: `LEGAL_EFFECTIVE_DATE` → 2026-10-16.
+- `mobile/assets/translations/{ko,en}.json`: `account.delete_body` 에 "이 기기에 저장된
+  식별자도 새 값으로 바뀐다 → 앱을 지웠다 다시 깔아도 이 기록으로 돌아올 수 없다" 한
+  문장. 삭제 확인 시트(`delete_account_dialog.dart`)가 그리는 문구라 새 위젯·새 키가
+  없다. 설정 목록에는 줄을 더하지 않았다 — 설정에 이미 "개인정보처리방침" 행이 있어
+  10절로 갈 수 있고, 골든 스냅샷(`records_*_390.png`)을 건드리지 않는다.
+- `docs/legal-checklist.md`: §30①7 행에 기기 보안 저장소를 넣고, 저장 위치·존속·삭제를
+  §30①2·3 행으로 새로 묶었다.
+- `docs/play-data-safety.md`: "게스트 토큰" 행 비고에 저장 위치를 적었다(Play 답안의
+  수집·공유 칸은 바뀌지 않는다 — 기기 안 저장은 신고 항목이 아니다).
+- `tests/test_legal_checklist.py`: 필수 문구 2개(`기기 보안 저장소` · `device secure
+  storage`)와 테스트 4개 — 자동 수집 절 문구(ko·en, 과장 문구 금지 포함), 권리 절의
+  "앱 삭제 ≠ 삭제", 저장소가 아직 `flutter_secure_storage` 인지(+ 온보딩은 아닌지),
+  계정 삭제가 새 토큰을 덮어쓰는지.
+
+**운영자가 할 일** — 위 "### 16." 의 그 칸이다: `/privacy?lang=ko`·`?lang=en` 의 3절·
+10절을 읽고 문안을 승낙한다. 사실이 아닌 문장이 보이면 그 문장만 고치면 되고, 고치면
+`LEGAL_EFFECTIVE_DATE` 를 다시 올린다.

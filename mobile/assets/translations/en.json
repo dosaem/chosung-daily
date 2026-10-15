@@ -203,7 +203,7 @@
     "backup_code_submit": "Load",
     "backup_code_cancel": "Cancel",
     "delete_title": "Delete your account?",
-    "delete_body": "Your account and all records will be deleted and cannot be restored. If you are subscribed, cancel separately in the App Store or Google Play.",
+    "delete_body": "Your account and all records will be deleted and cannot be restored. The identifier stored on this device is replaced with a new one, so reinstalling the app will not bring this record back. If you are subscribed, cancel separately in the App Store or Google Play.",
     "delete_cancel": "Cancel",
     "delete_confirm": "Delete",
     "deleted": "Account deleted — starting fresh",

@@ -436,7 +436,12 @@ void main() {
   });
 
   group('계정 삭제', () {
-    testWidgets('다이얼로그에 되돌릴 수 없음과 구독 별도 해지가 적혀 있다', (tester) async {
+    // 기기 식별자 문장은 방침 `#automatic-collection`·`#destruction` 과 같은 말을
+    // 한다(티켓 47) — 앱은 삭제 뒤 **새 토큰을 받아 덮어쓰므로** 재설치로 지운
+    // 기록이 돌아오지 않는다. 문구가 빠지면 방침만 그 사실을 말하는 상태가 된다.
+    testWidgets('다이얼로그에 되돌릴 수 없음·기기 식별자 교체·구독 별도 해지가 적혀 있다', (
+      tester,
+    ) async {
       await _pump(tester);
 
       await _tap(tester, find.byKey(RecordsSlot.deleteAccount));
@@ -445,6 +450,8 @@ void main() {
       expect(
         find.text(
           '기록·계정이 전부 삭제되고 되돌릴 수 없어요. '
+          '이 기기에 저장된 식별자도 새 값으로 바뀌어서, 앱을 지웠다 다시 깔아도 '
+          '이 기록으로 돌아올 수 없어요. '
           '구독 중이면 App Store/Google Play 에서 따로 해지해야 해요.',
         ),
         findsOneWidget,

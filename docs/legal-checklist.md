@@ -34,7 +34,8 @@
 | 개보법 §30①6 / §31 / 시행령 §32 | 개인정보 보호책임자의 **성명 또는 직책**·연락처 — **사용자 결정(2026-10-14): 직책 "운영자" + 이메일**(성명은 `LEGAL_PRIVACY_OFFICER` 를 채우면 표시) | `privacy#officer` | `test_privacy_ko_has_the_required_phrases[개인정보 보호책임자]` |
 | 시행령 §31①3 | 열람 청구를 접수·처리하는 부서(창구) | `privacy#officer` | `test_privacy_ko_has_the_required_phrases[열람]` |
 | 시행령 §31①4 / §63 | 권익 침해 구제 방법 — 개인정보침해신고센터(118), 개인정보 분쟁조정위원회(1833-6972) | `privacy#remedies` | `test_privacy_ko_has_the_required_phrases[118]`, `[1833-6972]` |
-| 개보법 §30①7 / 시행령 §31①6 | 자동 수집 장치의 설치·운영과 거부 방법 — 쿠키(세션), 광고 식별자(IDFA/ADID), 분석 SDK | `privacy#automatic-collection` | `test_privacy_ko_has_the_required_phrases[광고 ID 초기화]`, `[쿠키]` |
+| 개보법 §30①7 / 시행령 §31①6 | 자동 수집 장치의 설치·운영과 거부 방법 — 쿠키(세션), 브라우저 localStorage, **기기 보안 저장소**(앱의 게스트 토큰 — iOS 키체인·Android 암호화 저장소), 광고 식별자(IDFA/ADID), 분석 SDK | `privacy#automatic-collection` | `test_privacy_ko_has_the_required_phrases[광고 ID 초기화]`, `[쿠키]`, `[기기 보안 저장소]` |
+| 개보법 §30①2·3 / 시행령 §31①1 (저장 위치·존속) | 게스트 토큰을 **어디에** 두는지와 **iOS 는 앱을 지워도 남아 재설치 시 기록이 이어진다**는 사실, 지우는 방법(계정 삭제 — 서버 기록 삭제 + 기기 토큰을 새 토큰으로 교체). 사용자 결정 2026-10-16: 의도된 동작으로 유지하고 방침에 고지한다(티켓 47) | `privacy#collection` · `privacy#automatic-collection` · `privacy#destruction` · `privacy#rights` | `tests/test_legal_checklist.py::test_privacy_discloses_the_app_device_secure_storage`, `test_rights_section_says_deleting_the_app_is_not_deletion`, `test_the_app_still_keeps_the_guest_token_in_the_platform_secure_storage`, `test_app_deletion_replaces_the_stored_guest_token` |
 | 개보법 §22의2 | 만 14세 미만 아동의 개인정보 처리(동의·미수집) | `privacy#children` | `test_privacy_ko_has_the_required_phrases[만 14세]` |
 | 시행령 §31①5 / §31② | 처리방침 변경 시 시행일·변경 내용·고지 방법, 이전 버전 확인 방법 | `privacy#changes` | `test_privacy_ko_has_the_required_phrases[시행일]` |
 | 개보법 §30①7의2 / §37의2 | 가명정보 처리·자동화된 결정 — **해당 없음** 을 명시 | `privacy#general` | `test_every_checklist_section_id_exists_in_both_languages` |

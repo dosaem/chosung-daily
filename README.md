@@ -240,6 +240,10 @@ scripts/e2e_stack.sh down          # 프로세스 종료 + DB drop + Redis flush
 심사에서 걸린다.
 
 - 수집 항목이 늘거나 줄 때 (새 외부 SDK, 새 저장 컬럼)
+- **앱이 게스트 토큰을 두는 자리가 바뀔 때** (`mobile/lib/guest/guest_token_store.dart` —
+  방침 `#automatic-collection` 의 "기기 보안 저장소" 항목이 iOS 키체인·Android 암호화
+  저장소와 "iOS 는 앱을 지워도 남는다" 를 적고 있다. 저장소나 계정 삭제의 토큰 처리가
+  바뀌면 `tests/test_legal_checklist.py` 가 먼저 깨진다 — 티켓 47)
 - 제3자·수탁업체가 바뀔 때 (Google, Apple, AdMob, Firebase Analytics, Sentry)
 - 보유 기간이 바뀔 때 (예: `BACKUP_RETENTION_DAYS` 를 14일에서 바꾸면 방침의 14일도 고친다)
 - 구독 상품·가격·해지 경로가 바뀔 때

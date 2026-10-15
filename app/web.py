@@ -18,7 +18,7 @@ bp = Blueprint("web", __name__)
 DELETE_TARGET_SESSION_KEY = "delete_target_guest_id"
 
 # 법적 문서의 시행일. 본문을 고칠 때 이 날짜도 같이 올린다 (README "법적 문서" 절).
-LEGAL_EFFECTIVE_DATE = date(2026, 10, 14)
+LEGAL_EFFECTIVE_DATE = date(2026, 10, 16)
 
 # 미정 9(Apple 표준 EULA vs 커스텀)의 기본 선택지. 커스텀 약관으로 가면 이 링크를 지운다.
 APPLE_STANDARD_EULA_URL = "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/"
