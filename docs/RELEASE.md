@@ -94,8 +94,9 @@ DB 는 **named volume 만** 쓴다. DSM 의 `/volume1` ACL 이 호스트 bind mo
 
 - [ ] **Slack Incoming Webhook** — 단어 잔량·배정 실패·백업 실패·애플 secret 만료·
       접속기록 삭제 실패가 전부 이 하나로 간다. 상세: "### 21." (`#9`)
-- [ ] **Sentry 프로젝트 2개**(백엔드 Flask·앱 Flutter) — 앱 DSN 은 `FLUTTER_SENTRY_DSN`
-      secret 으로만 넘긴다. 상세: "### 34.", README "운영: 업타임 모니터" 옆 절 (`#9`)
+- [ ] **Sentry 프로젝트 2개**(백엔드 Flask·앱 Flutter) — 서버는 prod `.env` 의 `SENTRY_DSN`,
+      앱은 `FLUTTER_SENTRY_DSN` secret 으로만 넘긴다(둘 다 비면 초기화하지 않는다).
+      상세: "### 34.", README "08. 헬스체크 등급" 아래 Sentry 문단 (`#9`)
 - [ ] **UptimeRobot** — `/health` 를 5분 간격으로 본다(README "운영: 업타임 모니터"). (`#9`)
 - [ ] **Apple App ID + Sign in with Apple** — App ID `com.dosaem.chosung` 에서
       capability 를 켜고, **iOS 번들 ID 를 기존 Services ID 그룹에 추가**한다. 켠 뒤에는
@@ -115,7 +116,7 @@ DB 는 **named volume 만** 쓴다. DSM 의 `/volume1` ACL 이 호스트 bind mo
 - [ ] **개인정보 보호책임자 지정** — 사용자 확정: 직책 "운영자" + 이메일로 표기한다
       (1인 사업자는 지정하지 않으면 사업주가 보호책임자다 — 개보법 §31⑥). 성명을
       공개하려면 `LEGAL_PRIVACY_OFFICER` 만 채운다. 상세: "### 16." (`#4`)
-- [ ] **주소·전화 공개 범위** — 사용자 확정: 주소는 **시·구까지만** +"상세 주소는 요청
+- [ ] **주소·전화 공개 범위** — 사용자 확정: 주소는 **시·구까지만** + "상세 주소는 요청
       시 이메일로 제공", 전화는 `LEGAL_BUSINESS_PHONE` 자리만 두고 비워 미표시.
       값은 사람이 축약해 `.env` 에 넣는다(코드가 자르지 않는다). 상세: "### 16." (`#2`·`#3`)
 - [ ] **전문가 검토(변호사·행정사)는 받지 않는다** — 사용자 확정(2026-10-15, 질문 5).
