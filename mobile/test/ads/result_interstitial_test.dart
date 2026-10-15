@@ -6,6 +6,8 @@ import 'package:chosung/ads/ad_providers.dart';
 import 'package:chosung/ads/interstitial_store.dart';
 import 'package:chosung/ads/result_interstitial.dart';
 import 'package:chosung/api/api_providers.dart';
+import 'package:chosung/guest/guest_token_provider.dart';
+import 'package:chosung/guest/guest_token_store.dart';
 import 'package:chosung/permissions/tracking_permission.dart';
 import 'package:chosung/subscription/entitlement_provider.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -15,6 +17,7 @@ import 'package:google_mobile_ads/google_mobile_ads.dart';
 import '../fakes/fake_ad_service.dart';
 import '../fakes/fake_entitlement.dart';
 import '../fakes/fake_permissions.dart';
+import '../fakes/in_memory_guest_token_store.dart';
 import '../fakes/in_memory_interstitial_store.dart';
 
 const _consented = UmpStatus(
@@ -27,6 +30,9 @@ ProviderContainer _container({
   required InMemoryInterstitialStore store,
   bool? entitled = false,
   UmpStatus consent = _consented,
+  // 계정 경계를 실제로 넘어 보는 테스트만 저장소를 끼운다 — 나머지는 토큰을
+  // 건드리지 않는다(`flutter_secure_storage` 는 플랫폼 채널을 탄다).
+  GuestTokenStore? tokenStore,
 }) {
   ads.consent = consent;
   final container = ProviderContainer(
@@ -40,6 +46,8 @@ ProviderContainer _container({
       entitlementProvider.overrideWith(
         () => FakeEntitlement(initial: entitled),
       ),
+      if (tokenStore != null)
+        guestTokenStoreProvider.overrideWithValue(tokenStore),
     ],
   );
   addTearDown(container.dispose);
@@ -238,5 +246,56 @@ void main() {
 
     gate.complete();
     expect(await showing, isTrue);
+  });
+  // 경로 쌍 표의 "계정 경계 × 전면" 칸(코디네이터 지시 2). 세션 플래그는
+  // "이번 실행에 제출이 있었는가"(US 25) 인데 계정을 모르면 **A 의 제출이 B 의
+  // 광고가 된다** — B 가 다른 기기에서 끝낸 보드를 열어 "결과 보기" 를 닫는
+  // 순간이다. r4 D-31-7 과 같은 부류라 같은 세대 장치로 막는다.
+  test('계정이 바뀌면 옛 계정의 제출로 전면 광고를 띄우지 않는다', () async {
+    final ads = FakeAdService();
+    final store = InMemoryInterstitialStore();
+    final container = _container(
+      ads: ads,
+      store: store,
+      tokenStore: InMemoryGuestTokenStore('guest-a'),
+    );
+    await container.read(adConsentProvider.future);
+    final interstitial = container.read(resultInterstitialProvider)
+      ..markSubmitted();
+
+    // A 가 제출한 뒤 내 기록에서 B 로 전환한다. B 의 오늘 퍼즐은 다른 기기에서
+    // 이미 끝나 있어 "결과 보기" 를 누를 수 있다.
+    await container.read(guestTokenProvider.notifier).replaceWith('guest-b');
+
+    expect(await interstitial.showAfterResultSheet(puzzleId: 42), isFalse);
+    expect(ads.interstitialShowCalls, 0);
+    expect(store.reserved, isEmpty, reason: 'B 의 퍼즐 기회를 쓰지도 않는다');
+
+    // B 가 직접 제출하면 그때는 띄운다.
+    interstitial.markSubmitted();
+    expect(await interstitial.showAfterResultSheet(puzzleId: 42), isTrue);
+    expect(ads.interstitialShowCalls, 1);
+  });
+
+  // 같은 칸의 반대쪽: 퍼즐 예약은 **기기** 단위다. 계정을 바꿔 가며 같은 퍼즐에
+  // 전면을 여러 번 띄우는 길이 열리면 안 된다(US 24 — 노출은 기기에서 센다).
+  test('계정이 바뀌어도 이미 쓴 퍼즐의 전면은 다시 뜨지 않는다', () async {
+    final ads = FakeAdService();
+    final store = InMemoryInterstitialStore();
+    final container = _container(
+      ads: ads,
+      store: store,
+      tokenStore: InMemoryGuestTokenStore('guest-a'),
+    );
+    await container.read(adConsentProvider.future);
+    final interstitial = container.read(resultInterstitialProvider)
+      ..markSubmitted();
+    expect(await interstitial.showAfterResultSheet(puzzleId: 41), isTrue);
+
+    await container.read(guestTokenProvider.notifier).replaceWith('guest-b');
+    interstitial.markSubmitted();
+
+    expect(await interstitial.showAfterResultSheet(puzzleId: 41), isFalse);
+    expect(ads.interstitialShowCalls, 1, reason: '계정을 바꿔도 퍼즐당 1회다');
   });
 }
