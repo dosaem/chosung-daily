@@ -37,7 +37,7 @@
 |---|---|---|---|---|
 | 12 | AdMob 앱 2 + 유닛 6 + UMP 메시지 | 아직 | Claude(Chrome) | AdMob 계정 승인 대기 가능 → 앱 티켓은 테스트 유닛 ID 로 먼저 |
 | 13 | ASC 앱 생성(이름 중복 확인) + 구독 `adfree_monthly` 양쪽(₩1,500) + Apple Grace Period 16일 | 아직 | Claude(Chrome) | 10·11 뒤. 유료 앱 계약·세금/은행 정보는 사용자 |
-| 14 | 업로드 keystore · match · self-hosted 러너 · GitHub secrets | **일부 끝(2026-10-15)** | Claude(로컬 CLI) + 사용자 | keystore 생성(`mobile/android/app/upload-keystore.jks`, 비밀번호는 `mobile/android/key.properties`, 둘 다 gitignore — **사용자가 비밀번호 관리자에 백업**). GitHub secrets 9개(KEYSTORE_*·KEY_*·GOOGLE_PLAY_KEY_JSON·FIREBASE_SERVICE_ACCOUNT·FIREBASE_APP_ID·GOOGLE_SERVICES_JSON_BASE64·GOOGLE_SERVICE_INFO_PLIST_BASE64) + variables 2개(API_BASE_URL_PROD·GOOGLE_SERVER_CLIENT_ID) 설정. 서비스 계정 키는 `~/.config/chosung-daily/*.json`. **남은 것:** match(Apple 로그인 뒤), self-hosted 러너, APP_STORE_CONNECT_API_KEY·MATCH_*·FLUTTER_SENTRY_DSN·ADMOB_* |
+| 14 | 업로드 keystore · match · self-hosted 러너 · GitHub secrets | **일부 끝(2026-10-15)** | Claude(로컬 CLI) + 사용자 | keystore 생성(`mobile/android/app/upload-keystore.jks`, 비밀번호는 `mobile/android/key.properties`, 둘 다 gitignore — **사용자가 비밀번호 관리자에 백업**). GitHub secrets 9개(KEYSTORE_*·KEY_*·GOOGLE_PLAY_KEY_JSON·FIREBASE_SERVICE_ACCOUNT·FIREBASE_APP_ID·GOOGLE_SERVICES_JSON_BASE64·GOOGLE_SERVICE_INFO_PLIST_BASE64) + variables 2개(API_BASE_URL_PROD·GOOGLE_SERVER_CLIENT_ID) 설정. 서비스 계정 키는 `~/.config/chosung-daily/*.json`. **남은 것:** match(Apple 로그인 뒤), self-hosted 러너, APP_STORE_CONNECT_API_KEY·MATCH_*·FLUTTER_SENTRY_DSN·ADMOB_*, variable `TESTFLIGHT_TESTER_EMAIL`(testflight-tester 워크플로 기본 테스터, 티켓 41) |
 
 ## E. 배포·심사 (D3)
 
@@ -46,7 +46,7 @@
 | 15 | NAS compose 프로젝트명·볼륨명 확인, develop 폴더·`.env.develop`·DNS·터널 | 아직 | 사용자(NAS) | Claude 는 NAS 접속 안 함. 절차는 RELEASE "### 19/20." |
 | 16 | prod `.env` 새 키(`LEGAL_*`·`LOG_DIR`·`BACKUP_ENCRYPTION_CERT_FILE`·`ACCESS_LOG_RETENTION_DAYS`) | 아직 | 사용자(NAS) | 값 목록은 `.env.example` |
 | 17 | 백업 openssl CMS 키쌍 생성(개인키 `BACKUP_DECRYPTION_KEY_FILE` → NAS 밖 두 곳 보관, 공개키 인증서 `BACKUP_ENCRYPTION_CERT_FILE` → NAS) | 아직 | Claude(로컬 생성) + 사용자(보관) | RELEASE "### 36." |
-| 18 | Play Data safety · 앱 콘텐츠 설문 · target SDK/Billing 8+ 재확인 · **첫 출시 버튼** | 아직 | Claude(설문 초안·입력) → **출시 버튼은 사용자** | |
+| 18 | Play Data safety · 앱 콘텐츠 설문 · target SDK/Billing 8+ 재확인 · ASC 수출규정 답변이 면제(`ITSAppUsesNonExemptEncryption=false`, 티켓 41)와 일치하는지 첫 제출 때 확인 · **첫 출시 버튼** | 아직 | Claude(설문 초안·입력) → **출시 버튼은 사용자** | |
 
 ## 기록
 
