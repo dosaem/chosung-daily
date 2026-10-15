@@ -23,6 +23,7 @@ import 'package:chosung/widgets/delete_account_dialog.dart';
 import 'package:chosung/widgets/settings_row.dart';
 import 'package:chosung/widgets/seven_day_grid.dart';
 import 'package:chosung/widgets/skeleton_box.dart';
+import 'package:chosung/widgets/subscription_card.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -35,7 +36,7 @@ abstract final class RecordsSlot {
   /// AccountCard(구글·애플 연결 / 전환됨) — 티켓 29.
   static const account = Key('records.slot.account');
 
-  /// 티켓 32: 구독 카드(현지화 가격 · 갱신일 · 관리).
+  /// 구독 카드(현지화 가격 · 갱신일 · 관리) — 티켓 32.
   static const subscription = Key('records.slot.subscription');
 
   /// 백업 코드로 다른 기기 기록 불러오기 — 티켓 29.
@@ -262,12 +263,7 @@ class _AccountSlots extends ConsumerWidget {
       children: [
         const AccountCard(key: RecordsSlot.account),
         const _Hairline(),
-        // 티켓 32 가 구독 카드(현지화 가격)로 바꾼다.
-        SettingsRow(
-          key: RecordsSlot.subscription,
-          label: 'records.subscription'.tr(),
-          value: 'records.slot_pending'.tr(),
-        ),
+        const SubscriptionCard(key: RecordsSlot.subscription),
         const _Hairline(),
         SettingsRow(
           key: RecordsSlot.backupCode,
