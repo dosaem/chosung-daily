@@ -20,6 +20,11 @@ from app.utils.ui_strings import UI_STRINGS, strings_for
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE = REPO_ROOT / "web" / "templates" / "index.html"
 BUNDLE = REPO_ROOT / "web" / "static" / "app.js"
+TEMPLATE_DIR = REPO_ROOT / "web" / "templates"
+
+# 템플릿이 사전을 읽는 두 가지 모양: `t.key` 와 `t["key"]`.
+ATTRIBUTE_USE = re.compile(r"\bt\.(\w+)")
+SUBSCRIPT_USE = re.compile(r"""\bt\[\s*["'](\w+)["']\s*\]""")
 
 
 def test_dictionary_covers_every_supported_ui_language():
@@ -78,10 +83,30 @@ def test_placeholders_match_between_languages():
 
 
 def test_template_only_uses_keys_that_exist():
-    used = set(re.findall(r"\bt\.(\w+)", TEMPLATE.read_text(encoding="utf-8")))
+    text = TEMPLATE.read_text(encoding="utf-8")
+    used = set(ATTRIBUTE_USE.findall(text)) | set(SUBSCRIPT_USE.findall(text))
 
     assert used, "템플릿이 사전을 전혀 안 쓰고 있다"
     assert used <= set(UI_STRINGS["ko"]), used - set(UI_STRINGS["ko"])
+
+
+def test_template_never_reaches_a_dict_method_by_attribute():
+    """D-42-1: Jinja 의 `{{ t.copy }}` 는 사전 키 "copy" 가 아니라 **`dict.copy`
+    메서드**를 집는다 — 속성 접근(`getattr`)이 첨자보다 먼저라서다. 그 버튼 라벨이
+    `<built-in method copy of dict object at 0x…>` 로 출시될 뻔했다.
+
+    사전에 `copy`·`items`·`get` 같은 키가 있는 것 자체는 문제가 아니다. 문제는 그
+    키를 **속성으로** 읽는 것이라, 템플릿 전체에서 그 모양을 막는다.
+    """
+    dict_members = set(dir(dict))
+    offenders = {
+        f"{path.relative_to(REPO_ROOT)}: t.{name}"
+        for path in sorted(TEMPLATE_DIR.rglob("*.html"))
+        for name in ATTRIBUTE_USE.findall(path.read_text(encoding="utf-8"))
+        if name in dict_members
+    }
+
+    assert offenders == set(), f'첨자(t["키"])로 읽어야 한다: {sorted(offenders)}'
 
 
 def test_bundle_only_uses_keys_that_exist():

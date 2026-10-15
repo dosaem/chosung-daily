@@ -11,7 +11,8 @@ name: ASC Diagnose
 # `vars.TESTFLIGHT_TESTER_EMAIL`, 둘 다 비면 멈춘다(레포에 개인 주소를 안 적는다).
 #
 # BASELINE: ~/Code/BuildUrPalace/.github/workflows/asc-diagnose.yml.
-# 키는 파일로 떨어뜨리지 않는다(이유는 `asc-status.yml` 머리말).
+# fastlane 용 `api_key.json` 은 만들지 않는다. JWT 서명용 P8 임시 파일은 서명 직후
+# 지운다(이유는 `asc-status.yml` 머리말).
 
 on:
   workflow_dispatch:
@@ -63,11 +64,16 @@ jobs:
               now = int(time.time())
               si = b64({'alg': 'ES256', 'kid': d['key_id'], 'typ': 'JWT'}) + b'.' + \
                   b64({'iss': d['issuer_id'], 'iat': now, 'exp': now + 900, 'aud': 'appstoreconnect-v1'})
+              # P8 를 디스크에 잠깐 쓴다 — `openssl dgst -sign` 이 파일 경로만 받는다.
+              # try/finally 가 아니면 openssl 이 없거나 죽었을 때 키가 self-hosted 맥에
+              # 그대로 남는다(D-41-1). 잡이 끝나도 호스트는 폐기되지 않는다.
               with tempfile.NamedTemporaryFile('w', suffix='.p8', delete=False) as f:
                   f.write(d['key']); kp = f.name
-              sig = subprocess.run(['openssl', 'dgst', '-sha256', '-sign', kp],
-                                   input=si, capture_output=True).stdout
-              os.unlink(kp)
+              try:
+                  sig = subprocess.run(['openssl', 'dgst', '-sha256', '-sign', kp],
+                                       input=si, capture_output=True).stdout
+              finally:
+                  os.unlink(kp)
               return (si + b'.' + base64.urlsafe_b64encode(der_to_raw(sig)).rstrip(b'=')).decode()
 
           TOKEN = token()

@@ -22,39 +22,42 @@
 </form>
 
 {% if pagination.items %}
-<table class="admin-table">
-  <caption class="admin-table-caption">
-    최근에 추가한 단어가 위에 온다. "이미 배정됨" 은 앞으로 30일 안에 쓰이는 단어다.
-  </caption>
-  <thead>
-    <tr>
-      <th scope="col">정답</th>
-      <th scope="col">카테고리</th>
-      <th scope="col">힌트</th>
-      <th scope="col">관리</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for word in pagination.items %}
-    <tr>
-      <td class="admin-cell-answer">{{ word.answer }}</td>
-      <td>{{ word.category.value }}</td>
-      <td>{{ word.hint }}</td>
-      <td class="admin-cell-actions">
-        {% if word.id in assigned_word_ids %}
-        <span class="admin-tag">이미 배정됨</span>
-        {% endif %}
-        <form method="post" action="{{ url_for('admin.replace_word', puzzle_date=puzzle_date.isoformat()) }}">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-          <input type="hidden" name="language" value="{{ language.value }}" />
-          <input type="hidden" name="word_id" value="{{ word.id }}" />
-          <button class="admin-button" type="submit">이 단어로</button>
-        </form>
-      </td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+{# 좁은 화면에서는 표만 자기 상자 안에서 가로로 스크롤한다 (이유는 schedule.html, D-42-4). #}
+<div class="admin-table-scroll" tabindex="0">
+  <table class="admin-table">
+    <caption class="admin-table-caption">
+      최근에 추가한 단어가 위에 온다. "이미 배정됨" 은 앞으로 30일 안에 쓰이는 단어다.
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">정답</th>
+        <th scope="col">카테고리</th>
+        <th scope="col">힌트</th>
+        <th scope="col">관리</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for word in pagination.items %}
+      <tr>
+        <td class="admin-cell-answer">{{ word.answer }}</td>
+        <td>{{ word.category.value }}</td>
+        <td>{{ word.hint }}</td>
+        <td class="admin-cell-actions">
+          {% if word.id in assigned_word_ids %}
+          <span class="admin-tag">이미 배정됨</span>
+          {% endif %}
+          <form method="post" action="{{ url_for('admin.replace_word', puzzle_date=puzzle_date.isoformat()) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+            <input type="hidden" name="language" value="{{ language.value }}" />
+            <input type="hidden" name="word_id" value="{{ word.id }}" />
+            <button class="admin-button" type="submit">이 단어로</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
 
 <nav class="admin-pagination" aria-label="페이지">
   {% if pagination.has_prev %}

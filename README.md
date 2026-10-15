@@ -190,7 +190,8 @@ scripts/e2e_stack.sh down          # 프로세스 종료 + DB drop + Redis flush
   갈리고, Redis 번호는 아래 배정표에서 온다(`scripts/e2e/env.sh`).
 - **Redis DB 번호는 티켓마다 배정표에 적혀 있다**(`scripts/e2e/env.sh` 의
   `e2e_redis_db_for_ticket`): 0 로컬 개발 · 1 pytest 기본 · **4 E2E 티켓 42** ·
-  5 pytest 티켓 42 · 12 E2E 티켓 44 · 13 E2E 티켓 43. Redis 키에는 스키마 구분이 없어서
+  5 pytest 티켓 42 · 6 pytest 티켓 46 · 12 E2E 티켓 44 · 13 E2E 티켓 43 ·
+  14 E2E 티켓 46. Redis 키에는 스키마 구분이 없어서
   두 스택이 한 번호를 쓰면 `puzzle:` 캐시가 남의 퍼즐을 내보내고 `lb:`·`stats:` 가 섞이며
   한쪽의 `down`(flushdb)이 상대의 실행 중 상태를 지운다. 그래서 **표에 없는 티켓 번호로는
   스택이 뜨지 않는다** — 새 티켓은 `env.sh` 에 한 줄을 더하거나 `E2E_REDIS_DB` 를 직접 준다.
@@ -2945,6 +2946,49 @@ ZoneInfo("Asia/Seoul")`(`app/config.py`) 하나를 쓰고, 날짜가 필요한 �
 `DailyStats` 행의 "하루" 의미가 바뀌기 때문에, 로컬 자정으로 가려면 마이그레이션이 아니라
 재설계다. 그래서 이 값은 미정 항목으로 열어 두지 않고 ADR 로 못 박았다 — 지역별 하루
 경계는 Out of Scope 다.
+
+### 46. E2E 가 찾은 결함 넷을 고치면서 생긴 규칙 셋
+
+웹 E2E(티켓 42)가 찾아 둔 앱 결함을 고친 티켓이다. 고친 내용 자체는 작지만, 셋은
+"같은 실수가 다시 나지 않게" 하는 규칙이 됐다.
+
+**① 서버 문구 사전은 첨자로 읽는다.** `{{ t.copy }}` 는 사전 키 `"copy"` 가 아니라
+**`dict.copy` 메서드**를 집는다 — Jinja 의 속성 접근이 `getattr` 를 먼저 보기
+때문이다. 그래서 백업 "복사" 버튼 라벨이 `<built-in method copy of dict object at
+0x…>` 로 렌더됐다(D-42-1). 키 이름을 바꾸는 대신 첨자(`{{ t["copy"] }}`)로 읽고,
+템플릿 전체에서 **dict 메서드와 이름이 겹치는 속성 접근**을 테스트가 막는다
+(`tests/test_ui_strings.py::test_template_never_reaches_a_dict_method_by_attribute`).
+사전도 번들도 그 자리를 못 봤던 이유는 **렌더된 HTML 을 보는 테스트가 없었기**
+때문이라, 페이지마다 파이썬 객체 repr 이 새는지도 함께 본다
+(`tests/test_web.py::test_no_page_renders_a_python_object_repr`).
+
+**② 화면을 비우는 일과 안내를 띄우는 일은 순서가 있다.** 계정 삭제 안내를
+`discardDeletedAccountState()` 안에서 띄우면, 바로 뒤의 `restart()` →
+`discardLocalPlayState()` → `showMessage("")` 가 지워서 사용자는 되돌릴 수 없는
+작업의 유일한 확인을 **한 번도 못 본다**(D-42-3). 이제 그 함수는 "띄워야 한다" 만
+돌려주고 `init()` 이 `restart()` **뒤에** 띄운다 — `PUZZLE_CHANGED` 안내가 이미 쓰던
+규칙과 같다. 조각을 따로 부르는 테스트로는 순서 결함이 안 보여서, `app.js` 하네스에
+`init()` 한 바퀴를 통째로 도는 모드를 더했다
+(`tests/fixtures/js/deleted_state_harness.mjs`, 인자 `init`).
+
+**③ 운영자 표는 자기 상자 안에서 가로로 민다.** 운영자 화면 폭이 디자인 시스템 §10
+을 의도적으로 벗어난다는 결정("15.")은 그대로지만, 390px 에서 **페이지째로** 넘치면
+문서에 가로 스크롤이 생기고 마지막 열의 교체/배정 링크가 옆 행의 칸에 포인터
+이벤트를 빼앗겨 아예 눌리지 않았다(D-42-4). 표 5개를 전부 `.admin-table-scroll`
+(`overflow-x: auto` + `tabindex="0"`)로 감쌌다 — 문서는 뷰포트를 안 넘고 표는 제 폭을
+지킨다. `tabindex` 는 키보드로도 밀 수 있게 둔 것이다(axe
+`scrollable-region-focusable`).
+
+**토큰 하나를 더했다 — `--color-destructive-text`.** 위 ③ 을 확인하려고 운영자
+화면에 `impeccable detect` 를 돌리다 **이 티켓과 무관한 기존 결함**을 찾았다: 다크
+모드의 `--color-destructive`(#ef4444)가 카드(#1c2433) 위에서 4.1:1 로 WCAG AA(4.5:1)에
+못 미친다(단어 목록의 "삭제" 버튼, 배정표의 잔량 경고 문구). 면 색을 밝히면 안 되는
+이유가 있어서 — `account.css` 의 삭제 버튼이 그 색을 **배경**으로 쓰고 흰 글자를
+얹는다 — 글자 전용 토큰을 따로 뒀다(다크 `#f87171`, 카드 위 5.63:1). 글자 쓰임
+네 곳(`admin.css` 의 `.admin-button-danger`·`.admin-tag-error`·`.admin-stock-low
+.admin-stock-note`, `style.css` 의 `.message`)만 옮겼고 면·테두리 쓰임은 그대로다.
+코디네이터 결정(2026-10-16): 출시 품질·접근성이라 이 티켓에서 같이 고친다.
+디자인 시스템 문서는 `.scratch/` 라 고치지 않았다 — 근거는 이 절이다.
 
 ## 부하 테스트 요약
 

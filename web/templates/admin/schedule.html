@@ -27,52 +27,58 @@
   {% endfor %}
 </nav>
 
-<table class="admin-table">
-  <caption class="admin-table-caption">
-    오늘부터 30일. 빈 날짜는 자정 배정이 채우고, 시도가 있는 날짜는 단어를 바꿀 수 없다.
-  </caption>
-  <thead>
-    <tr>
-      <th scope="col">날짜</th>
-      <th scope="col">카테고리</th>
-      <th scope="col">단어</th>
-      <th scope="col">가림</th>
-      <th scope="col">관리</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for day in days %}
-    <tr>
-      <td class="admin-cell-date">{{ day.puzzle_date.isoformat() }} ({{ weekday_names[day.puzzle_date.weekday()] }})</td>
-      <td>{{ day.word.category.value if day.word else "" }}</td>
-      <td class="admin-cell-answer">
-        {% if day.word %}{{ day.word.answer }}
-        {% else %}<span class="admin-muted">자정에 배정</span>{% endif %}
-      </td>
-      {# 운영자가 플레이어에게 보이는 문제를 그대로 확인할 수 있어야 한다(목록과 같은 규칙). #}
-      <td>
-        {% if day.word %}
-        <span class="admin-mask">
-          {% for tile in day.word.mask %}
-            {% if tile.t == "s" %}<span class="admin-mask-gap"></span>
-            {% elif tile.t == "h" %}<span class="admin-mask-tile admin-mask-tile-hidden"></span>
-            {% else %}<span class="admin-mask-tile">{{ tile.c }}</span>{% endif %}
-          {% endfor %}
-        </span>
-        {% endif %}
-      </td>
-      <td class="admin-cell-actions">
-        {% if day.is_locked %}
-        <span class="admin-tag">시도 {{ day.attempt_count }}건 (교체 불가)</span>
-        {% else %}
-        <a
-          class="admin-link"
-          href="{{ url_for('admin.replace_form', puzzle_date=day.puzzle_date.isoformat(), language=language.value) }}"
-        >{{ "교체" if day.word else "배정" }}</a>
-        {% endif %}
-      </td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+{# 표는 자기 상자 안에서 가로로 스크롤한다 — 390px 폭에서 페이지째로 넘치면
+   가로 스크롤이 생기고 마지막 열의 링크가 다른 행의 칸에 가려 눌리지 않는다(D-42-4).
+   운영자 화면의 폭 결정(README "15.")은 그대로다. `tabindex` 는 키보드로도 밀 수
+   있게 — axe `scrollable-region-focusable`. #}
+<div class="admin-table-scroll" tabindex="0">
+  <table class="admin-table">
+    <caption class="admin-table-caption">
+      오늘부터 30일. 빈 날짜는 자정 배정이 채우고, 시도가 있는 날짜는 단어를 바꿀 수 없다.
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">날짜</th>
+        <th scope="col">카테고리</th>
+        <th scope="col">단어</th>
+        <th scope="col">가림</th>
+        <th scope="col">관리</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for day in days %}
+      <tr>
+        <td class="admin-cell-date">{{ day.puzzle_date.isoformat() }} ({{ weekday_names[day.puzzle_date.weekday()] }})</td>
+        <td>{{ day.word.category.value if day.word else "" }}</td>
+        <td class="admin-cell-answer">
+          {% if day.word %}{{ day.word.answer }}
+          {% else %}<span class="admin-muted">자정에 배정</span>{% endif %}
+        </td>
+        {# 운영자가 플레이어에게 보이는 문제를 그대로 확인할 수 있어야 한다(목록과 같은 규칙). #}
+        <td>
+          {% if day.word %}
+          <span class="admin-mask">
+            {% for tile in day.word.mask %}
+              {% if tile.t == "s" %}<span class="admin-mask-gap"></span>
+              {% elif tile.t == "h" %}<span class="admin-mask-tile admin-mask-tile-hidden"></span>
+              {% else %}<span class="admin-mask-tile">{{ tile.c }}</span>{% endif %}
+            {% endfor %}
+          </span>
+          {% endif %}
+        </td>
+        <td class="admin-cell-actions">
+          {% if day.is_locked %}
+          <span class="admin-tag">시도 {{ day.attempt_count }}건 (교체 불가)</span>
+          {% else %}
+          <a
+            class="admin-link"
+            href="{{ url_for('admin.replace_form', puzzle_date=day.puzzle_date.isoformat(), language=language.value) }}"
+          >{{ "교체" if day.word else "배정" }}</a>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
 {% endblock %}

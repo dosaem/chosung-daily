@@ -45,14 +45,10 @@ for (const lang of ["ko", "en"]) {
     // 서버가 `/?deleted=1` 로 돌려보내고, 프론트가 토큰이 정말 지워졌는지 확인한 뒤
     // 버린다. 주소창에 신호가 남아 있으면 안 된다(확인에 성공했으므로).
     await expect(page).toHaveURL(/\/$/);
-    // D-42-3 (결함): 삭제 완료 안내가 화면에 **안 뜬다**. `init()` 이
-    // `discardDeletedAccountState()` 로 문구를 적은 직후 `restart()` 가
-    // `discardLocalPlayState()` → `showMessage("")` 로 지운다(web/static/app.js).
-    // 사용자는 계정이 지워졌다는 확인을 한 번도 못 본다. 고치지 않고 기록한다.
-    expect.soft(
-      await page.locator("#message").textContent(),
-      "D-42-3: 삭제 완료 안내가 restart() 에 지워진다",
-    ).toBe(t.account_deleted);
+    // D-42-3 (티켓 46 에서 수정): 안내가 `restart()` 에 지워져 한 번도 안 보이던
+    // 자리다. 되돌릴 수 없는 작업의 유일한 확인이라, 첫 화면이 다 그려진 **뒤에도**
+    // 남아 있어야 한다.
+    await expect(page.locator("#message")).toHaveText(t.account_deleted);
     await art.step(page, "삭제후-새게스트");
 
     // 새 게스트다: 보드가 비어 있고, 기록이 0 이고, 토큰이 갈렸다.

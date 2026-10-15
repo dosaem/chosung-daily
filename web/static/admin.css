@@ -250,11 +250,26 @@ body {
 
 .admin-button-danger {
   border-color: var(--color-destructive);
-  color: var(--color-destructive);
+  color: var(--color-destructive-text);
 }
 
 /* --- 표 ----------------------------------------------------------------- */
 /* 라이트 모드에 카드가 없어서(OVERRIDES §4) 행 구분은 헤어라인 1px 로만 한다. */
+
+/* 폭이 모자라면 **표만** 가로로 민다(D-42-4). 390px 에서 페이지째로 넘치면 문서에
+ * 가로 스크롤이 생기고, 마지막 열("관리")의 교체/배정 링크가 옆 행의 칸에 포인터
+ * 이벤트를 빼앗겨 아예 눌리지 않았다. 운영자 화면이 디자인 시스템 §10 의 폭을
+ * 의도적으로 벗어난다는 결정(README "15.")은 그대로다 — 1040px 에서는 이 상자가
+ * 아무 일도 하지 않는다. `tabindex="0"`(템플릿)은 키보드로도 밀 수 있게 둔다
+ * (axe `scrollable-region-focusable`). */
+.admin-table-scroll {
+  overflow-x: auto;
+}
+
+.admin-table-scroll:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 3px;
+}
 
 .admin-table {
   width: 100%;
@@ -345,7 +360,7 @@ body {
 
 .admin-tag-error {
   border-color: var(--color-destructive);
-  color: var(--color-destructive);
+  color: var(--color-destructive-text);
 }
 
 /* --- 쪽 넘김 ------------------------------------------------------------ */
@@ -441,7 +456,7 @@ body {
 }
 
 .admin-stock-low .admin-stock-note {
-  color: var(--color-destructive);
+  color: var(--color-destructive-text);
 }
 
 /* --- 배정표 ------------------------------------------------------------- */

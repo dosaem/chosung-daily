@@ -449,7 +449,7 @@ body:lang(en) {
 .message {
   min-height: 1.2em;
   margin: 0;
-  color: var(--color-destructive);
+  color: var(--color-destructive-text);
   font-size: var(--font-size-sm);
   white-space: pre-wrap;
 }

@@ -37,30 +37,33 @@
 {% if results %}
 {# 줄 번호는 CSV 파일의 줄 번호다(헤더가 1행) — 운영자가 스프레드시트에서 그 줄을
    바로 찾아 고칠 수 있어야 한다. #}
-<table class="admin-table">
-  <thead>
-    <tr>
-      <th scope="col">줄</th>
-      <th scope="col">정답</th>
-      <th scope="col">결과</th>
-      <th scope="col">사유</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for result in results %}
-    <tr>
-      <td>{{ result.line }}</td>
-      <td class="admin-cell-answer">{{ result.answer }}</td>
-      <td>
-        {% if result.status == row_status.ADDED %}<span class="admin-tag admin-tag-added">추가</span>
-        {% elif result.status == row_status.DUPLICATE %}<span class="admin-tag">중복</span>
-        {% else %}<span class="admin-tag admin-tag-error">오류</span>{% endif %}
-      </td>
-      <td>{{ result.reason }}</td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+{# 좁은 화면에서는 표만 자기 상자 안에서 가로로 스크롤한다 (이유는 schedule.html, D-42-4). #}
+<div class="admin-table-scroll" tabindex="0">
+  <table class="admin-table">
+    <thead>
+      <tr>
+        <th scope="col">줄</th>
+        <th scope="col">정답</th>
+        <th scope="col">결과</th>
+        <th scope="col">사유</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for result in results %}
+      <tr>
+        <td>{{ result.line }}</td>
+        <td class="admin-cell-answer">{{ result.answer }}</td>
+        <td>
+          {% if result.status == row_status.ADDED %}<span class="admin-tag admin-tag-added">추가</span>
+          {% elif result.status == row_status.DUPLICATE %}<span class="admin-tag">중복</span>
+          {% else %}<span class="admin-tag admin-tag-error">오류</span>{% endif %}
+        </td>
+        <td>{{ result.reason }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
 {% else %}
 <p class="admin-empty">읽을 줄이 없어요 (헤더만 있는 파일).</p>
 {% endif %}

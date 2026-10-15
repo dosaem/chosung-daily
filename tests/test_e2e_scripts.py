@@ -77,11 +77,11 @@ def _source_env(ticket: str) -> subprocess.CompletedProcess:
 
 
 # 같은 머신에서 동시에 뜨는 E2E 스택들. `env.sh` 의 배정표와 같은 티켓 집합이다.
-E2E_TICKETS = ("42", "43", "44")
+E2E_TICKETS = ("42", "43", "44", "46")
 # E2E 가 건드리면 안 되는 Redis DB 번호: 0 로컬 개발, 1 pytest 기본(`TestingConfig`),
-# 5 티켓 42 의 pytest(코디네이터가 `TEST_REDIS_URL` 로 배정). `down` 의 flushdb 가
-# 이 중 하나를 잡으면 돌고 있는 남의 판을 지운다.
-RESERVED_REDIS_DBS = {"0", "1", "5"}
+# 5 티켓 42 의 pytest, 6 티켓 46 의 pytest(코디네이터가 `TEST_REDIS_URL` 로 배정).
+# `down` 의 flushdb 가 이 중 하나를 잡으면 돌고 있는 남의 판을 지운다.
+RESERVED_REDIS_DBS = {"0", "1", "5", "6"}
 
 
 def test_resources_carry_the_ticket_number():

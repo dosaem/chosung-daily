@@ -314,13 +314,18 @@ def test_static_js_discards_the_token_after_account_deletion(client):
 JS_HARNESS = Path(__file__).resolve().parent / "fixtures" / "js" / "deleted_state_harness.mjs"
 
 
-def _run_deleted_signal(scenario: str) -> dict:
+def _run_deleted_signal(scenario: str, mode: str = "steps") -> dict:
+    """`mode="steps"` 는 삭제 판단만, `mode="init"` 은 `init()` 한 바퀴를 통째로.
+
+    순서가 틀린 결함(D-42-3)은 조각을 따로 부르면 안 보인다 — 안내를 적은 직후
+    `restart()` 가 화면을 비우면서 지우기 때문이다.
+    """
     node = shutil.which("node")
     if node is None:
         pytest.skip("node 가 없어서 app.js 동작 테스트를 건너뛴다")
 
     result = subprocess.run(
-        [node, str(JS_HARNESS), scenario, json.dumps(UI_STRINGS["ko"])],
+        [node, str(JS_HARNESS), scenario, json.dumps(UI_STRINGS["ko"]), mode],
         capture_output=True,
         text=True,
         check=False,
@@ -337,9 +342,31 @@ def test_deleted_signal_discards_the_token_only_after_the_server_confirms_deleti
     assert out["historyRetained"] is False
     assert out["issuedNewGuest"] is True
     assert any(r["method"] == "POST" and r["url"].endswith("/guests") for r in out["requests"])
-    assert out["messages"], "삭제 안내 메시지가 없다"
     # 주소창에 신호가 남으면 새로고침마다 같은 분기를 다시 탄다.
     assert out["finalSearch"] == ""
+
+
+def test_the_deletion_notice_is_still_on_screen_when_the_first_load_finishes():
+    """D-42-3: 안내가 **남아야** 한다.
+
+    `discardDeletedAccountState()` 안에서 띄우면 바로 뒤의 `restart()` →
+    `discardLocalPlayState()` → `showMessage("")` 가 지워서, 되돌릴 수 없는 작업의
+    유일한 확인을 사용자가 한 번도 못 본다. 그래서 조각이 아니라 `init()` 한 바퀴를
+    돌려 **마지막에 화면에 남은** 문구를 본다.
+    """
+    out = _run_deleted_signal("token-is-dead", mode="init")
+
+    assert out["finalMessage"] == UI_STRINGS["ko"]["account_deleted"]
+    # 안내만 남고 끝나는 게 아니다 — 새 게스트도 실제로 받았다.
+    assert out["issuedNewGuest"] is True
+
+
+def test_the_deletion_notice_does_not_appear_for_a_fake_signal():
+    """`?deleted=1` 만 붙은 링크로 들어왔고 토큰이 살아 있으면 안내도 없다."""
+    out = _run_deleted_signal("token-is-alive", mode="init")
+
+    assert out["finalMessage"] == ""
+    assert out["originalTokenRetained"] is True
 
 
 def test_deleted_signal_in_a_link_cannot_discard_a_living_guests_token():
@@ -366,3 +393,44 @@ def test_deleted_signal_keeps_the_token_when_the_check_cannot_reach_the_server()
     assert out["originalTokenRetained"] is True
     assert out["historyRetained"] is True
     assert out["finalSearch"] == "?deleted=1"
+
+
+# --- 렌더된 HTML 에 파이썬 객체가 새지 않는다 (D-42-1) -------------------------
+#
+# `{{ t.copy }}` 는 Jinja 의 getattr 우선 규칙 때문에 사전 키가 아니라 `dict.copy`
+# **메서드**를 집어, 버튼 라벨이 `<built-in method copy of dict object at 0x…>` 로
+# 렌더됐다. 사전(`tests/test_ui_strings.py`)도 번들도 그 자리를 못 봤다 — 렌더된
+# HTML 을 보는 테스트가 없었기 때문이다. 그래서 여기서 본다.
+
+PAGES = ("/", "/privacy", "/terms", "/account/delete")
+PYTHON_REPR_LEAKS = ("<built-in method", "<bound method", "<function ", " object at 0x")
+
+
+@pytest.mark.parametrize("path", PAGES)
+@pytest.mark.parametrize("lang", ["ko", "en"])
+def test_no_page_renders_a_python_object_repr(client, path, lang):
+    html = client.get(f"{path}?lang={lang}").data.decode()
+
+    leaks = [needle for needle in PYTHON_REPR_LEAKS if needle in html]
+    assert leaks == [], f"{path}?lang={lang} 에 파이썬 객체가 새어 나왔다: {leaks}"
+
+
+@pytest.mark.parametrize("lang", ["ko", "en"])
+def test_the_copy_button_shows_the_dictionary_word(client, lang):
+    """D-42-1 이 실제로 보이던 자리. 사전의 `copy` 가 그대로 라벨이어야 한다."""
+    html = client.get(f"/?lang={lang}").data.decode()
+
+    match = re.search(r'<button id="copy-token-button"[^>]*>(.*?)</button>', html, re.S)
+    assert match, "복사 버튼이 없다"
+    assert match.group(1).strip() == UI_STRINGS[lang]["copy"]
+
+
+@pytest.mark.parametrize("lang", ["ko", "en"])
+def test_the_backup_code_box_has_an_accessible_name(client, lang):
+    """D-42-2: 읽기 전용이라 placeholder 가 없고, 라벨이 없으면 스크린리더가 그
+    칸이 무엇인지 못 읽는다(axe `label`, critical)."""
+    html = client.get(f"/?lang={lang}").data.decode()
+
+    match = re.search(r"<input id=\"token-display\"[^>]*>", html)
+    assert match, "백업 코드 칸이 없다"
+    assert f'aria-label="{UI_STRINGS[lang]["backup_code_label"]}"' in match.group(0)
