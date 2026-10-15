@@ -8,7 +8,7 @@
 #   mobile/ios/fastlane/screenshots/{ko,en-US}/                        ← deliver 규격
 #   mobile/android/fastlane/metadata/android/{ko-KR,en-US}/images/
 #       phoneScreenshots/     ← Android 폰 (에뮬레이터)
-#       tenInchScreenshots/   ← 태블릿 (iPad 13" 재사용 — 규격은 폭·비율만 본다)
+#       tenInchScreenshots/   ← 태블릿 (iPad 시뮬레이터 + Android 구성 — 규격은 폭·비율만 본다)
 #
 # 규격(BASELINE `~/Code/Habitopia/scripts/store_screenshots.sh` 의 표를 그대로):
 #   iPhone 6.9" 1320×2868 (iPhone 17 Pro Max)  — 필수
@@ -133,6 +133,17 @@ fallback_phone_set() {
   STORE_SHOT_IS_IOS=false capture "$device" "$locale" "$phone_dir" androidui '*.png'
 }
 
+# Play 태블릿 세트. iPad 시뮬레이터에서 찍지만 **Android 구성**으로 찍는다
+# (`SHOT_IS_IOS=false`). iPad 캡처를 그대로 복사하면 iOS 에만 있는 ATT 안내 장이
+# Play 태블릿에 올라간다 — `onboardingPages` 는 화면 폭을 보지 않고 **플랫폼 하나로만**
+# 갈려서, 폭이 태블릿이어도 폰과 똑같이 iOS 는 4장 / Android 는 3장이다
+# (최종 리뷰 D-35-8). 나머지 네 장면은 두 플랫폼이 같은 그림이다.
+# 이 폴더도 **태블릿 한 기기 유형**의 세트라 폴더째 바꾼다(`'*.png'`).
+play_tablet_set() {
+  local device="$1" locale="$2" tablet_dir="$3"
+  STORE_SHOT_IS_IOS=false capture "$device" "$locale" "$tablet_dir" androidtablet '*.png'
+}
+
 android_device() {
   local serial
   serial=$("$ANDROID_SDK/platform-tools/adb" devices | awk '/emulator-/ {print $1; exit}')
@@ -189,10 +200,11 @@ run_locale() {
   boot_sim "$udid"
   capture "$udid" "$locale" "$ios_dir" ipad13
 
-  # Play 태블릿 세트는 iPad 13" 캡처를 그대로 쓴다 — Play 는 폭·비율만 보고,
-  # 태블릿 레이아웃(rail + 2열)은 같은 코드라 그림이 같다.
-  replace_set "$play_dir/tenInchScreenshots" '*.png'
-  cp "$ios_dir"/ipad13_*.png "$play_dir/tenInchScreenshots/"
+  # Play 태블릿 세트는 같은 iPad 시뮬레이터에서 **한 번 더** 찍는다 — 태블릿
+  # 레이아웃(rail + 2열)은 같은 코드라 레이아웃은 같지만, 온보딩 장은 플랫폼으로
+  # 갈려서 iOS 캡처를 복사하면 Play 에 ATT 안내 장이 올라간다(D-35-8).
+  echo "===== Play 태블릿 ($locale) — Android 구성 ====="
+  play_tablet_set "$udid" "$locale" "$play_dir/tenInchScreenshots"
 
   echo "===== Android phone ($locale) ====="
   # 에뮬레이터가 없거나(AVD 미생성) 설치가 실패해도(에뮬레이터 /data 가 가득 차면

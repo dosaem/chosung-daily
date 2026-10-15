@@ -100,6 +100,38 @@ def test_descriptions_link_the_legal_pages(locale):
     assert TERMS_URL in text
 
 
+# 영문 설명이 보드 예시로 쓰는 문장. 칸 수와 단어 길이를 여기서만 쓴다.
+ENGLISH_BOARD_EXAMPLE = "P _ R P L _"
+
+_WORD_LENGTH_WORDS = {5: "five", 6: "six", 7: "seven"}
+
+
+@pytest.mark.parametrize("locale", ["en-US"])
+def test_the_english_description_counts_the_example_board_correctly(locale):
+    """D-35-9: `P _ R P L _` 는 6칸인데 본문이 "five-letter word" 라고 적었다.
+
+    칸 수를 손으로 센 숫자가 아니라 **예시 문자열에서** 뽑아 대조한다 — 예시가
+    바뀌면 숫자도 같이 바뀌어야 한다. 실제 장면의 가림 타일 수와도 맞춘다
+    (`store_screenshot_scenes.dart` 의 `_enMask`).
+    """
+    slots = len(ENGLISH_BOARD_EXAMPLE.split())
+    expected = f"({ENGLISH_BOARD_EXAMPLE} for a {_WORD_LENGTH_WORDS[slots]}-letter word)"
+
+    for directory, name in (
+        (IOS_METADATA / locale, "description.txt"),
+        (PLAY_METADATA / locale, "full_description.txt"),
+    ):
+        text = _read(directory / name)
+        assert ENGLISH_BOARD_EXAMPLE in text, f"{name}: 예시 보드가 없다"
+        assert expected in text, f"{name}: {slots}칸을 다른 글자 수로 설명한다"
+
+    scenes = (
+        MOBILE / "integration_test" / "store_screenshot_scenes.dart"
+    ).read_text(encoding="utf-8")
+    mask = scenes.split("const _enMask = [", 1)[1].split("];", 1)[0]
+    assert mask.count("MaskTile(") == slots, "장면의 가림 타일 수와 설명의 칸 수가 갈렸다"
+
+
 def test_the_category_is_a_word_puzzle_game():
     assert _read(IOS_METADATA / "primary_category.txt") == "GAMES"
     assert _read(IOS_METADATA / "primary_first_sub_category.txt") == "GAMES_WORD"
@@ -246,7 +278,7 @@ def _fake_mobile(tmp_path: Path, *, ios=None, play_phone=None, play_tablet=None)
         )
         _write_set(
             images / "tenInchScreenshots",
-            "ipad13",
+            "androidtablet",
             EXPECTED_SHOTS if play_tablet is None else play_tablet.get(locale, EXPECTED_SHOTS),
             body=f"play-tablet-{locale}-",
         )
@@ -351,18 +383,48 @@ def test_the_verifier_allows_the_fallback_set_shot_in_the_android_layout(tmp_pat
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-def test_the_verifier_allows_the_tablet_set_to_reuse_the_ipad_captures(tmp_path):
-    """태블릿은 같은 코드·같은 그림이라 iPad 캡처 재사용이 맞다 — 폰과 다르다."""
-    root = _fake_mobile(tmp_path)
-    ipad = sorted((root / "ios" / "fastlane" / "screenshots" / "ko").glob("ipad13_*.png"))
-    tablet_dir = (
-        root / "android" / "fastlane" / "metadata" / "android" / "ko-KR" / "images"
-        / "tenInchScreenshots"
-    )
+def _ios_tablet_scenes(root: Path, locale: str = "ko") -> list[Path]:
+    directory = root / "ios" / "fastlane" / "screenshots" / locale
+    return sorted(directory.glob("ipad13_*.png"))
+
+
+def _play_tablet_dir(root: Path, locale: str = "ko-KR") -> Path:
+    images = root / "android" / "fastlane" / "metadata" / "android" / locale / "images"
+    tablet_dir = images / "tenInchScreenshots"
     for path in tablet_dir.glob("*.png"):
         path.unlink()
-    for source in ipad:
+    return tablet_dir
+
+
+def test_the_verifier_refuses_a_play_tablet_set_copied_from_the_ipad_captures(tmp_path):
+    """D-35-8: 태블릿도 온보딩 장이 플랫폼으로 갈린다 — `onboardingPages` 는 화면
+    폭을 보지 않고 iOS 에만 ATT 안내 장을 붙인다. iPad 캡처를 그대로 Play
+    `tenInchScreenshots` 로 복사하면 폰과 똑같이 iOS 전용 장이 올라간다.
+    """
+    root = _fake_mobile(tmp_path)
+    tablet_dir = _play_tablet_dir(root)
+    for source in _ios_tablet_scenes(root):
         (tablet_dir / source.name).write_bytes(source.read_bytes())
+
+    result = _verify(root, "play")
+
+    assert result.returncode == 1, result.stdout
+    assert "iOS 온보딩 캡처" in result.stdout
+
+
+def test_the_verifier_allows_a_tablet_set_shot_in_the_android_layout(tmp_path):
+    """iPad 시뮬레이터에서 **Android 구성**으로 찍은 태블릿 세트는 통과한다.
+
+    폰 대체 세트와 같은 선이다 — 갈리는 장면은 온보딩 하나고, 나머지 네 장면은
+    iPad 캡처와 바이트가 같은 것이 정상이다.
+    """
+    root = _fake_mobile(tmp_path)
+    tablet_dir = _play_tablet_dir(root)
+    for source in _ios_tablet_scenes(root):
+        body = source.read_bytes()
+        if "06_language" in source.name:
+            body = body + b"-android-onboarding"
+        (tablet_dir / source.name.replace("ipad13_", "androidtablet_")).write_bytes(body)
 
     result = _verify(root, "play")
 

@@ -164,34 +164,41 @@ void main() {
     // 최종 리뷰 D-35-5: 장면이 플랫폼을 iOS 로 박아 둬서, Android 에뮬레이터에서
     // 찍어도 ATT 안내 1장이 붙은 iPhone 온보딩(4장)이 나왔다. Play 는 실제 앱
     // 경험을 보여 주도록 요구한다 — 찍는 기기의 구성이 그대로 나와야 한다.
+    // 최종 리뷰 D-35-8: 폰 폭만 보던 이 단언을 **태블릿 폭까지** 돌린다.
+    // `onboardingPages` 는 화면 폭을 보지 않고 플랫폼 하나로만 갈리므로, Play
+    // 태블릿 세트를 iPad(iOS) 캡처로 채우면 폰과 똑같이 ATT 안내 장이 올라간다.
     for (final isIos in [true, false]) {
       final platform = isIos ? 'iOS' : 'Android';
 
-      testWidgets('$language · $platform — 온보딩 장 수가 그 플랫폼과 같다', (
-        tester,
-      ) async {
-        setViewSize(tester, phone);
+      for (final size in [phone, tablet]) {
+        final width = size == phone ? '폰' : '태블릿';
 
-        final scene = storeScreenshotScenes(
-          locale: locale,
-          isIos: isIos,
-        ).firstWhere((scene) => scene.scene == StoreScene.language);
-        await _pumpScene(tester, scene);
+        testWidgets('$language · $platform · $width — 온보딩 장 수가 그 플랫폼과 같다', (
+          tester,
+        ) async {
+          setViewSize(tester, size);
 
-        final pages = onboardingPages(isIos: isIos);
-        for (var index = 0; index < pages.length; index++) {
+          final scene = storeScreenshotScenes(
+            locale: locale,
+            isIos: isIos,
+          ).firstWhere((scene) => scene.scene == StoreScene.language);
+          await _pumpScene(tester, scene);
+
+          final pages = onboardingPages(isIos: isIos);
+          for (var index = 0; index < pages.length; index++) {
+            expect(
+              find.byKey(OnboardingKeys.dot(index)),
+              findsOneWidget,
+              reason: '$platform·$width 은 ${pages.length}장이다',
+            );
+          }
           expect(
-            find.byKey(OnboardingKeys.dot(index)),
-            findsOneWidget,
-            reason: '$platform 은 ${pages.length}장이다',
+            find.byKey(OnboardingKeys.dot(pages.length)),
+            findsNothing,
+            reason: '$platform·$width 에 없는 장이 그려졌다 — ${pages.length}장이어야 한다',
           );
-        }
-        expect(
-          find.byKey(OnboardingKeys.dot(pages.length)),
-          findsNothing,
-          reason: '$platform 에 없는 장이 그려졌다 — ${pages.length}장이어야 한다',
-        );
-      });
+        });
+      }
     }
 
     testWidgets('$language — 모든 장면이 라이트 모드다(기기가 다크여도)', (tester) async {

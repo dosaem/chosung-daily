@@ -216,6 +216,59 @@ def test_the_android_fallback_shoots_the_android_composition(tmp_path):
     assert "--dart-define=SHOT_IS_IOS=false" in args_log.read_text()
 
 
+# --- D-35-8 태블릿 세트도 Android 구성 ---------------------------------------
+
+
+def test_the_play_tablet_set_is_shot_in_the_android_composition(tmp_path):
+    """D-35-8 재현: Play 태블릿 세트를 iPad 캡처 복사로 만들면 iOS 에만 있는 ATT
+    안내 장이 올라간다. `onboardingPages` 는 화면 폭을 보지 않으므로 폰과 똑같이
+    **Android 구성**으로 다시 찍어야 한다 — `SHOT_IS_IOS=false` 를 넘기는지 본다.
+    """
+    tablet_dir = tmp_path / "tenInchScreenshots"
+    args_log = tmp_path / "args.log"
+
+    result = _bash(
+        f"""
+        export ARGS_LOG="{args_log}"
+        {_flutter_stub(SCENES, 0)}
+        play_tablet_set dummy-device ko "{tablet_dir}"
+        echo "exit=$?"
+        """
+    )
+
+    assert "exit=0" in result.stdout, result.stderr
+    assert "--dart-define=SHOT_IS_IOS=false" in args_log.read_text()
+
+
+def test_the_play_tablet_set_replaces_the_previous_set(tmp_path):
+    """태블릿 폴더도 **한 기기 유형**의 세트라 폴더째 바꾼다(D-35-6 과 같은 선).
+    과거 `ipad13_*` 복사본이 남으면 10장이 되어 Play 상한을 넘는다.
+    """
+    tablet_dir = tmp_path / "tenInchScreenshots"
+    _seed(tablet_dir, "ipad13")
+
+    result = _bash(
+        f"""
+        {_flutter_stub(SCENES, 0)}
+        play_tablet_set dummy-device ko "{tablet_dir}"
+        echo "exit=$?"
+        """
+    )
+
+    assert "exit=0" in result.stdout, result.stderr
+    assert _pngs(tablet_dir) == [
+        f"androidtablet_ko_{index:02d}_scene.png" for index in range(1, SCENES + 1)
+    ], f"세트가 누적됐다: {_pngs(tablet_dir)}"
+
+
+def test_the_script_no_longer_copies_the_ipad_set_into_the_play_tablet_folder():
+    """D-35-8 의 원인은 `cp ipad13_*.png tenInchScreenshots/` 한 줄이었다."""
+    body = SCRIPT.read_text(encoding="utf-8")
+
+    assert "ipad13_*.png" not in body, "iPad 세트를 Play 태블릿 폴더로 복사하는 줄이 남았다"
+    assert "play_tablet_set" in body
+
+
 def test_a_normal_capture_leaves_the_platform_to_the_device(tmp_path):
     """평소에는 스위치를 비워 둔다 — 기기가 Android 면 Android 구성이 나온다."""
     outdir = tmp_path / "out"

@@ -8,7 +8,7 @@ A new puzzle opens at midnight (Korea time). Everyone plays the same word.
 
 ■ Two boards
 The English board blanks out the vowels and leaves the consonant skeleton
-(P _ R P L _ for a five-letter word). The Korean board shows only the leading
+(P _ R P L _ for a six-letter word). The Korean board shows only the leading
 consonant of each syllable. Switch the puzzle language any time in settings.
 
 ■ Five tries
