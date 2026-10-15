@@ -175,6 +175,21 @@ class DioApiClient implements ApiClient {
   }
 
   @override
+  Future<Entitlement> verifySubscription({
+    required SubscriptionStore store,
+    required String receipt,
+  }) async {
+    final body = await _send<Map<String, dynamic>>(
+      () => _dio.post<Map<String, dynamic>>(
+        '/subscriptions/verify',
+        data: {'store': store.wire, 'receipt': receipt},
+        options: _authorized(),
+      ),
+    );
+    return Entitlement.fromJson(body);
+  }
+
+  @override
   Future<void> deleteAccount() async {
     try {
       // 204 라 본문이 없다 — `_send` 의 `response.data!` 를 타면 안 된다.

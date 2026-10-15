@@ -321,7 +321,7 @@ void main() {
     expect(find.byType(LicensePage), findsOneWidget);
   });
 
-  testWidgets('31·32 가 채울 자리는 전부 있고 아직 눌리지 않는다', (tester) async {
+  testWidgets('자리는 전부 있고, 아직 안 채운 자리만 눌리지 않는다', (tester) async {
     await _pumpRecords(tester, api: FakeApiClient());
 
     // 광고 개인정보 설정(`RecordsSlot.adPrivacy`)은 티켓 31 이 채운 뒤로
@@ -342,6 +342,8 @@ void main() {
     // 이미 동작하는 자리: "하는 법" 은 티켓 28, 백업 코드는 티켓 29(그 동작은
     // `records_account_test.dart`), 일일 알림 시각은 티켓 30 이 채웠다.
     // 리마인더는 행 대신 스위치가 탭을 받으므로 onTap 은 비어 있는 게 맞다.
+    // 구독 카드(티켓 32)는 키가 `SubscriptionCard` 에 붙어 있어 아래 루프가
+    // 보지 않는다 — 그 세 얼굴은 `records_subscription_test.dart` 가 본다.
     final filled = [
       RecordsSlot.howTo,
       RecordsSlot.backupCode,

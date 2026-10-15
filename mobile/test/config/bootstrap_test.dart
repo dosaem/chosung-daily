@@ -4,10 +4,13 @@ import 'package:chosung/config/firebase_bootstrap.dart';
 import 'package:chosung/config/sentry_bootstrap.dart';
 import 'package:chosung/main.dart';
 import 'package:chosung/notifications/notification_bootstrap.dart';
+import 'package:chosung/subscription/purchase_controller.dart';
+import 'package:chosung/subscription/purchase_service.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:in_app_purchase_storekit/in_app_purchase_storekit.dart';
 
 void main() {
   group('initializeFirebase', () {
@@ -44,10 +47,19 @@ void main() {
     });
   });
 
-  // `adServiceProvider` 기본값은 no-op 이다(위젯 테스트가 플랫폼 채널을 타지
-  // 않게). 이 override 가 빠지면 **앱에서 광고가 통째로 사라진다** — 테스트는
-  // 전부 통과한 채로.
-  testWidgets('시작 트리가 실제 광고 SDK 를 끼운다', (tester) async {
+  // iOS 결제는 StoreKit 2 로 돈다(스펙 §B.18). `in_app_purchase_storekit`
+  // 0.4.13 은 **그게 기본값**이라 따로 켜지 않는다(`enableStoreKit2()` 는 같은
+  // 이유로 deprecated 다) — 대신 기본값이 바뀌면 여기서 깨지게 못 박아 둔다.
+  // 조용히 StoreKit 1 로 돌아가면 영수증이 JWS 가 아니라 base64 수신확인서로
+  // 와서 서버 검증(`app/clients/app_store.py`)이 전부 실패한다.
+  test('iOS 는 StoreKit 2 로 돈다', () {
+    expect(InAppPurchaseStoreKitPlatform.isStoreKit2Enabled, isTrue);
+  });
+
+  // `adServiceProvider`·`purchaseServiceProvider` 기본값은 no-op 이다(위젯
+  // 테스트가 플랫폼 채널을 타지 않게). 이 override 가 빠지면 **앱에서 광고·
+  // 결제가 통째로 사라진다** — 테스트는 전부 통과한 채로.
+  testWidgets('시작 트리가 실제 광고·결제 SDK 를 끼운다', (tester) async {
     late final Widget started;
 
     await bootstrapChosungApp(
@@ -70,6 +82,10 @@ void main() {
     addTearDown(container.dispose);
 
     expect(container.read(adServiceProvider), isA<GoogleAdService>());
+    expect(
+      container.read(purchaseServiceProvider),
+      isA<StorePurchaseService>(),
+    );
   });
 
   group('runWithSentry', () {

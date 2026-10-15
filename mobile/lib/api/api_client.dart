@@ -3,7 +3,7 @@ import 'package:chosung/api/api_models.dart';
 
 /// 서버 API 중 **지금 앱이 실제로 쓰는 것**만 둔다.
 ///
-/// 스펙 §A' 의 나머지 메서드는 그걸 호출하는 티켓(29·32·33)이 더한다 —
+/// 스펙 §A' 의 나머지 메서드는 그걸 호출하는 티켓(33)이 더한다 —
 /// 쓰지 않는 메서드를 미리 선언하면 가짜 구현만 늘고 테스트가 증명하는 건 없다.
 abstract interface class ApiClient {
   /// `POST /guests` → 새 게스트 토큰.
@@ -72,6 +72,20 @@ abstract interface class ApiClient {
 
   /// `DELETE /me` → 계정·기록 전부 삭제(204). 그 뒤 이 토큰은 401 이다.
   Future<void> deleteAccount();
+
+  /// `POST /subscriptions/verify` → 지금 권한([Entitlement]).
+  ///
+  /// [receipt] 는 iOS 는 StoreKit 2 거래의 JWS, Android 는 `purchaseToken`
+  /// 이다(스펙 §A' 표) — 둘 다 `PurchaseDetails.verificationData
+  /// .serverVerificationData` 에 그대로 들어 있다. 서버가 `store_key` 로
+  /// 멱등하므로 같은 영수증을 다시 올려도 행이 늘지 않는다.
+  ///
+  /// 영수증을 인정하지 않으면 400 [ReceiptInvalidApiException], 스토어가 답을
+  /// 못 주면 503 [StoreUnavailableApiException].
+  Future<Entitlement> verifySubscription({
+    required SubscriptionStore store,
+    required String receipt,
+  });
 
   /// `GET /me/stats` 를 **[token] 으로** 부른다. 백업 코드(= 다른 기기의 게스트
   /// 토큰)가 아직 살아 있는지 확인하는 용도라, 저장된 토큰을 쓰는

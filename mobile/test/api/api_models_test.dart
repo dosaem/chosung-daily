@@ -444,4 +444,60 @@ void main() {
       expect(day.results[PuzzleLanguage.en], DayResult.inProgress);
     });
   });
+
+  group('Entitlement.fromJson', () {
+    test('권한과 근거를 읽고, 시각은 UTC 로 받는다', () {
+      final entitlement = Entitlement.fromJson(
+        jsonDecode('''
+        {"active": true,
+         "until": "2026-11-01T00:00:00+00:00",
+         "status": "active",
+         "source": "apple",
+         "next_check_at": "2026-10-15T04:00:00+00:00"}
+        ''')
+            as Map<String, dynamic>,
+      );
+
+      expect(entitlement.active, isTrue);
+      // 서버가 타임존을 붙여 보내므로(`EntitlementResponse` docstring) 기기
+      // 로컬시로 오해하지 않는다 — 몇 시간씩 틀어지는 지점이다.
+      expect(entitlement.until, DateTime.utc(2026, 11));
+      expect(entitlement.until!.isUtc, isTrue);
+      expect(entitlement.status, SubscriptionStatus.active);
+      expect(entitlement.source, SubscriptionStore.apple);
+      expect(entitlement.nextCheckAt, DateTime.utc(2026, 10, 15, 4));
+    });
+
+    test('구독이 없으면 active 만 false 고 나머지는 null 이다', () {
+      final entitlement = Entitlement.fromJson(
+        jsonDecode('''
+        {"active": false, "until": null, "status": null,
+         "source": null, "next_check_at": null}
+        ''')
+            as Map<String, dynamic>,
+      );
+
+      expect(entitlement.active, isFalse);
+      expect(entitlement.until, isNull);
+      expect(entitlement.status, isNull);
+      expect(entitlement.source, isNull);
+      expect(entitlement.nextCheckAt, isNull);
+    });
+
+    test('서버가 먼저 늘린 상태·스토어는 null 로 떨어뜨린다', () {
+      // 권한(`active`)은 서버가 판정해서 보내므로 모르는 라벨이 와도 광고를
+      // 끄는 판단은 흔들리지 않는다. 라벨만 모르는 것으로 둔다.
+      final entitlement = Entitlement.fromJson(
+        jsonDecode('''
+        {"active": true, "until": null, "status": "paused",
+         "source": "amazon", "next_check_at": null}
+        ''')
+            as Map<String, dynamic>,
+      );
+
+      expect(entitlement.active, isTrue);
+      expect(entitlement.status, isNull);
+      expect(entitlement.source, isNull);
+    });
+  });
 }

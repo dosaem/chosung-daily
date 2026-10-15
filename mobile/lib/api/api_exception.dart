@@ -89,6 +89,26 @@ class AlreadyFinishedApiException extends ApiException {
   });
 }
 
+/// 400 `RECEIPT_INVALID` — 올린 영수증을 스토어가 우리 구독으로 인정하지
+/// 않았다. **다시 올려도 같은 답이 온다**(다른 앱·다른 상품의 영수증이거나
+/// 위조·손상). 구매 흐름은 이걸 받으면 재시도를 접는다.
+class ReceiptInvalidApiException extends ApiException {
+  const ReceiptInvalidApiException({
+    required super.code,
+    required super.message,
+  });
+}
+
+/// 503 `STORE_UNAVAILABLE` — 스토어가 지금 답을 못 준다(또는 서버 설정이
+/// 비었다). [ReceiptInvalidApiException] 과 달리 **일시적**이라 다음 시작의
+/// 미완료 구매 재전송이 그대로 재시도가 된다.
+class StoreUnavailableApiException extends ApiException {
+  const StoreUnavailableApiException({
+    required super.code,
+    required super.message,
+  });
+}
+
 /// 위 어디에도 안 맞는 응답. 화면은 "알 수 없는 오류 + 재시도" 로 다룬다.
 class UnknownApiException extends ApiException {
   const UnknownApiException({required super.code, required super.message});
@@ -97,7 +117,7 @@ class UnknownApiException extends ApiException {
 const String unknownErrorCode = 'UNKNOWN_ERROR';
 const String networkErrorCode = 'NETWORK_ERROR';
 
-/// 서버 `code` → 예외 타입. 뒤 티켓(32·33)이 자기 코드를 더한다.
+/// 서버 `code` → 예외 타입. 뒤 티켓(33)이 자기 코드를 더한다.
 const Map<
   String,
   ApiException Function({required String code, required String message})
@@ -111,6 +131,8 @@ _exceptionsByCode = {
   'ACCOUNT_ALREADY_LINKED': AccountAlreadyLinkedApiException.new,
   'HINT_ALREADY_UNLOCKED': HintAlreadyUnlockedApiException.new,
   'ALREADY_FINISHED': AlreadyFinishedApiException.new,
+  'RECEIPT_INVALID': ReceiptInvalidApiException.new,
+  'STORE_UNAVAILABLE': StoreUnavailableApiException.new,
 };
 
 /// `code` 를 모를 때(본문이 JSON 이 아닌 경우 포함) HTTP status 로 떨어뜨린다.

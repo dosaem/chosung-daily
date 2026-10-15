@@ -199,8 +199,12 @@ void main() {
       expect(previewEnabled(tester), isFalse);
 
       ProviderScope.containerOf(
-        tester.element(find.byType(HintCard)),
-      ).read(entitlementProvider.notifier).update(active: true);
+            tester.element(find.byType(HintCard)),
+          )
+          .read(entitlementProvider.notifier)
+          .update(
+            fakeEntitlement(active: true, until: DateTime.utc(2026, 11)),
+          );
       await tester.pumpAndSettle();
 
       expect(find.text('힌트 미리 보기'), findsOne);

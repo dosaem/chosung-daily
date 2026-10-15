@@ -984,3 +984,64 @@ iPhone 6.9" 시뮬레이터에서 **Android 구성으로**(온보딩 3장) 대�
       안 줄어야 한다).
 - [ ] 구독 구매 뒤(티켓 32·33): 배너 슬롯이 사라지고 전면이 안 뜨며 힌트 버튼
       레이블이 "힌트 미리 보기" 로 바뀌는지.
+
+### 32. 구독 구매(앱) — 출시 전 사람이 해야 하는 일
+
+앱 코드는 다 들어갔다(구매 스트림 → 서버 검증 → 완료 → 복원, S5 Paywall, S4 구독
+카드). 남은 것은 **스토어 콘솔에서 사람이 만들어야 하는 상품**과 실기기·Sandbox
+확인이다. 서버 쪽 준비물은 위 "### 12." 에 있다.
+
+- [ ] **구독 상품 `adfree_monthly` 를 양 스토어에 등록**한다(스펙 D2, 한국 ₩1,500
+      Tier). 상품 ID 는 `mobile/lib/subscription/subscription_state.dart` 의
+      `adFreeMonthlyProductId` 와 서버 `SUBSCRIPTION_PRODUCT_ID` 와 **셋이 같아야**
+      한다. 상품이 없거나 심사 통과 전이면 앱은 가격을 못 읽어 **구독 시작 버튼이
+      잠긴 채** "가격을 불러오는 중…" 만 보인다 — 코드 문제로 오인하기 쉬운 지점이다.
+- [ ] **Billing Grace Period**: Apple 켬(16일), Play base plan 기본 유예 유지.
+      켜지 않으면 `grace` 상태가 오지 않아 S4 의 "결제 확인 중 · 유예 …까지"
+      얼굴을 실기기에서 볼 수 없다.
+- [ ] **Sandbox·라이선스 테스터**로 실제 결제 흐름을 돌린다(아래 체크리스트).
+      iOS 는 Sandbox 테스터 계정, Android 는 Play Console 의 라이선스 테스터다.
+
+**Android release 빌드에서 Play Billing Library 8+ 확인** (제출 직전, 스펙 §B.18 —
+Billing 7 은 2026-08-31 로 제출 마감):
+
+1. `cd mobile && flutter build appbundle --release`
+2. merged manifest 와 의존성 트리에서 버전을 본다. 둘 중 하나로 충분하다.
+   - `./gradlew -p android :app:dependencies --configuration releaseRuntimeClasspath | grep billing`
+     → `com.android.billingclient:billing:8.x` 가 나와야 한다.
+   - 또는 `mobile/build/app/intermediates/merged_manifests/release/AndroidManifest.xml`
+     에서 `com.google.android.play.billingclient.version` 메타데이터 값을 확인한다
+     (Billing 라이브러리가 자기 버전을 매니페스트에 심는다).
+3. 지금 레포 상태: `in_app_purchase_android` 0.5.0 이
+   `com.android.billingclient:billing:8.0.0` 을 가져온다
+   (`~/.pub-cache/hosted/pub.dev/in_app_purchase_android-0.5.0/android/build.gradle.kts`).
+   **버전을 앱이 직접 선언하지 않으므로** 플러그인을 올릴 때마다 이 확인을 다시 한다.
+4. 빌드 산출물(`mobile/build`)은 확인이 끝나면 지운다 — 이 머신은 디스크 여유가 적다.
+
+**실기기·Sandbox 에서 확인할 것** (시뮬레이터는 결제를 못 돌린다):
+
+- [ ] 구매: Paywall 에서 "구독 시작" → 스토어 시트 → 결제 → **"결제 확인 중" 동안
+      버튼이 잠기고** → 확인 화면("광고가 꺼졌어요" + 갱신일) → 배너 슬롯이 사라짐.
+- [ ] 결제 중 앱 강제 종료: 다시 켜면 그 구매가 스스로 마무리되고(서버 검증 →
+      완료) 권한이 들어오는지. Play 는 3일 내 acknowledge 가 없으면 자동 환불하니
+      **같은 날 안에** 확인한다.
+- [ ] 복원: 앱을 지우고 다시 설치 → Paywall > "구매 복원" → 권한이 돌아오는지.
+- [ ] 재설치 첫 실행(구독자 계정): "구매 복원" 을 **누르지 않고** 앱만 켰을 때
+      권한이 돌아오는지. 게스트 토큰이 발급되기 전에는 영수증을 올리지 않고
+      토큰이 들어오면 그때 올린다 — 실패 문구("결제를 끝내지 못했어요")가 한
+      번도 보이면 안 된다(D-32-1).
+- [ ] Play pending 유지(Android, 라이선스 테스터의 "지연된 결제" 시뮬레이션):
+      "결제 확인 중" 에서 **결제를 끝내지 않은 채** 앱을 백그라운드 →
+      포그라운드 하면 계속 "결제 확인 중" 인지(D-32-5 — 조회가 그 거래를
+      `restored` 로 올려도 대기가 풀려선 안 된다).
+- [ ] Play pending 포기(같은 시뮬레이션): 이어서 결제를 포기한 뒤 백그라운드 →
+      포그라운드 하면 버튼이 다시 살아나는지(D-32-4). 두 줄을 **이 순서로**
+      봐야 "유지" 와 "풀림" 이 구분된다.
+- [ ] iOS 승인 대기(Ask to Buy)는 반대로 **복귀해도 계속 "결제 확인 중"** 이어야
+      한다.
+- [ ] 유예: Apple Sandbox 의 "Billing Grace Period" 시뮬레이션으로 S4 카드가
+      "결제 확인 중 · 유예 …까지" + "관리" 로 바뀌는지.
+- [ ] "관리" 버튼이 각 스토어의 구독 관리 화면을 여는지(iOS 설정 > Apple 계정 >
+      구독 / Google Play > 구독).
+- [ ] 가격 표시가 스토어 시트의 금액과 **같은 문자열**인지(앱은 상수를 쓰지 않는다).
+      다른 지역 스토어 계정으로 한 번 더 본다.
