@@ -40,10 +40,12 @@ FAILED tests/test_release_docs.py::test_open_undecided_items_are_marked_for_oper
 | `uv run ruff format --check tests/test_release_docs.py tests/test_domain_docs.py` | `2 files already formatted` (레포 전체는 `ruff format` 를 쓰지 않는다 — CI 는 `ruff check` 만 돈다) |
 | `uv run pytest tests/test_release_docs.py tests/test_domain_docs.py -q` | `101 passed` / `8 passed` |
 | `uv run pytest tests/test_deploy_workflow.py -q` | `17 passed` — secrets 표를 통합 목차로 옮긴 뒤에도 기존 `test_deploy_secrets_are_documented` 가 통과한다(그 파서는 **첫** secrets 제목의 표를 읽으므로, 통합 목차가 모든 secret 을 담아야 깨지지 않는다) |
-| `uv run pytest -q` (전체) | PYTEST_FULL |
+| `uv run pytest -q` (전체, 1차) | **`2 failed, 1630 passed in 1266.46s`** — 내 변경이 깬 것이다(아래 §9) |
+| `uv run pytest tests/test_app_deploy_workflow.py -q` (수정 후) | `114 passed` |
+| `uv run pytest -q` (전체, 수정 후 재실행) | **`1633 passed in 764.06s (0:12:44)`**, exit 0 |
 | `cd mobile && flutter analyze` | `No issues found! (ran in 17.7s)` |
 | `cd mobile && flutter test` | `All tests passed!` — 782 tests |
-| `uv run flask db heads` | 마이그레이션을 만들지 않았다(아래 §7) |
+| `FLASK_APP=wsgi.py uv run flask db heads` | `b1c7d4e0a932 (head)` — **1줄**. 이 티켓은 마이그레이션을 만들지 않았다(`migrations/` 무변경, 아래 §7) |
 
 Flutter 빌드 산출물은 만들지 않았다(`analyze`·`test` 만) — `mobile/build` 는 그대로다.
 
@@ -52,7 +54,7 @@ Flutter 빌드 산출물은 만들지 않았다(`analyze`·`test` 만) — `mobi
 | 체크박스 | 무엇을 했나 | 무엇이 증명하나 |
 |---|---|---|
 | ① `docs/RELEASE.md` D0~D3 체크리스트 + NAS 첫 배포 + 복구 리허설 + GitHub secrets 표 통합 | 새 절 3개: `## 사람 작업 순서 (D0~D3)`, `## GitHub Actions secrets · variables 통합 목차`, `## 실기기 체크리스트 (통합)`. 티켓별 `### NN.` 절은 배경으로 남겼다 | `test_human_order_has_every_stage`(D0~D3 4개) · `test_human_order_names_both_operator_accounts`(운영자 계정 두 개) · `test_d2_names_the_grace_period_and_the_asc_name_clash`(Grace Period·16일·"Hidden Vowels: Daily Word") · `test_d3_rechecks_the_submission_day_requirements`(target SDK·Billing 8·Data safety·`/account/delete`) · `test_d3_includes_the_nas_first_deploy_and_the_restore_rehearsal`(`docker volume ls`·복구 리허설) · `test_secret_index_covers_every_secret_the_workflows_use`(워크플로의 `secrets.*` 21개 전부) · `test_variable_index_covers_every_variable_the_workflows_use`(`vars.*` 9개) · `test_secret_index_rows_point_at_a_detail_section` · `test_secret_index_does_not_carry_values` · `test_human_order_items_point_at_a_detail_section` |
-| ② 실기기 체크리스트 통합 (각 항목 기대 결과) | 41개 항목을 알림·구독·광고·계정/삭제·태블릿 다섯 소절로. 모든 항목이 `조작 → 기대 결과` 꼴 | `test_device_checklist_has_a_subsection_per_area`(5개) · `test_every_device_checklist_item_states_an_expected_result`(41개 전부 `→` 포함, 하한 20) · `test_device_checklist_covers_every_item_the_spec_asks_for`(cold·warm·같은 날·다음 날·iOS·Android·Sandbox·복원·pending·4040010·유예·UMP·ATT·새 게스트·iPad·rail·배너·결과 시트·Split View·가로 20개 키워드) |
+| ② 실기기 체크리스트 통합 (각 항목 기대 결과) | 42개 항목을 알림·구독·광고·계정/삭제·태블릿 다섯 소절로. 모든 항목이 `조작 → 기대 결과` 꼴 | `test_device_checklist_has_a_subsection_per_area`(5개) · `test_every_device_checklist_item_states_an_expected_result`(42개 전부 `→` 포함, 하한 20) · `test_device_checklist_covers_every_item_the_spec_asks_for`(cold·warm·같은 날·다음 날·iOS·Android·Sandbox·복원·pending·4040010·유예·UMP·ATT·새 게스트·iPad·rail·배너·결과 시트·Split View·가로 20개 키워드) |
 | ③ 티켓 16 의 법적 항목을 D1·D3 에 통합 | D1 = 통신판매업(면제 결정)·보호책임자·주소/전화·전문가 검토(안 받음), D3 = Data safety 일치 대조·스토어 구독 고지 일치·ASC EULA 비워 두기 확인 | `test_legal_items_from_ticket_16_are_in_the_d1_or_d3_stage`(통신판매업·보호책임자·주소·전문가·EULA·Data safety 6개) |
 | ④ README "설계 판단" §C.32 열 항목 점검 | `### 37. 설계 판단 항목 점검 (§C.32)` 에 항목 → 절 목차 표. **빠진 것은 하나뿐이어서**(KST 고정) `### 37. KST 고정` 을 근거·대안 한 단락으로 새로 썼다 | `test_c32_checklist_lists_every_design_decision_item`(10개 항목 키워드) · `test_c32_checklist_points_at_sections_that_exist`(표가 가리킨 제목 전부가 실제 `### ` 절) · `test_readme_has_a_kst_design_decision` |
 | ⑤ README Flutter 절 최종 + 면접 설명 범위 문장 | `### 22.` 끝에 "**면접 설명 범위.**" 문단 + 세 축(상태 흐름·SDK 선택·테스트 경계) → 뒷 티켓 절 색인 표 | `test_readme_flutter_section_states_the_interview_scope` · `test_readme_flutter_section_indexes_the_later_app_tickets`(권한 재확인 타이머·로컬 알림) |
@@ -143,7 +145,7 @@ Flutter 빌드 산출물은 만들지 않았다(`analyze`·`test` 만) — `mobi
   구성으로 찍는지는 40 이 머지된 뒤 `docs/RELEASE.md` "알려진 한계" 의 해당 줄과
   `### 35.` 에 적어야 한다. 자리는 만들어 뒀다.
 - **실기기 체크리스트는 아무도 실행하지 않았다.** 이 티켓은 목록을 만들었을 뿐이고,
-  41개 항목 전부가 사람 차례(D3)다. 실기기가 없으면 출시 전에 확인할 방법이 없다 —
+  42개 항목 전부가 사람 차례(D3)다. 실기기가 없으면 출시 전에 확인할 방법이 없다 —
   구독·광고 쪽은 특히 테스트로 대체 불가다(§6 의 "구독·권한 실기기 미검증").
 - **스펙 미정 항목 표의 상태 어휘를 티켓 문구보다 넓혔다.** 티켓은 "남은 것은 '운영 데이터
   후' 로 표시" 라고 했지만, 실제로 열려 있는 넷(1·6·10·11)만 그 문구를 쓰고 나머지는
@@ -152,3 +154,34 @@ Flutter 빌드 산출물은 만들지 않았다(`analyze`·`test` 만) — `mobi
 - **중복을 남겼다.** 실기기 항목은 티켓 30·31·32·29·14 절에도 그대로 있다. 통합 절을
   정본으로 선언하고 각 절은 배경으로 뒀다 — 티켓별 절의 줄이 그 티켓의 리뷰 결함 번호
   (D-32-1·D-32-4·D-32-5 등)와 묶여 있어서, 지우면 그 줄이 왜 생겼는지가 사라진다.
+
+## 9. 전체 스위트가 잡은 결함 1건 (내 변경이 원인) — 고쳤다
+
+1차 전체 실행에서 **2건 실패**했다. 둘 다 `tests/test_app_deploy_workflow.py` 의
+같은 헬퍼에서 왔다.
+
+```
+FAILED tests/test_app_deploy_workflow.py::test_release_doc_names_the_match_repository_and_tester_group
+FAILED tests/test_app_deploy_workflow.py::test_release_doc_separates_what_only_a_human_can_do
+2 failed, 1630 passed in 1266.46s (0:21:06)
+```
+
+**원인.** `_section_34()` 는 `docs/RELEASE.md` 를 `"### 34."` **문자열이 처음 나오는
+자리**에서 잘라 그 절 본문을 읽었다. 티켓 34 당시에는 그 문자열이 제목에만 있었으니
+"절" 과 같은 뜻이었다. 그런데 이 티켓의 D0~D3 체크리스트와 secrets 통합 목차가 그 절을
+`상세: "### 34."` 로 **가리키기만** 해도 그 인용이 제목보다 앞에 오고, 파서는 거기서
+잘라 **D1 체크리스트 토막**을 "34 절" 로 읽는다. 실패 메시지의 잘린 문자열이
+`", README "08. 헬스체크 등급" 아래 Sentry 문단 (#9)\n- [ ] **UptimeRobot** …` 로
+시작하는 게 그 증거다.
+
+**고친 것.** 앵커를 `"\n### 34."` 로 바꿔 **줄 머리의 제목**에서만 끊게 했다 — 파서가
+뜻한 것("그 절")과 구현("그 문자열이 나온 곳")의 차이를 메운 것이고, 통합 목차를 다시
+지우는 방향은 티켓 요구(하나의 목차로 정리) 자체를 되돌리는 일이라 택하지 않았다.
+티켓 34 의 테스트 파일을 건드린 이유는 그 헬퍼가 내 변경으로 **거짓이 된 가정**을
+들고 있었기 때문이고, 단언 내용은 하나도 바꾸지 않았다(114개 그대로 통과).
+
+**재발 방지.** `tests/test_release_docs.py::test_every_ticket_section_heading_appears_once_at_the_start_of_a_line`
+가 `### NN.` 제목이 줄 머리에 번호당 하나뿐인지 본다. 같은 종류의 그림자가 다시 생기면
+여기서 잡힌다. 다른 테스트의 절 자르기도 확인했다 — `tests/test_access_log.py` 는
+README 를 **제목 전문**(`### 36. 개인정보 안전성 확보조치`)으로 자르고 그 문자열은 README
+에 1개뿐이라 영향이 없다(`grep -c` 로 확인).
