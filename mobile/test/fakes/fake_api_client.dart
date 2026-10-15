@@ -38,20 +38,30 @@ MyStats fakeMyStats({
   entitlement: fakeEntitlement(active: entitled, nextCheckAt: nextCheckAt),
 );
 
+/// 구독 행이 있는 응답의 기본 `next_check_at`(`last_verified_at + 1h`).
+final fakeNextCheckAt = DateTime.utc(2026, 10, 15, 13);
+
 /// 서버가 돌려줄 권한. 기본값은 "구독 없음" 이다 — 구독자 테스트만 켠다.
+///
+/// 행이 있으면 `next_check_at` 도 **늘** 함께 온다(`build_entitlement`) —
+/// 없으면 `NO_ENTITLEMENT` 로 전부 null 이다. 그 짝을 가짜가 깨면 "행이
+/// 있는가" 를 `nextCheckAt` 으로 보는 쪽(D-32-6)이 테스트에서만 틀린다.
 Entitlement fakeEntitlement({
   bool active = false,
   DateTime? until,
   SubscriptionStatus? status,
   SubscriptionStore? source,
   DateTime? nextCheckAt,
-}) => Entitlement(
-  active: active,
-  until: until,
-  status: status ?? (active ? SubscriptionStatus.active : null),
-  source: source ?? (active ? SubscriptionStore.google : null),
-  nextCheckAt: nextCheckAt,
-);
+}) {
+  final row = status ?? (active ? SubscriptionStatus.active : null);
+  return Entitlement(
+    active: active,
+    until: until,
+    status: row,
+    source: source ?? (active ? SubscriptionStore.google : null),
+    nextCheckAt: nextCheckAt ?? (row == null ? null : fakeNextCheckAt),
+  );
+}
 
 /// ko "지하철역" 의 가림 — 초성 4개가 보이는 타일이다.
 const fakeKoMask = [

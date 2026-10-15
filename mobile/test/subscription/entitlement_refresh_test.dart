@@ -406,6 +406,69 @@ void main() {
       container.dispose();
     });
 
+    // D-33-1. 조회 **둘**이 동시에 떠나 있을 수 있다 — 타이머 조회가 아직
+    // 안 왔는데 사용자가 홈 → 복귀하면 복귀 조회가 하나 더 떠난다. 떠난
+    // 시각을 컨트롤러 필드 한 칸에 들고 있으면 먼저 풀린 조회가 그 칸을
+    // 비워서, 나중 조회가 "지금 관측" 으로 들어가 구매를 덮는다.
+    testWidgets('타이머 조회와 복귀 조회가 겹쳐도 구매를 덮지 않는다', (tester) async {
+      final container = await start(
+        tester,
+        startup: fakeMyStats(nextCheckAt: now.add(hour)),
+      );
+      // 조회 A — 타이머가 깨워 떠났다.
+      final arrive = await fetchInFlight(tester, container);
+
+      // 홈 → 복귀. 조회 B 가 하나 더 떠난다(A 는 취소되지 않는다).
+      await leave(tester);
+      await advance(tester, const Duration(minutes: 1));
+      await comeBack(tester);
+      expect(api.fetchMyStatsCalls, 2, reason: '조회 둘이 떠나 있다');
+
+      // B 가 떠난 뒤 구매가 끝났다.
+      now = now.add(const Duration(minutes: 1));
+      container
+          .read(entitlementProvider.notifier)
+          .update(fakeEntitlement(active: true));
+
+      // 둘 다 "구독 없음"(구매 전 사실)을 들고 도착한다.
+      await arrive();
+
+      expect(container.read(entitlementProvider)?.active, isTrue);
+      expect(container.read(adGateProvider).showsBannerSlot, isFalse);
+      container.dispose();
+    });
+
+    // D-33-2. 플레이 결과 뒤 재조회(25·26)도 같은 `/me/stats` 다 — 이
+    // 컨트롤러가 떠나보낸 조회가 아니라고 "지금 관측" 으로 다루면 그 응답이
+    // 구매를 덮는다.
+    testWidgets('플레이 결과 재조회가 뒤늦게 와도 구매를 덮지 않는다', (tester) async {
+      final container = await start(
+        tester,
+        startup: fakeMyStats(nextCheckAt: now.add(hour)),
+      );
+
+      // 제출 → 결과 시트가 떠나보내는 재조회. 이 컨트롤러는 부른 적이 없다.
+      final gate = Completer<void>();
+      api.fetchMyStatsGate = gate;
+      unawaited(container.read(myStatsProvider.notifier).refresh());
+      await tester.pump();
+      expect(api.fetchMyStatsCalls, 1, reason: '재조회가 떠났다');
+
+      // 결과 시트 → Paywall → 구매가 10초 안에 끝난 경우.
+      await advance(tester, const Duration(seconds: 5));
+      container
+          .read(entitlementProvider.notifier)
+          .update(fakeEntitlement(active: true));
+
+      api.fetchMyStatsGate = null;
+      gate.complete();
+      await tester.pump();
+
+      expect(container.read(entitlementProvider)?.active, isTrue);
+      expect(container.read(adGateProvider).showsBannerSlot, isFalse);
+      container.dispose();
+    });
+
     // 계정 경계는 29 의 `fetchIfSameAccount` 가 막는다 — 떠난 조회가 돌아와도
     // 남의 계정 값이라 상태에 쓰지 않는다.
     testWidgets('계정이 바뀌면 떠난 조회의 권한을 쓰지 않는다', (tester) async {

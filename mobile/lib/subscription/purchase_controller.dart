@@ -352,11 +352,19 @@ class PurchaseFlowNotifier extends Notifier<PurchaseFlow> {
 
       ref.read(entitlementProvider.notifier).update(entitlement);
       // 여기까지 와서야 완료다(스펙 §A.8 검증·완료 순서). 단 **행이 없는**
-      // 응답(`status == null`)은 권한을 돌려준 것이 아니다 — 서버는 결제가
-      // 끝나지 않은 Play 구매에 행을 만들지 않고 200 + `active: false` 를
-      // 준다(`_verify_google`, 스펙 "미정 항목" 14). 그걸 완료로 읽으면
-      // 결제 전 토큰에 acknowledge 가 나간다(규칙 1, D-32-5).
-      if (entitlement.status != null && purchase.pendingCompletePurchase) {
+      // 응답은 권한을 돌려준 것이 아니다 — 서버는 결제가 끝나지 않은 Play
+      // 구매에 행을 만들지 않고 200 + `active: false` 를 준다
+      // (`_verify_google`, 스펙 "미정 항목" 14). 그걸 완료로 읽으면 결제 전
+      // 토큰에 acknowledge 가 나간다(규칙 1, D-32-5).
+      //
+      // "행이 있다" 는 `status` 가 아니라 [Entitlement.nextCheckAt] 로 본다
+      // (D-32-6). `status` 는 enum 파싱 결과라 **서버가 모르는 라벨을 보내도
+      // null** 이고, 그러면 결제가 끝난 구매에 acknowledge 가 안 나가 Play 가
+      // 3일 뒤 자동 환불한다. 서버는 행이 있으면 늘 `next_check_at` 을 채우고
+      // (`app/services/entitlement.py` `build_entitlement`) 없으면
+      // `NO_ENTITLEMENT` 로 전부 null 이라, 같은 뜻이면서 라벨 집합에 묶이지
+      // 않는다.
+      if (entitlement.nextCheckAt != null && purchase.pendingCompletePurchase) {
         await _service.complete(purchase);
       }
     } on UnauthorizedApiException {

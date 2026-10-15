@@ -78,16 +78,15 @@ class EntitlementRefreshController extends Notifier<DateTime?> {
     return null;
   }
 
-  /// 지금 떠나 있는 조회가 **언제 떠났는가**. 그 응답을 권한에 넣을 때 이 시각을
-  /// 같이 넘겨, 조회가 떠난 뒤 들어온 구매 응답(티켓 32)이 **구매 전** 사실에
-  /// 덮이지 않게 한다(`EntitlementNotifier.update` 의 `observedAt`).
-  DateTime? _departedAt;
-
   /// `/me/stats` 를 다시 읽는다. 응답이 오면 [build] 의 구독이 [_adopt] 로 받는다.
+  ///
+  /// 떠난 시각은 여기서 찍지 않는다 — `MyStatsNotifier` 가 **조회마다** 찍어
+  /// 커밋한 응답과 함께 들고 있다(`observedAt`). 컨트롤러가 한 칸으로 들고
+  /// 있으면 조회 둘이 겹칠 때(타이머 × 복귀) 먼저 풀린 쪽이 그 칸을 비워
+  /// 나중 응답이 "지금" 으로 들어가고, 이 컨트롤러가 부르지 않은 조회(플레이
+  /// 결과 재조회 25·26)는 아예 시각이 없다.
   Future<void> refresh() async {
-    _departedAt = ref.read(clockProvider)();
     await ref.read(myStatsProvider.notifier).refresh();
-    _departedAt = null;
     // 실패한 조회는 `MyStatsNotifier` 가 보던 값을 그대로 둬서 구독이 울리지
     // 않는다(스펙 §A.8 "실패 시 저장값 유지"). 타이머를 다시 거는 자리가
     // 여기에도 있어야 한 번 실패한 세션이 영원히 다시 묻지 않는 일이 없다 —
@@ -108,9 +107,12 @@ class EntitlementRefreshController extends Notifier<DateTime?> {
     if (entitlement == null) {
       entitled.clear();
     } else {
-      // [_departedAt] 이 null 인 응답은 내가 떠나보낸 조회가 아니다(시작 응답,
-      // 플레이 결과 뒤 재조회) — 그때는 "지금 관측" 으로 다룬다.
-      entitled.update(entitlement, observedAt: _departedAt);
+      // 관측 시각이 null 인 응답은 **방금 받은** 것이다(시작 응답, 이미 읽어
+      // 둔 값) — 그때는 "지금 관측" 으로 다뤄 늘 이긴다.
+      entitled.update(
+        entitlement,
+        observedAt: ref.read(myStatsProvider.notifier).observedAt,
+      );
     }
 
     _nextCheckAt = entitlement?.nextCheckAt;

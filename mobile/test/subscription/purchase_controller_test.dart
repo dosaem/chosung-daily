@@ -544,6 +544,36 @@ void main() {
     expect(container.read(entitlementProvider)?.active, isFalse);
   });
 
+  test('앱이 모르는 상태 라벨이 와도 행이 있으면 완료한다 (D-32-6)', () async {
+    // 서버가 상태를 하나 늘리면(예: 일시중지) `SubscriptionStatus.fromWire`
+    // 가 null 을 돌려준다 — 모델 주석이 "모르는 라벨은 카드 문구에만
+    // 영향" 이라고 못 박은 그 자리다. 그 null 로 완료를 막으면 결제는 끝났는데
+    // acknowledge 가 안 나가고 Play 가 3일 뒤 자동 환불한다.
+    //
+    // "행이 있다" 는 라벨이 아니라 `next_check_at` 으로 본다 — 서버는 행이
+    // 있으면 늘 채우고(`app/services/entitlement.py` `build_entitlement`),
+    // 없으면 `NO_ENTITLEMENT` 로 전부 null 이다.
+    final container = containerWith();
+    await settle();
+    // 서버 응답을 **wire 그대로** 넣는다 — 모르는 라벨이 null 로 떨어지는
+    // 자리가 `Entitlement.fromJson` 이라 가짜로 비껴가면 뜻이 없다.
+    api.verifyResponse = Entitlement.fromJson(const {
+      'active': true,
+      'until': '2026-11-01T00:00:00Z',
+      'status': 'paused',
+      'source': 'google',
+      'next_check_at': '2026-10-15T13:00:00Z',
+    });
+    expect(api.verifyResponse.status, isNull, reason: '앱이 모르는 라벨');
+
+    store.emit([fakePurchase()]);
+    await settle();
+
+    expect(api.verifiedReceipts, hasLength(1));
+    expect(store.completed, hasLength(1));
+    expect(container.read(entitlementProvider)?.active, isTrue);
+  });
+
   test('App Store 승인 대기는 복원 조회에 없어도 내리지 않는다', () async {
     // StoreKit 2 복원은 `currentEntitlements`(이미 권한이 생긴 거래)만 올린다
     // — 승인 대기가 거기 없는 것은 정상이지 포기가 아니다.
