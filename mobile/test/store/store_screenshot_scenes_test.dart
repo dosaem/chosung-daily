@@ -1,8 +1,11 @@
 import 'package:chosung/local/local_flags.dart';
 import 'package:chosung/onboarding/onboarding_pages.dart';
 import 'package:chosung/screens/onboarding_screen.dart';
+import 'package:chosung/screens/records_tab.dart';
+import 'package:chosung/widgets/hint_card.dart';
 import 'package:chosung/widgets/leaderboard_row.dart';
 import 'package:chosung/widgets/result_sheet.dart';
+import 'package:chosung/widgets/settings_row.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -265,6 +268,170 @@ void main() {
           isTrue,
           reason: '${flag.key} 가 꺼져 있다 — 새 1회성 안내가 스크린샷에 끼어든다',
         );
+      }
+    });
+
+    // 티켓 40(최종 재촬영): 아래 네 가지는 **기기·세션이 들고 있는 값**이라,
+    // 장면이 바꿔 끼우지 않으면 같은 스크립트가 시뮬레이터 상태와 찍는 시각에
+    // 따라 다른 그림을 낸다. 29~33 머지 뒤 실제로 렌더해 보고 잡은 것들이다.
+
+    testWidgets('$language — 힌트 카드에 광고 실패 안내가 찍히지 않는다', (tester) async {
+      // 장면은 `NoopAdService` 를 쓴다 — 게이트를 그대로 두면 UMP 가 늘
+      // `failed` 라 S1·S2 에 "지금은 광고를 불러올 수 없어요" 가 박히고
+      // 미리 보기 버튼이 꺼진 채로 스토어에 올라간다.
+      setViewSize(tester, phone);
+
+      for (final scene in storeScreenshotScenes(locale: locale, isIos: true)) {
+        if (scene.scene != StoreScene.home &&
+            scene.scene != StoreScene.result) {
+          continue;
+        }
+        await _pumpScene(tester, scene);
+
+        final card = tester.widget<HintCard>(find.byType(HintCard));
+        expect(
+          card.notice,
+          isNull,
+          reason: '${scene.fileName}: 힌트 카드에 안내가 붙었다 — ${card.notice}',
+        );
+        expect(find.text('hint.ad_unavailable'.tr()), findsNothing);
+        // 끝난 퍼즐(S2)은 미리 보기가 원래 꺼진다 — 진행 중인 S1 만 본다.
+        if (scene.scene == StoreScene.home) {
+          expect(
+            card.onPreview,
+            isNotNull,
+            reason: '${scene.fileName}: 미리 보기 버튼이 꺼진 채로 찍힌다',
+          );
+        }
+      }
+    });
+
+    testWidgets('$language — S4 설정은 알림 2행이고 "알림 꺼짐" 경고가 없다', (tester) async {
+      // 기본값 `notDetermined` 는 두 행 사이에 경고 한 줄을 끼워 넣는다.
+      setViewSize(tester, phone);
+
+      final scene = storeScreenshotScenes(
+        locale: locale,
+        isIos: true,
+      ).firstWhere((scene) => scene.scene == StoreScene.records);
+      await _pumpScene(tester, scene);
+
+      expect(find.byKey(RecordsSlot.dailyNotification), findsOneWidget);
+      expect(find.byKey(RecordsSlot.reminder), findsOneWidget);
+      expect(find.byKey(RecordsSlot.notificationOff), findsNothing);
+      expect(find.text('records.notification_off'.tr()), findsNothing);
+      // 계정·구독 자리도 같은 장면에 있어야 한다(29·32 머지 확인).
+      expect(find.byKey(RecordsSlot.account), findsOneWidget);
+      expect(find.byKey(RecordsSlot.subscription), findsOneWidget);
+    });
+
+    testWidgets('$language — S4 의 광고 개인정보 행은 EEA 전용이라 없다', (tester) async {
+      // 주 시장(한국·미국)의 기본 화면이 스토어 그림이다 — `showsPrivacyOptions`
+      // 는 UMP 가 EEA 에서만 주는 값이라 장면에서 false 로 박아 둔다.
+      setViewSize(tester, phone);
+
+      final scene = storeScreenshotScenes(
+        locale: locale,
+        isIos: true,
+      ).firstWhere((scene) => scene.scene == StoreScene.records);
+      await _pumpScene(tester, scene);
+
+      expect(find.byKey(RecordsSlot.adPrivacy), findsNothing);
+      expect(find.text('records.ad_privacy'.tr()), findsNothing);
+    });
+
+    testWidgets('$language — S4 의 일일 알림은 기기 저장소를 타지 않는다', (tester) async {
+      // 실제 저장소는 `shared_preferences` 다 — 그 시뮬레이터에서 앱을 만져 본
+      // 적이 있으면 값이 달라진다. 채널을 아예 안 타야 그림이 같다.
+      final calls = <String>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        const MethodChannel('plugins.flutter.io/shared_preferences'),
+        (call) async {
+          calls.add(call.method);
+          return <String, Object?>{};
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          const MethodChannel('plugins.flutter.io/shared_preferences'),
+          null,
+        ),
+      );
+
+      setViewSize(tester, phone);
+
+      final scene = storeScreenshotScenes(
+        locale: locale,
+        isIos: true,
+      ).firstWhere((scene) => scene.scene == StoreScene.records);
+      await _pumpScene(tester, scene);
+
+      expect(calls, isEmpty, reason: '장면이 기기 설정을 읽었다: $calls');
+      // 12시간 표기도 고정이다 — `alwaysUse24HourFormat` 은 기기 설정이라
+      // 24시간제 시뮬레이터에서는 `09:00` 으로 찍힌다.
+      final row = tester.widget<SettingsRow>(
+        find.byKey(RecordsSlot.dailyNotification),
+      );
+      expect(row.value, language == 'ko' ? '오전 9:00' : '9:00 AM');
+    });
+
+    testWidgets('$language — S4 리마인더 스위치는 첫 프레임부터 켜져 있다', (tester) async {
+      // `takeScreenshot` 은 기기 표면을 찍는다 — 값이 `false → true` 로
+      // 애니메이션하면 그 전환 중에 걸린 그림이 남는다(실측: iOS 폰 4장 중
+      // 2장이 꺼진 스위치였다, 2026-10-15). 그래서 **settle 없이 첫 프레임**만
+      // 보고 단언한다: 여기서 꺼져 있으면 그 전환이 되살아난 것이다.
+      setViewSize(tester, phone);
+
+      final scene = storeScreenshotScenes(
+        locale: locale,
+        isIos: true,
+      ).firstWhere((scene) => scene.scene == StoreScene.records);
+
+      await tester.runAsync(() async {
+        await tester.pumpWidget(scene.app);
+        await tester.pump();
+      });
+
+      final toggle = tester.widget<Switch>(
+        find.descendant(
+          of: find.byKey(RecordsSlot.reminder),
+          matching: find.byType(Switch),
+        ),
+      );
+      expect(toggle.value, isTrue, reason: '첫 프레임에 리마인더가 꺼져 있다');
+      expect(
+        tester
+            .widget<SettingsRow>(find.byKey(RecordsSlot.dailyNotification))
+            .value,
+        isNotNull,
+        reason: '첫 프레임에 일일 알림 시각이 비어 있다',
+      );
+
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('$language — S2 카운트다운은 찍는 시각과 무관하게 같다', (tester) async {
+      // `PuzzleCountdown` 은 다음 KST 자정까지를 센다. 고정 시계를 안 끼우면
+      // ko·en 세트가 몇 분 차이로 다른 숫자가 되고, 자정 직전에 돌리면
+      // `00:00:03` 같은 그림이 남는다(티켓 40 이 `clockProvider` 로 뺐다).
+      setViewSize(tester, phone);
+
+      final scene = storeScreenshotScenes(
+        locale: locale,
+        isIos: true,
+      ).firstWhere((scene) => scene.scene == StoreScene.result);
+
+      // 고정 시계는 KST 19:14:41 — 자정까지 04:45:19.
+      final expected = 'result.countdown'.tr(
+        namedArgs: {'time': '04:45:19'},
+      );
+      for (final pass in [1, 2]) {
+        // 패스 사이에 트리를 비운다 — 안 비우면 같은 `ValueKey` 라 앞 패스의
+        // 시트가 그대로 남아 두 번째 패스가 아무것도 증명하지 못한다.
+        await _pumpScene(tester, scene);
+        expect(find.text(expected), findsOneWidget, reason: '$pass 번째');
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pumpAndSettle();
       }
     });
 

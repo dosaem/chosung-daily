@@ -7,6 +7,7 @@ import 'package:chosung/analytics/analytics_event.dart';
 import 'package:chosung/analytics/analytics_service.dart';
 import 'package:chosung/api/api_exception.dart';
 import 'package:chosung/api/api_models.dart';
+import 'package:chosung/config/clock.dart';
 import 'package:chosung/layout/app_breakpoint.dart';
 import 'package:chosung/layout/reading_width.dart';
 import 'package:chosung/puzzle/guess_rules.dart';
@@ -97,6 +98,10 @@ class _TodayTabState extends ConsumerState<TodayTab> {
       puzzle: puzzle,
       onShowRanking: () => context.go(AppRoutes.ranking),
       onLinkAccount: () => context.go(AppRoutes.records),
+      // 시계를 provider 에서 받는다 — 기본값은 `DateTime.now` 라 앱 동작은
+      // 그대로이고, 스토어 장면만 고정 시각을 끼워 카운트다운 숫자를 찍는
+      // 시각과 무관하게 만든다(티켓 40).
+      now: ref.read(clockProvider),
     );
     if (!mounted) return;
     await ref
@@ -527,6 +532,8 @@ class _NoPuzzleCard extends ConsumerWidget {
         Text('today.none_title'.tr(), style: text.titleMedium),
         const SizedBox(height: 8),
         PuzzleCountdown(
+          // 같은 이유로 여기도 provider 의 시계를 쓴다(티켓 40).
+          now: ref.read(clockProvider),
           builder: (context, remaining) => Text(
             'today.none_body'.tr(namedArgs: {'time': remaining}),
             style: text.bodySmall,
