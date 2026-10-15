@@ -1,6 +1,7 @@
 import 'package:chosung/l10n/app_localization.dart';
 import 'package:chosung/notifications/notification_controller.dart';
 import 'package:chosung/routing/app_router.dart';
+import 'package:chosung/subscription/purchase_controller.dart';
 import 'package:chosung/theme/app_theme.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
@@ -15,7 +16,14 @@ class ChosungApp extends ConsumerWidget {
     // 설정 탭을 한 번도 안 열어도 돌아야 하고, 탭을 옮겨도 끊기면 안 된다.
     // `watch` 가 아니라 `listen` 인 이유는 계획이 바뀔 때마다 앱 전체를 다시
     // 그릴 이유가 없기 때문이다(구독은 provider 를 살려 두기만 한다).
-    ref.listen(notificationSyncProvider, (_, _) {});
+    //
+    // 구매 흐름도 같은 이유로 앱 수명에 매달린다(티켓 32) — 지난 실행에서
+    // 끊긴 구매는 **첫 프레임 직후** 구매 스트림으로 올라오므로, Paywall 을
+    // 열 때 비로소 듣기 시작하면 그 거래를 놓친다(Play 는 3일 내 acknowledge
+    // 가 없으면 자동 환불한다).
+    ref
+      ..listen(notificationSyncProvider, (_, _) {})
+      ..listen(purchaseFlowProvider, (_, _) {});
 
     return MaterialApp.router(
       routerConfig: ref.watch(appRouterProvider),

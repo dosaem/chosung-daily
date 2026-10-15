@@ -8,6 +8,8 @@ import 'package:chosung/config/provider_retry.dart';
 import 'package:chosung/config/sentry_bootstrap.dart';
 import 'package:chosung/l10n/localization_bootstrap.dart';
 import 'package:chosung/notifications/notification_bootstrap.dart';
+import 'package:chosung/subscription/purchase_controller.dart';
+import 'package:chosung/subscription/purchase_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -49,6 +51,11 @@ Future<void> bootstrapChosungApp({
             GoogleAdService(
               isIos: defaultTargetPlatform == TargetPlatform.iOS,
             ),
+          ),
+          // 결제 플러그인도 **여기서만** 끼운다 — 광고와 같은 이유로 provider
+          // 기본값은 no-op 이다(bootstrap_test 가 이 줄을 지킨다).
+          purchaseServiceProvider.overrideWithValue(
+            const StorePurchaseService(),
           ),
         ],
         child: const AppLocalizationScope(child: ChosungApp()),
