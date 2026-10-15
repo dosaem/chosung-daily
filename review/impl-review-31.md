@@ -215,3 +215,70 @@
 - 실제 광고·UMP 재선택·어댑티브 높이 실측·iOS 네이티브 실행은 확인하지 않았다. 프로덕션/NAS/스토어에는 접속하지 않았다. 기존 audit 점수를 실제 SDK 동작 검증으로 대체하지 않는다.
 
 판정: FAIL
+
+## 라운드 4
+
+### 범위와 결론
+
+- 로컬 main `d78e0820ab8bcc3af785df86d589fdf32386bb15`, 검토 HEAD `45bd130eca51fb9fc7cfe9caf0a9c0cb431ed028`. `git diff main...HEAD`, `git log main..HEAD` 16개 커밋, 티켓·스펙 §A.5/§B.21/§B.23·관련 US·CONTEXT·구현 증거·이전 리뷰를 대조했다. origin/main은 사용하지 않았다.
+- SCREENS S1/S2/S4/T0/T1, OVERRIDES 우선 규칙, e1_home/e7_home_dark를 확인했다. records_light_390/records_tablet_1024/records_notification_off_390와 today_light_390/today_dark_390/today_tablet_1024 골든을 직접 열어 계정 카드·알림 행·조건부 광고 개인정보 행·HintCard·예약 슬롯을 확인했다.
+- 기존 D-31-1~6은 원래 재현 기준 모두 FIXED, REPEAT 0. 신규 **BLOCKER 0 / MAJOR 1 / MINOR 0**. D-31-7은 소스 실행 순서로 확인했으며 아래 재현 절차를 새 테스트 파일로 작성·실행한 것은 아니다. 앱·테스트·설정·스펙은 수정하지 않았다.
+
+### 티켓 체크박스별 판정
+
+| 체크박스 | 판정 | 직접 확인한 근거 |
+|---|---|---|
+| ApiClient hint-unlock — Dio + Fake | 충족 | dio_api_client.dart:89의 POST·puzzle_id·기존 인증 옵션과 Fake 확인. Dio 테스트는 메서드·본문·Authorization·409 예외 타입을 검사한다. |
+| 순수 광고 게이트·UMP 4종·구독자·오류/재시작·entitlement 초기 null | 충족 | ad_gate.dart/ad_providers.dart/entitlement_provider.dart 및 관련 테스트 확인. 권한 갱신·타이머는 33 소유다. |
+| UMP update → 폼 → SDK canRequestAds → initialize, ATT 이후, 광고 ID | 증거 부족 | update/폼/ATT 대기·복구/initialize·define/디버그 ID 배선은 있다. google_ad_service.dart:28은 SDK canRequestAds 대신 ConsentStatus를 반환하고 ad_gate.dart:30은 자체 허용값을 계산한다. Fake로 SDK 값과의 일치를 증명하지 못한다. 이전 라운드와 같은 한계이며 실제 오노출로 단정해 신규 결함으로 세지 않았다. |
+| 배너 예약·실패·구독자 제거·태블릿 폭 재요청, 전면 퍼즐당 1회 | 충족 | 실제 셸 테스트의 폭·높이·dispose 검증, 첫 제출 전/구독자 차단, 언어 왕복, 같은 퍼즐 동시 요청 합치기와 요청 전 영속 예약 확인. 실기기 배너 높이 실측은 별도 한계다. |
+| 보상형 완료→힌트·구독자 무광고·409·실패 안내/비활성 | 미충족 | 정상 두 경로·중도 닫힘·409·실패 후 구독 전환과 제출/조회 경합 테스트는 통과한다. 계정 경계×힌트의 누락으로 새 계정 보드에 이전 계정 응답을 섞는다(D-31-7). |
+| S4 required일 때 개인정보 설정 → 폼 | 충족 | records_tab.dart:314의 조건부 행·구분선과 폼 호출, required/비required/구독자 테스트 확인. 실제 UMP 재선택 결과까지 검증한 것은 아니다. |
+| 인터페이스/no-op·위젯 테스트·native audit·목업 대비 | 증거 부족 | 실제 화면/컨트롤러 테스트, no-op 경계, 골든과 Android APK 빌드 확인. audit 18/20은 소스·위젯 기반이며 실제 광고 렌더링·어댑티브 높이 실측은 없다. 증거의 “모든 경로 쌍” 주장에는 계정 경계×힌트가 빠졌다. |
+
+### 이전 결함 재판정
+
+| ID / 이전 심각도 | 판정 | 직접 확인한 근거 |
+|---|---|---|
+| D-31-1 / MAJOR | FIXED | interstitial_store.dart의 최대 4개 ID 목록·중복 제거, A→B→A→B 테스트가 두 퍼즐의 예약을 유지한다. |
+| D-31-2 / MAJOR | FIXED | today_puzzle_controller.dart:256의 제출 완료 대기와 235행의 완료 처리가 제출 먼저→힌트 나중을 직렬화한다. 성공/실패 회귀 테스트가 시도·남은 기회·입력 잠금을 검사한다. |
+| D-31-3 / MAJOR | FIXED | today_tab.dart:319는 광고가 필요한 동안만 실패 상태를 적용한다. unavailable→entitlement true 테스트가 안내 제거·활성화·광고 재호출 없음·힌트 표시까지 검사한다. |
+| D-31-4 / MAJOR | FIXED | today_puzzle_controller.dart:215,278이 현재 보드에 제출과 힌트를 병합한다. 힌트 중 제출 성공/실패, 힌트 먼저 응답, 409 재조회 회귀 테스트 통과. |
+| D-31-5 / MAJOR | FIXED | result_interstitial.dart:45의 퍼즐별 진행 Future와 58행의 요청 전 예약이 같은 퍼즐 동시 진입을 막는다. 지연 광고·완료 전 예약 테스트 통과. 실제 저장소도 setStringList 완료 뒤 광고를 요청한다. |
+| D-31-6 / MAJOR | FIXED | today_puzzle_controller.dart:59,165,302가 힌트 중 refresh를 미루고 종료 후 실행한다. 지연 hint/fetch 테스트가 중간 GET 미발송과 이후 재조회·힌트 보존을 검사한다. 계정 discard 경합은 별개로 D-31-7에 기록한다. |
+
+### 신규 결함
+
+#### D-31-7 — MAJOR — 계정 전환 전에 요청한 힌트 응답이 새 계정 보드를 연다
+
+- 위치: `mobile/lib/puzzle/today_puzzle_controller.dart:272`, `mobile/lib/puzzle/today_puzzle_controller.dart:278`, `mobile/lib/puzzle/today_puzzle_controller.dart:360`. 전환 진입: `mobile/lib/account/account_controller.dart:153`.
+- 요구: 힌트 미리 보기는 현재 게스트의 퍼즐 상태에 반영되어야 하고(US 4·5a·32), 계정 전환 뒤에는 전환한 게스트의 기록이어야 한다(US 19). 날짜·언어별 puzzle_id는 게스트 간 공용이며 계정 식별자가 아니다.
+- 재현 입력: A의 진행 중 퍼즐 P에서 보상형 완료 후 또는 구독자 경로로 hint-unlock 전송 → 서버는 A의 힌트를 열되 응답 전달 지연 → 내 기록에서 백업 코드/계정 연결로 B로 전환 → B의 같은 P 보드(hint=null, hintUnlocked=false)를 먼저 로드 → A의 성공 응답 전달. 힌트 대기 중 탭 이동·계정 전환은 막혀 있지 않다.
+- 기대: A 응답은 B 보드를 변경하지 않는다. B가 열지 않은 힌트는 잠긴 상태로 남는다.
+- 실제: `_adopt`는 토큰 교체 후 discard로 세대를 올리고 B 보드를 읽는다. 그러나 unlockHint는 요청 당시 계정 epoch를 보관하거나 응답에서 검사하지 않으며 `_boardFor`도 puzzleId만 검사한다. 같은 P이므로 282행이 B 보드에 A 응답의 hint 및 hintUnlocked=true를 쓴다. B 서버에는 unlock 기록이 없어 다음 재조회에서 다시 잠긴다. 서버 데이터 삭제가 아니라 현재 계정 표시·힌트 상태의 혼합이다. 서버의 hint_service.py는 HintUnlock을 guest_id+puzzle_id로 기록하고 puzzle_service.py도 같은 조합으로 조회하므로 B의 서버 상태와 불일치함을 확인했다.
+- 기존 Fake 재현 구성: A 보드 로드 → `api.unlockHintGate = Completer<void>()` → `opening = notifier.unlockHint()` → guestTokenProvider의 replaceWith로 가짜 B 토큰 채택 → `await notifier.discard()`로 같은 puzzle_id의 잠긴 B 보드 로드 → hint gate 완료 → `await opening` → B의 hintUnlocked가 true가 된다. 실제 계정·인증 정보를 입력하지 않았고 이 절차를 새 테스트로 실행하지 않았다.
+- 같은 누락의 쓰기 입구: submit은 204행의 `_account.sendIfSameAccount(_accountEpoch, ...)`로 옛 보드의 새 계정 쓰기를 막지만 unlockHint 272행은 API를 직접 호출한다. 401 복구 등 토큰만 교체된 입구에서는 옛 보드의 힌트 요청이 새 토큰으로 나간다. 제출 대기 뒤 실행하는 힌트도 최초 요청 계정을 고정하지 않는다.
+- 테스트 공백: 증거의 마지막 경로 쌍은 “계정 경계 × 조회·제출”뿐이다. 티켓 29 테스트는 조회/제출을 검사하며 새 힌트 쓰기·늦은 힌트 응답의 계정 격리는 검사하지 않는다. discard에 `_unlockingHint=false`를 추가해도 응답 소유 계정 검증을 대신하지 못한다. 일반 submit↔hint·refresh↔hint 테스트 통과로 이 조합을 대신할 수 없다.
+
+### 직접 실행한 검증
+
+| 명령 | 결과 |
+|---|---|
+| `uv run ruff check .` (루트) | All checks passed, exit 0 |
+| `cd mobile && flutter analyze` | No issues found, exit 0 |
+| `cd mobile && dart format --output=none --set-exit-if-changed .` | Formatted 178 files (0 changed), exit 0 |
+| `cd mobile && flutter test --reporter expanded` | 01:19 +629: All tests passed, exit 0. 티켓 30 이전 벽시계 실패도 없다. |
+| `cd mobile && flutter build apk --debug` | Built build/app/outputs/flutter-apk/app-debug.apk, exit 0; 코디네이터 지시대로 확인 후 mobile/build 삭제 |
+| 지정 전용 자원으로 `uv run pytest -q` | 1412 passed in 1091.54s (0:18:11), exit 0; 재실행 없이 통과 |
+| `git diff --check main...HEAD` | exit 0 |
+
+백엔드는 기존 로컬 DB chosung_daily_test_t31, Redis DB 5, 마이그레이션 DB chosung_daily_test_t31_migrations를 TEST_DATABASE_URL / TEST_REDIS_URL / TEST_MIGRATION_DATABASE_URL로 지정했다. 인증 값은 기록하지 않는다. 새 DB를 만들지 않았고 기본 DB로 전환하지 않았다. main 대비 app/, web/, tests/, migrations/, .env.example 변경은 없어 조건부 flask db heads는 해당하지 않는다.
+
+### 보안·범위·공유 파일과 참고
+
+- 새 HTTP 쓰기는 기존 Bearer 인증 옵션을 쓰고 서버 인증/CSRF를 바꾸지 않는다. 클라이언트 계정 격리의 누락은 D-31-7에 명시했다. 서버 데이터 삭제 경로·실제 시크릿의 신규 기록은 발견하지 못했다. AdMob 값은 공개 테스트 식별자다.
+- README·RELEASE는 자기 `### 31.` 절, 스펙 미정 항목은 티켓 31 자기 항목만 추가했다. 계정 예외·클라이언트 ID·Secrets include, 알림 초기화·행과 광고 설정이 함께 유지됨을 diff에서 확인했다. 범위 밖 기능 변경은 발견하지 못했다.
+- README 31절의 “로드 실패 시 플래그를 남기지 않는다”는 최신 요청 전 예약·실패 시 유지 정책과 달라 문서 갱신이 필요하다. 런타임 결함 수에는 추가하지 않는다.
+- 빈 슬롯 캡션·기존 버튼 폭·스크롤 배치 등 취향 차이는 결함으로 세지 않았다. UMP canRequestAds 직접 확인, 실제 재선택·광고 렌더링·iOS 실행·어댑티브 크기 실측은 별도 검증 한계다. 프로덕션·NAS·실제 외부 서비스에는 접속하지 않았다.
+
+판정: FAIL
