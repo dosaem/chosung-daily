@@ -1,0 +1,70 @@
+name: App Store Metadata
+
+# App Store Connect 메타데이터·스크린샷만 올린다(바이너리 제외).
+# `mobile/ios/fastlane/metadata` + `mobile/ios/fastlane/screenshots` 가 그대로
+# 올라간다 — 스크린샷은 `scripts/store_screenshots.sh` 가 만들어 커밋한 파일이다.
+# 수동 트리거 전용: gh workflow run appstore-metadata.yml
+#
+# BASELINE(~/Code/BuildUrPalace/.github/workflows/appstore-metadata.yml)을 복사해
+# 식별자(`app_identifier`·`app_version`)와 경로(`mobile/ios`)만 바꿨다.
+
+on:
+  workflow_dispatch:
+    inputs:
+      app_version:
+        description: '메타데이터를 반영할 버전 (pubspec.yaml 의 version 과 같아야 한다)'
+        required: false
+        default: '1.0.0'
+
+jobs:
+  deliver:
+    runs-on: self-hosted
+    defaults:
+      run:
+        working-directory: mobile/ios
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create App Store Connect API key file
+        env:
+          API_KEY_JSON: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+        run: |
+          if [ -z "$API_KEY_JSON" ]; then
+            echo "::error::APP_STORE_CONNECT_API_KEY secret 이 없다 (docs/RELEASE.md '34.' D2)"
+            exit 1
+          fi
+          echo "$API_KEY_JSON" > fastlane/api_key.json
+
+      - name: Verify fastlane
+        run: |
+          if ! command -v fastlane &> /dev/null; then
+            brew install fastlane
+          fi
+          fastlane --version
+
+      # 스크린샷이 없으면 deliver 가 "업로드할 게 없다" 고 조용히 지나간다 —
+      # iPad 스크린샷 없이 제출하면 심사가 막히므로(BASELINE 1.0.0 반려 원인)
+      # 올리기 전에 직접 센다. **세트 단위로** 센다: 전체 PNG 가 0 장인지만 보면
+      # 캡처가 중간에 깨져 iPad 세트가 2장만 있는 상태도 통과하고, deliver 는 그걸
+      # 그대로 올린다. 검사 내용은 스크립트 주석에 있다(6.5" 는 선택이라 없으면
+      # 넘기고, 있으면 온전해야 한다).
+      - name: Check screenshots exist
+        run: python3 ../tool/verify_store_screenshots.py ios
+
+      - name: Upload metadata & screenshots
+        env:
+          APP_VERSION: ${{ github.event.inputs.app_version || '1.0.0' }}
+        run: |
+          fastlane deliver \
+            --api_key_path fastlane/api_key.json \
+            --app_identifier com.dosaem.chosung \
+            --app_version "$APP_VERSION" \
+            --skip_binary_upload \
+            --overwrite_screenshots \
+            --precheck_include_in_app_purchases false \
+            --force
+
+      - name: Cleanup key
+        if: always()
+        run: rm -f fastlane/api_key.json

@@ -77,7 +77,12 @@ platform :android do
   lane :release do |options|
     build_appbundle(clean: options[:clean])
 
-    # 메타데이터·스크린샷은 fastlane/metadata/ (티켓 35) 에서 올라간다.
+    # 메타데이터·스크린샷은 fastlane/metadata/ (티켓 35) 에서 올라간다. supply 는
+    # 폴더에 있는 것을 그대로 올리므로 **올리기 전에** 세트를 검사한다 — 반쪽
+    # 세트와, Android 에뮬레이터가 없던 날 복사해 둔 iPhone 캡처(Play 가 요구하는
+    # 실제 앱 경험이 아니다)를 여기서 막는다. `beta` lane 은 이미지를 안 올린다.
+    sh("python3 ../../tool/verify_store_screenshots.py play")
+
     upload_to_play_store(
       track: "production",
       aab: "../build/app/outputs/bundle/release/app-release.aab",

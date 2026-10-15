@@ -526,13 +526,21 @@ def privacy():
 COLLECTED = {
     "USER_ID": "게스트 토큰",
     "EMAIL_ADDRESS": "계정 이메일",
+    # 아래 세 줄은 티켓 35 의 1:1 대조에서 더해졌다(docs/legal-checklist.md
+    # "9. 스토어 라벨"): refresh token 은 ASC 에 "기타 데이터" 자리가 있고,
+    # 접속기록은 티켓 36 이 만든 수집이라 34 당시에는 없었다. 대략적인 위치는
+    # 위치 권한 없이도 AdMob SDK 가 광고 요청의 IP 로 추정해 기기 밖으로 보낸다 —
+    # 우리 서버에 저장하지 않는다는 것은 신고 제외 근거가 아니다(최종 리뷰 D-35-4).
+    "OTHER_DATA_TYPES": "애플 refresh token",
     "GAMEPLAY_CONTENT": "시도 기록",
     "PURCHASE_HISTORY": "구독 식별자",
     "DEVICE_ID": "광고 ID",
     "ADVERTISING_DATA": "광고 ID(광고 요청·측정)",
+    "COARSE_LOCATION": "광고 요청 정보(대략적 위치 — AdMob 이 IP 로 추정)",
     "PRODUCT_INTERACTION": "앱 사용 이벤트(Firebase Analytics)",
     "CRASH_DATA": "접속·오류 기록(Sentry)",
     "PERFORMANCE_DATA": "접속·오류 기록(Sentry)",
+    "OTHER_DIAGNOSTIC_DATA": "접속·오류 기록(접속기록·접근 로그)",
 }
 
 PURPOSES = {
@@ -572,7 +580,7 @@ def test_advertising_identifiers_are_declared_as_tracking(privacy):
     """ATT 프롬프트를 띄우고 AdMob 에 광고 ID 를 넘긴다 — 추적으로 신고해야 한다."""
     by_category = {entry["category"]: entry for entry in privacy}
 
-    for category in ("DEVICE_ID", "ADVERTISING_DATA"):
+    for category in ("DEVICE_ID", "ADVERTISING_DATA", "COARSE_LOCATION"):
         entry = by_category[category]
         assert "DATA_USED_TO_TRACK_YOU" in entry["data_protections"], category
         assert "THIRD_PARTY_ADVERTISING" in entry["purposes"], category

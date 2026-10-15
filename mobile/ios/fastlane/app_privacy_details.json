@@ -2,55 +2,125 @@
   {
     "_comment": "게스트 토큰 — 기록의 주인(/privacy 1절). 한 사람의 기록으로 이어진다.",
     "category": "USER_ID",
-    "purposes": ["APP_FUNCTIONALITY"],
-    "data_protections": ["DATA_LINKED_TO_YOU"]
+    "purposes": [
+      "APP_FUNCTIONALITY"
+    ],
+    "data_protections": [
+      "DATA_LINKED_TO_YOU"
+    ]
   },
   {
     "_comment": "계정 이메일 — 구글·애플 연결 시에만 받는다.",
     "category": "EMAIL_ADDRESS",
-    "purposes": ["APP_FUNCTIONALITY"],
-    "data_protections": ["DATA_LINKED_TO_YOU"]
+    "purposes": [
+      "APP_FUNCTIONALITY"
+    ],
+    "data_protections": [
+      "DATA_LINKED_TO_YOU"
+    ]
+  },
+  {
+    "_comment": "애플 refresh token — 계정 삭제 시 애플 연결 철회에 쓰는 자격 증명(/privacy 1절). ASC 범주에 '자격 증명' 칸이 없어 기타 데이터로 신고한다. 연결한 계정에 묶인다.",
+    "category": "OTHER_DATA_TYPES",
+    "purposes": [
+      "APP_FUNCTIONALITY"
+    ],
+    "data_protections": [
+      "DATA_LINKED_TO_YOU"
+    ]
   },
   {
     "_comment": "시도 기록 — 제출 단어·정답 여부·연속 기록. 순위·통계에 쓴다.",
     "category": "GAMEPLAY_CONTENT",
-    "purposes": ["APP_FUNCTIONALITY"],
-    "data_protections": ["DATA_LINKED_TO_YOU"]
+    "purposes": [
+      "APP_FUNCTIONALITY"
+    ],
+    "data_protections": [
+      "DATA_LINKED_TO_YOU"
+    ]
   },
   {
     "_comment": "구독 식별자 — 스토어 구매 토큰·만료 시각(광고 제거 구독 상태 판정).",
     "category": "PURCHASE_HISTORY",
-    "purposes": ["APP_FUNCTIONALITY"],
-    "data_protections": ["DATA_LINKED_TO_YOU"]
+    "purposes": [
+      "APP_FUNCTIONALITY"
+    ],
+    "data_protections": [
+      "DATA_LINKED_TO_YOU"
+    ]
   },
   {
     "_comment": "광고 ID(IDFA) — AdMob SDK 가 광고 요청에 쓴다. 서버에 저장하지 않는다. ATT 프롬프트를 띄우므로 추적으로 신고한다.",
     "category": "DEVICE_ID",
-    "purposes": ["THIRD_PARTY_ADVERTISING"],
-    "data_protections": ["DATA_NOT_LINKED_TO_YOU", "DATA_USED_TO_TRACK_YOU"]
+    "purposes": [
+      "THIRD_PARTY_ADVERTISING"
+    ],
+    "data_protections": [
+      "DATA_NOT_LINKED_TO_YOU",
+      "DATA_USED_TO_TRACK_YOU"
+    ]
+  },
+  {
+    "_comment": "대략적인 위치 — 위치 권한은 쓰지 않지만 AdMob SDK 가 광고 요청의 IP 로 추정해 기기 밖으로 보낸다(/privacy 국외 이전 AdMob 행). 우리 서버에 저장하지 않는 것은 신고 제외 근거가 아니다.",
+    "category": "COARSE_LOCATION",
+    "purposes": [
+      "THIRD_PARTY_ADVERTISING"
+    ],
+    "data_protections": [
+      "DATA_NOT_LINKED_TO_YOU",
+      "DATA_USED_TO_TRACK_YOU"
+    ]
   },
   {
     "_comment": "광고 상호작용(노출·클릭) — AdMob 측정.",
     "category": "ADVERTISING_DATA",
-    "purposes": ["THIRD_PARTY_ADVERTISING"],
-    "data_protections": ["DATA_NOT_LINKED_TO_YOU", "DATA_USED_TO_TRACK_YOU"]
+    "purposes": [
+      "THIRD_PARTY_ADVERTISING"
+    ],
+    "data_protections": [
+      "DATA_NOT_LINKED_TO_YOU",
+      "DATA_USED_TO_TRACK_YOU"
+    ]
   },
   {
     "_comment": "앱 사용 이벤트 — Firebase Analytics 의 퍼즐 완료·공유·구독 화면 조회 등 집계용.",
     "category": "PRODUCT_INTERACTION",
-    "purposes": ["ANALYTICS", "APP_FUNCTIONALITY"],
-    "data_protections": ["DATA_NOT_LINKED_TO_YOU"]
+    "purposes": [
+      "ANALYTICS",
+      "APP_FUNCTIONALITY"
+    ],
+    "data_protections": [
+      "DATA_NOT_LINKED_TO_YOU"
+    ]
   },
   {
     "_comment": "오류 기록 — Sentry. 식별 정보는 마스킹해서 보낸다(/privacy 1절).",
     "category": "CRASH_DATA",
-    "purposes": ["APP_FUNCTIONALITY"],
-    "data_protections": ["DATA_NOT_LINKED_TO_YOU"]
+    "purposes": [
+      "APP_FUNCTIONALITY"
+    ],
+    "data_protections": [
+      "DATA_NOT_LINKED_TO_YOU"
+    ]
   },
   {
     "_comment": "성능 기록 — Sentry 의 느린 요청·지연 정보.",
     "category": "PERFORMANCE_DATA",
-    "purposes": ["APP_FUNCTIONALITY"],
-    "data_protections": ["DATA_NOT_LINKED_TO_YOU"]
+    "purposes": [
+      "APP_FUNCTIONALITY"
+    ],
+    "data_protections": [
+      "DATA_NOT_LINKED_TO_YOU"
+    ]
+  },
+  {
+    "_comment": "개인정보처리시스템 접속기록·접근 로그(티켓 36, /privacy 1절) — 행위자·원격 IP·행위·결과를 1년 보관한다. 행위자가 남으므로 Sentry 진단과 달리 연결된 데이터다.",
+    "category": "OTHER_DIAGNOSTIC_DATA",
+    "purposes": [
+      "APP_FUNCTIONALITY"
+    ],
+    "data_protections": [
+      "DATA_LINKED_TO_YOU"
+    ]
   }
 ]

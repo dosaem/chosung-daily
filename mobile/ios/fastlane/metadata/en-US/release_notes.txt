@@ -1,0 +1,5 @@
+First release.
+
+· One consonant puzzle a day (English consonant skeleton / Korean initials)
+· Daily ranking, streaks and a seven-day history
+· Dark mode, offline notice and a tablet layout

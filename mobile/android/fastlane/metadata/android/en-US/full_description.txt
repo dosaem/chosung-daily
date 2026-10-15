@@ -1,0 +1,35 @@
+One word. Only its consonants. Five tries.
+
+Hidden Vowels is a daily word game with exactly one puzzle a day. It takes about
+thirty seconds, and a new word opens at midnight.
+
+■ One puzzle a day
+A new puzzle opens at midnight (Korea time). Everyone plays the same word.
+
+■ Two boards
+The English board blanks out the vowels and leaves the consonant skeleton
+(P _ R P L _ for a six-letter word). The Korean board shows only the leading
+consonant of each syllable. Switch the puzzle language any time in settings.
+
+■ Five tries
+After each guess, letters in the right place turn green and the rest stay grey.
+A hint unlocks after the third wrong guess.
+
+■ Today's ranking
+See how everyone who solved today's word did, by tries and time. Names are
+anonymous numbers — no email, no real names.
+
+■ Streaks
+Play every day and your streak grows. The last seven days are on the records
+tab, and results share as an emoji grid.
+
+■ Also
+· Dark mode follows your device setting
+· Tells you when you are offline instead of failing silently
+· Link an account to keep your history across devices, or move it with a backup
+  code without linking anything
+· Free with ads. An optional monthly subscription removes them
+· Delete your account and history any time, in the app or on the web
+
+Privacy Policy: https://chosung.dosaem.com/privacy
+Terms of Service: https://chosung.dosaem.com/terms

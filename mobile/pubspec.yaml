@@ -48,6 +48,10 @@ dev_dependencies:
   flutter_native_splash: ^2.4.7
   flutter_test:
     sdk: flutter
+  # 스토어 스크린샷은 시뮬레이터에서 실제 앱 트리를 띄워 찍는다(티켓 35) —
+  # `flutter drive` 가 integration_test 의 takeScreenshot 바이트를 드라이버로 넘긴다.
+  integration_test:
+    sdk: flutter
   very_good_analysis: ^10.1.0
 
 flutter:
@@ -70,25 +74,31 @@ flutter:
         - asset: assets/fonts/Pretendard-Bold.otf
           weight: 700
 
-# 임시 아이콘(티켓 22). 최종 아이콘·스토어 자산은 티켓 33.
+# 앱 아이콘·스플래시(티켓 35). **원본은 `assets/icon/app_icon.svg` 한 장**이고
+# PNG 는 `python3 tool/make_app_icon.py` 가 그 SVG 에서 만든다. 콘셉트는
+# OVERRIDES §8 — 라이트 배경 #FAFAF9 에 글자 없는 타일 3칸.
 # 생성: dart run flutter_launcher_icons
 flutter_launcher_icons:
   image_path: assets/icon/app_icon.png
   android: true
   ios: true
   remove_alpha_ios: true
-  adaptive_icon_background: "#0F172A"
+  # Android adaptive 는 배경·전경을 나눠야 런처가 모양 마스크를 씌울 수 있다 —
+  # 배경은 아이콘과 같은 색 한 장, 전경은 투명 배경의 마크(안전 영역 안).
+  adaptive_icon_background: "#FAFAF9"
   adaptive_icon_foreground: assets/icon/app_icon_foreground.png
 
-# 스플래시는 아이콘과 같은 색(OVERRIDES §8).
+# 스플래시는 아이콘과 같은 배경 + 같은 마크, **라이트/다크 동일**(OVERRIDES §8).
+# 다크 모드에서도 라이트 배경을 쓰는 건 의도다 — 앱 기본 톤이 Editorial Light 라
+# 스플래시만 어두우면 첫 프레임에서 화면이 번쩍인다.
 # 생성: dart run flutter_native_splash:create
 flutter_native_splash:
-  color: "#0F172A"
+  color: "#FAFAF9"
   image: assets/icon/app_icon_foreground.png
-  color_dark: "#0F172A"
+  color_dark: "#FAFAF9"
   image_dark: assets/icon/app_icon_foreground.png
   android_12:
-    color: "#0F172A"
+    color: "#FAFAF9"
     image: assets/icon/app_icon_foreground.png
-    color_dark: "#0F172A"
+    color_dark: "#FAFAF9"
     image_dark: assets/icon/app_icon_foreground.png

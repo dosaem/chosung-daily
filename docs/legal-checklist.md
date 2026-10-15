@@ -163,3 +163,55 @@ ko/en 양쪽에 둔다 — 처리의 법적 근거, 권리, 감독기관 신고�
 | Sentry 에 요청 본문·쿼리스트링·쿠키·IP·사용자 식별자를 보내지 않는다 (`privacy#collection`) | `app/observability.py` `SENTRY_DATA_COLLECTION` | 구현됨 (`tests/test_sentry.py`) |
 | 애플 refresh token 은 암호화 저장하고 철회 실패 시 최대 7일 후 폐기 (`privacy#destruction`) | `app/utils/secret_crypto.py`, `app/services/apple_revocation_service.py`, `app/models/apple_revocation_retry.py` | 구현됨 (`tests/test_secret_crypto.py`, `tests/test_apple_revocation.py`) |
 | 로그인은 계정을 연결하지 않으면 이전이 없지만, **구독 검증은 계정 연결과 무관하게** 구매 토큰·거래 ID 가 스토어로 전송된다 (`privacy#overseas`) | `app/api/subscriptions.py`(`@with_guest` — 게스트 인증만), `app/services/subscription_service.py`(`verify_receipt` 가 연결 계정 여부와 무관하게 스토어 클라이언트 호출) | 구현 동작과 일치 (`tests/test_subscription_verify.py::test_verify_reaches_the_store_without_a_linked_account`, `tests/test_legal_pages.py::test_store_rows_separate_sign_in_from_subscription_verification`) |
+
+## 9. 스토어 라벨 (티켓 35 — ASC 개인정보 라벨 · Play 데이터 보안 대조)
+
+스토어 두 곳에 같은 사실을 또 적어야 한다: **ASC 개인정보 라벨**
+(`mobile/ios/fastlane/app_privacy_details.json`, `asc-submit.yml` 이 올린다)과
+**Play 데이터 보안**(`docs/play-data-safety.md`, 콘솔 입력은 사람). 둘의 기준은
+방침 `privacy#collection`(수집 항목)과 `privacy#overseas`(국외 이전 받는 자)다 —
+방침에 없는 걸 스토어에 신고하면 거짓이고, 방침에 있는 걸 빼면 심사 반려다.
+
+아래 표가 그 1:1 대조이고 `tests/test_store_labels.py` 가 세 곳이 어긋나면 깨진다.
+"공유" 는 Play 기준의 제3자 전송 = 방침 `#overseas` 에 받는 자가 있는 항목이다.
+
+| 방침 `#collection` 항목 | ASC category | Play 데이터 유형 | 공유(받는 자) |
+|---|---|---|---|
+| 게스트 토큰 | `USER_ID` | 개인 정보 > 사용자 ID | 없음 |
+| 계정 이메일 | `EMAIL_ADDRESS` | 개인 정보 > 이메일 주소 | 없음 |
+| 애플 refresh token | `OTHER_DATA_TYPES` | 개인 정보 > 기타 정보 | Apple |
+| 시도 기록 | `GAMEPLAY_CONTENT` | 앱 활동 > 기타 사용자 제작 콘텐츠 | 없음 |
+| 오늘의 순위 | `GAMEPLAY_CONTENT` | 앱 활동 > 기타 사용자 제작 콘텐츠 | 없음 |
+| 구독 식별자 | `PURCHASE_HISTORY` | 금융 정보 > 구매 내역 | Google, Apple |
+| 광고 ID | `DEVICE_ID` | 기기 또는 기타 ID | AdMob |
+| 광고 ID(노출·클릭 측정) | `ADVERTISING_DATA` | 앱 활동 > 앱 내 상호작용 | AdMob |
+| 광고 요청 정보(대략적 위치) | `COARSE_LOCATION` | 위치 > 대략적인 위치 | AdMob |
+| 앱 사용 이벤트 | `PRODUCT_INTERACTION` | 앱 활동 > 앱 내 상호작용 | Firebase |
+| 접속·오류 기록(Sentry 오류) | `CRASH_DATA` | 앱 정보 및 성능 > 비정상 종료 로그 | Sentry |
+| 접속·오류 기록(Sentry 성능) | `PERFORMANCE_DATA` | 앱 정보 및 성능 > 진단 | Sentry |
+| 접속·오류 기록(접속기록·접근 로그) | `OTHER_DIAGNOSTIC_DATA` | 앱 정보 및 성능 > 기타 앱 성능 데이터 | 없음 |
+
+### 대조에서 찾은 차이 (티켓 35 에서 고쳤다)
+
+| 차이 | 왜 생겼나 | 어떻게 고쳤나 |
+|---|---|---|
+| **애플 refresh token 이 ASC 라벨에 없었다** | 티켓 34 는 "ASC 범주에 대응 항목이 없고 `USER_ID` 와 같은 축" 으로 보고 행을 만들지 않았다(`review/impl-evidence-34.md` §7) | ASC 에는 그 자리가 있다 — **"기타 데이터"(`OTHER_DATA_TYPES`)**. 방침 `#collection`·`#overseas`(애플 행)가 이미 "보관하고 철회 때 Apple 로 보낸다" 고 적고 있어 신고 대상이다. `OTHER_DATA_TYPES` / `APP_FUNCTIONALITY` / `DATA_LINKED_TO_YOU` 로 넣었다 |
+| **AdMob 의 대략적인 위치를 두 스토어에서 모두 빼고 있었다** | Play 답안이 "SDK 가 직접 받고 우리가 수집하지 않는다" 는 이유로 정확한 위치와 대략적인 위치를 같이 제외했고, ASC 라벨에도 위치 범주가 없었다. 방침 `#overseas` 의 AdMob 행은 그때도 "광고 요청 정보(대략적 위치…)" 를 이전 항목으로 적고 있었다 | 자체 서버 저장 여부·위치 권한 유무는 신고 제외 근거가 아니다 — SDK 가 기기 밖으로 보내면 수집이고, 받는 자가 있으면 공유다([AdMob 데이터 공개](https://developers.google.com/admob/android/privacy/play-data-disclosure), [Play Data safety 설명](https://support.google.com/googleplay/android-developer/answer/10787469?hl=en)). Play 는 "위치 > 대략적인 위치"(수집 예·공유 예·필수·광고 또는 마케팅), ASC 는 `COARSE_LOCATION` / `THIRD_PARTY_ADVERTISING` / `NOT_LINKED` + `USED_TO_TRACK` 로 넣었다. 광고 ID 두 행과 같은 축이다 |
+| **접속기록이 ASC 라벨에 없었다** | 34 당시 방침의 "접속·오류 기록" 은 Sentry 뿐이었고, DB 접속기록·접근 로그 파일은 **그 뒤 티켓 36** 이 만들었다. 34 의 라벨(`CRASH_DATA`·`PERFORMANCE_DATA`, 둘 다 `NOT_LINKED`)은 36 이 늘린 수집을 모른다 | **`OTHER_DIAGNOSTIC_DATA`** 를 더했다. Sentry 와 달리 행위자(`guest.<id>` / 가린 운영자 이메일)와 원격 IP 가 남아 **`DATA_LINKED_TO_YOU`** 다. Sentry 두 행은 그대로 `NOT_LINKED`(요청 본문·IP·식별자를 보내지 않는다 — `app/observability.py`) |
+
+### 대조에서 찾은 차이 3번 — 고치지 않고 남긴 것
+
+| 차이 | 사실 | 왜 여기서 안 고쳤나 |
+|---|---|---|
+| **"앱 사용 이벤트"(Firebase Analytics)가 방침 `#collection` 의 항목 목록에 없다** | 방침은 이 전송을 `#overseas` 의 Firebase 행(앱 인스턴스 식별자·이벤트 4개)에만 적고, 3절 "수집하는 정보와 보유 기간" 의 `<dt>` 목록에는 두지 않았다. 스토어 두 곳에는 신고한다(`PRODUCT_INTERACTION` / 앱 활동 > 앱 내 상호작용) — 실제로 전송하므로 빼면 거짓 신고가 된다 | 스토어 라벨이 아니라 **법적 문서 본문**을 고치는 일이다(개보법 §30①3 "처리하는 개인정보의 항목"). 문서 구조·ko/en 동기화·테스트는 티켓 16 이 들고 있어서, 티켓 35 가 한쪽 언어만 건드리면 `tests/test_legal_checklist.py` 의 구조 테스트와 충돌한다. **사람 확인 항목**으로 `docs/RELEASE.md` "### 35." 에 두고, `tests/test_store_labels.py` 는 대조 기준을 "수집 항목 + 국외 이전" 으로 두어 지금 상태를 사실대로 지킨다 |
+
+### 같이 확인한 것
+
+- **privacy/support URL**: 스토어 메타데이터의 두 URL 은 `/privacy`·`/terms` 다
+  (`mobile/ios/fastlane/metadata/*/privacy_url.txt`·`support_url.txt`). 방침·약관이
+  ko/en 양쪽에 있어 스토어 언어별로 따로 둘 필요가 없다(쿼리 `?lang=` 없이 기기
+  언어를 따른다).
+- **ASC EULA**: 미정 9 의 결정(§4 표) 그대로 **Apple 표준 EULA 를 쓰고 ASC 에 아무
+  것도 입력하지 않는다**. 약관 `terms#eula` 가 링크만 둔다.
+- **Play 패밀리 정책·독립 보안 검토**: 둘 다 "아니요" 다(`docs/play-data-safety.md` §1).
+  받지 않은 검토를 받았다고 적지 않는다.
