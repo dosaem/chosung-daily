@@ -14,6 +14,8 @@ import 'package:chosung/subscription/subscription_state.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
+import 'package:in_app_purchase_android/billing_client_wrappers.dart';
+import 'package:in_app_purchase_android/in_app_purchase_android.dart';
 
 /// 결제 접점. 기본값이 no-op 인 이유는 `adServiceProvider` 와 같다 —
 /// `main.dart` 가 실제 구현으로 덮고(`test/config/bootstrap_test.dart` 가
@@ -253,7 +255,8 @@ class PurchaseFlowNotifier extends Notifier<PurchaseFlow> {
       // 400 `RECEIPT_INVALID` 로 거절한다(`app/services/subscription_service.py`).
       if (purchase.productID != adFreeMonthlyProductId) continue;
 
-      switch (purchase.status) {
+      final status = _statusOf(purchase);
+      switch (status) {
         case PurchaseStatus.pending:
           // 어느 스토어가 붙잡고 있는지 적어 둔다 — 포기 판정이 스토어마다
           // 다르다([_dropAbandonedPending]).
@@ -261,12 +264,12 @@ class PurchaseFlowNotifier extends Notifier<PurchaseFlow> {
             purchase.verificationData.source,
           );
           _pendingSeenSinceSync = true;
-          state = state.copyWith(purchase: purchase.status, clearError: true);
+          state = state.copyWith(purchase: status, clearError: true);
         case PurchaseStatus.canceled:
-          state = state.copyWith(purchase: purchase.status, clearError: true);
+          state = state.copyWith(purchase: status, clearError: true);
         case PurchaseStatus.purchased:
         case PurchaseStatus.restored:
-          unawaited(_verifyThenComplete(purchase));
+          unawaited(_verifyThenComplete(purchase, status));
         case PurchaseStatus.error:
           state = state.copyWith(
             purchase: PurchaseStatus.error,
@@ -276,7 +279,35 @@ class PurchaseFlowNotifier extends Notifier<PurchaseFlow> {
     }
   }
 
-  Future<void> _verifyThenComplete(PurchaseDetails purchase) async {
+  /// 이 거래가 **정말** 어느 상태인가.
+  ///
+  /// Play 의 조회(`restorePurchases`)는 `queryPurchases` 결과 전부에
+  /// `status = restored` 를 덮어쓴다(`in_app_purchase_android` 0.5.0
+  /// `in_app_purchase_android_platform.dart` `restorePurchases`) — 아직 결제
+  /// 대기인 거래도 예외가 아니다. 그래서 `status` 만 보면 편의점·계좌이체
+  /// 결제 중에 앱을 한 번 내렸다 올리는 것만으로 "결제 확인 중" 이 풀리고,
+  /// 결제가 끝나지도 않은 토큰에 acknowledge 가 나갔다(D-32-5). Play 쪽 원본
+  /// 상태는 `billingClientPurchase.purchaseState` 에만 남아 있다.
+  ///
+  /// `canceled`·`error` 는 스토어가 뜻을 담아 덮은 값이라 그대로 둔다 —
+  /// 사용자가 창을 닫은 거래를 pending 으로 되돌리면 버튼이 잠긴다.
+  PurchaseStatus _statusOf(PurchaseDetails purchase) {
+    if (purchase.status != PurchaseStatus.purchased &&
+        purchase.status != PurchaseStatus.restored) {
+      return purchase.status;
+    }
+    if (purchase is GooglePlayPurchaseDetails &&
+        purchase.billingClientPurchase.purchaseState ==
+            PurchaseStateWrapper.pending) {
+      return PurchaseStatus.pending;
+    }
+    return purchase.status;
+  }
+
+  Future<void> _verifyThenComplete(
+    PurchaseDetails purchase,
+    PurchaseStatus status,
+  ) async {
     final receipt = purchase.verificationData.serverVerificationData;
     final store = subscriptionStoreFor(purchase.verificationData.source);
     if (store == null || receipt.isEmpty) {
@@ -293,7 +324,7 @@ class PurchaseFlowNotifier extends Notifier<PurchaseFlow> {
     if (!_inFlight.add(key)) return;
 
     state = state.copyWith(
-      purchase: purchase.status,
+      purchase: status,
       verifying: true,
       clearError: true,
     );
@@ -312,8 +343,12 @@ class PurchaseFlowNotifier extends Notifier<PurchaseFlow> {
       if (!_appliesTo(epoch) || entitlement == null) return;
 
       ref.read(entitlementProvider.notifier).update(entitlement);
-      // 여기까지 와서야 완료다(스펙 §A.8 검증·완료 순서).
-      if (purchase.pendingCompletePurchase) {
+      // 여기까지 와서야 완료다(스펙 §A.8 검증·완료 순서). 단 **행이 없는**
+      // 응답(`status == null`)은 권한을 돌려준 것이 아니다 — 서버는 결제가
+      // 끝나지 않은 Play 구매에 행을 만들지 않고 200 + `active: false` 를
+      // 준다(`_verify_google`, 스펙 "미정 항목" 14). 그걸 완료로 읽으면
+      // 결제 전 토큰에 acknowledge 가 나간다(규칙 1, D-32-5).
+      if (entitlement.status != null && purchase.pendingCompletePurchase) {
         await _service.complete(purchase);
       }
     } on UnauthorizedApiException {

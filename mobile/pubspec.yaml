@@ -32,6 +32,11 @@ dependencies:
   google_mobile_ads: ^9.1.0
   google_sign_in: ^7.2.0
   in_app_purchase: ^3.3.1
+  # `in_app_purchase` 의 전이 의존성이지만 직접 쓴다 — Play 의 조회는 **아직
+  # 결제 대기인** 거래까지 `restored` 로 덮어 올리므로, 구매 흐름이 Play 쪽
+  # 원본 상태(`GooglePlayPurchaseDetails.billingClientPurchase.purchaseState`)
+  # 를 읽어야 pending 을 잃지 않는다(D-32-5, depend_on_referenced_packages).
+  in_app_purchase_android: ^0.5.0
   # `in_app_purchase` 의 전이 의존성이지만 직접 쓴다 — iOS 가 StoreKit 2 로
   # 도는지(스펙 §B.18) 테스트가 `InAppPurchaseStoreKitPlatform
   # .isStoreKit2Enabled` 로 확인한다(depend_on_referenced_packages).

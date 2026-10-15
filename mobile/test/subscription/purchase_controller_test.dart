@@ -361,7 +361,12 @@ void main() {
     await settle();
 
     expect(container.read(entitlementProvider)?.active, isTrue);
-    expect(store.completed, [purchase]);
+    // 조회는 거래를 **새 객체**로 올린다(플러그인과 같다) — 같은 영수증인지
+    // 로 본다.
+    expect(
+      store.completed.single.verificationData.serverVerificationData,
+      'receipt-1',
+    );
   });
 
   test('secure storage 읽기가 늦게 끝나도 그 뒤에 verify 를 올린다 (지연 Fake)', () async {
@@ -449,6 +454,77 @@ void main() {
       container.read(subscriptionPhaseProvider),
       SubscriptionPhase.pending,
     );
+  });
+
+  // --- D-32-5: Play 조회가 pending 거래에 `restored` 를 덮어쓴다 ---
+
+  test('구매 대기 중 복귀해도 "결제 확인 중" 이다 — 조회의 restored 에 속지 않는다', () async {
+    // 편의점·계좌이체 결제는 몇 시간 걸린다. 그 사이 앱을 내렸다 올리면
+    // `queryPurchases` 가 같은 거래를 `restored` 로 올리는데(플러그인이 전부
+    // 덮어쓴다), `status` 만 보면 대기가 풀리고 권한 없는 응답에
+    // acknowledge 까지 나갔다.
+    final container = containerWith();
+    await settle();
+    final pending = fakePurchase(status: PurchaseStatus.pending);
+    store.emit([pending]);
+    await settle();
+    expect(
+      container.read(subscriptionPhaseProvider),
+      SubscriptionPhase.pending,
+    );
+
+    // 결제가 아직 안 끝났으니 서버는 행을 만들지 않고 200 + active:false 다
+    // (`_verify_google`, 스펙 "미정 항목" 14).
+    api.verifyResponse = fakeEntitlement();
+    store.restorable = [pending];
+    await container.read(purchaseFlowProvider.notifier).sync();
+    await settle();
+
+    expect(
+      container.read(subscriptionPhaseProvider),
+      SubscriptionPhase.pending,
+    );
+    expect(container.read(purchaseFlowProvider).busy, isTrue);
+    // 결제가 끝나기 전에는 올릴 것도, 완료할 것도 없다.
+    expect(api.verifiedReceipts, isEmpty);
+    expect(store.completed, isEmpty);
+    expect(container.read(purchaseFlowProvider).error, isNull);
+  });
+
+  test('결제가 끝나면 같은 거래가 purchased 로 올라와 검증·완료된다', () async {
+    // 위 테스트의 뒷부분 — 대기를 유지해도 결제 완료를 놓치지 않는다.
+    final container = containerWith();
+    await settle();
+    store.emit([fakePurchase(status: PurchaseStatus.pending)]);
+    await settle();
+
+    api.verifyResponse = fakeEntitlement(
+      active: true,
+      until: DateTime.utc(2026, 11),
+    );
+    store.emit([fakePurchase()]);
+    await settle();
+
+    expect(api.verifiedReceipts, hasLength(1));
+    expect(store.completed, hasLength(1));
+    expect(container.read(subscriptionPhaseProvider), SubscriptionPhase.active);
+  });
+
+  test('서버가 구독 행을 만들지 못한 응답에는 completePurchase 를 부르지 않는다', () async {
+    // `status == null` = 서버에 이 게스트의 구독 행이 없다 = 권한을 돌려준
+    // 것이 아니다(규칙 1). 결제가 끝나지 않은 토큰을 acknowledge 하면 Play
+    // 쪽에서 조용히 무시되고 복귀마다 같은 호출이 반복된다.
+    final container = containerWith();
+    await settle();
+    api.verifyResponse = fakeEntitlement();
+
+    store.emit([fakePurchase()]);
+    await settle();
+
+    expect(api.verifiedReceipts, hasLength(1));
+    expect(store.completed, isEmpty);
+    // 권한은 서버가 말한 그대로 반영한다 — 완료만 하지 않는다.
+    expect(container.read(entitlementProvider)?.active, isFalse);
   });
 
   test('App Store 승인 대기는 복원 조회에 없어도 내리지 않는다', () async {

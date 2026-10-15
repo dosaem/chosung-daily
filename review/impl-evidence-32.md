@@ -506,3 +506,135 @@ $ TEST_DATABASE_URL=...chosung_daily_test_t32 \
 (`git diff --stat main...HEAD -- migrations` 비어 있음). 이번 라운드도 백엔드
 (`app/`·`tests/`)·웹·스펙은 건드리지 않았다. 로컬 `main`(`4afda89`) 바로 위에
 올라가 있어 rebase 로 옮길 커밋이 없었다.
+
+## 수정 라운드 2
+
+최종 리뷰 라운드 2(Fable, 판정 FAIL)의 **MAJOR 1건(D-32-5)** 을 고쳤다. MINOR·
+BLOCKER·REPEAT 는 없었고, "참고 1"(RELEASE 체크리스트 줄이 D-32-5 상태에선
+판별이 안 된다)은 D-32-5 수정의 일부라 같이 고쳤다. 리뷰의 지적은 플러그인·
+서버 소스를 직접 확인한 결과 **전부 맞았다** — 반박한 항목은 없다.
+
+### D-32-5 (MAJOR) Play 의 pending 거래가 조회에서 `restored` 로 올라와 대기가 풀리고 acknowledge 까지 나갔다
+
+**원인 (둘)**
+
+1. `_onPurchases` 가 `PurchaseDetails.status` 만 보고 분기했다. 그런데
+   `in_app_purchase_android` 0.5.0 의 조회는 결과 **전부**에 `restored` 를
+   덮어쓴다 — 직접 확인한 소스(`~/.pub-cache/.../in_app_purchase_android-0.5.0`):
+
+   ```dart
+   // lib/src/in_app_purchase_android_platform.dart:255-266  restorePurchases()
+   final List<PurchaseDetails> pastPurchases = responses
+       .expand((PurchasesResultWrapper response) => response.purchasesList)
+       .expand((PurchaseWrapper w) => GooglePlayPurchaseDetails.fromPurchase(w))
+       .map((GooglePlayPurchaseDetails details) =>
+               details..status = PurchaseStatus.restored)   // ← pending 도 예외 아님
+       .toList();
+   ```
+
+   `fromPurchase` 가 `purchaseStatusFromWrapper(purchase.purchaseState)` 로
+   일단 `pending` 을 만들고(`lib/src/pigeon_converters.dart:247-253`) 위 `map`
+   이 그 위에 `restored` 를 씌운다. Play 쪽 원본 상태가 남는 곳은
+   `billingClientPurchase.purchaseState` 하나뿐이다. 그래서 편의점·계좌이체
+   결제(몇 시간) 중에 앱을 한 번 내렸다 올리면 `sync()` 의 조회가 같은 거래를
+   `restored` 로 올려 `_verifyThenComplete` 로 들어갔다.
+2. verify 가 **행을 만들지 못한 200 응답**에도 완료를 불렀다. 서버는 결제가
+   끝나지 않은 Play 구매에 행을 만들지 않고(`app/services/subscription_service.py:88-95`
+   `_verify_google` → `normalized.status is None` → `return None`), 그대로
+   `build_entitlement(find_by_guest(...))` 를 돌려주므로 **200 + `active:false`
+   + `status:null`** 이다(`app/services/subscription_service.py:46-51`,
+   `app/services/entitlement.py:89-90` `NO_ENTITLEMENT`). 컨트롤러는
+   `entitlement == null`(계정 전환)만 걸렀기 때문에, 권한을 받지 못한 응답에도
+   `pendingCompletePurchase`(= `!isAcknowledged`, pending 거래는 true)만 보고
+   `acknowledgePurchase(결제 전 토큰)` 을 냈다. 규칙 1("서버가 권한을 돌려준
+   뒤에만 완료")이 코드에서 느슨했던 자리다.
+
+**재현을 먼저 테스트로 고정했다 (tdd)**
+
+테스트가 이 결함을 못 본 이유가 입력이었다 — `fakePurchase` 가 밋밋한
+`PurchaseDetails` 를 만들고 `FakePurchaseService.restore()` 가 `restorable` 을
+**그대로** 올려서, 실기기에는 없는 "조회 결과에 `status == pending`" 이라는
+모양을 가정하고 있었다. 먼저 Fake 를 플러그인과 같은 모양으로 바꿨다
+(`test/fakes/fake_purchase_service.dart`):
+
+- `source: 'google_play'` 는 플러그인이 올리는 것과 **같은 타입**
+  `GooglePlayPurchaseDetails` 로 만든다 — `purchaseState` 가 Play 쪽 원본
+  상태, `status` 가 플러그인이 스트림에 얹는 값이다.
+- `restore()` 는 플러그인처럼 Play 거래 전부에 `restored` 를 씌워 올린다
+  (`_asQueried`). iOS 는 `currentEntitlements` 만 올리므로 그대로 둔다.
+
+그 입력으로 컨트롤러를 고치기 **전에** 돌린 출력(= 리뷰의 재현을 재현한 것):
+
+```
+$ cd mobile && flutter test test/subscription/purchase_controller_test.dart
+00:01 +20 -2: 조회에 pending 이 그대로 있으면 내리지 않는다 [E]
+  Expected: SubscriptionPhase:<SubscriptionPhase.pending>
+    Actual: SubscriptionPhase:<SubscriptionPhase.active>
+
+00:01 +20 -3: 구매 대기 중 복귀해도 "결제 확인 중" 이다 — 조회의 restored 에 속지 않는다 [E]
+  Expected: SubscriptionPhase:<SubscriptionPhase.pending>
+    Actual: SubscriptionPhase:<SubscriptionPhase.idle>
+
+00:01 +21 -4: 서버가 구독 행을 만들지 못한 응답에는 completePurchase 를 부르지 않는다 [E]
+  Expected: empty
+    Actual: [Instance of 'GooglePlayPurchaseDetails']
+
+00:01 +23 -4: Some tests failed.
+```
+
+라운드 1 에 넣은 "조회에 pending 이 그대로 있으면 내리지 않는다" 가 **진짜
+입력으로는 실패한다** — 리뷰가 "플러그인이 만들지 않는 입력으로만 통과했다" 고
+한 그대로다. `active` 로 끝난 것은 조회로 올라온 pending 거래를 verify 로 올려
+Fake 의 기본 응답(권한 있음)을 받았기 때문이다.
+
+**수정 내용**
+
+- `mobile/lib/subscription/purchase_controller.dart` — `_statusOf(purchase)` 를
+  더해 `_onPurchases` 가 그 값으로 분기한다. `purchased`·`restored` 로 올라온
+  Play 거래는 `billingClientPurchase.purchaseState == PurchaseStateWrapper.pending`
+  이면 pending 으로 다룬다(그러면 `_pendingSeenSinceSync` 도 그때 올라가
+  D-32-4 의 "그대로 있으면 내리지 않는다" 가 실제로 성립한다).
+  `canceled`·`error` 는 스토어가 뜻을 담아 덮은 값이라 건드리지 않는다 —
+  사용자가 창을 닫은 거래를 pending 으로 되돌리면 버튼이 잠긴다.
+- 같은 파일 — `entitlement.status != null` 일 때만 `_service.complete()` 를
+  부른다. 행이 없는 응답은 권한을 돌려준 것이 아니다. 권한 자체는 서버가 말한
+  대로 `entitlementProvider` 에 반영한다(완료만 하지 않는다).
+- `mobile/pubspec.yaml` — `in_app_purchase_android: ^0.5.0` 을 직접 의존성으로
+  올렸다(`in_app_purchase` 의 전이 의존성이라 받는 버전은 그대로고,
+  `depend_on_referenced_packages` 를 지키려면 선언이 필요하다). 옆줄
+  `in_app_purchase_storekit` 과 같은 이유·같은 모양이다.
+- `docs/RELEASE.md` "### 32." — 리뷰 §5 참고 1 대로 사람 확인 줄을 **셋**으로
+  나눴다: ① 결제를 끝내지 않은 채 복귀하면 계속 "결제 확인 중"(D-32-5)
+  ② 이어서 포기한 뒤 복귀하면 버튼이 살아남(D-32-4) ③ iOS 승인 대기는 복귀해도
+  그대로. 순서를 못 박아야 "유지" 와 "풀림" 이 구분된다.
+
+**증명하는 테스트**
+
+새 테스트 3건(`mobile/test/subscription/purchase_controller_test.dart`):
+
+| 테스트 | 보는 것 |
+|---|---|
+| `구매 대기 중 복귀해도 "결제 확인 중" 이다 — 조회의 restored 에 속지 않는다` | pending → `sync()`(조회가 `restored` 로 올림) 뒤에도 `phase == pending`·`busy`, `verifiedReceipts` 비어 있음, `completed` 0, 오류 null |
+| `결제가 끝나면 같은 거래가 purchased 로 올라와 검증·완료된다` | 대기를 유지해도 결제 완료를 놓치지 않는다 — verify 1건·`completed` 1건·`phase == active` |
+| `서버가 구독 행을 만들지 못한 응답에는 completePurchase 를 부르지 않는다` | `status == null` 응답에 verify 1건·`completed` 0·권한은 `active:false` 로 반영 |
+
+라운드 1 의 `조회에 pending 이 그대로 있으면 내리지 않는다` 는 손대지 않았고,
+이제 **플러그인이 실제로 올리는 입력**으로 통과한다.
+
+```
+$ cd mobile && flutter test test/subscription/
+00:05 +55: All tests passed!
+```
+
+### 재실행 결과 (라운드 2)
+
+```
+$ cd mobile && flutter analyze
+No issues found! (ran in 2.2s)
+
+$ cd mobile && dart format --output=none --set-exit-if-changed lib test
+Formatted 192 files (0 changed) in 0.23 seconds.
+
+$ cd mobile && flutter test
+00:39 +744: All tests passed!          # 741 → 744 (D-32-5 3건)
+```
