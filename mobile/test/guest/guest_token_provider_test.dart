@@ -26,7 +26,7 @@ void main() {
     expect(await container.read(guestTokenProvider.future), isNull);
   });
 
-  // 티켓 27(계정 연결·전환)이 교환받은 토큰으로 갈아끼운다.
+  // 티켓 29(계정 연결·전환)이 교환받은 토큰으로 갈아끼운다.
   test('replaceWith 는 상태와 저장소를 함께 갱신한다', () async {
     final store = InMemoryGuestTokenStore('guest-token');
     final container = _container(store);
@@ -52,7 +52,7 @@ void main() {
     expect(store.deletes, 1);
   });
 
-  // 티켓 28(로컬 알림)이 토큰 변경을 구독한다.
+  // 티켓 30(로컬 알림)이 토큰 변경을 구독한다.
   test('토큰 변경을 구독할 수 있다', () async {
     final container = _container(InMemoryGuestTokenStore('first'));
     final seen = <String?>[];
