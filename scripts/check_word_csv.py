@@ -35,6 +35,7 @@ from app.errors import ValidationError  # noqa: E402
 from app.models import PuzzleLanguage  # noqa: E402
 from app.services.word_service import (  # noqa: E402
     CSV_EXTRA_FIELD_KEY,
+    WordInput,
     duplicate_csv_columns,
     missing_csv_columns,
     parse_word_input,
@@ -119,12 +120,16 @@ def check_file(path: str, seed_keys: set[tuple[str, str, str]]) -> list[Violatio
             violations.append(Violation(line, "열이 헤더보다 많습니다 (쉼표가 들어간 값)."))
             continue
 
+        # 헤더 이름의 앞뒤 공백을 떼서 읽는다 — `missing_csv_columns` 가 공백을
+        # 무시하고 통과시킨 헤더(` answer`)를 여기서도 같은 이름으로 봐야 업로드와
+        # 같은 결과가 나온다(`import_word_rows` 와 같은 처리).
+        row = {(key or "").strip(): value for key, value in raw_row.items()}
         try:
             parsed = parse_word_input(
-                raw_row.get("language"),
-                raw_row.get("category"),
-                raw_row.get("answer"),
-                raw_row.get("hint"),
+                row.get("language"),
+                row.get("category"),
+                row.get("answer"),
+                row.get("hint"),
             )
         except ValidationError as err:
             violations.append(Violation(line, err.message))
@@ -148,7 +153,9 @@ def _check_header(fieldnames: list[str] | None) -> list[Violation]:
     return problems
 
 
-def _row_reasons(parsed, seen: dict, seed_keys: set, line: int) -> list[str]:
+def _row_reasons(
+    parsed: WordInput, seen: dict[tuple[str, str, str], int], seed_keys: set, line: int
+) -> list[str]:
     reasons = _answer_reasons(parsed) + _hint_reasons(parsed)
 
     key = parsed.duplicate_key
@@ -161,7 +168,7 @@ def _row_reasons(parsed, seen: dict, seed_keys: set, line: int) -> list[str]:
     return reasons
 
 
-def _answer_reasons(parsed) -> list[str]:
+def _answer_reasons(parsed: WordInput) -> list[str]:
     if parsed.language is PuzzleLanguage.EN:
         return _en_answer_reasons(parsed.answer)
     return _ko_answer_reasons(parsed.answer)
@@ -198,7 +205,7 @@ def _en_answer_reasons(answer: str) -> list[str]:
     return reasons
 
 
-def _hint_reasons(parsed) -> list[str]:
+def _hint_reasons(parsed: WordInput) -> list[str]:
     hint = parsed.hint
     reasons = []
     if len(hint) > HINT_MAX_LENGTH:

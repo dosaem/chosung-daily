@@ -12,6 +12,10 @@ instance/
 k6/results/
 celerybeat-schedule*
 backups*/
+# 단어 후보 CSV(티켓 39). 정답이 평문으로 커밋되면 퍼즐이 미리 샌다 —
+# 파일은 운영자에게 따로 전달하고 레포에는 검증 스크립트만 둔다.
+data/word-candidates/
+
 # 접속기록(기본 LOG_DIR=./logs). 원격 IP 가 들어 있는 개인정보다 — 커밋되면 안 된다.
 logs*/
 

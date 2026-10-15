@@ -227,3 +227,15 @@ def test_empty_answer_or_hint_is_caught(tmp_path, answer, hint):
     path = write_csv(tmp_path / "ko.csv", [("ko", "general", answer, hint)])
 
     assert len(reasons(path)) == 1
+
+
+def test_header_names_with_stray_spaces_are_read_like_the_upload_does(tmp_path):
+    """업로드(`missing_csv_columns`)가 공백을 무시하고 통과시키는 헤더다 — 여기서도
+    같은 이름으로 읽어야 "로컬은 오류인데 업로드는 통과" 가 안 생긴다."""
+    path = write_csv(
+        tmp_path / "ko.csv",
+        [("ko", "general", "책상", "공부할 때 앞에 두는 가구")],
+        header=("language", " category", "answer ", "hint"),
+    )
+
+    assert reasons(path) == []
