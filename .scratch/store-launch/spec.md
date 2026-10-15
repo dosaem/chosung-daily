@@ -194,14 +194,14 @@ chosung.dosaem.com 은 "하루 한 문제 초성 맞추기"가 돌아가는 Flas
 | POST | `/puzzles/today/guesses` | B | `{puzzle_id, guess}` | 기존(`feedback` 는 `s` 제외 위치, `hint` 규칙 동일) | `PUZZLE_CHANGED`(409, 시도 미소비) |
 | POST | `/puzzles/today/hint-unlock` | B | `{puzzle_id}` | `{hint}` | `PUZZLE_CHANGED`, `ALREADY_FINISHED`, `HINT_ALREADY_UNLOCKED`(409) |
 | GET | `/puzzles/today/stats?language=` | B | | 기존 + `language` | |
-| GET | `/puzzles/today/leaderboard?language=&limit=20` | B | | `entries [{rank, display, attempts, seconds, is_me}]`, `me {rank, attempts, seconds} \| null` (ZRANK). 기존 `guest_id`·`solved_in_seconds` 제거 | |
+| GET | `/puzzles/today/leaderboard?language=&limit=20` | B | | `entries [{rank, anon_tag, attempts, seconds, is_me}]`, `me {rank, attempts, seconds} \| null` (ZRANK). 기존 `guest_id`·`solved_in_seconds` 제거 | |
 | POST | `/auth/token-exchange` | B | `{provider, id_token, authorization_code?}` | `{token}` | `INVALID_ID_TOKEN`(401), `ACCOUNT_ALREADY_LINKED` |
 | POST | `/subscriptions/verify` | B | `{store, receipt}` (iOS JWS / Android purchaseToken) | `entitlement {…}` | `RECEIPT_INVALID`(400), `STORE_UNAVAILABLE`(503) |
 | GET | `/health` | - | | `{status, db, redis, apple_secret_expires_at}` DB 실패 503 / Redis 실패 200+`degraded` | |
 | GET | `/privacy`, `/terms`, `/account/delete` | - / S | | HTML | |
 | GET/POST | `/admin/*` | S + 운영자 + CSRF | | HTML | `FORBIDDEN`(403) |
 
-리더보드 `display` = `"게스트 #" + guest.id 16진 4자리`.
+리더보드 `anon_tag` = `guest.id` 를 16진 4자리로 자른 값(`guest.id % 0x10000`). 서버는 언어 중립 태그만 주고 `게스트 #` / `Guest #` 접두사는 웹·앱이 자기 UI 언어로 붙인다 (티켓 38, README "38. 리더보드 익명 이름"). 응답에 `display` 는 없다.
 
 ### B. Flutter 앱
 
@@ -228,7 +228,7 @@ chosung.dosaem.com 은 "하루 한 문제 초성 맞추기"가 돌아가는 Flas
 
 ### D. 사람이 해야 하는 일 (순서)
 
-**D0. 티켓 시작 전** — 단어 CSV(ko/en 각 ≥120, 심사 전 en 30일 배정 확인; **후보 생성은 티켓 38**, 사람은 검수·업로드만 — 2026-10-15 사용자 결정) · Firebase 프로젝트 + 앱 등록(`google-services.json`, `GoogleService-Info.plist`) · GCP iOS 클라이언트 ID, Android 클라이언트(SHA-1 3종), 웹 클라이언트 ID 를 `serverClientId` 로 · Google Books 키(선택)
+**D0. 티켓 시작 전** — 단어 CSV(ko/en 각 ≥120, 심사 전 en 30일 배정 확인; **후보 생성은 티켓 39**, 사람은 검수·업로드만 — 2026-10-15 사용자 결정) · Firebase 프로젝트 + 앱 등록(`google-services.json`, `GoogleService-Info.plist`) · GCP iOS 클라이언트 ID, Android 클라이언트(SHA-1 3종), 웹 클라이언트 ID 를 `serverClientId` 로 · Google Books 키(선택)
 **D1. 백엔드 티켓 중** — Slack Webhook · Sentry 2개 · UptimeRobot · Apple App ID + Sign in with Apple(iOS 번들 ID 를 Services ID 그룹에 추가) · App Store Server API 키 · Sandbox 테스터 · Play 앱 생성·서비스 계정·라이선스 테스터 · 한국 판매자 정보 요건 · **통신판매업 신고 대상 여부 확인(미정 22)·개인정보 보호책임자 지정·주소/전화 공개 결정(미정 21)**
 **D2. 앱 티켓 중** — AdMob 앱 2 + 유닛 6 + UMP 메시지(privacy options 포함) · ASC 앱(이름 중복 확인) · 구독 상품 `adfree_monthly` 양 스토어(한국 ₩1,500 Tier) · **Billing Grace Period: Apple 켬(16일), Play base plan 기본 유예 유지** · EULA 결정 · 개인정보 라벨 · keystore·match·러너·GitHub secrets
 **D3. 배포·심사 전** — NAS 의 기존 compose 프로젝트명·볼륨명 확인(`docker volume ls`) · NAS develop 폴더·`.env.develop`·DNS·터널 · prod `.env` 새 키 · Play Data safety(삭제 URL) · 앱 콘텐츠 설문 · **제출일 기준 target SDK / Billing 8+ 재확인** · 첫 프로덕션 출시 버튼
@@ -349,7 +349,7 @@ Analytics 로 보려면 이벤트가 먼저 필요하다**: 미정 20 이 확정
 
 - 운영자 계정은 정확히 두 개: `dosaem90@gmail.com`, `hsseo@dosaem.com`.
 - 면접 설명 범위: 백엔드 전부 + Flutter 는 상태 흐름·SDK 선택·테스트 경계(README Flutter 절). (r3 MINOR 메모: 제출하는 코드 전체는 작성자가 설명할 수 있어야 하고, 설계 판단 문서만 핵심 중심으로 쓴다는 뜻.)
-- 티켓: `.scratch/store-launch/issues/01~38`(의존성 순, 2026-10-13; 계획 리뷰 r1 반영으로 구 24→24·25, 구 29→30·31 분할; **plan-add r1(2026-10-14)** 로 16(법적 문서 보완)·24(태블릿 뼈대) 삽입 — 구 16→23, 구 23~34→25~36, 대응표는 `review/plan-add-r1-response.md`. 머지·진행 중 티켓(01~13·15·17·19~22) 본문의 번호는 구 번호 그대로다). 미정 항목 중 9·21·22·23(16)·12(04)·13(17)·14(12)·18(13)·19(13·33)·20(26)·24(24)·25(35, 30px 확인)·27(36) 은 해당 티켓에서 확정. plan-add r2(2026-10-14): 36 개인정보 안전성 확보조치 추가(§C.33), 릴리스 문서는 36→37 로 이동(37 Blocked by 에 36). 2026-10-15: 38 단어 후보 CSV 생성(Blocked by 15·23) 추가, 사용자 할 일·결정 번호 목록은 `.scratch/store-launch/user-todo.md`(콘솔 설정은 Claude 가 Chrome 으로, 출시 버튼만 사용자). Flutter 루트는 `mobile/`. 앱 아이콘·스플래시·스크린샷은 OVERRIDES §8 그대로 — **2026-10-14 사용자 확정: 라이트 배경 `#FAFAF9` 에 글자 없는 타일 3칸(양끝 brand, 가운데 `tile-wrong`), 스크린샷은 라이트 모드 기준**(이전 "다크 배경 + ㅊ, 다크모드 스크린샷" 폐기, 미정 25). 콘셉트를 또 바꾸려면 OVERRIDES §8 을 먼저 고친다.
+- 티켓: `.scratch/store-launch/issues/01~38`(의존성 순, 2026-10-13; 계획 리뷰 r1 반영으로 구 24→24·25, 구 29→30·31 분할; **plan-add r1(2026-10-14)** 로 16(법적 문서 보완)·24(태블릿 뼈대) 삽입 — 구 16→23, 구 23~34→25~36, 대응표는 `review/plan-add-r1-response.md`. 머지·진행 중 티켓(01~13·15·17·19~22) 본문의 번호는 구 번호 그대로다). 미정 항목 중 9·21·22·23(16)·12(04)·13(17)·14(12)·18(13)·19(13·33)·20(26)·24(24)·25(35, 30px 확인)·27(36) 은 해당 티켓에서 확정. plan-add r2(2026-10-14): 36 개인정보 안전성 확보조치 추가(§C.33), 릴리스 문서는 36→37 로 이동(37 Blocked by 에 36). 2026-10-15: 39 단어 후보 CSV 생성(Blocked by 15·23) 추가, 사용자 할 일·결정 번호 목록은 `.scratch/store-launch/user-todo.md`(콘솔 설정은 Claude 가 Chrome 으로, 출시 버튼만 사용자). Flutter 루트는 `mobile/`. 앱 아이콘·스플래시·스크린샷은 OVERRIDES §8 그대로 — **2026-10-14 사용자 확정: 라이트 배경 `#FAFAF9` 에 글자 없는 타일 3칸(양끝 brand, 가운데 `tile-wrong`), 스크린샷은 라이트 모드 기준**(이전 "다크 배경 + ㅊ, 다크모드 스크린샷" 폐기, 미정 25). 콘셉트를 또 바꾸려면 OVERRIDES §8 을 먼저 고친다.
 - 디자인 파이프라인·스펙 리뷰 규칙은 `~/.claude/CLAUDE.md`·NAS README 에 기록. 리뷰 응답: `review/spec-review-r1-response.md`, `review/spec-review-r2-response.md`.
 - BASELINE 읽기만. ENV.md 의 PostgreSQL/Flyway 기술은 무시(MySQL/Alembic).
 - 티켓 하나 = 워커 하나가 한 세션. §A.1, §A.8, §A.11 은 본문의 분할 지침대로 쪼갠다. 의존성은 `issues/NN-*.md` "Blocked by".

@@ -306,6 +306,21 @@ en,general,mountain range,a line of connected peaks
 가장 흔하고, 그 줄만 고쳐서 다시 올리면 된다. 책 제목(`book_title`)은 LLM 이 실제로
 없는 책을 만들기 쉬워서 `flask search-books` 로 넣는다(실존 확인).
 
+**올리기 전 로컬 검증** — `scripts/check_word_csv.py` 로 같은 파일을 DB 없이 먼저
+훑는다. 업로드 화면의 행별 결과는 *DB 에 넣으면서* 나오는 것이라, 150행을 그대로
+올리면 깨진 행이 들어가고 **규칙만 어긴 행(힌트에 정답 글자가 섞인 행)은 오류로도
+안 잡혀 그냥 퍼즐로 나간다.** 형식·중복은 업로드와 같은 `parse_word_input` 을 쓰고,
+위 프롬프트의 생성 규칙(언어별 글자 범위, 힌트 길이, 힌트에 정답이 새는지, 파일 안
+중복, `data/seed_words.csv` 와 겹치는지)은 이 스크립트만 본다.
+
+```sh
+uv run python scripts/check_word_csv.py data/word-candidates/ko-general-01.csv
+# data/word-candidates/ko-general-01.csv: 위반 0건
+```
+
+위반이 있으면 `줄번호: 사유`(헤더가 1행 = 스프레드시트 줄 번호 그대로)를 찍고 종료
+코드 1 이다. 0건이 된 파일만 `/admin/words/import` 에 올린다.
+
 ## 운영: 배정표 · 잔량 · 점검 토글 · 책 검색 (`/admin`)
 
 단어를 채운 뒤에 쓰는 화면들이다. 메뉴는 `배정표` / `책 검색` / `앱 설정`.
