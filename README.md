@@ -2702,6 +2702,23 @@ Billing 8+ 확인 절차는 `docs/RELEASE.md` "### 32." 에 있다.
 권한이 생긴 거래)만 올리므로 승인 대기(Ask to Buy)가 거기 **없는 것이 정상**이고,
 내렸다가는 승인 기다리는 사람의 버튼이 다시 살아난다.
 
+**pending 판정은 `status` 가 아니라 Play 쪽 원본 상태로 한다.** 같은
+`queryPurchases` 가 결과 **전부**에 `restored` 를 덮어쓴다 — 아직 결제 대기인
+거래도 예외가 아니다(`in_app_purchase_android` 0.5.0 `restorePurchases`).
+`PurchaseDetails.status` 만 믿으면 편의점 결제 중에 앱을 한 번 내렸다 올리는
+것만으로 "결제 확인 중" 이 풀리고, 권한을 돌려주지 않은 200 응답에
+acknowledge 까지 나간다(D-32-5). 그래서 Play 거래는
+`billingClientPurchase.purchaseState` 를 보고, verify 응답에 구독 행이 없으면
+(`status == null`) 완료하지 않는다. `canceled`·`error` 는 스토어가 뜻을 담아
+덮은 값이라 그대로 둔다. 테스트 Fake 도 플러그인과 같은 타입·같은 덮어쓰기를
+하게 맞췄다 — 이 결함은 Fake 와 실제의 차이에서 나왔고, 대조 결과는
+`review/impl-evidence-32.md` 의 표에 있다.
+
+**결제 창을 못 띄운 것도 사용자에게 말한다.** Android `buyNonConsumable` 은
+`launchBillingFlow` 가 실패해도 예외가 아니라 `false` 를 돌려주고 구매 스트림도
+조용하다. 그 값을 버리면 버튼을 눌러도 아무 일이 없으므로, `buy` 가
+"결제 창을 띄웠는가" 를 돌려주고 false 면 실패 문구를 띄운다(iOS 는 예외로 온다).
+
 ## 부하 테스트 요약
 
 자정 트래픽 스파이크(0→50 VU, `GET /puzzles/today` + 30% `POST .../guesses`)로
