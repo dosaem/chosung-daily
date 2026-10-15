@@ -452,3 +452,12 @@ def test_the_spec_ticket_range_includes_the_tickets_added_after_planning(release
     assert "issues/01~40`" in spec
     assert "issues/01~38`" not in spec
     assert "### 39." in release
+
+
+def test_every_ticket_section_heading_appears_once_at_the_start_of_a_line(release: str):
+    """통합 목차가 `"### NN."` 로 절을 가리키기 때문에, 그 문자열은 본문에 여러 번 나온다.
+    제목 자체는 **줄 머리에 한 번**뿐이어야 한다 — 절을 문자열로 잘라 읽는 테스트
+    (`tests/test_app_deploy_workflow.py::_section_34`)가 엉뚱한 토막을 읽지 않게."""
+    headings = re.findall(r"^### (\d{2})\.", release, re.M)
+
+    assert len(headings) == len(set(headings)), sorted(headings)

@@ -404,8 +404,11 @@ SECTION_34 = "### 34."
 
 def _section_34():
     text = RELEASE_DOC.read_text(encoding="utf-8")
-    assert SECTION_34 in text, "RELEASE.md 에 '### 34.' 절이 없다"
-    body = text.split(SECTION_34, 1)[1]
+    # **줄 머리의** 제목에서 끊는다 — 본문이 다른 절에서 `"### 34."` 를 가리키기만 해도
+    # 거기서 자르면 엉뚱한 토막을 읽는다(티켓 37 의 통합 목차가 그렇게 가리킨다).
+    heading = "\n" + SECTION_34
+    assert heading in text, "RELEASE.md 에 '### 34.' 절이 없다"
+    body = text.split(heading, 1)[1]
     # 다음 티켓 절이 붙으면 거기서 끊는다.
     return re.split(r"\n### \d", body)[0]
 
