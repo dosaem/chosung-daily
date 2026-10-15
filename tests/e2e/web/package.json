@@ -1,0 +1,14 @@
+{
+  "name": "chosung-daily-e2e-web",
+  "private": true,
+  "type": "module",
+  "description": "티켓 42 — 실제 스택(Flask+MySQL+Redis+Celery)을 브라우저로 사람처럼 눌러보는 웹 E2E",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.11.2",
+    "@playwright/test": "1.57.0",
+    "axe-core": "4.11.2"
+  }
+}
