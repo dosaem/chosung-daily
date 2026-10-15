@@ -19,7 +19,7 @@
 
 | # | 항목 | 상태 | 누가 | 비고 |
 |---|---|---|---|---|
-| 6 | 단어 CSV ko/en 각 120개 이상 | 아직 → **티켓 38 로 워커가 후보 생성** | 워커 → 사람 검수·업로드 | `issues/38-word-candidates-csv.md` |
+| 6 | 단어 CSV ko/en 각 120개 이상 | 아직 → **티켓 39 로 워커가 후보 생성** | 워커 → 사람 검수·업로드 | `issues/39-word-candidates-csv.md` |
 | 7 | Firebase 프로젝트 + Android/iOS 앱 등록 파일 2개 | **끝(2026-10-15)** | Claude(gcloud+Orca) | GCP/Firebase 프로젝트 `chosung-daily`(dosaem90 소유, hsseo@dosaem.com 편집자 + 소유자 초대 메일 → **사용자 수락 필요**). 앱 2개 등록, Analytics 연결(Default Account for Firebase). 파일은 `mobile/android/app/google-services.json`·`mobile/ios/Runner/GoogleService-Info.plist`(gitignore) |
 | 8 | GCP 클라이언트 ID 3종(iOS / Android SHA-1 / 웹 `serverClientId`) | **끝(2026-10-15)** | Claude(Orca) | OAuth 브랜딩(Hidden Vowels, 외부) + 웹·iOS·Android(upload)·Android(debug) 클라이언트 4개. 값은 `~/.config/chosung-daily/launch-secrets.env`, 로컬 `.env` 에 `GOOGLE_WEB_CLIENT_ID`·`GOOGLE_IOS_CLIENT_ID`. **남은 것:** Play App Signing SHA-1 (11번 뒤) 을 Firebase·GCP Android 클라이언트에 추가, prod `.env` 전환 |
 
@@ -51,4 +51,4 @@
 ## 기록
 
 - 2026-10-15 (2차): 7·8 완료, 14 일부. Play 서비스 계정 `play-publisher@chosung-daily.iam.gserviceaccount.com` 은 11번에서 Play Console 에 초대(앱 출시 관리 권한). Orca 브라우저에서 Apple 로그인이 안 돼 나머지는 Chrome 으로 진행.
-- 2026-10-15: 1~18 질문·답 완료. 6 → 티켓 38 추가. 7~14·18 은 Claude 가 Chrome 으로 진행하기로. 메모리 `ask-numbered-all-at-once`, `console-setup-by-claude`.
+- 2026-10-15: 1~18 질문·답 완료. 6 → 티켓 39 추가(38 은 리더보드 익명 이름이 이미 사용). 7~14·18 은 Claude 가 Chrome 으로 진행하기로. 메모리 `ask-numbered-all-at-once`, `console-setup-by-claude`.
