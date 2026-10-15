@@ -3,7 +3,7 @@
 왜 결정론적인가: 브라우저 테스트가 "정답을 타이핑" 해야 하는데, 자정 배정
 (`flask schedule-puzzles`)은 단어 풀에서 **무작위로** 고른다. 그러면 테스트가
 정답을 알 수 없고, DB 를 훑어 정답을 읽는 코드가 테스트마다 생긴다. 그래서 시드가
-오늘·내일·모레의 (날짜, 언어)별 단어를 못박고, 그 답을 manifest 파일 하나로
+오늘부터 5일치의 (날짜, 언어)별 단어를 못박고, 그 답을 manifest 파일 하나로
 넘긴다 — 테스트는 manifest 만 읽는다.
 
 멱등하다: 같은 DB 에 여러 번 돌려도 단어는 중복으로 안 들어가고(`import_word_rows`
@@ -44,12 +44,21 @@ from app.services.word_service import seed_words_from_csv  # noqa: E402
 KO_CSV = REPO_ROOT / "data" / "seed_words.csv"
 EN_CSV = REPO_ROOT / "scripts" / "e2e" / "words_en.csv"
 
-# 오늘(offset 0)·내일(1)·모레(2)에 못박을 단어. 내일 것이 필요한 이유는
-# `advance_day.py` 가 날짜를 하루 내리면 그게 "오늘" 이 되기 때문이다(연속 기록
-# 시나리오). 모레 것은 하루 더 넘겨야 할 때를 위한 여유분이다.
+# 오늘(offset 0)부터 하루씩 못박을 단어. 둘째 날 것이 필요한 이유는 `advance_day.py`
+# 가 날짜를 하루 내리면 그게 "오늘" 이 되기 때문이다(연속 기록 시나리오).
+#
+# 개수: 연속 기록 시나리오가 **한 판마다 하루를 넘긴다** — ko·en 2개 * 뷰포트 2개 = 4번이고
+# k 번째 판은 `PINNED[k-1]`(1일차)과 `PINNED[k]`(2일차)를 쓰므로 언어마다 5개다. 날짜
+# 시프트는 언어를 가리지 않으므로 두 언어가 같은 수여야 한다. 모자라면 마지막 판이
+# "manifest 에 오늘 퍼즐이 없다" 로 깨진다 — 계약은
+# `tests/test_e2e_scripts.py::test_pinned_words_cover_every_day_the_streak_scenario_advances`.
+#
+# ko 에 4글자(`어린왕자`)를 하나 섞어 둔다: 제출할 문자열을 적어둔 테스트는 정답 길이가
+# 바뀌는 순간 서버의 길이 검증에 막혀 아무것도 검증하지 못한다(D-42-7). 길이가 섞여 있어야
+# "정답에서 오답을 만든다" 가 지켜지는지 한 판으로 드러난다.
 PINNED = {
-    PuzzleLanguage.KO: ("컴퓨터", "자전거", "도서관"),
-    PuzzleLanguage.EN: ("apple", "school", "coffee"),
+    PuzzleLanguage.KO: ("컴퓨터", "자전거", "어린왕자", "냉장고", "지하철"),
+    PuzzleLanguage.EN: ("apple", "school", "coffee", "window", "bicycle"),
 }
 
 
@@ -64,7 +73,7 @@ def seed_words() -> dict[str, int]:
 
 
 def pin_puzzles(today):
-    """오늘·내일·모레의 (날짜, 언어) 배정을 못박는다. 이미 다른 단어가 배정돼
+    """`PINNED` 가 덮는 날들의 (날짜, 언어) 배정을 못박는다. 이미 다른 단어가 배정돼
     있으면 갈아끼우고, 그 날짜의 캐시도 지운다 — 캐시를 안 지우면 TTL 26시간 동안
     옛 단어가 계속 나간다(`puzzle_service` 가 cache-aside 다)."""
     pinned = []
@@ -96,7 +105,7 @@ def pin_puzzles(today):
 
 def fill_schedule() -> dict[str, int]:
     """남은 30일을 평소 경로(`schedule_puzzles`)로 채운다. 운영자 배정표·잔량
-    화면이 실제 운영과 같은 모양이어야 해서, 못박은 3일 말고는 그대로 둔다."""
+    화면이 실제 운영과 같은 모양이어야 해서, 못박은 날들 말고는 그대로 둔다."""
     return {
         language.value: schedule_puzzles(language, days=SCHEDULE_DAYS)
         for language in PuzzleLanguage

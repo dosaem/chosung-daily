@@ -9,6 +9,7 @@ Redis 번호가 조용히 바뀌면 다른 워커의 pytest 를 지우고, `PINN
 """
 
 import csv
+import re
 import subprocess
 from pathlib import Path
 
@@ -64,9 +65,28 @@ def _env_values(ticket: str) -> dict[str, str]:
     }
 
 
+def _source_env(ticket: str) -> subprocess.CompletedProcess:
+    """`env.sh` 를 source 하는 것 자체의 성패. 배정표에 없는 티켓은 실패해야 한다."""
+    return subprocess.run(
+        ["bash", "-c", f'E2E_TICKET={ticket} source "{E2E_DIR / "env.sh"}"'],
+        capture_output=True,
+        text=True,
+        cwd=REPO_ROOT,
+        check=False,
+    )
+
+
+# 같은 머신에서 동시에 뜨는 E2E 스택들. `env.sh` 의 배정표와 같은 티켓 집합이다.
+E2E_TICKETS = ("42", "43", "44")
+# E2E 가 건드리면 안 되는 Redis DB 번호: 0 로컬 개발, 1 pytest 기본(`TestingConfig`),
+# 5 티켓 42 의 pytest(코디네이터가 `TEST_REDIS_URL` 로 배정). `down` 의 flushdb 가
+# 이 중 하나를 잡으면 돌고 있는 남의 판을 지운다.
+RESERVED_REDIS_DBS = {"0", "1", "5"}
+
+
 def test_resources_carry_the_ticket_number():
-    """티켓 번호 하나만 바꾸면 DB·포트가 전부 갈린다 — 43·44 가 42 와 같은 자원을 쓰면
-    서로의 DB 를 drop 하고 Redis 를 flush 한다."""
+    """티켓 번호 하나만 바꾸면 DB·포트·**Redis 번호**가 전부 갈린다 — 43·44 가 42 와
+    같은 자원을 쓰면 서로의 DB 를 drop 하고 Redis 를 flush 한다."""
     t42 = _env_values("42")
     t43 = _env_values("43")
 
@@ -74,14 +94,55 @@ def test_resources_carry_the_ticket_number():
     assert t43["db"] == "chosung_daily_e2e_t43"
     assert t42["port"] != t43["port"]
     assert t42["port_nostore"] != t43["port_nostore"]
+    assert t42["redis_db"] != t43["redis_db"]
     # 같은 티켓 안에서도 두 앱 인스턴스가 포트를 공유하면 둘째가 못 뜬다.
     assert t42["port"] != t42["port_nostore"]
 
 
-def test_redis_db_is_not_the_dev_or_pytest_one():
-    """개발은 0, pytest(`TestingConfig`)는 1 이다. E2E 가 그 번호를 쓰면
-    `down` 의 flushdb 가 남의 상태를 지운다."""
-    assert _env_values("42")["redis_db"] not in {"0", "1"}
+def test_every_ticket_gets_its_own_redis_db():
+    """D-42-5: Redis 키에는 스키마 구분이 없다. 두 스택이 한 번호를 쓰면 `puzzle:`
+    캐시가 남의 퍼즐 id 를 내보내고 `lb:`·`stats:` 가 섞이며, 한쪽의 `down`(flushdb)이
+    상대의 실행 중 상태를 지운다. DB 이름·포트처럼 번호도 티켓별로 달라야 한다."""
+    assigned = {ticket: _env_values(ticket)["redis_db"] for ticket in E2E_TICKETS}
+    assert len(set(assigned.values())) == len(assigned), f"Redis 번호가 겹친다: {assigned}"
+    for ticket, number in assigned.items():
+        assert number, f"티켓 {ticket} 에 Redis 번호가 없다"
+        assert number not in RESERVED_REDIS_DBS, f"티켓 {ticket} 이 예약 번호 {number} 를 쓴다"
+        # Redis 기본 설정의 databases 16 을 넘으면 접속 자체가 안 된다.
+        assert 0 <= int(number) < 16, f"티켓 {ticket} 의 번호 {number} 가 범위를 벗어났다"
+
+
+def test_unassigned_ticket_refuses_instead_of_sharing_a_redis_db():
+    """배정표에 없는 티켓이 기본값으로 떨어지면 조용히 남의 번호를 쓴다 — 거부해야
+    사람이 표에 한 줄을 더한다."""
+    done = _source_env("99")
+    assert done.returncode != 0, done.stdout + done.stderr
+    assert "99" in (done.stdout + done.stderr)
+    # 직접 지정하면 돌아간다 — 표에 없는 티켓도 손으로 번호를 주면 쓸 수 있다.
+    # bash 는 `VAR=x source ...` 의 값을 source 가 끝나면 버린다(POSIX 모드가 아니다) —
+    # 그래서 뒤에서 읽으려면 미리 export 해야 한다.
+    body = (
+        "export E2E_TICKET=99 E2E_REDIS_DB=9\n"
+        f'source "{E2E_DIR / "env.sh"}"\n'
+        'echo "$E2E_REDIS_DB"\n'
+    )
+    explicit = subprocess.run(
+        ["bash", "-c", body],
+        capture_output=True,
+        text=True,
+        cwd=REPO_ROOT,
+        check=False,
+    )
+    assert explicit.returncode == 0, explicit.stderr
+    assert explicit.stdout.strip() == "9"
+
+
+def test_redis_url_carries_the_assigned_db():
+    """`e2e_redis_url` 과 `E2E_REDIS_DB` 가 어긋나면 앱은 한 번호를, `down` 의
+    flushdb(`redis-cli -n`)는 다른 번호를 본다."""
+    for ticket in E2E_TICKETS:
+        values = _env_values(ticket)
+        assert values["redis_url"].endswith(f"/{values['redis_db']}"), values
 
 
 def test_admin_email_is_not_a_real_account():
@@ -192,6 +253,67 @@ def test_advance_day_shifts_every_date_holder():
     # 캐시와 분당 카운터는 옮기지 않고 버린다.
     assert "puzzle:" in DROPPED_PREFIXES
     assert "ratelimit:" in DROPPED_PREFIXES
+
+
+# 브리프 "시나리오 (ko·en 각각)" 의 예외. **목록이 아니라 예외만** 적는다 — 새 스펙이
+# 생기면 묻지 않고 ko·en 둘 다 요구하게 두는 쪽이 안전하다.
+SINGLE_LANGUAGE_SPECS = {
+    # 한 테스트가 ko↔en 전환 자체를 본다 — 언어로 나누면 검증할 것이 없어진다.
+    "05-language-switch.spec.mjs",
+    # 운영자 화면은 ko 전용이다(README "설계 판단 15.").
+    "09-admin.spec.mjs",
+}
+BILINGUAL_SPECS = tuple(
+    sorted(
+        spec.name
+        for spec in (WEB_E2E_DIR / "specs").glob("*.spec.mjs")
+        if spec.name not in SINGLE_LANGUAGE_SPECS
+    )
+)
+
+
+def _lang_loop(spec_name: str) -> list[str]:
+    """스펙 파일이 도는 언어 목록. `for (const lang of ["ko", "en"])` 를 읽는다."""
+    source = (WEB_E2E_DIR / "specs" / spec_name).read_text()
+    found = re.search(r"for \(const lang of \[([^\]]*)\]\)", source)
+    return re.findall(r'"(\w+)"', found.group(1)) if found else []
+
+
+@pytest.mark.parametrize("spec_name", BILINGUAL_SPECS)
+def test_scenario_runs_in_both_languages(spec_name):
+    """D-42-6: ko 만 돌면 en 사전의 문구와 en 퍼즐의 경로를 아무도 보지 않는다
+    (시나리오 4 는 en streak, 8 은 en 오프라인·오류 문구)."""
+    assert _lang_loop(spec_name) == ["ko", "en"], spec_name
+
+
+def test_pinned_words_cover_every_day_the_streak_scenario_advances():
+    """시나리오 4 는 한 판마다 `advance-day` 를 부른다 — (언어 수 * 뷰포트 수)번 돈다.
+    k 번째 판은 `PINNED[k-1]`(1일차)과 `PINNED[k]`(2일차)를 쓰므로, 언어마다
+    (판 수 + 1)개를 못박아야 마지막 판이 "manifest 에 오늘 퍼즐이 없다" 로 안 깨진다.
+    날짜 시프트는 언어를 가리지 않으므로 ko·en 둘 다 같은 수가 필요하다."""
+    runs = len(_lang_loop("10-streak.spec.mjs"))
+    config = (WEB_E2E_DIR / "playwright.config.mjs").read_text()
+    viewports = len(re.findall(r'name: "[a-z]+-\d+"', config))
+    assert runs, "시나리오 4 가 언어를 돌지 않는다"
+    assert viewports, "playwright.config.mjs 에서 뷰포트를 못 읽었다"
+    needed = runs * viewports + 1
+    for language, answers in PINNED.items():
+        assert len(answers) >= needed, (
+            f"{language.value} PINNED 가 {len(answers)}개 — 하루 넘기기 "
+            f"{runs * viewports}번에는 {needed}개가 필요하다"
+        )
+
+
+@pytest.mark.parametrize(
+    "spec", sorted((WEB_E2E_DIR / "specs").glob("*.spec.mjs")), ids=lambda p: p.name
+)
+def test_no_spec_types_a_hardcoded_answer(spec):
+    """D-42-7: 제출할 문자열을 적어두면 시드가 못박은 단어의 **길이**에 묶인다 —
+    4글자 단어가 오늘이 되는 순간 서버가 길이 검증으로 막아 시도가 아예 안 생기고,
+    그 뒤의 단정("교체 불가" 등)은 무엇도 검증하지 못한다. 정답에서 만들어야 한다
+    (`nearMiss`/`wrongGuesses`)."""
+    literals = re.findall(r"guess\([^,]+,\s*[\"']", spec.read_text())
+    assert not literals, f"{spec.name} 가 제출 문자열을 하드코딩했다: {literals}"
 
 
 def test_e2e_artifacts_are_not_committed():

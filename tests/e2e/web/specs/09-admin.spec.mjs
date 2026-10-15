@@ -5,6 +5,7 @@ import {
   axeScan,
   expectAxeClean,
   guess,
+  nearMiss,
   openGame,
   scene,
   showSection,
@@ -128,8 +129,14 @@ test("[10] 운영자: 로그인 → CSV 업로드 → 배정표 확인 → 단�
   // 먼저 플레이어 한 명이 오늘 문제에 한 번 제출한다 — "시도가 있는 날짜는 단어를
   // 바꿀 수 없다" 규칙을 보려면 시도가 있어야 한다. 이 시나리오가 혼자 돌아도
   // 같은 것을 검증하게 하려고, 앞 시나리오의 플레이에 기대지 않고 직접 만든다.
+  //
+  // 제출 문자열은 **오늘 정답에서 만든다**(`nearMiss`). 적어두면 시드가 못박은 단어의
+  // 길이에 묶인다 — 4글자 단어가 오늘이 되는 순간 서버가 길이 검증(VALIDATION_ERROR)으로
+  // 막아 시도가 아예 안 생기고, 아래 "교체 불가" 는 무엇도 검증하지 않는다(D-42-7).
+  // 맞히면 안 된다(시도만 필요하다)므로 정답이 아니라 한 글자 틀린 답을 넣는다.
   const player = await openGame(browser, { lang: "ko" });
-  await guess(player.page, "가나다");
+  const playerPuzzle = await todaysPuzzle(player.page, "ko");
+  await guess(player.page, nearMiss(playerPuzzle.answer, "ko"));
   await player.context.close();
 
   await page.getByRole("link", { name: "배정표" }).click();

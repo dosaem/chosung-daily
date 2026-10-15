@@ -382,3 +382,300 @@ $ cd mobile && flutter test
 - **실기기로 넘긴 것**: 실제 구글·애플 OAuth 왕복, 실제 결제, iOS Safari 실기기 레이아웃
   (이 티켓의 모바일은 Chromium 390 에뮬레이션이다 — `devices["iPhone 13"]` 프리셋은
   WebKit 을 끌고 와서 브라우저 한 벌을 더 받아야 하고, 이 티켓이 보는 건 폭이다).
+
+---
+
+## 수정 라운드 1
+
+리뷰 라운드 1(`review/impl-review-42.md`) 판정 FAIL — MAJOR 1건(D-42-5)·MINOR 2건
+(D-42-6·D-42-7). 세 건 모두 **리뷰 재현대로 먼저 재현 → 실패하는 테스트로 고정 → 원인
+수정** 순서로 처리했다. 리뷰가 "참고" 로 남긴 R-4·R-6 도 한 줄짜리라 같이 고쳤다.
+앱 결함 D-42-1~4 는 이 티켓이 고치지 않는다(수정 티켓 몫) — 여전히 9건이 실패한다.
+
+### D-42-5 (MAJOR) — Redis DB 번호가 티켓별로 갈리지 않았다
+
+**원인.** `scripts/e2e/env.sh` 가 `E2E_REDIS_DB="${E2E_REDIS_DB:-4}"` 로 **한 숫자를
+기본값**으로 박아 뒀다. DB 이름(`chosung_daily_e2e_t${E2E_TICKET}`)과 포트(`50${…}`)는
+티켓 번호에서 **만들어지는데** Redis 번호만 상수였다. Redis 키에는 스키마 구분이 없어서
+43·44 가 같은 머신에서 같이 뜨면 `puzzle:` 캐시가 남의 스키마의 퍼즐 id 를 내보내고,
+`lb:`·`stats:` 는 두 스택 기록이 섞이고, 한쪽의 `down`(flushdb)이 상대의 실행 중 상태를
+지운다. 문서 세 곳("`E2E_TICKET` 하나로 전부 갈린다")이 반대로 적혀 있어 43·44 가 기본값을
+믿고 쓸 수 있었다.
+
+**재현(수정 전).**
+
+```
+$ for t in 42 43 44 99; do E2E_TICKET=$t bash -c 'source scripts/e2e/env.sh; echo "t='$t' $E2E_DB $(e2e_redis_url) $E2E_PORT"'; done
+t=42 chosung_daily_e2e_t42 redis://127.0.0.1:6379/4 5042
+t=43 chosung_daily_e2e_t43 redis://127.0.0.1:6379/4 5043
+t=44 chosung_daily_e2e_t44 redis://127.0.0.1:6379/4 5044
+t=99 chosung_daily_e2e_t99 redis://127.0.0.1:6379/4 5099
+```
+
+DB·포트는 갈리는데 Redis 는 넷 다 4 다. 같은 시각 `redis-cli info keyspace` 로 티켓 43 의
+스택이 **실제로 떠 있는 것**(`db13:keys=7`)도 확인했다.
+
+**실패하는 테스트로 고정.** `tests/test_e2e_scripts.py` 에 3개를 넣었고(+기존 1개 확장),
+수정 전에 넷 다 빨갰다:
+
+| 테스트 | 무엇을 막는가 |
+|---|---|
+| `test_resources_carry_the_ticket_number` | 기존 테스트에 `t42["redis_db"] != t43["redis_db"]` 추가 — 리뷰가 지적한 "DB·포트만 보고 Redis 를 빼놓은" 구멍 |
+| `test_every_ticket_gets_its_own_redis_db` | 배정표 전체(42·43·44)가 **서로 다르고**, 예약 번호(0 개발 · 1 pytest 기본 · 5 pytest 티켓 42)를 피하고, 0–15 범위인지 |
+| `test_unassigned_ticket_refuses_instead_of_sharing_a_redis_db` | 표에 없는 티켓이 기본값으로 떨어지지 않고 **거부**하는지. `E2E_REDIS_DB` 를 직접 주면 돌아가는지도 같이 |
+| `test_redis_url_carries_the_assigned_db` | `e2e_redis_url`(앱이 보는 것)과 `E2E_REDIS_DB`(`down` 의 `redis-cli -n` 이 보는 것)가 어긋나지 않는지 |
+
+**수정.** `scripts/e2e/env.sh` 에 **배정표 한 곳**을 만들었다 — 번호를 티켓에서 산술로
+유도(`4 + (티켓 - 42)`)하지 않은 이유는 코디네이터가 이미 손으로 배정한 번호(티켓 43 의
+E2E 13, 티켓 42 의 pytest 5)가 있어서 산술이 그 값과 어긋나기 때문이다. pytest 번호까지
+같은 표에 적어 둬야 `down` 의 flushdb 가 돌고 있는 남의 판을 지우지 않는다.
+
+```bash
+e2e_redis_db_for_ticket() {
+  case "$1" in
+    42) echo 4 ;;
+    43) echo 13 ;;
+    44) echo 12 ;;
+    *) return 1 ;;
+  esac
+}
+
+if [ -z "${E2E_REDIS_DB:-}" ]; then
+  E2E_REDIS_DB="$(e2e_redis_db_for_ticket "$E2E_TICKET")" || { …; return 1 2>/dev/null || exit 1; }
+fi
+```
+
+표(주석)에 적힌 전체 배정: `0` 로컬 개발 · `1` pytest 기본(`TestingConfig`) ·
+**`4` E2E 티켓 42** · `5` pytest 티켓 42 · `12` E2E 티켓 44 · `13` E2E 티켓 43.
+
+**증명(수정 후).**
+
+```
+$ for t in 42 43 44; do E2E_TICKET=$t bash -c 'source scripts/e2e/env.sh; echo "t='$t' $E2E_DB $(e2e_redis_url) $E2E_PORT"'; done
+t=42 chosung_daily_e2e_t42 redis://127.0.0.1:6379/4 5042
+t=43 chosung_daily_e2e_t43 redis://127.0.0.1:6379/13 5043
+t=44 chosung_daily_e2e_t44 redis://127.0.0.1:6379/12 5044
+
+$ bash -c 'E2E_TICKET=99 source scripts/e2e/env.sh'; echo "exit=$?"
+e2e/env.sh: 티켓 99 의 Redis DB 번호가 배정표에 없다 — 위 표(e2e_redis_db_for_ticket)에
+  한 줄을 더하거나 E2E_REDIS_DB 를 직접 줘라.
+exit=1
+
+$ E2E_TICKET=99 bash scripts/e2e_stack.sh status      # set -euo pipefail 경로도 막힌다
+e2e/env.sh: 티켓 99 의 Redis DB 번호가 배정표에 없다 — …
+exit=1
+
+$ E2E_TICKET=99 E2E_REDIS_DB=9 bash -c 'source scripts/e2e/env.sh; echo "$(e2e_redis_url)"'
+redis://127.0.0.1:6379/9                              # 직접 주면 표 밖에서도 쓸 수 있다
+```
+
+문서도 같이 고쳤다: `scripts/e2e/env.sh` 머리말, `README.md` 의 "쓰는 자원" 항목(배정표
+전문 + "표에 없는 티켓 번호로는 스택이 뜨지 않는다"). 리뷰가 지적한 증거 문서의 문장
+("`E2E_TICKET` 하나로 전부 갈린다")은 §1 표에 그대로 두되 이 절이 정확한 동작이다 —
+**DB 이름·포트는 번호에서 만들고, Redis 번호는 배정표에서 가져온다.**
+
+### D-42-6 (MINOR) — 시나리오 4·8 이 ko 만 돌았다
+
+**원인.** `10-streak.spec.mjs:22`·`07-offline.spec.mjs:22,59` 가 `openGame(browser,
+{ lang: "ko" })` 로 고정이고 다른 시나리오가 쓰는 `for (const lang of ["ko","en"])` 가 없었다.
+그래서 en 사전의 `offline_banner`·`puzzle_load_failed`·`retry` 문구와 en 퍼즐의 연속 기록
+경로(`guess_service._record_solve` 가 언어 무관인지 — 스펙 US 14)를 아무도 보지 않았다.
+
+**재현(수정 전).** `scripts/e2e_web.sh specs/10-streak.spec.mjs` → 테스트 1개 × 2뷰포트 = 2개.
+전체 한 판은 42개.
+
+**실패하는 테스트로 고정.** `test_scenario_runs_in_both_languages` — ko·en 둘 다 돌아야 하는
+스펙 8개를 파라미터로 돌려 `for (const lang of ["ko", "en"])` 를 확인한다. 수정 전
+`07-offline`·`10-streak` 2건이 빨갰다(운영자 화면은 ko 전용이라 `09-admin` 은 제외,
+`05-language-switch` 는 한 테스트가 두 언어를 함께 본다).
+
+**수정 ①** 두 스펙을 언어 루프로 감쌌다. 산출물 폴더·axe json 이름도 언어별로 갈랐다
+(`07-offline-ko` / `07-offline-en` / `07-server-error-{lang}`, `10-streak-{lang}`).
+streak 의 `/me/history` 단정은 칸이 언어별이라 `results.ko` → `results[lang]` 로 바꿨다.
+
+**수정 ②(같은 결함의 숨은 절반).** 연속 기록 시나리오는 **한 판마다 하루를 넘긴다**
+(`stack("advance-day")`). 언어를 추가하면 한 판에 넘기는 횟수가 2번 → 4번
+(ko·en 2개 * 뷰포트 2개)이 된다. k 번째 판은 `PINNED[k-1]`(1일차)과 `PINNED[k]`(2일차)를
+쓰고 날짜 시프트는 **언어를 가리지 않으므로**, 언어마다 못박은 날이 5개여야 한다.
+3개로 두면 마지막 판이 "manifest 에 오늘 퍼즐이 없다" 로 깨진다. `scripts/e2e/seed.py` 의
+`PINNED` 를 5개로 늘렸고, 그 산수를
+`test_pinned_words_cover_every_day_the_streak_scenario_advances` 가 **스펙의 언어 수 ×
+설정의 뷰포트 수**를 읽어 계산해 지킨다(언어나 뷰포트를 더하면 테스트가 먼저 깨진다).
+
+```python
+PINNED = {
+    PuzzleLanguage.KO: ("컴퓨터", "자전거", "어린왕자", "냉장고", "지하철"),
+    PuzzleLanguage.EN: ("apple", "school", "coffee", "window", "bicycle"),
+}
+```
+
+**증명.** 전체 한 판이 42개 → **48개**(+6: offline 2 · server-error 2 · streak 2)로 늘고,
+새로 추가된 6개 전부 통과. 실패는 그대로 9건(앱 결함 D-42-1~4)이다. 출력은 아래 §"재검증".
+en 쪽이 실제로 돈 증거: `e2e-artifacts/web/07-offline-en/*/steps.log`,
+`10-streak-en/*/steps.log`(`advance-day: 1일 전진: DB 60행 시프트 …`).
+
+### D-42-7 (MINOR) — 운영자 시나리오의 플레이어 제출이 `"가나다"` 로 고정
+
+**원인.** `09-admin.spec.mjs:132` 이 제출 문자열을 적어 뒀다. 서버는 길이가 다른 제출을
+채점하지 않고 `VALIDATION_ERROR` 로 막으므로(그래서 같은 파일이 `wrongGuesses(answer, …)`
+를 두고 있다), 시드가 못박은 ko 단어가 3글자가 아니게 되는 순간 시도가 **아예 생기지 않고**
+`guess()` 의 보드 행 단정이 먼저 터져 "시도가 있는 날짜는 교체 불가" 검증까지 못 간다.
+
+**재현.** 리뷰는 사고 실험으로 남겼지만, D-42-6 을 고치며 `PINNED` 를 늘리는 자리였으므로
+**ko 에 4글자(`어린왕자`)를 실제로 섞어** 재현했다 — 뷰포트 2개가 같은 스택을 쓰고
+desktop 판의 streak 가 하루를 2번 넘기므로, `어린왕자` 는 **mobile-390 판의 "오늘"** 이 된다.
+
+```
+$ bash scripts/e2e_stack.sh down; up; seed; advance-day; advance-day
+오늘 배정: [('ko', '어린왕자'), ('en', 'coffee')]
+
+$ npx playwright test specs/09-admin.spec.mjs --project=mobile-390     # 하드코딩 상태
+  Error: expect(locator).toHaveCount(expected) failed
+    Expected: 1 / Received: 0
+    waiting for locator('#board .tile-row')  — 14 × locator resolved to 0 elements
+      at lib/game.mjs:141  (guess → 09-admin.spec.mjs:138)
+  1 failed
+```
+
+보드 행이 생기지 않아 `guess()` 에서 멈췄다 — 리뷰의 예측과 정확히 같다.
+
+**실패하는 테스트로 고정.** `test_no_spec_types_a_hardcoded_answer` — 모든 스펙 파일에서
+`guess(<무엇>, "<리터럴>")` 꼴을 금지한다. 수정 전 `09-admin.spec.mjs` 만 빨갰다.
+
+**수정.** 오늘 정답에서 만든다. 맞히면 안 되고(시도만 필요하다) 길이는 같아야 하므로
+`nearMiss` 를 쓴다 — 같은 파일의 라이브러리가 바로 이 용도로 있던 것이다.
+
+```js
+const player = await openGame(browser, { lang: "ko" });
+const playerPuzzle = await todaysPuzzle(player.page, "ko");
+await guess(player.page, nearMiss(playerPuzzle.answer, "ko"));
+```
+
+**증명.** 같은 상태(오늘 ko = `어린왕자`, 깨끗한 DB, 하루 2번 넘김)에서 다시 돌리면 제출이
+채점되고 시나리오가 끝까지 간다 — 남은 실패는 **D-42-4 soft 2건뿐**이다(앱 결함).
+
+```
+$ npx playwright test specs/09-admin.spec.mjs --project=mobile-390     # 수정 후
+  Error: D-42-4: 390px 뷰포트에서 배정표가 가로로 넘친다 (문서 497px)
+  Error: D-42-4: 390px 에서 교체/배정 링크를 탭할 수 없다
+  1 failed          ← 두 soft 단정만. guess 는 통과했다.
+
+$ cat e2e-artifacts/web/09-admin/mobile-390/steps.log
+…
+05-CSV-행별결과
+06-단어목록-검색
+07-배정표-오늘과잔량                        ← "교체 불가" 단정을 지났다
+NOTE 배정표 폭: 문서 497px · 표 481px · 뷰포트 390px
+NOTE D-42-4 링크를 가로채는 요소: {"link":"374,971 24x44","hit":"A.admin-link"}
+08-교체-단어검색
+09-교체-배정확인
+NOTE 2026-11-14 ko 배정을 '빗자루' 으로 교체 확인      ← 끝까지 갔다
+```
+
+### 리뷰 "참고" 중 같이 고친 것
+
+- **R-4** `expectAxeClean` 의 soft 메시지가 상황과 반대였다("고쳐졌다면 지워라" 가
+  **아직 위반이 있을 때** 찍힌다). 문구만 바꿨다 — "`<결함>` 의 접근성 위반이 아직 남아
+  있다 — 고쳐졌으면 known 에서 지워라". 동작은 그대로다.
+- **R-6** 리포터를 직접 넘기면(`--reporter=line`) 설정의 html/json 리포터가 대체되어
+  `report/results.json` 이 갱신되지 않는다 — README "산출물" 항목에 한 줄 적었다.
+
+### 고치지 않은 것 (근거)
+
+- **D-42-1 ~ D-42-4** 는 앱 결함이고 이 티켓의 범위가 아니다(코디네이터 메모: 이들을
+  가리키는 실패 9건은 의도된 것). 수정 티켓에서 R-1 의 조언(`#message` 를 `toHaveText` 로)
+  을 함께 보면 된다.
+- **R-3**(`scripts/e2e/words_en.csv` 가 브리프 문면을 벗어남)·**R-5**(`_shift_sql` 을
+  pytest 의 MySQL 로 실행)·**R-7** 은 결함이 아니고 코디네이터 확인/후속 사항이라 손대지
+  않았다. R-2(백업 코드 입력칸이 24px 로 눌림)는 D-42-1 수정 뒤 다시 볼 일이다.
+
+### 재검증 (로컬 `main` 위, 실제 출력)
+
+`git rebase main` 은 **no-op** 이었다 — 이 브랜치의 베이스가 이미 로컬 `main`(`d27417c`)이다.
+
+```
+$ git log --oneline -1 main
+d27417c docs(plan): user-todo 14·18 에 티켓 41 사람 항목(TESTFLIGHT_TESTER_EMAIL·수출규정 확인) 반영
+$ git merge-base --is-ancestor main HEAD && echo "main 은 HEAD 의 조상"
+main 은 HEAD 의 조상
+$ git status --short        # 커밋 뒤 clean
+```
+
+**① 웹 E2E 한 판 (2026-10-16 01:40 KST)**
+
+```
+$ scripts/e2e_web.sh
+[e2e-stack] … DB chosung_daily_e2e_t42 drop … Redis DB 4 flush … up … 포트 5042/5142 /health 확인
+단어 시드: ko 20개 추가, en 12개 추가
+퍼즐 배정: 못박음 10건, 자동 배정 {'ko': 25, 'en': 25}     ← 못박음 6건 → 10건 (언어마다 5일)
+운영자 게스트: id=1 email=e2e-admin@example.com
+
+  9 failed
+    [desktop-1280] › specs/04-backup-restore.spec.mjs › [5] 백업 코드 → … (ko) / (en)
+    [desktop-1280] › specs/06-account-delete.spec.mjs › [7] 계정 삭제 → 새 게스트로 시작 (ko) / (en)
+    [mobile-390]   › specs/04-backup-restore.spec.mjs › [5] 백업 코드 → … (ko) / (en)
+    [mobile-390]   › specs/06-account-delete.spec.mjs › [7] 계정 삭제 → 새 게스트로 시작 (ko) / (en)
+    [mobile-390]   › specs/09-admin.spec.mjs › [10] 운영자: 로그인 → CSV 업로드 → 배정표 확인 → 단어 교체
+  39 passed (1.3m)
+[e2e-stack] … 종료 … DB drop … Redis DB 4 flush … down 완료
+```
+
+**42개 → 48개**(+6), 실패는 **그대로 9건**이고 전부 앱 결함 4건의 단정이다 — 새로 깨진 것이
+없고, 고친 세 건이 가린 실패도 없다:
+
+```
+   4   Error: D-42-1: 복사 버튼 라벨이 Jinja dict.copy 메서드로 렌더된다
+   4   Error: D-42-2 의 접근성 위반이 아직 남아 있다 — 고쳐졌으면 known 에서 지워라   (R-4 로 문구만 바뀜)
+   4   Error: D-42-3: 삭제 완료 안내가 restart() 에 지워진다
+   1   Error: D-42-4: 390px 뷰포트에서 배정표가 가로로 넘친다
+   1   Error: D-42-4: 390px 에서 교체/배정 링크를 탭할 수 없다
+```
+
+en 쪽이 실제로 돈 증거(`e2e-artifacts/web/10-streak-en/desktop-1280/steps.log`) — 언어별
+칸이 갈려 찍힌다:
+
+```
+NOTE advance-day: 1일 전진: DB 77행 시프트, Redis 8키 rename · 4키 삭제, manifest 10건 시프트
+NOTE GET /me/history?days=7 → [ … {"date":"2026-10-15","results":{"en":"success","ko":"none"}},
+                                 {"date":"2026-10-16","results":{"en":"success","ko":"none"}}]
+```
+
+산출물 폴더도 언어별로 갈렸다: `07-offline-ko` · `07-offline-en` · `07-server-error-ko` ·
+`07-server-error-en` · `10-streak-ko` · `10-streak-en`.
+
+**② pytest 전체**
+
+```
+$ TEST_DATABASE_URL=…/chosung_daily_test_t42 TEST_REDIS_URL=…/5 uv run pytest -q
+1734 passed in 775.83s (0:12:55)        ← exit 0  (1713 → 1734, 새 계약 테스트 +21개)
+```
+
+`tests/test_e2e_scripts.py` 는 20개 → **41개**다. 위 전체 판 뒤에 `BILINGUAL_SPECS` 를
+"예외만 적고 나머지는 디렉터리에서 읽기" 로 바꿨고(새 스펙이 생기면 자동으로 ko·en 을
+요구한다) 그 파일만 다시 돌려 41 passed 를 확인했다 — 테스트 수·대상은 같다.
+
+**③ ruff · Flutter**
+
+```
+$ uv run ruff check .
+All checks passed!
+
+$ cd mobile && flutter analyze
+No issues found! (ran in 7.1s)           ← exit 0
+
+$ cd mobile && flutter test
+00:43 +796: All tests passed!             ← exit 0
+```
+
+(`ruff format --check` 는 `main` 자체가 미포맷이라 이 티켓의 게이트가 아니다 — 리뷰 §1 과 동일.)
+
+**④ 자원 정리**
+
+```
+$ scripts/e2e_stack.sh status
+프로세스   없음
+$ redis-cli info keyspace          # db4(E2E 42) 가 목록에 없다 = 비어 있다
+db0:keys=19,expires=0,avg_ttl=0,subexpiry=0            (db0 = 로컬 개발)
+$ git status --short               # 추적 안 되는 파일 0개 (e2e-artifacts/ 는 gitignore)
+```
+

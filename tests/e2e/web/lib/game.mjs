@@ -222,7 +222,7 @@ export function expectAxeClean(violations, known = []) {
     const hit = violations.find((v) => matches(v, entry));
     expect.soft(
       hit ? `${entry.defect}: ${hit.id} @ ${entry.target}` : null,
-      `${entry.defect} 이 고쳐졌다면 이 known 항목을 지워라`,
+      `${entry.defect} 의 접근성 위반이 아직 남아 있다 — 고쳐졌으면 known 에서 지워라`,
     ).toBe(null);
   }
 }
