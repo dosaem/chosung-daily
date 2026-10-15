@@ -55,6 +55,16 @@
 				</array>
 			</dict>
 		</array>
+		<!-- 수출 규정(암호화) 신고. 이 앱이 쓰는 암호화는 **OS 가 제공하는 것**
+		     뿐이다 — dio/URLSession 의 HTTPS 와 flutter_secure_storage 의
+		     Keychain. 자체 암호 구현·암호 라이브러리(crypto·pointycastle·
+		     encrypt 등)를 pubspec 에 넣지 않았다. 둘 다 Apple 의 면제 범주라
+		     `false` 다(티켓 41, docs/RELEASE.md "### 41."). 이 키가 없으면
+		     올라간 TestFlight 빌드가 전부 "Missing Compliance" 로 들어가
+		     사람이 매 빌드 콘솔에서 답해야 심사 제출이 열린다.
+		     자체 암호화를 들이면 이 값과 그 절을 같이 고친다. -->
+		<key>ITSAppUsesNonExemptEncryption</key>
+		<false/>
 		<key>LSRequiresIPhoneOS</key>
 		<true/>
 		<key>UILaunchStoryboardName</key>
