@@ -24,6 +24,7 @@ Stitch 목업 선택 기록: V0 Dark+Orange(촌스러움, 폐기) → V1 Editori
 | `muted-foreground` | `#57534E` | `#94A3B8` | 보조 텍스트 (4.5:1 이상) |
 | `border` | `#E7E5E4` | `#2A3447` | 헤어라인 구분선 (1px). 타일엔 테두리 없음 |
 | `destructive` | `#DC2626` | `#EF4444` | 계정 삭제, 오류 |
+| `destructive-text` | `#DC2626` | `#F87171` | 다크에서 글자로 쓸 때(대비 5.63:1, 티켓 46). 면 색은 `destructive` 그대로 |
 
 **게임 피드백 토큰 (brand 와 절대 섞지 않는다)**
 
