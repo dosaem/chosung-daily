@@ -2851,8 +2851,10 @@ acknowledge 까지 나간다(D-32-5). 그래서 Play 거래는
 내지만 **"오늘"의 경계는 모든 지역에서 KST 자정 하나**로 고정했다. 서버는 `KST =
 ZoneInfo("Asia/Seoul")`(`app/config.py`) 하나를 쓰고, 날짜가 필요한 모든 곳이
 `datetime.now(KST).date()` 로 같은 값을 읽는다 — 퍼즐 배정·조회, 리더보드·통계 Redis 키,
-연속 기록 판정, `GET /me/history` 의 7일 그리드, Celery Beat(`timezone = "Asia/Seoul"`),
-백업 04:00 과 접속기록 삭제 04:10 까지 전부다. 앱도 같은 기준을 갖되 시간대 DB 를 들이지
+연속 기록 판정, `GET /me/history` 의 7일 그리드가 그렇다. **시각으로 도는 것들도 같은
+시간대**다: Celery Beat 는 `timezone = "Asia/Seoul"`(자정 배정 · 00:05 통계 · 04:10 접속기록
+삭제), backup 컨테이너는 `TZ=Asia/Seoul` 로 04:00 에 돈다 — 날짜 기준과 배치 시각이 다른
+시간대면 "오늘 집계" 가 어제 것을 섞는다. 앱도 같은 기준을 갖되 시간대 DB 를 들이지
 않고 **고정 오프셋 UTC+9**(`NotificationPlan.kstOffset`)로 계산한다 — KST 는 1988년 이후
 서머타임이 없어서 오프셋이 바뀌지 않는다.
 
