@@ -15,15 +15,24 @@
 ///   따라 다른 그림을 낸다. 화면 코드는 여기서도 실제다.
 /// - **배너 슬롯 없음**. 광고 자리는 구독자에게 사라지는 영역이고(OVERRIDES §5),
 ///   스토어 스크린샷에 빈 회색 띠를 넣을 이유가 없다.
+/// - **OS·동의·시계도 가짜**(티켓 40). 광고 게이트·알림 권한·알림 설정·시계는
+///   기기가 들고 있는 값이라, 그대로 두면 같은 스크립트가 시뮬레이터 상태와
+///   찍는 시각에 따라 다른 그림을 낸다. 아래 `storeScreenshot*` 상수 참고.
 library;
 
+import 'package:chosung/ads/ad_gate.dart';
+import 'package:chosung/ads/ad_providers.dart';
 import 'package:chosung/analytics/analytics_service.dart';
 import 'package:chosung/api/api_models.dart';
 import 'package:chosung/api/api_providers.dart';
 import 'package:chosung/app.dart';
+import 'package:chosung/config/clock.dart';
 import 'package:chosung/config/provider_retry.dart';
 import 'package:chosung/layout/adaptive_scaffold.dart';
 import 'package:chosung/local/local_flags.dart';
+import 'package:chosung/notifications/notification_settings.dart';
+import 'package:chosung/notifications/notification_settings_controller.dart';
+import 'package:chosung/permissions/notification_permission.dart';
 import 'package:chosung/screens/onboarding_screen.dart';
 import 'package:chosung/screens/ranking_tab.dart';
 import 'package:chosung/screens/records_tab.dart';
@@ -31,11 +40,13 @@ import 'package:chosung/screens/today_tab.dart';
 import 'package:chosung/startup/startup_controller.dart';
 import 'package:chosung/theme/app_theme.dart';
 import 'package:easy_localization/easy_localization.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
 import '../test/fakes/fake_api_client.dart';
+import '../test/fakes/fake_permissions.dart';
 import '../test/fakes/in_memory_local_flag_store.dart';
 
 /// 찍을 장면. 구독(S5)은 OVERRIDES §8 의 목록에 없어서 빼 둔다.
@@ -332,6 +343,54 @@ LocalFlagStore storeScreenshotFlagStore() {
   return store;
 }
 
+/// 장면이 쓰는 고정 시계(티켓 40). KST 19:14:41 — 결과 시트(S2)의 "다음
+/// 퍼즐까지" 가 `04:45:19` 로 찍힌다.
+///
+/// 왜 고정하나: 카운트다운은 다음 KST 자정까지를 **지금 시각**으로 세므로,
+/// 고정하지 않으면 같은 세트의 ko·en 이 몇 분 차이로 다른 숫자가 되고 밤에
+/// 돌리면 `00:00:03` 같은 그림이 남는다. 퍼즐 날짜(`fakeTodayPuzzle` 10/13)와
+/// 같은 날로 맞춰 둔다 — 보드의 날짜와 카운트다운이 어긋나지 않게.
+DateTime storeScreenshotNow() => DateTime.utc(2026, 10, 13, 10, 14, 41);
+
+/// 장면의 광고 게이트(티켓 40). 값을 박아 두는 이유: 게이트의 세 입력(UMP
+/// 동의·ATT·구독 권한)이 전부 **기기와 세션**에서 오고, 장면은 `NoopAdService`
+/// 를 쓰므로 UMP 가 늘 `failed` 로 떨어져 S1·S2 의 힌트 카드에 "지금은 광고를
+/// 불러올 수 없어요" 가 박힌 채로 찍힌다(실측 2026-10-15).
+///
+/// 기준은 **동의를 마친 비구독자**다 — 스토어 그림의 기본 사용자다.
+/// [AdGate.showsPrivacyOptions] 만 false 로 둔다: 그 행은 UMP 가
+/// `privacyOptionsRequired` 를 주는 EEA 에서만 보이는 조건부 행이라, 주 시장
+/// (한국·미국)의 기본 화면에는 없다(코디네이터 결정, 티켓 40).
+const storeScreenshotAdGate = AdGate(
+  canLoadAds: true,
+  showsBannerSlot: true,
+  hintPreviewNeedsAd: true,
+  showsPrivacyOptions: false,
+);
+
+/// 장면의 알림 설정(티켓 40). 기본값 그대로(09:00 · 리마인더 켬)지만 **기기
+/// 저장소를 타지 않고, 첫 프레임부터 값이 들어 있다**.
+///
+/// 저장소만 메모리로 바꾸면(`notificationSettingsStoreProvider`) 모자란다.
+/// 그때도 `build()` 는 Future 라 첫 프레임이 `AsyncLoading` 이고, 리마인더
+/// 스위치가 `false → true` 로 **애니메이션**한다 — `takeScreenshot` 은 기기
+/// 표면을 찍어서 그 전환 중에 걸리면 꺼진 스위치가 남는다. 실측: 같은 코드로
+/// 찍은 iOS 폰 4장 중 2장(`iphone69_en`·`iphone65_ko`)이 꺼진 채였고 나머지
+/// 2장은 켜져 있었다(2026-10-15). [SynchronousFuture] 는 Riverpod 이
+/// `then` 을 부르는 순간 값을 돌려줘서 첫 읽기가 이미 `AsyncData` 다 —
+/// 상태가 바뀌지 않으니 애니메이션 자체가 없다.
+class StoreScreenshotNotificationSettings extends NotificationSettingsNotifier {
+  @override
+  Future<NotificationSettings> build() =>
+      SynchronousFuture(const NotificationSettings());
+}
+
+/// 장면의 알림 권한(티켓 40). `granted` 로 둔다 — 기본값 `notDetermined` 는
+/// S4 에 "알림 꺼짐 — 시스템 설정에서 켜기" 경고 행을 끼워 넣어서, 스토어
+/// 그림이 알림 2행(SCREENS S4) 대신 고장난 상태로 찍힌다.
+NotificationPermissionNotifier storeScreenshotNotificationPermission() =>
+    FixedNotificationPermissionNotifier(NotificationPermission.granted);
+
 Widget _root({
   required StoreScene scene,
   required FakeApiClient api,
@@ -355,6 +414,17 @@ Widget _root({
     // 키체인 상태에 따라 다른 그림을 낸다 — 깨끗한 시뮬레이터에선 안내가 결과
     // 보드를 덮어 찍히고 두 번째 실행부터는 안 찍힌다(D-35-5·D-35-8 과 같은 부류).
     localFlagStoreProvider.overrideWithValue(storeScreenshotFlagStore()),
+    // 아래 넷은 **기기·세션이 들고 있는 값**이다. 바꿔 끼우지 않으면 같은
+    // 스크립트가 시뮬레이터 상태와 찍는 시각에 따라 다른 그림을 낸다
+    // (티켓 40 — 위 상수들의 주석에 각각의 실측 근거가 있다).
+    clockProvider.overrideWithValue(storeScreenshotNow),
+    adGateProvider.overrideWithValue(storeScreenshotAdGate),
+    notificationSettingsProvider.overrideWith(
+      StoreScreenshotNotificationSettings.new,
+    ),
+    notificationPermissionProvider.overrideWith(
+      storeScreenshotNotificationPermission,
+    ),
   ],
   child: AppLocalizationScope(
     startLocale: locale,
@@ -369,6 +439,17 @@ Widget _root({
         locale: context.locale,
         supportedLocales: context.supportedLocales,
         localizationsDelegates: context.localizationDelegates,
+        // 시각 표기(S4 "일일 알림")는 **기기 설정**을 탄다 — 시뮬레이터가
+        // 24시간제로 맞춰져 있으면 `09:00`, 아니면 `오전 9:00` 이 찍힌다.
+        // 두 로케일의 세트가 같은 표기를 쓰도록 12시간제로 고정한다(티켓 40).
+        builder: (context, child) => MediaQuery.withNoTextScaling(
+          child: MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(alwaysUse24HourFormat: false),
+            child: child ?? const SizedBox.shrink(),
+          ),
+        ),
         home: home,
       ),
     ),

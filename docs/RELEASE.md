@@ -928,7 +928,8 @@ iPhone 6.9" 시뮬레이터에서 **Android 구성으로**(온보딩 3장) 대�
 - [ ] **iPad 스크린샷**: `mobile/ios/fastlane/screenshots/{ko,en-US}/ipad13_*.png`
       5장씩이 있는지 확인한다. iPad 지원 앱이 iPad 스크린샷 없이 제출하면 심사가
       막힌다(BASELINE 1.0.0 반려 원인).
-- [ ] **Play 폰 스크린샷 — 지금은 업로드가 막혀 있다.** 레포에 커밋된
+- [x] **Play 폰 스크린샷 — 티켓 40 에서 해소됐다**(아래 `### 40.`). 아래 설명은
+      당시 상태의 기록이다. ~~레포에 커밋된
       `android/fastlane/metadata/android/*/images/phoneScreenshots/iphone69_*.png`
       10장은 **iPhone 캡처의 바이트 복사본**이다(에뮬레이터 없이 돌린 결과).
       그림의 온보딩이 iOS 구성(ATT 안내 1장 추가)이라 Play 가 요구하는 실제 앱
@@ -937,7 +938,7 @@ iPhone 6.9" 시뮬레이터에서 **Android 구성으로**(온보딩 3장) 대�
       둘 중 하나다 — AVD 를 만들고 `./scripts/store_screenshots.sh both`(권장,
       `android_*` 세트), 또는 AVD 없이 같은 명령(iPhone 시뮬레이터에서 Android
       구성으로 찍은 `androidui_*` 세트). 둘 다 세트 단위로 교체되므로 섞이지 않는다.
-      29~33 머지 후 최종 재촬영 때 같이 처리한다.
+      29~33 머지 후 최종 재촬영 때 같이 처리한다.~~
 ### 31. 광고(AdMob) — 출시 전 사람이 해야 하는 일
 
 앱 코드는 다 들어갔다. 남은 것은 **AdMob 콘솔에서 사람이 만들어야 하는 식별자**와
@@ -1069,3 +1070,33 @@ Billing 7 은 2026-08-31 로 제출 마감):
 `book_title`(일요일 라운드)은 이 파일에 없다. LLM 이 실존하지 않는 책을 만들기 쉬워서
 `flask search-books` 로 넣는 게 규칙이고(README), 그 명령은 `KAKAO_REST_API_KEY` 또는
 `ALADIN_TTB_KEY` 가 있어야 결과를 돌려준다 — 키를 받은 뒤 사람이 직접 넣는다.
+
+### 40. 최종 스토어 스크린샷 — 29~33·38 머지 후 재촬영 결과
+
+티켓 35 가 만든 `scripts/store_screenshots.sh` 로 **전 세트를 다시 찍었다**. 업로드
+순서는 바뀌지 않는다(위 "### 35." 그대로) — 아래는 지금 레포에 들어 있는 그림이
+무엇인지와, 다시 찍을 때 알아야 할 것이다.
+
+| 세트 | 파일 prefix | 찍은 기기 |
+|---|---|---|
+| App Store iPhone 6.9" | `iphone69_*` | iPhone 17 Pro Max 시뮬레이터 |
+| App Store iPhone 6.5" | `iphone65_*` | iPhone 11 Pro Max 시뮬레이터 |
+| App Store iPad 13" | `ipad13_*` | iPad Pro 13-inch (M5) 시뮬레이터 |
+| Play 폰 | `android_*` | **Android 에뮬레이터(네이티브)** |
+| Play 태블릿 | `androidtablet_*` | iPad 시뮬레이터 + `SHOT_IS_IOS=false` |
+
+`mobile/tool/verify_store_screenshots.py ios` / `… play` 둘 다 **종료 0**이다.
+
+- **Android 에뮬레이터**: 기본 AVD(`Medium_Phone_API_36.1`)는 `/data` 가 가득 차
+  (5.8G 중 5.3G 사용) `adb install` 이 `Requested internal only, but not enough space`
+  로 죽는다. 티켓 40 은 **전용 AVD 를 따로 만들어**(같은 시스템 이미지,
+  `disk.dataPartition.size=8G`) 찍고 끝나고 지웠다. 다시 찍을 사람은 `ANDROID_AVD`
+  로 여유 있는 AVD 를 가리키면 된다 — 없으면 스크립트가 iPhone 시뮬레이터에서
+  Android 구성(`androidui_*`)으로 대신 찍고, 그것도 검사를 통과한다.
+- **장면은 기기 상태를 타지 않는다**: 광고 게이트·알림 권한·알림 설정·시계를
+  `store_screenshot_scenes.dart` 가 고정값으로 바꿔 낀다. 그래서 같은 명령을 다른
+  기기·다른 시각에 돌려도 같은 그림이 나온다. 고정값과 그 이유는 그 파일의
+  `storeScreenshot*` 주석에, 깨지면 잡는 테스트는 `mobile/test/store/` 에 있다.
+- **S2 의 "다음 퍼즐까지" 는 고정 숫자**(`04:45:19`)다. 실제 앱은 지금 시각으로
+  센다 — 장면만 시계를 주입한다(`clockProvider`).
+- 근거와 눈 확인 기록: `review/impl-evidence-40.md`.
