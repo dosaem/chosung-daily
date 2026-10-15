@@ -429,6 +429,16 @@ def test_the_human_order_does_not_duplicate_user_todo_state(human_order: str):
         "티켓 40",
         "Sandbox 결제",
         "배너 어댑티브 높이",
+        # 티켓 41: 문서 경계·재현성 MINOR 도 "고치지 않고 머지한 것" 이라 여기 모은다.
+        "D-01-3",
+        "D-03-1",
+        "D-04-1",
+        "D-05-1",
+        "D-07-1",
+        "D-19-1",
+        "D-19-2",
+        "D-19-3",
+        "D-40-1",
     ],
 )
 def test_known_limitations_section_collects_the_merged_minors(release: str, needle: str):
@@ -461,3 +471,76 @@ def test_every_ticket_section_heading_appears_once_at_the_start_of_a_line(releas
     headings = re.findall(r"^### (\d{2})\.", release, re.M)
 
     assert len(headings) == len(set(headings)), sorted(headings)
+
+
+# --- 41. cloudflared 라우팅 · 수출 규정 · ASC 보조 워크플로 --------------------
+
+
+@pytest.fixture(scope="module")
+def section_41(release: str) -> str:
+    """**줄 머리의** 제목에서 끊는다 — 다른 절이 `"### 41."` 을 가리키기만 해도 거기서
+    자르면 엉뚱한 토막을 읽는다(`tests/test_app_deploy_workflow.py::_section_34` 와 같다)."""
+    heading = "\n### 41."
+    assert heading in release, "RELEASE.md 에 '### 41.' 절이 없다"
+
+    return re.split(r"\n### \d", release.split(heading, 1)[1])[0]
+
+
+@pytest.mark.parametrize(
+    "needle",
+    [
+        # 두 관리 방식을 다 적는다 — NAS 의 현재 방식은 사람이 확인한다.
+        "Public Hostnames",
+        "config.yml",
+        "cloudflared tunnel route dns",
+        "http_status:404",
+        # 레포가 정하는 값은 포트 두 개다.
+        "127.0.0.1:8089",
+        "127.0.0.1:8090",
+        "API_BASE_URL_DEV",
+    ],
+)
+def test_section_41_documents_the_cloudflared_routing_both_ways(section_41: str, needle: str):
+    """기준표의 "cloudflared 라우팅 절차 문서" — 한 줄 확인 항목만으로는 develop
+    호스트네임을 붙일 수 없었다(티켓 41 이 채운 누락)."""
+    assert needle in section_41
+
+
+def test_section_41_tells_how_to_check_the_port_does_not_clash(section_41: str):
+    """develop 8090 은 사람이 NAS 실측으로 정한 값이다 — 서비스가 늘면 다시 본다."""
+    assert "LISTEN" in section_41
+    assert "APP_PORT" in section_41
+
+
+def test_section_41_states_why_the_export_compliance_answer_is_exempt(section_41: str):
+    """`false` 는 신고다 — 근거(OS 제공 암호화뿐)를 적어 두지 않으면 다음 사람이
+    값만 보고 그대로 둘지 뒤집을지 판단할 수 없다."""
+    assert "ITSAppUsesNonExemptEncryption" in section_41
+    assert "flutter_secure_storage" in section_41
+    assert "HTTPS" in section_41
+
+
+def test_the_info_plist_declares_the_export_compliance_answer():
+    """키가 없으면 올라간 TestFlight 빌드가 전부 Missing Compliance 로 들어간다."""
+    plist = _text(REPO_ROOT / "mobile" / "ios" / "Runner" / "Info.plist")
+
+    assert "<key>ITSAppUsesNonExemptEncryption</key>" in plist
+    key_at = plist.index("<key>ITSAppUsesNonExemptEncryption</key>")
+    assert plist[key_at:].split(">", 2)[2].lstrip().startswith("<false/>")
+
+
+@pytest.mark.parametrize(
+    "workflow",
+    ["asc-status.yml", "asc-build-compliance.yml", "asc-diagnose.yml", "testflight-tester.yml"],
+)
+def test_section_41_indexes_every_asc_helper_workflow(section_41: str, workflow: str):
+    """워크플로가 생겼는데 문서가 모르면 사람이 콘솔로 돌아간다."""
+    assert (WORKFLOW_DIR / workflow).exists(), f"{workflow} 가 없다"
+    assert workflow in section_41
+
+
+def test_section_41_records_the_podfile_lock_fix(section_41: str):
+    """D-40-2 해소 기록 — `pod install` 이 pbxproj 까지 바꾸는 이유를 적어 둔다."""
+    assert "D-40-2" in section_41
+    assert "project.pbxproj" in section_41
+    assert "Apple Distribution" in section_41
