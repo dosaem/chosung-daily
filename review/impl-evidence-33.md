@@ -421,6 +421,32 @@ apk exit=0
 확인 뒤 `mobile/build` 와 빌드가 만든 `mobile/android/.kotlin/` 을 지웠다 —
 `git status` 깨끗하다(32 리뷰 라운드 3 "참고 4" 와 같은 처리).
 
+**백엔드 — 변경 0건, 회귀 확인용.** 전용 자원으로 돌렸다(DB 이름
+`chosung_daily_test_t33` · `chosung_daily_test_t33_migrations`,
+`TEST_REDIS_URL=redis://127.0.0.1:6379/7`). 접속 형식은 `app/config.py`
+`TestingConfig` 기본값에서 DB 이름만 바꿨고 인증 값은 적지 않는다. 같은
+worktree 에서 pytest 를 두 개 돌리지 않았다(다른 워크트리의 pytest 는 각자
+전용 DB·Redis 를 쓴다).
+
+```
+$ TEST_DATABASE_URL=…/chosung_daily_test_t33 TEST_REDIS_URL=redis://127.0.0.1:6379/7 \
+  TEST_MIGRATION_DATABASE_URL=…/chosung_daily_test_t33_migrations \
+  uv run ruff check . ; ./scripts/check_migration_heads.sh ; uv run pytest -q
+All checks passed!
+ruff exit=0
+b1c7d4e0a932 (head)
+OK: Alembic head 1개
+heads exit=0
+1509 passed in 1134.89s (0:18:54)
+pytest exit=0
+```
+
+마이그레이션 head 1개 그대로(이 티켓은 리비전을 만들지 않는다). 백엔드 테스트
+수는 구현 라운드와 같은 **1509** 다 — D-32-6 은 서버를 안 건드렸다.
+
+**rebase 상태.** `git merge-base HEAD main == main == 8de470b`(티켓 32 머지),
+`git status` 비어 있음.
+
 ### E. 함께 손본 것 · 범위
 
 - **`test/ads/banner_slot_gate_test.dart` 에 `clockProvider` 고정.** 가짜
