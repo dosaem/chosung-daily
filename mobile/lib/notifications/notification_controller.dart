@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:chosung/config/clock.dart';
 import 'package:chosung/guest/guest_token_provider.dart';
 import 'package:chosung/notifications/completed_puzzle_dates.dart';
 import 'package:chosung/notifications/notification_bootstrap.dart';
@@ -95,7 +96,7 @@ class NotificationSyncController extends Notifier<List<ScheduledNotification>> {
       // 못 뜰 알림을 걸어두면 나중에 권한이 켜질 때 지난 알림이 쏟아진다.
       final desired = permission.isGranted
           ? planNotifications(
-              now: tz.TZDateTime.now(location),
+              now: tz.TZDateTime.from(ref.read(clockProvider)(), location),
               settings: settings,
               completedKstDates: completed,
             )
