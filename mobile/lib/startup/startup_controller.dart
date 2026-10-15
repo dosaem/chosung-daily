@@ -66,7 +66,7 @@ final startupProvider = AsyncNotifierProvider<StartupNotifier, StartupState>(
 );
 
 /// 시작할 때 읽은 내 기록. 아직 준비 상태가 아니면 null(화면은 스켈레톤).
-/// 탭들이 자기 데이터를 갖기 전까지(티켓 23·25) 쓰는 통로다.
+/// 탭들이 자기 데이터를 갖기 전까지(티켓 25·27) 쓰는 통로다.
 final startupStatsProvider = Provider<MyStats?>(
   (ref) => switch (ref.watch(startupProvider)) {
     AsyncData(value: StartupReady(:final stats)) => stats,

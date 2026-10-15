@@ -8,7 +8,7 @@ enum FirebaseBootstrap { initialized, skipped }
 /// `Firebase.initializeApp` 이 던지는데, **그걸로 앱이 죽으면 CI 와 새로
 /// 클론한 로컬에서 디버그 실행조차 못 한다** — 그래서 건너뛴다.
 ///
-/// 분석(Analytics)은 티켓 24 가 이 결과를 보고 켠다.
+/// 분석(Analytics)은 티켓 26 가 이 결과를 보고 켠다.
 Future<FirebaseBootstrap> initializeFirebase({
   Future<void> Function()? initialize,
 }) async {
