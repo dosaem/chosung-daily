@@ -218,7 +218,11 @@ main() {
   #    전환 1회: app 이 아직 호스트 포트를 직접 잡고 있으면(proxy 도입 전에 만든
   #    컨테이너) proxy 가 같은 포트를 못 잡는다. 그 경우에만 app 을 옛 방식으로
   #    재생성한다(이때만 몇 초 끊김) — 그 뒤로는 포트가 없어서 이 분기를 안 탄다.
-  if [[ -n "$(capture "${compose[@]}" port app 5000 2>/dev/null || true)" ]]; then
+  #    compose 2.20 은 발행 포트가 없으면 exit 1 이 아니라 ":0" 을 찍는다(2026-10-16 NAS 실측
+  #    — 그래서 전환이 끝난 뒤에도 매 배포마다 app 을 재생성하고 있었다). 둘 다 "없음".
+  local app_port
+  app_port="$(capture "${compose[@]}" port app 5000 2>/dev/null || true)"
+  if [[ -n "$app_port" && "$app_port" != ":0" ]]; then
     echo "app 이 호스트 포트를 직접 잡고 있다(proxy 전환 전) — 이번 한 번만 app 을 재생성한다"
     run "${compose[@]}" up -d --no-build --no-deps app
   fi

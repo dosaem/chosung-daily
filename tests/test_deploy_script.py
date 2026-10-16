@@ -278,6 +278,17 @@ def test_first_deploy_after_proxy_recreates_the_app_that_still_holds_the_port(tm
     assert f"{PROD} up -d --no-build --no-deps app" not in again.calls()
 
 
+def test_compose_colon_zero_means_no_published_port(tmp_path):
+    """compose 2.20 은 발행 포트가 없으면 exit 1 이 아니라 ':0' 을 찍는다 — 전환으로 보면
+    매 배포마다 app 을 재생성해 롤링이 무의미해진다(2026-10-16 NAS 실측)."""
+    nas = FakeNas(tmp_path, "chosung-daily", FAKE_GIT_BRANCH="main", FAKE_DOCKER_APP_PORT=":0")
+    res = nas.deploy("prod")
+
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert f"{PROD} up -d --no-build --no-deps app" not in nas.calls()
+    assert "proxy 전환 전" not in res.stdout
+
+
 def test_deploy_script_puts_synology_docker_on_the_path():
     """NAS 의 비대화형 ssh 셸엔 /usr/local/bin 이 없다 — 앞이 아니라 뒤에 붙여서
     테스트의 가짜 docker(PATH 앞)를 가리지 않는다."""
