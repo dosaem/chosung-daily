@@ -103,9 +103,9 @@ def http(monkeypatch):
             return R(201, {"number": number})
         return R(200, {})
 
-    def fake_post(url, json=None, timeout=None):
+    def fake_post(url, json=None, timeout=None, headers=None):
         log["slack"].append(json["text"])
-        return R(200, {})
+        return R(200, {"ok": True})
 
     monkeypatch.setattr(requests, "request", fake_request)
     monkeypatch.setattr(slack.requests, "post", fake_post)

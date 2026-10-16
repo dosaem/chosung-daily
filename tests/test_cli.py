@@ -35,9 +35,7 @@ def test_schedule_puzzles_command(app, tmp_path):
 def test_schedule_puzzles_command_takes_a_language(app, tmp_path):
     csv_path = tmp_path / "words.csv"
     csv_path.write_text(
-        "language,answer,category,hint\n"
-        "ko,사과,general,과일\n"
-        "en,apple,general,red fruit\n",
+        "language,answer,category,hint\nko,사과,general,과일\nen,apple,general,red fruit\n",
         encoding="utf-8",
     )
     app.test_cli_runner().invoke(args=["seed-words", str(csv_path)])
@@ -83,7 +81,9 @@ def test_notify_operator_test_command_reports_skip_without_webhook(app):
 def test_notify_operator_test_command_sends_through_the_wrapper(app, monkeypatch):
     sent = []
     monkeypatch.setattr(
-        operator_alert_service, "post_webhook_message", lambda text: sent.append(text) or True
+        operator_alert_service,
+        "post_channel_message",
+        lambda channel, text: sent.append(text) or True,
     )
 
     result = app.test_cli_runner().invoke(args=["notify-operator-test"])

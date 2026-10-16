@@ -36,10 +36,13 @@ def generate_word_candidates_task(self, language: str, trigger: str = "schedule"
             notify_operator(
                 "LLM 단어 후보 생성 실패",
                 f"{language} — {MAX_RETRIES}회 재시도 후 포기: {err}",
+                channel="alerts",
             )
         raise
     except AnthropicConfigError as err:
-        notify_operator("LLM 단어 후보 생성 실패 (설정)", f"{language} — 재시도 안 함: {err}")
+        notify_operator(
+            "LLM 단어 후보 생성 실패 (설정)", f"{language} — 재시도 안 함: {err}", channel="alerts"
+        )
         return {"language": language, "skipped": f"config error: {err}"}
     return {
         "language": language,
@@ -68,11 +71,14 @@ def review_word_candidates_task(self, batch_id: str):
                 "LLM 단어 후보 심사 실패",
                 f"배치 {batch_id[:8]} — {MAX_RETRIES}회 재시도 후 포기: {err} · "
                 "후보는 승인 대기로 남음",
+                channel="alerts",
             )
         raise
     except AnthropicConfigError as err:
         notify_operator(
-            "LLM 단어 후보 심사 실패 (설정)", f"배치 {batch_id[:8]} — 재시도 안 함: {err}"
+            "LLM 단어 후보 심사 실패 (설정)",
+            f"배치 {batch_id[:8]} — 재시도 안 함: {err}",
+            channel="alerts",
         )
         return {"batch_id": batch_id, "skipped": f"config error: {err}"}
     return {

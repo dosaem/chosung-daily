@@ -61,6 +61,10 @@ class Config:
     # 운영자 알림(단어 잔량·배정 실패·백업 실패 등)을 받을 Slack Incoming Webhook.
     # 비어 있으면 app/clients/slack.py 가 전송을 건너뛴다 — 개발·테스트 기본값.
     SLACK_WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL", "")
+    # 봇 토큰 + 용도별 채널(2026-10-16). 토큰이 비면 위 웹훅 하나로 다 간다.
+    SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN", "")
+    SLACK_CHANNEL_ALERTS = os.environ.get("SLACK_CHANNEL_ALERTS", "#chosung-alerts")
+    SLACK_CHANNEL_OPS = os.environ.get("SLACK_CHANNEL_OPS", "#chosung-ops")
 
     # 구글/애플 콘솔에 앱을 등록해야 실제로 채워지는 값들. 비어 있으면 그 provider의
     # 로그인 버튼은 "설정 안 됨" 에러를 내도록 처리한다(app/extensions.py의 init_oauth).

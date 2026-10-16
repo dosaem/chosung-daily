@@ -21,8 +21,8 @@ def operator_alerts(monkeypatch):
     messages = []
     monkeypatch.setattr(
         operator_alert_service,
-        "post_webhook_message",
-        lambda text: messages.append(text) or True,
+        "post_channel_message",
+        lambda channel, text: messages.append(text) or True,
     )
     return messages
 

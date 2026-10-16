@@ -17,7 +17,8 @@ from dataclasses import dataclass
 from flask import current_app
 
 from app.clients import github
-from app.clients.slack import post_webhook_message
+from app.clients.slack import post_channel_message
+from app.services.operator_alert_service import channel_name
 from app.utils.redis_safe import safe_redis_call
 
 logger = logging.getLogger(__name__)
@@ -116,11 +117,13 @@ def _on_created(issue: SentryIssue, *, reopened: bool) -> HookOutcome:
 
     repo = current_app.config["GITHUB_ISSUES_REPO"]
     head = "에러 다시 열림" if reopened else ("에러 재발" if existing else "새 에러")
-    sent = post_webhook_message(
+    sent = post_channel_message(
+        channel_name("alerts"),
         f"{SERVICE_TAG} {head} [{issue.level}] {issue.short_id}\n"
         f"{issue.title}\n{issue.culprit}\n"
         f"Sentry: {issue.permalink}\n"
-        f"GitHub: https://github.com/{repo}/issues/{number} ← Claude 가 원인 분석·수정 PR 을 답니다"
+        f"GitHub: https://github.com/{repo}/issues/{number} ← Claude 가 원인 분석·수정 PR 을 "
+        "답니다",
     )
     return HookOutcome(handled=True, slack_sent=sent, github_issue=number, note=note)
 
@@ -130,8 +133,9 @@ def _on_resolved(issue: SentryIssue) -> HookOutcome:
     if number is not None:
         github.comment_issue(number, f"Sentry 에서 해결됨 — {issue.permalink}")
         github.close_issue(number)
-    sent = post_webhook_message(
-        f"{SERVICE_TAG} 에러 해결됨 {issue.short_id}\n{issue.title}\n{issue.permalink}"
+    sent = post_channel_message(
+        channel_name("alerts"),
+        f"{SERVICE_TAG} 에러 해결됨 {issue.short_id}\n{issue.title}\n{issue.permalink}",
     )
     return HookOutcome(handled=True, slack_sent=sent, github_issue=number, note="해결 처리")
 

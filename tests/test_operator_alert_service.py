@@ -10,7 +10,9 @@ from app.services.operator_alert_service import notify_operator
 def sent(monkeypatch):
     messages = []
     monkeypatch.setattr(
-        operator_alert_service, "post_webhook_message", lambda text: messages.append(text) or True
+        operator_alert_service,
+        "post_channel_message",
+        lambda channel, text: messages.append(text) or True,
     )
     return messages
 
@@ -28,6 +30,6 @@ def test_sends_kind_and_message_in_one_slack_message(app, sent):
 
 
 def test_reports_wrapper_failure_without_raising(app, monkeypatch):
-    monkeypatch.setattr(operator_alert_service, "post_webhook_message", lambda text: False)
+    monkeypatch.setattr(operator_alert_service, "post_channel_message", lambda channel, text: False)
 
     assert notify_operator("백업 실패", "mysqldump exit 1") is False

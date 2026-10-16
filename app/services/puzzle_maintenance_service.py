@@ -58,6 +58,7 @@ def ensure_today_puzzles_for_all_languages() -> list[PuzzleLanguage]:
             notify_operator(
                 "퍼즐 배정 실패",
                 f"{language.value} 오늘 퍼즐을 배정하지 못했습니다: {exc}",
+                channel="alerts",
             )
             failed.append(language)
 
@@ -89,9 +90,7 @@ def flush_daily_stats_for_yesterday() -> None:
     db.session.commit()
 
 
-def _upsert_daily_stats(
-    target_date: date, language: PuzzleLanguage, raw: dict[str, str]
-) -> None:
+def _upsert_daily_stats(target_date: date, language: PuzzleLanguage, raw: dict[str, str]) -> None:
     distribution = {str(n): int(raw.get(str(n), 0)) for n in range(1, MAX_ATTEMPTS + 1)}
     distribution["fail"] = int(raw.get("fail", 0))
     solver_count = sum(distribution[str(n)] for n in range(1, MAX_ATTEMPTS + 1))

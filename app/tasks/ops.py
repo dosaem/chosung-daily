@@ -27,6 +27,7 @@ def handle_sentry_hook_task(self, resource: str, payload: dict):
             notify_operator(
                 "Sentry 에러 (GitHub 이슈 생성 실패)",
                 f"{resource}: {err} · Sentry 에서 직접 확인하세요",
+                channel="alerts",
             )
             if not err.retryable:
                 return {"handled": False, "error": str(err)}

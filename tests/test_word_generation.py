@@ -213,7 +213,9 @@ def test_monthly_cost_and_pending_count_read_the_ledger(llm_app, post_calls):
 def operator_alerts(monkeypatch):
     messages = []
     monkeypatch.setattr(
-        operator_alert_service, "post_webhook_message", lambda text: messages.append(text) or True
+        operator_alert_service,
+        "post_channel_message",
+        lambda channel, text: messages.append(text) or True,
     )
     return messages
 

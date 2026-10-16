@@ -156,6 +156,7 @@ def purge_expired_access_logs() -> int:
         notify_operator(
             "접속기록 만료 삭제 실패",
             f"보관 기간 {days}일이 지난 접속기록을 지우지 못했습니다. 서버 로그를 확인하세요.",
+            channel="alerts",
         )
         raise
     if deleted:
