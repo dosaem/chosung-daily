@@ -3126,6 +3126,13 @@ X-Forwarded-For 뒤에는 자기 클라이언트 IP 를 **덧붙인다** — 로
 prod 의 `PROXY_FIX_X_FOR=2`(`docker-compose.prod.yml`). 1 로 두면 모든 요청이 게이트웨이
 IP 로 보여 분당 10회 rate limit 을 전 세계가 나눠 쓴다(`tests/test_proxy_fix_hops.py`).
 
+**첫 롤링 배포에서 잡힌 결함 둘.** ① `compose up -d proxy` 가 `depends_on` 을 따라 app 까지
+끌어와 **재생성**했다 — 롤링 전에 app 이 한 번 죽으니 롤링이 무의미했다. 모든 `up` 에
+`--no-deps` 를 붙였고 테스트가 "up 호출 전부에 --no-deps" 를 단정한다. ② 컨테이너 CMD 의
+`uv run` 이 기동 때마다 lock 을 다시 맞추며 패키지를 25초 설치하고 있었다(이미지 빌드
+때 이미 `uv sync --frozen` 을 했는데도). `--no-sync` 로 끊어 healthy 까지 걸리는 시간을
+그만큼 줄였고, 네트워크가 막혀도 뜨게 했다.
+
 **덤으로 잡힌 결함.** Synology 의 비대화형 ssh 셸은 PATH 에 `/usr/local/bin` 이 없어서
 GitHub Actions 의 `ssh nas 'bash -s'` 가 `docker: command not found` 로 죽고 있었다 —
 git merge 는 끝났는데 컨테이너는 옛것인 채로. 스크립트가 PATH **뒤에** 붙인다(앞에
