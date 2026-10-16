@@ -59,3 +59,28 @@
 - NYT 도움말: 로그인 없이 플레이, 연속 기록은 자정 전 완료 기준 — https://thenewyorktimeshelpcenter.helpjuice.com/24611727334932-Wordle
 - 한국일보 PlayGround(초성퀴즈, 매일, 생성형 AI 기반) — https://www.journalist.or.kr/ezview/article_main.html?no=59033
 - 인디 사례(Indie Hackers: 랜딩에 간단한 how-to, 버튼 간격) — https://www.indiehackers.com/post/well-word-free-daily-word-game-i-built-web-ios-android-ac270c5789
+
+## 5. "하루 한 판" 을 넘는 추가 플레이 — 경쟁사 비교 (2026-10-16, 사용자 질문 "하루에 한 판밖에 못 하는 건 이상하지 않나")
+
+| 서비스 | 하루 1문제 | 지난 문제(아카이브) | 무한/연습 모드 | 비고 |
+|---|---|---|---|---|
+| Wordle (NYT) | O | **구독자만** — 아카이브 1만개가 구독의 핵심 가치 | X | 무료는 하루 1판. 보너스 퍼즐도 구독 |
+| Connections (NYT) | O | 구독자 | X | 같은 모델 |
+| Contexto | O (`/daily`) | O 전부 무료 (`/previous/:date`, 요일 7칸 UI) | O `/unlimited` | 유료는 Tips(힌트 재화)·광고 제거. 캡처 `shot-contexto-unlimited.png` |
+| Semantle | O | O 전부 무료 (`/archive`, #1~#1720 목록) | X (Junior = 쉬운 버전) | 캡처 `shot-semantle-archive.png` |
+| 꼬맨틀 | O | X (FAQ "하루에 한 번 이상 플레이할 수는 없나요?" 항목 자체가 있음 = 자주 받는 요청) | X | 어제 정답만 FAQ 에 공개 |
+| 꼬들 | O | X | △ 자매 사이트 "꼬오오오오들" — 무한이 아니라 **22문제 연속·기회 1번** 하드코어 모드 | 캡처 `shot-koooo.png` |
+| 한국일보 초성퀴즈 | O | 확인 못 함 | X | — |
+
+읽기: **하루 1문제는 장르 공통**이고, 거기에 "더 풀고 싶다" 를 받는 길이 둘이다.
+① **지난 문제 아카이브**(Contexto·Semantle 무료, NYT 유료) — 데이터가 이미 있고(지난
+퍼즐·시도 테이블), 스포일러가 없고(과거만), 하루 경계·리더보드·연속 기록을 안 건드린다.
+NYT 는 이걸 구독 가치로 쓴다 → 우리 구독("광고 제거"만)에 살 이유를 하나 더 준다
+(`marketing-2026-10.md` #5 와 같은 결론). ② **무한 모드**(Contexto 뿐) — 우리 단어 풀은
+**앞으로 나올 퍼즐의 풀**이라 거기서 뽑으면 미래 퍼즐이 새나간다. 연습 전용 풀(LLM 파이프
+라인에 `practice` 풀 추가)이 먼저 있어야 해서 일이 한 단계 더 든다.
+
+**결정 제안**: ① 아카이브를 붙인다 — 지난 7일 무료, 그 이전은 구독자(Contexto 의 무료 +
+NYT 의 구독 가치 절충). 아카이브 플레이는 리더보드·연속 기록·대결 링크에 안 들어가고 결과
+공유만 된다. ② 무한 모드는 다음 안으로 넘긴다(연습 풀 생성이 선행, "모음 하나 공개" 와
+묶어 연습 모드에서 먼저 실험하면 공정성 논쟁 없이 시험 가능).
