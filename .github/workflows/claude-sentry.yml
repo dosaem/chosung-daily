@@ -64,11 +64,20 @@ jobs:
         with:
           fetch-depth: 1
 
-      - uses: astral-sh/setup-uv@v5
-      - uses: actions/setup-python@v5
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
         with:
-          python-version-file: pyproject.toml
-      - run: uv sync --all-extras --dev
+          version: "latest"
+      - name: Set up Python
+        run: uv python install 3.12
+      - name: Install dependencies
+        run: uv sync --all-extras --dev
+      - name: 마이그레이션 왕복 테스트용 DB 준비
+        run: |
+          mysql -h 127.0.0.1 -uroot -proot -e "
+            CREATE DATABASE IF NOT EXISTS chosung_daily_test_migrations CHARACTER SET utf8mb4;
+            GRANT ALL PRIVILEGES ON \`chosung_daily_test_migrations\`.* TO 'chosung'@'%';
+            FLUSH PRIVILEGES;"
 
       - uses: anthropics/claude-code-action@v1
         with:
