@@ -425,6 +425,48 @@ Android)을 `app_setting` 테이블에 저장한다. 저장하면 `GET /api/v1/c
 `GOOGLE_BOOKS_API_KEY` 는 **선택**이다 — 없어도 검색되고, 키를 넣으면 쿼터가 호출 IP
 대신 GCP 프로젝트에 붙는다. 한국어 책은 `flask search-books`(카카오·알라딘)를 쓴다.
 
+## 운영: LLM 단어 후보 생성 · 검수 (`/admin/candidates`)
+
+단어 잔량이 줄면 Claude 가 후보를 만들고, **운영자가 승인한 것만** 단어가 된다.
+기본은 꺼져 있다 — `.env` 에 `ANTHROPIC_API_KEY` 와 `LLM_WORD_GENERATION_ENABLED=true`
+를 넣어야 돈다(이 프로젝트 전용 키를 발급해 쓴다. 다른 프로젝트 키를 돌려쓰지 않는다).
+
+**흐름** — ① 잔량 알림(`notify_low_word_pool`, 14일치 미만)이나 어드민의 `후보 생성`
+버튼이 Celery 태스크 `tasks.generate_word_candidates` 를 큐에 넣는다 → ② 태스크가
+Claude(`LLM_MODEL`, 기본 `claude-sonnet-5-5`)에게 JSON 스키마로 후보 `LLM_CANDIDATES_PER_CALL`
+개(기본 40)를 받는다 → ③ CSV 점검과 **같은 규칙**(`app/services/word_rules.py`: 길이·
+문자·힌트 누설·모음 비율·중복)으로 거르고, 통과는 `word_candidate.proposed`, 탈락은
+`rejected` + 사유로 남긴다 → ④ Slack 에 "후보 N개 · 탈락 M개 · 통과율 · 비용" 이
+간다 → ⑤ 운영자가 `/admin/candidates` 에서 힌트를 고쳐 **선택 승인**(= `create_word`,
+손으로 넣은 단어와 같은 검증·가림 계산) 또는 **선택 거절**한다. 승인 전 후보는 자정
+배정이 절대 뽑지 않는다(다른 테이블).
+
+**안전장치** (`run_generation`) — 넷 중 하나라도 걸리면 호출 없이 건너뛴다.
+
+| 장치 | 설정 | 기본 | 걸리면 |
+| --- | --- | --- | --- |
+| 기능 플래그 | `LLM_WORD_GENERATION_ENABLED` | `false` | 조용히 건너뜀 |
+| 승인 대기 상한 | `LLM_MAX_PENDING_CANDIDATES` | 60 (언어당) | 건너뜀 — 먼저 검수 |
+| 월 예산 | `LLM_MONTHLY_BUDGET_USD` | 5 | 건너뛰고 Slack 경고 |
+| 언어 락 | Redis `llm:wordgen:{lang}` 10분 | — | 같은 언어 중복 실행 방지 |
+
+호출마다 `llm_call` 에 모델·토큰·비용(USD, 공시 단가로 계산)·지연·결과가 남는다.
+429/5xx/타임아웃은 태스크가 백오프로 최대 3회 재시도하고 그래도 실패하면 Slack,
+4xx(키 오류 등)는 재시도 없이 바로 Slack 이다. 키 없이 돌리면 설정 오류로 끝난다.
+
+**지표 뽑기** (운영 기록·이력서용) — 통과율과 단어당 비용:
+
+```sql
+-- 배치별 통과율
+SELECT batch_id, language,
+       SUM(status <> 'rejected' OR reviewed_by IS NOT NULL) AS passed_rules,
+       COUNT(*) AS total
+FROM word_candidate GROUP BY batch_id, language;
+-- 승인된 단어 하나당 비용 (USD)
+SELECT (SELECT SUM(cost_usd) FROM llm_call WHERE purpose = 'word_generation')
+     / NULLIF((SELECT COUNT(*) FROM word_candidate WHERE status = 'approved'), 0);
+```
+
 ## 설계 판단
 
 > 아래 `트랜잭션 경계`~`퍼즐 카테고리 비중` 은 초기 구현 때 쓴 항목이다. 스토어 출시
@@ -2989,6 +3031,43 @@ ZoneInfo("Asia/Seoul")`(`app/config.py`) 하나를 쓰고, 날짜가 필요한 �
 .admin-stock-note`, `style.css` 의 `.message`)만 옮겼고 면·테두리 쓰임은 그대로다.
 코디네이터 결정(2026-10-16): 출시 품질·접근성이라 이 티켓에서 같이 고친다.
 디자인 시스템 문서는 `.scratch/` 라 고치지 않았다 — 근거는 이 절이다.
+
+### LLM. 출제 파이프라인 — 후보는 사람이 승인하고, 비용은 네 겹으로 막는다
+
+**LLM 결과를 `word` 에 바로 넣지 않는다.** 별도 `word_candidate` 테이블에 쌓고
+운영자가 `/admin/candidates` 에서 승인해야 `create_word` 를 탄다. 사전 API 로 실존
+단어인지 확인하는 단계는 **일부러 뺐다** — 네이버/국립국어원 사전은 키 발급·호출
+한도·용어 정책이 또 하나의 운영 부담이고, 하루 한 단어 게임에서 후보 40개를 사람이
+훑는 데 2분이면 된다. 사람 승인이 곧 사전 검증이다. 대신 기계가 할 수 있는 검사는
+전부 승인 **전에** 끝낸다: CSV 점검 스크립트의 규칙을 `word_rules` 모듈로 빼서
+`check_word_csv.py` 와 생성 서비스가 **같은 함수**를 쓴다(규칙이 두 벌이면 CSV 는
+통과하고 LLM 은 떨어지는 단어가 생긴다). 그 리팩터링은 기존 테스트 17개를 한 줄도
+안 바꾸고 통과시키는 걸 조건으로 했다.
+
+**구조화 출력은 `tool_choice` 강제가 아니라 `output_config.format`(JSON 스키마)** 이다.
+Sonnet 5.5 는 강제 tool_choice 를 거부하고, 어차피 우리가 원하는 건 "도구 호출" 이
+아니라 "이 모양의 JSON" 이다. 응답은 pydantic 으로 한 번 더 검증하고, 모양이 틀리면
+그 배치를 탈락 사유와 함께 남긴다(조용히 빈 배치가 되지 않게).
+
+**SDK 대신 `requests` 래퍼** (`app/clients/anthropic.py`). 이 프로젝트의 외부 호출은
+전부 같은 모양이다 — 카카오·구글 북스·애플·Slack 모두 `requests` + 타임아웃 + 예외
+두 종류("다시 보내면 될 수도" / "다시 보내도 같다"). Anthropic 도 그 틀에 맞췄다.
+재시도 정책을 Celery `autoretry_for` 하나로 두려면 예외가 **일시 오류와 설정 오류로
+갈려야** 하는데, SDK 예외 계층을 다시 그 둘로 접는 것보다 HTTP 상태를 직접 보는 게
+짧았다. 테스트도 그래서 HTTP 경계(`requests.post`)만 가짜로 두고 MySQL·Redis 는
+진짜를 쓴다 — 중복 판정·락·월 예산 합계가 실제 쿼리로 검증된다.
+
+**비용 가드는 네 겹** — 플래그, 언어당 승인 대기 상한(60), 월 예산(5달러), 언어 락.
+한 겹으로 안 되는 이유: 플래그는 "켜도 되나" 이고, 대기 상한은 "운영자가 안 보는데
+계속 만들지 마라" 이고, 월 예산은 "프롬프트가 잘못돼 탈락만 쌓여도 돈은 새지 마라"
+이고, 락은 "Beat 와 버튼이 같은 순간에 누르면 한 번만" 이다. 비용은 `llm_call` 에
+호출마다 공시 단가로 기록한다 — 실제 청구서를 긁어오는 대신 토큰 수 × 단가로
+계산해서, 예산 판정이 외부 API 하나에 더 기대지 않게 했다. 단가가 바뀌면
+`PRICE_PER_MILLION_USD` 한 곳만 고친다.
+
+**거절·탈락 행도 지우지 않는다.** 통과율(배치당 규칙 통과 수 / 전체)과 승인 단어당
+비용이 이 기능의 성적표이고, 그 두 숫자는 탈락 행이 있어야 나온다. 프롬프트를 고칠
+때 "무엇이 왜 떨어졌나" 를 사유 열에서 바로 읽는다.
 
 ## 부하 테스트 요약
 
