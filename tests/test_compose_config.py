@@ -41,8 +41,20 @@ def test_prod_compose_has_no_fixed_container_names(prod_compose):
     assert named == []
 
 
-def test_app_host_port_is_parametrized(prod_compose):
-    assert prod_compose["services"]["app"]["ports"] == ["127.0.0.1:${APP_PORT}:5000"]
+def test_host_port_belongs_to_the_proxy_and_is_parametrized(prod_compose):
+    """호스트 포트는 proxy(Caddy)만 잡는다 — app 이 잡으면 롤링 교체(티켓 47)가
+    같은 포트로 새 app 을 못 띄운다."""
+    services = prod_compose["services"]
+    assert services["proxy"]["ports"] == ["127.0.0.1:${APP_PORT}:80"]
+    assert "ports" not in services["app"]
+
+
+def test_app_can_be_rolled(prod_compose):
+    """롤링 교체가 기대는 세 가지: healthcheck(건강 판정), 멈출 시간, 프록시 홉 2."""
+    app = prod_compose["services"]["app"]
+    assert "healthcheck" in app
+    assert app["stop_grace_period"] == "20s"
+    assert app["environment"]["PROXY_FIX_X_FOR"] == 2
 
 
 def test_env_file_is_parametrized(prod_compose):
@@ -71,7 +83,7 @@ def test_volumes_use_compose_project_naming(prod_compose):
     ("filename", "project", "port"),
     [
         (".env.prod.example", "chosung-daily-prod", "8089"),
-        (".env.develop.example", "chosung-daily-develop", "8090"),
+        (".env.develop.example", "chosung-daily-develop", "8094"),
     ],
 )
 def test_env_examples_pin_project_and_port(filename, project, port):
