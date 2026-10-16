@@ -53,7 +53,7 @@
 | # | 항목 | 상태 | 누가 | 비고 |
 |---|---|---|---|---|
 | 19 | LLM 출제 파이프라인 — 구현 · **`ANTHROPIC_API_KEY` 발급(이 프로젝트 전용)** · 첫 실행 → 통과율·단어당 비용 | **구현 끝(2026-10-16)**, 키·실행은 아직 | Claude(구현) → **사용자(키 발급)** → Claude(첫 실행·지표) | 브랜치 `feat/llm-word-gen`(워크트리 `~/orca/worktrees/chosung-daily-llm`), 커밋 6개. 후보는 `/admin/candidates` 에서 사람이 승인. 켜려면 NAS `.env` 에 `ANTHROPIC_API_KEY` + `LLM_WORD_GENERATION_ENABLED=true`. 지표 SQL 은 README "운영: LLM 단어 후보 생성" |
-| 20 | 티켓 47 무중단 배포 조사 (이미지 먼저 빌드 → app 만 교체, 나중에 blue/green) | **조사 끝(2026-10-16)** — 결정 대기 | Claude → **사용자(1·2단계 결정)** | 메모 `.scratch/store-launch/zero-downtime-deploy.md`. 권장: 1단계(빌드→마이그레이션→교체 순서, 끊김 ~5초 유지하되 "새 코드가 없는 열 읽는" 창 제거)를 티켓 47 로 바로, 2단계(Caddy 롤링, 끊김 0초)는 출시 뒤, blue/green 은 안 함 |
+| 20 | 티켓 50 무중단 배포 조사 (이미지 먼저 빌드 → app 만 교체, 나중에 blue/green) | **조사 끝(2026-10-16)** — 결정 대기 | Claude → **사용자(1·2단계 결정)** | 메모 `.scratch/store-launch/zero-downtime-deploy.md`. 권장: 1단계(빌드→마이그레이션→교체 순서, 끊김 ~5초 유지하되 "새 코드가 없는 열 읽는" 창 제거)를 티켓 50 으로 바로, 2단계(Caddy 롤링, 끊김 0초)는 출시 뒤, blue/green 은 안 함 |
 | 21 | Cloudflare 터널 `develop-chosung.dosaem.com` 경로 포트 **8090 → 8094** 수정 | **끝(2026-10-16)** | Claude(Chrome) | 8090 은 알리미가 씀. `https://develop-chosung.dosaem.com/health` 200 확인 |
 | 22 | 영어 단어 CSV(`en-general-01-reviewed.csv`, 161개) 업로드 + `/admin/schedule` ko/en 30일 확인 | **끝(2026-10-16)** | Claude(Chrome + ssh nas) | ko 162·en 161 일치. 오늘(10-16) 퍼즐이 두 언어 다 비어 있어서(단어를 자정 뒤에 올림) prod 컨테이너에서 `uv run flask schedule-puzzles --language {ko,en} --days 30` 실행 → ko 4일·en 30일 배정, EN 오늘 퍼즐 API 확인 |
 | 23 | AdMob 계정 승인 → UMP(동의 메시지) 생성 | 승인 대기 | Claude(Chrome) | 승인 전엔 UMP 페이지가 비어 있음 |
