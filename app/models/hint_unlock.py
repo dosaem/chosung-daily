@@ -14,7 +14,5 @@ class HintUnlock(db.Model):
     __tablename__ = "hint_unlock"
 
     guest_id: int = db.Column(db.Integer, db.ForeignKey("guest.id"), primary_key=True)
-    puzzle_id: int = db.Column(
-        db.Integer, db.ForeignKey("daily_puzzle.id"), primary_key=True
-    )
+    puzzle_id: int = db.Column(db.Integer, db.ForeignKey("daily_puzzle.id"), primary_key=True)
     unlocked_at: datetime = db.Column(db.DateTime, nullable=False, default=utcnow)

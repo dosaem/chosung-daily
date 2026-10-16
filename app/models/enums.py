@@ -49,3 +49,25 @@ class SubscriptionStatus(enum.StrEnum):
     REVOKED = "revoked"
     # 구매 교체(Google linkedPurchaseToken)로 다른 행이 이어받은 옛 구독.
     REPLACED = "replaced"
+
+
+class CandidateStatus(enum.StrEnum):
+    """LLM 이 만든 단어 후보의 처리 상태(LLM 출제 파이프라인).
+
+    `proposed` 는 규칙을 통과해 운영자 승인을 기다리는 행, `approved` 는 승인해서
+    `word` 로 들어간 행, `rejected` 는 규칙에 걸렸거나(`reject_reason` 에 사유)
+    운영자가 거절한 행이다. 탈락 행도 지우지 않고 남긴다 — 규칙 통과율이 곧
+    프롬프트 품질 지표라서(README "설계 판단").
+    """
+
+    PROPOSED = "proposed"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+class LlmCallResult(enum.StrEnum):
+    """LLM 호출 한 건의 결과. `retried` 는 재시도 끝에 성공한 호출의 중간 실패다."""
+
+    SUCCESS = "success"
+    FAILURE = "failure"
+    RETRIED = "retried"
