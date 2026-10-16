@@ -64,5 +64,8 @@ def init_sentry(app) -> bool:
         environment=app.config["ENV_NAME"],
         release=app.config["SENTRY_RELEASE"] or None,
         data_collection=SENTRY_DATA_COLLECTION,
+        # 성능 추적 10% — 용량 계획의 판정 기준(자정 10분 p95 > 300ms 3일 연속)을 보려고.
+        # 트랜잭션엔 경로·상태·지연만 담기고 본문·헤더는 위 data_collection 규칙이 막는다.
+        traces_sample_rate=float(app.config.get("SENTRY_TRACES_SAMPLE_RATE") or 0.1),
     )
     return True

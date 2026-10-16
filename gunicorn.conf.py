@@ -36,3 +36,10 @@ access_log_format = '%(h)s %(t)s "%(m)s %(U)s" %(s)s %(b)s "%({user-agent}i)s" %
 # 보다 짧아야 gunicorn 이 스스로 정리를 끝낸다 — 정답 제출이 중간에 끊겨 attempt 만
 # 남는 일을 막는다(티켓 50).
 graceful_timeout = 15
+
+# 워커·스레드 (용량 계획 1단계, 2026-10-16). 기본값(sync 워커 1개)은 자정 스파이크에서
+# 요청을 한 줄로 세운다 — DAU 1만이면 00:00 직후 초당 ~75 요청이라 경계였다. gthread
+# 3×4 = 동시 12 요청, 메모리 약 +400MB(NAS 17.8GB 중). 환경변수로 줄이거나 늘린다.
+workers = int(os.environ.get("GUNICORN_WORKERS") or 3)
+worker_class = "gthread"
+threads = int(os.environ.get("GUNICORN_THREADS") or 4)

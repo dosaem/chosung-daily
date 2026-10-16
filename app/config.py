@@ -108,6 +108,8 @@ class Config:
     # 릴리스 태그. 배포 스크립트가 배포한 커밋을 넣는다 — 비어 있으면 Sentry
     # 이벤트에 릴리스 없이 환경만 붙는다.
     SENTRY_RELEASE = os.environ.get("SENTRY_RELEASE", "")
+    # 성능 트랜잭션 샘플링 비율(0~1). 용량 판정용. 0 이면 끈다.
+    SENTRY_TRACES_SAMPLE_RATE = float(os.environ.get("SENTRY_TRACES_SAMPLE_RATE") or 0.1)
     # [티켓 51] Sentry 내부 통합(Internal Integration) 웹훅 → Slack + GitHub 이슈 → Claude Code
     # Action. 비밀키가 비면 `/api/v1/ops/sentry` 는 503 으로 닫혀 있다.
     SENTRY_WEBHOOK_SECRET = os.environ.get("SENTRY_WEBHOOK_SECRET", "")
