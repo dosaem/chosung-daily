@@ -251,7 +251,7 @@ def test_a_row_older_than_seven_days_is_discarded_and_the_operator_is_told(
     monkeypatch.setattr(
         apple_revocation_service,
         "notify_operator",
-        lambda kind, message: alerts.append((kind, message)) or True,
+        lambda kind, message, **_kw: alerts.append((kind, message)) or True,
     )
     _pending_retry(app, age=apple_revocation_service.RETRY_MAX_AGE + timedelta(minutes=1))
 
@@ -271,7 +271,9 @@ def test_a_row_at_seven_days_is_still_retried_not_discarded(app, failing_apple_p
     """경계: 7일을 "넘어야" 폐기다(스펙 §A.7 "7일 후 폐기")."""
     alerts = []
     monkeypatch.setattr(
-        apple_revocation_service, "notify_operator", lambda kind, message: alerts.append(kind)
+        apple_revocation_service,
+        "notify_operator",
+        lambda kind, message, **_kw: alerts.append(kind),
     )
     _pending_retry(app, age=apple_revocation_service.RETRY_MAX_AGE - timedelta(minutes=1))
 

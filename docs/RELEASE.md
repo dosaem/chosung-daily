@@ -238,6 +238,7 @@ DB 는 **named volume 만** 쓴다. DSM 의 `/volume1` ACL 이 호스트 bind mo
 | `MATCH_PASSWORD` | `flutter.yml` | match 저장소 암호화 비밀번호 | "### 34." |
 | `MATCH_GIT_BASIC_AUTHORIZATION` | `flutter.yml` | `match-certs` 읽기 PAT 를 `user:token` base64 로 | "### 34." |
 | `FLUTTER_SENTRY_DSN` | `flutter.yml` | 앱용 Sentry DSN. 비우면 앱이 Sentry 를 초기화하지 않는다 | "### 34." |
+| `ANTHROPIC_API_KEY` | `claude-sentry.yml` | Claude Code Action 이 Sentry 이슈를 분석·수정할 때 쓰는 이 프로젝트 전용 키(LLM 출제 파이프라인과 같은 키) | "### 51." |
 | `ASC_REVIEW_CONTACT_FIRST_NAME` | `asc-submit.yml` | 심사 연락처 이름. 비우면 콘솔 값을 유지한다 | "### 35." |
 | `ASC_REVIEW_CONTACT_LAST_NAME` | `asc-submit.yml` | 심사 연락처 성 | "### 35." |
 | `ASC_REVIEW_CONTACT_PHONE` | `asc-submit.yml` | 심사 연락처 전화번호 | "### 35." |
@@ -1708,3 +1709,15 @@ Android EncryptedSharedPreferences 에 들어간다(`mobile/lib/guest/guest_toke
 **운영자가 할 일** — 위 "### 16." 의 그 칸이다: `/privacy?lang=ko`·`?lang=en` 의 3절·
 10절을 읽고 문안을 승낙한다. 사실이 아닌 문장이 보이면 그 문장만 고치면 되고, 고치면
 `LEGAL_EFFECTIVE_DATE` 를 다시 올린다.
+
+### 51. 에러 알림 자동화 — Sentry → Slack + GitHub 이슈 → Claude Code Action (2026-10-16)
+
+흐름과 설정은 README "운영: 에러 알림 자동화". 사람이 한 번 할 일:
+
+- [x] Sentry 내부 통합 "chosung ops webhook" — Issues 웹훅, Alert Action on, Client Secret → NAS `.env` `SENTRY_WEBHOOK_SECRET` (2026-10-16 Claude)
+- [x] GitHub fine-grained PAT(이 레포 Issues: Read and write) → NAS `.env` `GITHUB_ISSUES_TOKEN` (2026-10-16 사용자)
+- [x] GitHub secret `ANTHROPIC_API_KEY`(위 표) — Claude Code Action 비용은 이 키로 청구된다
+- [x] Claude GitHub 앱 설치(`/install-github-app`) (2026-10-16 사용자)
+- [x] Slack 채널 `#chosung-alerts`(사람이 봐야 하는 것)·`#chosung-ops`(운영 알림), 봇 토큰 → NAS `.env` `SLACK_BOT_TOKEN`
+- [ ] 첫 실제 이벤트로 왕복 확인: Sentry 테스트 에러 → `#chosung-alerts` → GitHub `sentry` 이슈 → Claude 덧글/PR
+- 머지는 사람이 한다 — `main` 브랜치 보호(리뷰 1명 필수)를 켜 두면 Action 이 직접 올릴 수 없다

@@ -222,7 +222,9 @@ def test_health_reports_null_without_apple_signing_keys(client, app):
 def alerts(monkeypatch):
     sent = []
     monkeypatch.setattr(
-        apple_secret_service, "notify_operator", lambda kind, message: sent.append((kind, message))
+        apple_secret_service,
+        "notify_operator",
+        lambda kind, message, **_kw: sent.append((kind, message)),
     )
     return sent
 

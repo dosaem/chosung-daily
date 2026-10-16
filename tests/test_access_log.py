@@ -419,7 +419,7 @@ def test_an_empty_retention_env_falls_back_to_the_legal_minimum(monkeypatch):
 def test_a_failed_purge_tells_the_operator(app, monkeypatch):
     sent = []
     monkeypatch.setattr(
-        access_log_service, "notify_operator", lambda kind, message: sent.append(kind)
+        access_log_service, "notify_operator", lambda kind, message, **_kw: sent.append(kind)
     )
 
     def boom(*args, **kwargs):

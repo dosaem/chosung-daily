@@ -435,7 +435,7 @@ def test_the_beat_alerts_the_operator_after_three_consecutive_failures(
     monkeypatch.setattr(
         subscription_recheck,
         "notify_operator",
-        lambda kind, message: alerts.append((kind, message)) or True,
+        lambda kind, message, **_kw: alerts.append((kind, message)) or True,
     )
     apple_store("apple_active.json", error=StoreUnavailableError())
     subscription = make_subscription(
@@ -458,7 +458,7 @@ def test_the_beat_does_not_alert_before_the_threshold(
 ):
     alerts = []
     monkeypatch.setattr(
-        subscription_recheck, "notify_operator", lambda kind, message: alerts.append(kind)
+        subscription_recheck, "notify_operator", lambda kind, message, **_kw: alerts.append(kind)
     )
     apple_store("apple_active.json", error=StoreUnavailableError())
     make_subscription(expires_in=timedelta(days=1), recheck_failures=0)
@@ -474,7 +474,7 @@ def test_the_beat_does_not_alert_when_every_recheck_succeeds(
     """실패 카운터가 쌓여 있던 행도 성공하면 0으로 돌아가고 알림이 없다."""
     alerts = []
     monkeypatch.setattr(
-        subscription_recheck, "notify_operator", lambda kind, message: alerts.append(kind)
+        subscription_recheck, "notify_operator", lambda kind, message, **_kw: alerts.append(kind)
     )
     apple_store("apple_active.json")
     subscription = make_subscription(
@@ -492,7 +492,7 @@ def test_one_failing_subscription_does_not_stop_the_others(
 ):
     """한 구독 조회가 실패해도 나머지는 계속 돈다 — 하루 한 번뿐인 배치라서
     중간에 멈추면 그날 나머지 구독을 아무도 다시 안 본다."""
-    monkeypatch.setattr(subscription_recheck, "notify_operator", lambda kind, message: True)
+    monkeypatch.setattr(subscription_recheck, "notify_operator", lambda kind, message, **_kw: True)
     apple_store("apple_active.json", error=StoreUnavailableError())
     play_store("play_expired.json")
     apple_row = make_subscription(store=SubscriptionStore.APPLE, expires_in=timedelta(days=1))
