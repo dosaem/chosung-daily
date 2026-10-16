@@ -39,7 +39,7 @@ graceful_timeout = 15
 
 # 워커·스레드 (용량 계획 1단계, 2026-10-16). 기본값(sync 워커 1개)은 자정 스파이크에서
 # 요청을 한 줄로 세운다 — DAU 1만이면 00:00 직후 초당 ~75 요청이라 경계였다. gthread
-# 3×4 = 동시 12 요청, 메모리 약 +400MB(NAS 17.8GB 중). 환경변수로 줄이거나 늘린다.
+# 3x4 = 동시 12 요청, 메모리 약 +400MB(NAS 17.8GB 중). 환경변수로 줄이거나 늘린다.
 workers = int(os.environ.get("GUNICORN_WORKERS") or 3)
 worker_class = "gthread"
 threads = int(os.environ.get("GUNICORN_THREADS") or 4)
