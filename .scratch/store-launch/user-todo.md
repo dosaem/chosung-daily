@@ -52,8 +52,8 @@
 
 | # | 항목 | 상태 | 누가 | 비고 |
 |---|---|---|---|---|
-| 19 | LLM 출제 파이프라인 — 구현 · **`ANTHROPIC_API_KEY` 발급(이 프로젝트 전용)** · 첫 실행 → 통과율·단어당 비용 | **구현 끝(2026-10-16)**, 키·실행은 아직 | Claude(구현) → **사용자(키 발급)** → Claude(첫 실행·지표) | 브랜치 `feat/llm-word-gen`(워크트리 `~/orca/worktrees/chosung-daily-llm`), 커밋 6개. 후보는 `/admin/candidates` 에서 사람이 승인. 켜려면 NAS `.env` 에 `ANTHROPIC_API_KEY` + `LLM_WORD_GENERATION_ENABLED=true`. 지표 SQL 은 README "운영: LLM 단어 후보 생성" |
-| 20 | 티켓 50 무중단 배포 조사 (이미지 먼저 빌드 → app 만 교체, 나중에 blue/green) | **조사 끝(2026-10-16)** — 결정 대기 | Claude → **사용자(1·2단계 결정)** | 메모 `.scratch/store-launch/zero-downtime-deploy.md`. 권장: 1단계(빌드→마이그레이션→교체 순서, 끊김 ~5초 유지하되 "새 코드가 없는 열 읽는" 창 제거)를 티켓 50 으로 바로, 2단계(Caddy 롤링, 끊김 0초)는 출시 뒤, blue/green 은 안 함 |
+| 19 | LLM 출제 파이프라인 — 구현 · `ANTHROPIC_API_KEY` 발급 · 첫 실행 → 통과율·단어당 비용 | **끝(2026-10-16)** — 후보 검수는 사용자 | Claude(구현·실행) → **사용자(`/admin/candidates` 에서 승인·거절)** | main 머지(d6de6c0)·prod 배포, 키는 NAS `.env`(백업 `.env.bak-20261016-llm`), 플래그 on. **첫 실행 실측(claude-sonnet-5-5):** ko 40개 → 38 통과·2 탈락(힌트에 정답 음절, 통과율 95%), 토큰 1,399/5,684, $0.0596, 42초 · en 40개 → 40 통과(100%), 토큰 1,078/2,493, $0.0271, 26초 · **합계 $0.0867, 통과 후보 1개당 $0.0011** (월 예산 $5 ≈ 4,500단어). 승인 대기 78개 → `https://chosung.dosaem.com/admin/candidates` |
+| 20 | 티켓 50 무중단 배포 (사용자 결정: 1단계 + 2단계 Caddy 롤링 같이) | **구현 끝(2026-10-16)** — develop 배포 검증 중 | Claude | 브랜치 `feat/50-zero-downtime`(워크트리 `~/orca/worktrees/chosung-daily-47`), 티켓 `.scratch/store-launch/issues/50-zero-downtime-deploy.md`, README 설계 판단 50, RELEASE §50. develop 에 올려 Actions 배포로 전환 검증 → 통과하면 main 머지 |
 | 21 | Cloudflare 터널 `develop-chosung.dosaem.com` 경로 포트 **8090 → 8094** 수정 | **끝(2026-10-16)** | Claude(Chrome) | 8090 은 알리미가 씀. `https://develop-chosung.dosaem.com/health` 200 확인 |
 | 22 | 영어 단어 CSV(`en-general-01-reviewed.csv`, 161개) 업로드 + `/admin/schedule` ko/en 30일 확인 | **끝(2026-10-16)** | Claude(Chrome + ssh nas) | ko 162·en 161 일치. 오늘(10-16) 퍼즐이 두 언어 다 비어 있어서(단어를 자정 뒤에 올림) prod 컨테이너에서 `uv run flask schedule-puzzles --language {ko,en} --days 30` 실행 → ko 4일·en 30일 배정, EN 오늘 퍼즐 API 확인 |
 | 23 | AdMob 계정 승인 → UMP(동의 메시지) 생성 | 승인 대기 | Claude(Chrome) | 승인 전엔 UMP 페이지가 비어 있음 |
@@ -61,6 +61,8 @@
 | 25 | `MATCH_GIT_BASIC_AUTHORIZATION` 은 gh 토큰 — 전용 PAT 로 교체 | 아직 | 사용자(토큰 발급) → Claude(secret 교체) | |
 
 ## 기록
+
+- 2026-10-16 (8차): 사용자 결정 — 19 키 `launch-secrets.env` 경유, 머지+prod 배포, 20 은 1+2단계. LLM 파이프라인 main 머지·prod 배포·첫 실행(위 19 실측). **Actions Deploy 가 전부 실패하고 있었음**: Synology 비대화형 ssh PATH 에 `/usr/local/bin`(docker) 없음 → `docker: command not found`(127). git merge 만 되고 컨테이너는 옛것 — 수동 배포로 복구, 스크립트 PATH 보강은 티켓 50 에 포함.
 
 - 2026-10-16 (7차): LLM 출제 파이프라인 구현 완료(19) — word_rules 분리(기존 테스트 17개 무변경), `word_candidate`·`llm_call` 테이블, Anthropic requests 래퍼 + JSON 스키마 출력, Celery 태스크 + 안전장치 4겹(플래그·대기 상한 60·월 5달러·언어 락), `/admin/candidates` 검수 화면, README 운영 절·설계 판단. 키가 없어 실제 호출은 안 했고 HTTP 경계만 가짜로 둔 테스트로 검증. develop 인스턴스 health OK(8094). 남은 것 20~25.
 
