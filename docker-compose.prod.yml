@@ -1,7 +1,10 @@
 # ============================================
 # PROD / DEVELOP 공용 - Synology NAS (Container Manager)
 # prod    : https://chosung.dosaem.com  (8089)
-# develop : 8090, 체크아웃 디렉터리 /volume1/docker/chosung-daily-develop
+# develop : 8094, 체크아웃 디렉터리 /volume1/docker/chosung-daily-develop
+#
+# 배포는 deploy/deploy.sh 가 한다(빌드 → 마이그레이션 → app 롤링 교체 → worker/beat).
+# 아래 `up -d --build` 는 처음 올리거나 proxy 로 전환할 때만 쓴다(docs/RELEASE.md §50).
 #
 # 실행 (프로젝트명·포트·env 파일을 전부 밖에서 준다):
 #   prod    : docker compose -f docker-compose.prod.yml -p chosung-daily-prod \
@@ -62,12 +65,24 @@ services:
       # 컨테이너와 함께 사라지고 backup 의 회전·만료 삭제도 안 걸린다. 컨테이너가
       # 보는 값은 마운트의 컨테이너 쪽 경로로 덮는다(environment 가 env_file 을 이긴다).
       LOG_DIR: /logs
-    # Cloudflare Tunnel이 NAS 안에서 http://127.0.0.1:${APP_PORT}로 붙는다 —
-    # LAN/인터넷에 직접 노출할 필요가 없어서 루프백에만 바인딩한다(기존 프로젝트들의
-    # 0.0.0.0 공개 바인딩보다 한 단계 더 좁힌 선택, README "배포" 절에 이유 적어둠).
-    # prod 8089 / develop 8090 — 포트는 env 파일의 APP_PORT로 갈린다.
-    ports:
-      - "127.0.0.1:${APP_PORT}:5000"
+      # Caddy 가 믿는 프록시(cloudflared)의 X-Forwarded-For 뒤에 자기 클라이언트 IP 를
+      # 덧붙이므로 진짜 클라이언트 IP 는 뒤에서 두 번째다(deploy/Caddyfile).
+      PROXY_FIX_X_FOR: 2
+    # 호스트 포트는 이 서비스가 아니라 proxy(Caddy)가 잡는다 — app 은 도커 네트워크
+    # 안에서만 5000 을 연다. 그래야 롤링 교체(deploy.sh)로 새 app 을 옛 app 옆에
+    # 띄울 수 있다(티켓 50). 포트 바인딩이 여기 있던 시절의 컨테이너가 남아 있으면
+    # proxy 가 포트를 못 잡는다 — 첫 전환은 docs/RELEASE.md "### 50." 순서대로.
+    # SIGTERM 뒤 진행 중 요청(정답 제출)을 마칠 시간. gunicorn graceful_timeout(15초)
+    # 보다 길어야 gunicorn 이 먼저 정리하고 도커가 SIGKILL 을 보내지 않는다.
+    stop_grace_period: 20s
+    # 롤링 교체가 "새 컨테이너가 건강해졌다" 를 이 결과로 판단한다. 이미지에 curl 이
+    # 없어서 파이썬으로 /health 를 친다(503 이면 비정상 — 헬스체크 등급은 README §08).
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:5000/health', timeout=3).status == 200 else 1)"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
     # Gunicorn 접근 로그(접속기록, 고시 제8조)를 호스트 폴더에 쌓는다 — 덤프와
     # 같은 이유로 named volume 이 아니다(컨테이너가 날아가도 보관 기간 동안
     # 남아야 한다). 회전·만료 삭제는 backup 컨테이너가 같은 폴더를 보고 한다.
@@ -78,6 +93,21 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+
+  # app 앞 리버스 프록시 — 호스트 포트를 잡고 app 레플리카로 분배한다(티켓 50,
+  # 설정은 deploy/Caddyfile). Cloudflare Tunnel이 NAS 안에서
+  # http://127.0.0.1:${APP_PORT}로 붙는다 — LAN/인터넷에 직접 노출할 필요가 없어서
+  # 루프백에만 바인딩한다(기존 프로젝트들의 0.0.0.0 공개 바인딩보다 한 단계 더 좁힌
+  # 선택). prod 8089 / develop 8094 — 포트는 env 파일의 APP_PORT로 갈린다.
+  proxy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${APP_PORT}:80"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - app
 
   worker:
     build: .

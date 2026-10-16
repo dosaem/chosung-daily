@@ -11,7 +11,7 @@ compose 프로젝트명·호스트 포트·env 파일 세 개뿐이다.
 | 브랜치 | `main` | `develop` |
 | 체크아웃 디렉터리 | `/volume1/docker/chosung-daily` | `/volume1/docker/chosung-daily-develop` |
 | compose 프로젝트명 | `chosung-daily-prod` | `chosung-daily-develop` |
-| 호스트 포트(`APP_PORT`) | 8089 | 8090 (NAS 실측으로 확정, 스펙 미정 8) |
+| 호스트 포트(`APP_PORT`) | 8089 | 8094 (8090 은 알리미가 사용 — 2026-10-16 NAS 실측으로 확정) |
 | env 파일(`ENV_FILE`) | `.env` | `.env.develop` |
 | 예시 파일 | `.env.prod.example` | `.env.develop.example` |
 | DB/Redis 볼륨 | `chosung-daily-prod_mysql-data` · `_redis-data` | `chosung-daily-develop_mysql-data` · `_redis-data` |
@@ -54,7 +54,7 @@ DB 는 **named volume 만** 쓴다. DSM 의 `/volume1` ACL 이 호스트 bind mo
       브랜치 clone.
 - [ ] `.env.develop` 작성(`.env.develop.example` 복사). prod 와 **다른** DB
       비밀번호·시크릿을 쓴다.
-- [ ] `APP_PORT` 가 prod 와 겹치지 않는지 NAS 에서 확인(기본 8090).
+- [ ] `APP_PORT` 가 prod 와 겹치지 않는지 NAS 에서 확인(기본 8094 — 8090 은 알리미가 쓴다).
 - [ ] `-p chosung-daily-develop --env-file .env.develop` 로 `up` → `docker volume ls`
       에 `chosung-daily-develop_*` 볼륨이 새로 생기고 prod 볼륨은 그대로인지 확인.
 
@@ -161,7 +161,7 @@ DB 는 **named volume 만** 쓴다. DSM 의 `/volume1` ACL 이 호스트 bind mo
       으로 접두사를 보고 `-p` 로 줄 프로젝트명과 맞춘다. 다르면 compose 가 빈 볼륨을
       새로 붙여 **기록·게스트 토큰이 사라진 것처럼 보인다**. 상세: 위 "첫 배포
       체크리스트 (prod)", "### 19." (`#15`)
-- [ ] **NAS develop 폴더·`.env.develop`·DNS·터널** — 포트 8090(스펙 미정 8 확정),
+- [ ] **NAS develop 폴더·`.env.develop`·DNS·터널** — 포트 8094(8090 은 알리미가 사용),
       체크아웃은 `/volume1/docker/chosung-daily-develop`. 정해진 develop 주소를
       `API_BASE_URL_DEV` variable 에 넣는다. 터널에 호스트네임을 붙이는 절차는 "### 41.".
       상세: 위 "첫 배포 체크리스트 (develop)" (`#15`)
@@ -252,7 +252,7 @@ DB 는 **named volume 만** 쓴다. DSM 의 `/volume1` ACL 이 호스트 bind mo
 | 이름 | 쓰는 워크플로 | 무엇 | 상세 |
 |---|---|---|---|
 | `API_BASE_URL_PROD` | `flutter.yml` | prod API 루트 — `https://chosung.dosaem.com/api/v1` | "### 34." |
-| `API_BASE_URL_DEV` | `flutter.yml` | develop 인스턴스(8090)의 API 루트. D3 의 DNS·터널 뒤에 정해진다 | "### 34." |
+| `API_BASE_URL_DEV` | `flutter.yml` | develop 인스턴스(8094)의 API 루트. D3 의 DNS·터널 뒤에 정해진다 | "### 34." |
 | `GOOGLE_SERVER_CLIENT_ID` | `flutter.yml` | GCP **웹** 클라이언트 ID(Android `serverClientId`) | "### 29." |
 | `ADMOB_BANNER_AD_UNIT_ID_ANDROID` | `flutter.yml` | AdMob Android 배너 유닛 | "### 31." |
 | `ADMOB_INTERSTITIAL_AD_UNIT_ID_ANDROID` | `flutter.yml` | 〃 전면 유닛 | "### 31." |
@@ -803,7 +803,7 @@ AAB 검증)을 복사해 식별자만 바꿨다.
 | 이름 | 값 |
 |---|---|
 | `API_BASE_URL_PROD` | prod 서버의 API 루트 — `https://chosung.dosaem.com/api/v1` |
-| `API_BASE_URL_DEV` | develop 인스턴스(8090)의 API 루트. NAS DNS·터널 작업(D3) 뒤에 정해지므로 워크플로에 하드코딩하지 않았다. |
+| `API_BASE_URL_DEV` | develop 인스턴스(8094)의 API 루트. NAS DNS·터널 작업(D3) 뒤에 정해지므로 워크플로에 하드코딩하지 않았다. |
 | `GOOGLE_SERVER_CLIENT_ID` | GCP **웹** 클라이언트 ID(`serverClientId`, D0). Android `google_sign_in` 과 `POST /auth/token-exchange` 가 같은 값을 본다. |
 | `ADMOB_BANNER_AD_UNIT_ID_ANDROID` | AdMob Android 앱의 배너 유닛 ID |
 | `ADMOB_INTERSTITIAL_AD_UNIT_ID_ANDROID` | 〃 전면 유닛 ID |
@@ -1639,3 +1639,21 @@ Android EncryptedSharedPreferences 에 들어간다(`mobile/lib/guest/guest_toke
 때 함께 볼 것: ko·en 두 벌, `docs/legal-checklist.md` 의 절 ↔ 조문 매핑,
 `app/web.py` 의 `LEGAL_EFFECTIVE_DATE`, 그리고 Play Data safety 답안(같은 "### 16."
 체크박스)의 수집 항목 설명.
+
+### 50. 무중단 배포 — 전환 순서와 확인 (2026-10-16)
+
+배포 흐름은 README "설계 판단 50." 이다. 사람이 할 일은 **없다** — 다만 전환 직후 한 번
+확인한다.
+
+- **전환 1회**: proxy 도입 전 app 컨테이너는 호스트 포트(8089/8094)를 직접 잡고 있다.
+  이 상태에서 새 `deploy.sh` 가 처음 돌면 `compose port app 5000` 이 값을 돌려주는 걸
+  보고 **그 한 번만** app 을 옛 방식으로 재생성해 포트를 비운 뒤 proxy 를 띄운다(몇 초
+  끊김). 그다음 배포부터 롤링이다. develop(8094) 에 먼저 올려 보고 main 에 올린다.
+- **확인**: NAS 에서 `docker ps` 에 `<프로젝트>-proxy-1` 이 보이고 `app` 은 PORTS 가
+  비어 있다. `curl -s http://127.0.0.1:8094/health` 가 200. 롤링은 배포 로그의
+  `새 app <id> → healthy` 와 `docker stop -t 20 <옛 id>` 줄로 본다.
+- **rate limit 확인**: `PROXY_FIX_X_FOR=2` 가 compose 에 있으니 서로 다른 기기에서 같은
+  분에 11번 제출해도 429 가 **안** 난다. 나면 홉 수가 틀린 것이다.
+- **롤백**: 새 app 이 healthy 가 안 되면 스크립트가 새것만 지우고 1 로 끝난다 — 옛
+  app 이 그대로 서비스 중이므로 급할 게 없다. 원인은 `docker logs --tail 50 <새 id>`
+  (스크립트가 찍어준다).

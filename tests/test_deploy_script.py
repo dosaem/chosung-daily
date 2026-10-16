@@ -231,18 +231,125 @@ def test_deploy_runs_steps_in_order(tmp_path):
     assert steps == [
         "git fetch --quiet origin main",
         "git merge --ff-only origin/main",
-        "docker compose -f docker-compose.prod.yml -p chosung-daily-prod "
-        "--env-file .env up -d --build",
-        "docker compose -f docker-compose.prod.yml -p chosung-daily-prod "
-        "--env-file .env exec -T app uv run flask db upgrade",
-        "docker compose -f docker-compose.prod.yml -p chosung-daily-prod "
-        "--env-file .env config --services",
-        "docker compose -f docker-compose.prod.yml -p chosung-daily-prod "
-        "--env-file .env ps --services --filter status=running",
-        "docker compose -f docker-compose.prod.yml -p chosung-daily-prod "
-        "--env-file .env port app 5000",
+        # 빌드만 — 옛 컨테이너는 계속 서비스
+        f"{PROD} build",
+        # 마이그레이션은 교체 **전에** 새 이미지로
+        f"{PROD} run --rm --no-deps -T app uv run flask db upgrade",
+        f"{PROD} port app 5000",
+        f"{PROD} up -d --no-build mysql redis proxy backup",
+        # app 롤링 교체: 옆에 하나 더 → healthy → 옛것 내림
+        f"{PROD} ps --status running -q app",
+        f"{PROD} up -d --no-build --no-recreate --scale app=2 app",
+        f"{PROD} ps --status running -q app",
+        "docker inspect -f {{.State.Health.Status}} app-new",
+        "docker stop -t 20 app-old",
+        "docker rm app-old",
+        f"{PROD} up -d --no-build worker beat",
+        f"{PROD} config --services",
+        f"{PROD} ps --services --filter status=running",
+        f"{PROD} port proxy 80",
         r"curl -sS --max-time 5 -w \n%{http_code} http://127.0.0.1:8089/health",
     ]
+
+
+PROD = "docker compose -f docker-compose.prod.yml -p chosung-daily-prod --env-file .env"
+
+
+# --- 50: 롤링 교체 ----------------------------------------------------------------
+
+
+def test_first_deploy_after_proxy_recreates_the_app_that_still_holds_the_port(tmp_path):
+    """proxy 도입 전 컨테이너는 호스트 포트를 직접 잡고 있다 — 그 한 번만 app 을
+    옛 방식으로 재생성해서 포트를 비운 뒤 proxy 를 띄운다. 그 뒤 배포는 이 분기를 안 탄다."""
+    nas = FakeNas(
+        tmp_path, "chosung-daily", FAKE_GIT_BRANCH="main", FAKE_DOCKER_APP_PORT="127.0.0.1:8089"
+    )
+    res = nas.deploy("prod")
+
+    assert res.returncode == 0, res.stdout + res.stderr
+    calls = nas.calls()
+    assert calls.index(f"{PROD} up -d --no-build app") < calls.index(
+        f"{PROD} up -d --no-build mysql redis proxy backup"
+    )
+    assert "proxy 전환 전" in res.stdout
+
+    again = FakeNas(tmp_path / "again", "chosung-daily", FAKE_GIT_BRANCH="main")
+    again.deploy("prod")
+    assert f"{PROD} up -d --no-build app" not in again.calls()
+
+
+def test_deploy_script_puts_synology_docker_on_the_path():
+    """NAS 의 비대화형 ssh 셸엔 /usr/local/bin 이 없다 — 앞이 아니라 뒤에 붙여서
+    테스트의 가짜 docker(PATH 앞)를 가리지 않는다."""
+    text = DEPLOY_SH.read_text(encoding="utf-8")
+    assert 'export PATH="$PATH:/usr/local/bin"' in text
+
+
+def test_rolling_keeps_the_old_app_when_the_new_one_never_gets_healthy(tmp_path):
+    """새 app 이 건강해지지 않으면 새것만 지우고 빨갛게 끝난다 — 옛것이 계속 서비스한다."""
+    nas = FakeNas(
+        tmp_path,
+        "chosung-daily",
+        FAKE_GIT_BRANCH="main",
+        FAKE_DOCKER_NEW_HEALTH="unhealthy",
+    )
+    res = nas.deploy("prod")
+
+    assert res.returncode != 0
+    calls = nas.calls()
+    assert "docker rm -f app-new" in calls
+    assert "docker stop -t 20 app-old" not in calls
+    assert not any("worker beat" in line for line in calls), "worker·beat 도 안 바꾼다"
+    assert not any(line.startswith("curl") for line in calls)
+    assert len([line for line in calls if line.startswith("docker inspect")]) == 40
+
+
+def test_rolling_waits_for_the_new_app_to_become_healthy(tmp_path, monkeypatch):
+    """start_period 동안 starting 이다가 healthy 로 바뀌면 그때 옛것을 내린다."""
+    nas = FakeNas(tmp_path, "chosung-daily", FAKE_GIT_BRANCH="main")
+    # 가짜 docker 는 상태를 못 바꾸니, inspect 횟수로 상태를 갈아끼우는 래퍼를 둔다.
+    wrapper = tmp_path / "bin" / "docker"
+    real = wrapper.resolve()
+    wrapper.unlink()
+    wrapper.write_text(
+        "#!/bin/sh\n"
+        'case "$*" in *"inspect -f"*)\n'
+        '  n=$(grep -c "docker inspect" "$FAKE_LOG"); if [ "$n" -lt 2 ]; then '
+        "FAKE_DOCKER_NEW_HEALTH=starting; fi; export FAKE_DOCKER_NEW_HEALTH;; esac\n"
+        f'exec "{real}" "$@"\n'
+    )
+    wrapper.chmod(0o755)
+    res = nas.deploy("prod")
+
+    assert res.returncode == 0, res.stdout + res.stderr
+    inspects = [line for line in nas.calls() if line.startswith("docker inspect")]
+    assert len(inspects) == 3
+    assert "docker stop -t 20 app-old" in nas.calls()
+
+
+def test_rolling_with_no_running_app_just_starts_one(tmp_path):
+    """처음 올리거나 app 이 죽어 있던 경우 — 내릴 옛것이 없다."""
+    nas = FakeNas(tmp_path, "chosung-daily", FAKE_GIT_BRANCH="main", FAKE_DOCKER_OLD_APP="")
+    res = nas.deploy("prod")
+
+    assert res.returncode == 0, res.stdout + res.stderr
+    calls = nas.calls()
+    assert f"{PROD} up -d --no-build --no-recreate --scale app=1 app" in calls
+    assert not any(line.startswith("docker stop") for line in calls)
+
+
+def test_rolling_replaces_every_old_replica(tmp_path):
+    """지난 배포가 중간에 끊겨 app 이 둘 남았어도 전부 새것으로 바꾼다."""
+    nas = FakeNas(
+        tmp_path, "chosung-daily", FAKE_GIT_BRANCH="main", FAKE_DOCKER_OLD_APP="app-a app-b"
+    )
+    res = nas.deploy("prod")
+
+    assert res.returncode == 0, res.stdout + res.stderr
+    calls = nas.calls()
+    assert f"{PROD} up -d --no-build --no-recreate --scale app=3 app" in calls
+    assert "docker stop -t 20 app-a" in calls
+    assert "docker stop -t 20 app-b" in calls
 
 
 def test_deploy_uses_the_port_compose_actually_published(tmp_path):
@@ -251,12 +358,12 @@ def test_deploy_uses_the_port_compose_actually_published(tmp_path):
         tmp_path,
         "chosung-daily-develop",
         FAKE_GIT_BRANCH="develop",
-        FAKE_DOCKER_PORT="127.0.0.1:8090",
+        FAKE_DOCKER_PORT="127.0.0.1:8094",
     )
     res = nas.deploy("develop")
 
     assert res.returncode == 0, res.stdout + res.stderr
-    assert r"curl -sS --max-time 5 -w \n%{http_code} http://127.0.0.1:8090/health" in nas.calls()
+    assert r"curl -sS --max-time 5 -w \n%{http_code} http://127.0.0.1:8094/health" in nas.calls()
 
 
 def test_deploy_aborts_when_checkout_is_missing(tmp_path):
@@ -298,17 +405,19 @@ def test_deploy_fails_when_migration_fails(tmp_path):
     res = nas.deploy("prod")
 
     assert res.returncode != 0
-    assert "up -d --build" in " ".join(nas.calls())
+    calls = " ".join(nas.calls())
+    assert "build" in calls
+    assert "--scale" not in calls, "마이그레이션이 깨지면 교체를 시작하지 않는다"
     assert not any(line.startswith("curl") for line in nas.calls())
 
 
 def test_deploy_fails_when_a_service_is_not_running(tmp_path):
-    """worker 가 안 떴는데 /health 는 200 일 수 있다 — 5개 서비스를 다 확인한다."""
+    """worker 가 안 떴는데 /health 는 200 일 수 있다 — 6개 서비스를 다 확인한다."""
     nas = FakeNas(
         tmp_path,
         "chosung-daily",
         FAKE_GIT_BRANCH="main",
-        FAKE_DOCKER_RUNNING="mysql redis app beat",
+        FAKE_DOCKER_RUNNING="mysql redis app proxy beat",
     )
     res = nas.deploy("prod")
 
@@ -550,7 +659,7 @@ def test_deploy_via_stdin_fails_when_a_service_is_not_running(tmp_path):
         tmp_path,
         "chosung-daily",
         FAKE_GIT_BRANCH="main",
-        FAKE_DOCKER_RUNNING="mysql redis app beat",
+        FAKE_DOCKER_RUNNING="mysql redis app proxy beat",
     )
     res = nas.deploy_via_stdin("prod")
 

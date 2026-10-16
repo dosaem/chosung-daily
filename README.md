@@ -892,7 +892,7 @@ bash 가 본문 실행 전에 끝까지 읽으므로 표준입력을 끊어도 �
 같은 이유로 배포 대상은 인자 하나(`prod`/`develop`)로만 받는다. 브랜치·체크아웃
 디렉터리·compose 프로젝트명·env 파일이 그 하나에서 갈린다. 호스트 포트는 예외로,
 스크립트에 적지 않고 `docker compose port app 5000` 으로 **compose 가 실제로 발행한
-포트**를 물어본다 — 포트의 진실은 env 파일의 `APP_PORT` 라서, 스크립트에 8089/8090
+포트**를 물어본다 — 포트의 진실은 env 파일의 `APP_PORT` 라서, 스크립트에 8089/8094
 을 또 적으면 두 군데가 갈라질 수 있다.
 
 `/health` 200 만 보지 않고 `compose ps` 로 5개 서비스가 다 running 인지 따로
@@ -3071,6 +3071,48 @@ Sonnet 5.5 는 강제 tool_choice 를 거부하고, 어차피 우리가 원하�
 **거절·탈락 행도 지우지 않는다.** 통과율(배치당 규칙 통과 수 / 전체)과 승인 단어당
 비용이 이 기능의 성적표이고, 그 두 숫자는 탈락 행이 있어야 나온다. 프롬프트를 고칠
 때 "무엇이 왜 떨어졌나" 를 사유 열에서 바로 읽는다.
+
+### 50. 무중단 배포 — 빌드·마이그레이션은 먼저, app 은 옆에 띄워 바꾼다
+
+**문제.** 예전 배포는 `compose up -d --build` 한 줄이었다. 빌드는 옛 컨테이너가 서비스하는
+동안 끝나지만, 그다음 compose 가 app 을 stop → start 하는 5~10초 동안 cloudflared 가
+127.0.0.1:8089 에 못 붙어 502 가 났다. 더 나쁜 건 순서였다 — 마이그레이션이 새 코드
+**기동 뒤**에 돌아서, 새 코드가 아직 없는 열을 읽는 창이 있었다.
+
+**호스트 포트를 app 에서 떼어 Caddy 로 옮겼다.** compose 로 롤링이 안 되는 이유는
+딱 하나, `127.0.0.1:8089:5000` 이 app 컨테이너 하나에 묶여 있어서 같은 포트로 새 app 을
+띄울 수 없다는 것이었다. 그래서 `proxy`(Caddy) 서비스가 포트를 잡고 `app:5000` 으로
+보낸다. Caddy 는 도커 DNS 의 A 레코드를 1초마다 다시 읽어(`dynamic a`) 레플리카가
+둘이면 둘로, 하나가 내려가면 남은 쪽으로 보낸다(`deploy/Caddyfile`). cloudflared 는
+NAS 호스트에서 20개 경로를 공용으로 받는 터널이라 손대지 않았다 — 그쪽에서 보면
+여전히 127.0.0.1:8089 하나다.
+
+**배포 순서(`deploy/deploy.sh`)**: ① `build` — 옛 컨테이너는 계속 서비스. ② `run --rm app
+flask db upgrade` — **교체 전에** 새 이미지로. 옛 코드가 도는 채로 스키마가 먼저
+바뀌므로 마이그레이션은 확장(expand)만 허용한다(§02 와 같은 규칙; 열 삭제·이름 변경은
+두 배포로). ③ `up -d --scale app=N+1 --no-recreate` 로 새 app 을 **옆에** 띄우고
+`docker inspect` 의 healthcheck 가 healthy 가 될 때까지 기다린다(최대 2분). ④ 옛 app 을
+`stop -t 20`(진행 중 정답 제출을 마칠 시간, gunicorn `graceful_timeout=15` 보다 길게) →
+`rm`. ⑤ worker·beat 는 짧게 재시작(celery warm shutdown). **새 app 이 끝내 healthy 가
+안 되면 새것만 지우고 빨갛게 끝난다** — 옛 app 이 그대로 서비스 중이라 실패한 배포가
+사용자에게 보이지 않는다. 이게 이 구조의 진짜 이득이다: 끊김 0초보다, "배포 실패 =
+사용자 영향 0" 이.
+
+**blue/green 두 프로젝트는 검토하고 버렸다.** prod-blue/green 을 두고 Cloudflare 경로
+포트를 API 로 바꾸는 방식은 mysql/redis 를 별도 프로젝트로 떼어 external network 로
+공유해야 하고(볼륨 이동 포함) 배포마다 Cloudflare API 호출이 든다. 위 롤링으로 같은
+결과(끊김 0초·실패 격리)가 나와서 단일 NAS 취미 앱에 그만한 재구성은 값어치가 없다.
+
+**ProxyFix 홉이 2 가 됐다.** Caddy 는 믿는 프록시(`trusted_proxies private_ranges`,
+cloudflared 는 도커 게이트웨이 IP 로 들어온다)의 X-Forwarded-Proto 는 보존하고
+X-Forwarded-For 뒤에는 자기 클라이언트 IP 를 **덧붙인다** — 로컬 도커로 실측했다. 그래서
+prod 의 `PROXY_FIX_X_FOR=2`(`docker-compose.prod.yml`). 1 로 두면 모든 요청이 게이트웨이
+IP 로 보여 분당 10회 rate limit 을 전 세계가 나눠 쓴다(`tests/test_proxy_fix_hops.py`).
+
+**덤으로 잡힌 결함.** Synology 의 비대화형 ssh 셸은 PATH 에 `/usr/local/bin` 이 없어서
+GitHub Actions 의 `ssh nas 'bash -s'` 가 `docker: command not found` 로 죽고 있었다 —
+git merge 는 끝났는데 컨테이너는 옛것인 채로. 스크립트가 PATH **뒤에** 붙인다(앞에
+붙이면 테스트가 PATH 앞에 둔 가짜 docker 를 가린다).
 
 ## 부하 테스트 요약
 

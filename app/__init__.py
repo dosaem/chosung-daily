@@ -33,7 +33,7 @@ def create_app(config_name: str | None = None) -> Flask:
     app.jinja_env.globals["asset_version"] = int(time.time())
 
     if app.config["TRUST_PROXY"]:
-        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=app.config["PROXY_FIX_X_FOR"], x_proto=1)
 
     db.init_app(app)
     migrate.init_app(app, db)
