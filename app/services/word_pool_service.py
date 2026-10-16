@@ -1,6 +1,10 @@
+from flask import current_app
+
 from app.extensions import db
 from app.models import DailyPuzzle, PuzzleLanguage, Word
+from app.services import task_dispatch
 from app.services.operator_alert_service import notify_operator
+from app.services.word_generation_service import TASK_NAME as GENERATION_TASK
 
 # 스펙 §A.12: 잔량이 14일치 미만이면 매일 운영자에게 알린다. 14일이면 CSV 를
 # 만들어 올릴 시간이 충분하다는 판단(자정 배정이 매일 하루치씩 까먹는다).
@@ -31,6 +35,10 @@ def remaining_days_by_language() -> dict[PuzzleLanguage, int]:
 def notify_low_word_pool() -> list[PuzzleLanguage]:
     """Celery Beat 매일 1회. 잔량이 임계 미만인 언어를 운영자에게 알린다.
 
+    기능 플래그(`LLM_WORD_GENERATION_ENABLED`)가 켜져 있으면 그 언어의 LLM 후보
+    생성 태스크도 큐에 넣는다 — 사람이 CSV 를 만드는 대신 승인만 하게(LLM 출제).
+    나머지 안전장치(락·대기열 상한·월 예산)는 태스크 쪽이 본다.
+
     알린 언어 목록을 돌려준다 — 태스크 로그와 테스트가 "무엇을 알렸는지"를
     Slack 호출을 들여다보지 않고 확인할 수 있게.
     """
@@ -41,9 +49,10 @@ def notify_low_word_pool() -> list[PuzzleLanguage]:
             continue
         notify_operator(
             "단어 잔량 부족",
-            f"{language.value} {remaining_days}일치 남음 "
-            f"(임계 {LOW_WORD_POOL_THRESHOLD_DAYS}일)",
+            f"{language.value} {remaining_days}일치 남음 (임계 {LOW_WORD_POOL_THRESHOLD_DAYS}일)",
         )
         alerted.append(language)
+        if current_app.config["LLM_WORD_GENERATION_ENABLED"]:
+            task_dispatch.enqueue_task(GENERATION_TASK, language.value)
 
     return alerted

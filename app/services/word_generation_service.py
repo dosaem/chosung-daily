@@ -24,7 +24,7 @@ from pydantic import ValidationError as PydanticValidationError
 
 from app.clients import anthropic
 from app.errors import ValidationError
-from app.extensions import db
+from app.extensions import db, get_redis
 from app.models import (
     CandidateStatus,
     LlmCall,
@@ -35,9 +35,16 @@ from app.models import (
     WordCategory,
 )
 from app.services import word_rules
+from app.services.operator_alert_service import notify_operator
 from app.services.word_service import parse_word_input
+from app.utils.time import utcnow
 
 PURPOSE = "word_generation"
+TASK_NAME = "tasks.generate_word_candidates"
+
+# 언어별 중복 실행 방지 락. 생성 한 번이 2분을 넘지 않으니(클라이언트 타임아웃
+# 120초) 10분이면 죽은 워커가 쥔 락도 풀린다.
+LOCK_TTL_SECONDS = 600
 
 
 # pydantic 이 모양을 보고, 글자 규칙은 word_rules 가 본다 — 길이 상한은 둘 다 두되
@@ -114,6 +121,61 @@ class GenerationResult:
     def pass_rate(self) -> float:
         total = self.proposed + self.rejected
         return self.proposed / total if total else 0.0
+
+
+@dataclass
+class RunOutcome:
+    """안전장치를 거친 실행 한 번의 결과. `skipped` 가 차 있으면 생성을 안 한 것이다."""
+
+    language: PuzzleLanguage
+    skipped: str | None = None
+    result: GenerationResult | None = None
+
+
+def run_generation(language: PuzzleLanguage, trigger: str = "schedule") -> RunOutcome:
+    """안전장치(기능 플래그·락·대기열 상한·월 예산)를 거쳐 생성 한 번을 돌린다.
+
+    LLM 호출 실패(`AnthropicError`)는 그대로 올린다 — 재시도·실패 알림은 Celery
+    태스크(app/tasks/llm.py)가 한다. 여기서 알리는 건 "생성을 건너뛴 이유" 와
+    "생성 결과" 뿐이다.
+    """
+    config = current_app.config
+    if not config["LLM_WORD_GENERATION_ENABLED"]:
+        return RunOutcome(language, skipped="기능 플래그 꺼짐 (LLM_WORD_GENERATION_ENABLED)")
+
+    pending = pending_count(language)
+    if pending >= config["LLM_MAX_PENDING_CANDIDATES"]:
+        return RunOutcome(language, skipped=f"승인 대기 후보 {pending}개 — 먼저 승인/거절")
+
+    spent = monthly_cost_usd(utcnow())
+    budget = Decimal(str(config["LLM_MONTHLY_BUDGET_USD"]))
+    if spent >= budget:
+        notify_operator(
+            "LLM 월 예산 도달",
+            f"이번 달 ${spent} / 상한 ${budget} — {language.value} 후보 생성을 건너뜀",
+        )
+        return RunOutcome(language, skipped=f"월 예산 도달 (${spent} / ${budget})")
+
+    redis_client = get_redis()
+    lock_key = f"llm:wordgen:{language.value}"
+    if redis_client is not None and not redis_client.set(
+        lock_key, trigger, nx=True, ex=LOCK_TTL_SECONDS
+    ):
+        return RunOutcome(language, skipped="같은 언어 생성이 이미 실행 중")
+
+    try:
+        result = generate_candidates(language, config["LLM_CANDIDATES_PER_CALL"])
+    finally:
+        if redis_client is not None:
+            redis_client.delete(lock_key)
+
+    notify_operator(
+        "LLM 단어 후보 생성",
+        f"{language.value} 후보 {result.proposed}개 생성 · 탈락 {result.rejected}개 "
+        f"(통과율 {result.pass_rate:.0%}, ${result.cost_usd}) · 승인 대기 → "
+        f"{config.get('PUBLIC_BASE_URL', '')}/admin/candidates",
+    )
+    return RunOutcome(language, result=result)
 
 
 def generate_candidates(language: PuzzleLanguage, count: int) -> GenerationResult:
