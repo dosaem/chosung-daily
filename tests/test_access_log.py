@@ -175,6 +175,7 @@ ADMIN_REQUESTS = {
     "admin.candidate.list": lambda c: c.get("/admin/candidates"),
     "admin.candidate.review": lambda c: c.post("/admin/candidates/review", data={}),
     "admin.candidate.generate": lambda c: c.post("/admin/candidates/generate", data={}),
+    "admin.candidate.review_llm": lambda c: c.post("/admin/candidates/review-llm", data={}),
 }
 
 

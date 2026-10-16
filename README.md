@@ -2406,6 +2406,7 @@ RELEASE 의 키 보관 절차가 경고를 두 번 적는다.
 | `admin.candidate.list` | `GET /admin/candidates` |
 | `admin.candidate.review` | `POST /admin/candidates/review` |
 | `admin.candidate.generate` | `POST /admin/candidates/generate` |
+| `admin.candidate.review_llm` | `POST /admin/candidates/review-llm` |
 | `account.delete` | `DELETE /api/v1/me`, `POST /account/delete` |
 | `account.link` | `POST /api/v1/auth/token-exchange`, `GET|POST /api/v1/auth/<provider>/callback` |
 | `me.history.read` | `GET /api/v1/me/history` |

@@ -21,6 +21,7 @@ def test_tasks_are_registered():
     assert "tasks.recheck_expiring_subscriptions" in celery.tasks
     assert "tasks.purge_access_logs" in celery.tasks
     assert "tasks.generate_word_candidates" in celery.tasks
+    assert "tasks.review_word_candidates" in celery.tasks
 
 
 def test_beat_schedule_matches_spec_times():

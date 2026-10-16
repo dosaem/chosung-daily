@@ -54,9 +54,11 @@ def test_lists_pending_candidates_with_language_filter(admin_session):
     db.session.commit()
 
     html = admin_session.get("/admin/candidates").get_data(as_text=True)
-    assert "책상" in html
-    assert "apple" in html
-    assert "의자" not in html
+    pending_part, recent_part = html.split("최근 처리", 1)
+    assert "책상" in pending_part
+    assert "apple" in pending_part
+    assert "의자" not in pending_part  # 거절된 후보는 대기 목록이 아니라 최근 처리에만
+    assert "의자" in recent_part
     assert "1개 대기" in html
 
     html = admin_session.get("/admin/candidates?language=en").get_data(as_text=True)
@@ -180,3 +182,32 @@ def test_review_requires_csrf(admin_session):
     assert res.status_code in (400, 403)
     db.session.refresh(candidate)
     assert candidate.status is CandidateStatus.PROPOSED
+
+
+def test_review_llm_button_enqueues_each_pending_batch(admin_session, app, enqueued):
+    _candidate("책상", batch="b1")
+    _candidate("의자", batch="b1")
+    _candidate("apple", language=PuzzleLanguage.EN, batch="b2")
+
+    res = admin_session.post(
+        "/admin/candidates/review-llm", data={"csrf_token": _token(admin_session)}
+    )
+
+    assert res.status_code == 302
+    assert sorted(enqueued) == [
+        ("tasks.review_word_candidates", ("b1",)),
+        ("tasks.review_word_candidates", ("b2",)),
+    ]
+
+
+def test_recent_reviewed_section_shows_llm_decisions(admin_session):
+    done = _candidate("책상")
+    done.status = CandidateStatus.REJECTED
+    done.reject_reason = "LLM 심사 거절: 사전에 없는 말"
+    done.reviewed_by = "llm:claude-sonnet-5-5"
+    db.session.commit()
+
+    html = admin_session.get("/admin/candidates").get_data(as_text=True)
+    assert "최근 처리" in html
+    assert "LLM 심사 거절: 사전에 없는 말" in html
+    assert "llm:claude-sonnet-5-5" in html

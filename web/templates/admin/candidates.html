@@ -4,7 +4,8 @@
 
 {% block content %}
 <p class="admin-meta">
-  LLM({{ model }})이 만든 후보예요. 승인한 것만 단어가 되고, 힌트는 승인 전에 고칠 수 있어요.
+  LLM({{ model }})이 만든 후보예요. {% if review_enabled %}LLM 심사관이 승인·거절까지 하고, 판정을 못 받은 후보만 여기 남아요.{% else %}승인한 것만 단어가 돼요.{% endif %}
+  힌트는 승인 전에 고칠 수 있어요.
   이번 달 비용 ${{ "%.4f" | format(monthly_cost) }} / 상한 ${{ monthly_budget }} ·
   승인 대기 상한 언어당 {{ max_pending }}개
   {% if not generation_enabled %}· <strong>자동 생성 꺼짐</strong> (LLM_WORD_GENERATION_ENABLED){% endif %}
@@ -23,6 +24,13 @@
   </li>
   {% endfor %}
 </ul>
+
+{% if pending and review_enabled %}
+<form method="post" action="{{ url_for('admin.review_candidates_llm') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+  <button class="admin-button" type="submit">대기 전부 LLM 심사</button>
+</form>
+{% endif %}
 
 <nav class="admin-tabs" aria-label="언어">
   <a class="admin-tab {% if language is none %}admin-tab-current{% endif %}" href="{{ url_for('admin.candidates') }}">전체</a>
@@ -73,5 +81,37 @@
 </form>
 {% else %}
 <p class="admin-empty">승인 대기 중인 후보가 없어요.</p>
+{% endif %}
+
+{% if recent %}
+<h2 class="admin-subtitle">최근 처리</h2>
+<p class="admin-meta">LLM 심사관(<code>llm:…</code>)과 운영자가 처리한 최근 {{ recent | length }}건. 잘못된 판정은 단어 목록에서 수정·삭제해요.</p>
+<div class="admin-table-scroll" tabindex="0">
+  <table class="admin-table">
+    <thead>
+      <tr>
+        <th scope="col">언어</th>
+        <th scope="col">정답</th>
+        <th scope="col">힌트</th>
+        <th scope="col">결과</th>
+        <th scope="col">사유 · 처리자</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for candidate in recent %}
+      <tr>
+        <td>{{ candidate.language.value }}</td>
+        <td class="admin-cell-answer">{{ candidate.answer }}</td>
+        <td>{{ candidate.hint }}</td>
+        <td>
+          {% if candidate.status.value == "approved" %}<span class="admin-tag admin-tag-added">승인</span>
+          {% else %}<span class="admin-tag admin-tag-error">거절</span>{% endif %}
+        </td>
+        <td><span class="admin-muted">{{ candidate.reject_reason or "" }}{% if candidate.reviewed_by %} · {{ candidate.reviewed_by }}{% endif %}</span></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
 {% endif %}
 {% endblock %}

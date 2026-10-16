@@ -26,6 +26,26 @@ class ReviewResult:
     failed: list[tuple[WordCandidate, str]] = field(default_factory=list)
 
 
+def recent_reviewed(limit: int = 60) -> list[WordCandidate]:
+    """최근 처리된 후보(승인·거절, 규칙 탈락 포함) — 운영자가 LLM 심사를 감독하는 창."""
+    return (
+        WordCandidate.query.filter(WordCandidate.status != CandidateStatus.PROPOSED)
+        .order_by(WordCandidate.id.desc())
+        .limit(limit)
+        .all()
+    )
+
+
+def pending_batch_ids() -> list[str]:
+    rows = (
+        db.session.query(WordCandidate.batch_id)
+        .filter(WordCandidate.status == CandidateStatus.PROPOSED)
+        .distinct()
+        .all()
+    )
+    return [row[0] for row in rows]
+
+
 def list_pending(language: PuzzleLanguage | None = None) -> list[WordCandidate]:
     query = WordCandidate.query.filter(WordCandidate.status == CandidateStatus.PROPOSED)
     if language is not None:
@@ -46,12 +66,16 @@ def pending_counts() -> dict[PuzzleLanguage, int]:
     return counts
 
 
-def approve(candidate_ids: list[int], hints: dict[int, str]) -> ReviewResult:
+def approve(
+    candidate_ids: list[int], hints: dict[int, str], reviewer: str | None = None
+) -> ReviewResult:
     """고른 후보를 단어로 만든다. `hints` 에 있는 후보는 운영자가 고친 힌트로 저장한다.
 
     한 후보가 실패해도(승인 사이에 같은 단어가 손으로 추가된 경우 등) 나머지는 계속
     간다 — 실패한 후보는 `rejected` 로 돌리고 사유를 남겨 운영자가 표에서 본다.
     `create_word` 가 후보마다 커밋하므로 성공한 승인은 뒤의 실패에 휩쓸리지 않는다.
+    `reviewer` 를 주지 않으면 요청의 운영자 이메일(`g.admin_email`)이다 — LLM 심사관은
+    `llm:<모델>` 로 넘긴다.
     """
     result = ReviewResult()
     for candidate in _pending_by_ids(candidate_ids):
@@ -62,21 +86,28 @@ def approve(candidate_ids: list[int], hints: dict[int, str]) -> ReviewResult:
             )
         except ValidationError as err:
             db.session.rollback()
-            _mark(candidate, CandidateStatus.REJECTED, reason=err.message)
+            _mark(candidate, CandidateStatus.REJECTED, reason=err.message, reviewer=reviewer)
             result.failed.append((candidate, err.message))
             continue
         candidate.hint = hint
         candidate.word_id = word.id
-        _mark(candidate, CandidateStatus.APPROVED)
+        _mark(candidate, CandidateStatus.APPROVED, reviewer=reviewer)
         result.approved.append(candidate)
     db.session.commit()
     return result
 
 
-def reject(candidate_ids: list[int], reason: str | None) -> ReviewResult:
+def reject(
+    candidate_ids: list[int], reason: str | None, reviewer: str | None = None
+) -> ReviewResult:
     result = ReviewResult()
     for candidate in _pending_by_ids(candidate_ids):
-        _mark(candidate, CandidateStatus.REJECTED, reason=reason or DEFAULT_REJECT_REASON)
+        _mark(
+            candidate,
+            CandidateStatus.REJECTED,
+            reason=reason or DEFAULT_REJECT_REASON,
+            reviewer=reviewer,
+        )
         result.rejected.append(candidate)
     db.session.commit()
     return result
@@ -96,8 +127,13 @@ def _pending_by_ids(candidate_ids: list[int]) -> list[WordCandidate]:
     )
 
 
-def _mark(candidate: WordCandidate, status: CandidateStatus, reason: str | None = None) -> None:
+def _mark(
+    candidate: WordCandidate,
+    status: CandidateStatus,
+    reason: str | None = None,
+    reviewer: str | None = None,
+) -> None:
     candidate.status = status
     candidate.reject_reason = reason
-    candidate.reviewed_by = getattr(g, "admin_email", None)
+    candidate.reviewed_by = reviewer or getattr(g, "admin_email", None)
     candidate.reviewed_at = utcnow()
