@@ -34,13 +34,15 @@ from app.models import (
     WordCandidate,
     WordCategory,
 )
-from app.services import word_rules
+from app.services import task_dispatch, word_rules
 from app.services.operator_alert_service import notify_operator
 from app.services.word_service import parse_word_input
 from app.utils.time import utcnow
 
 PURPOSE = "word_generation"
 TASK_NAME = "tasks.generate_word_candidates"
+# 심사 태스크 이름 — word_review_service 와 같은 값(순환 import 를 피하려고 여기 적는다).
+REVIEW_TASK_NAME = "tasks.review_word_candidates"
 
 # 언어별 중복 실행 방지 락. 생성 한 번이 2분을 넘지 않으니(클라이언트 타임아웃
 # 120초) 10분이면 죽은 워커가 쥔 락도 풀린다.
@@ -169,11 +171,22 @@ def run_generation(language: PuzzleLanguage, trigger: str = "schedule") -> RunOu
         if redis_client is not None:
             redis_client.delete(lock_key)
 
+    # 2단계: LLM 심사관이 승인/거절까지 한다(설정으로 끌 수 있다). 생성 태스크 안에서
+    # 바로 부르지 않고 큐에 넣는 이유: 심사 호출이 일시 오류로 재시도될 때 생성까지
+    # 다시 돌아(= 과금) 가지 않게 — 심사 태스크는 배치 id 만 받아 멱등하게 돈다.
+    review = config["LLM_REVIEW_ENABLED"] and result.proposed > 0
+    if review:
+        task_dispatch.enqueue_task(REVIEW_TASK_NAME, result.batch_id)
+
     notify_operator(
         "LLM 단어 후보 생성",
         f"{language.value} 후보 {result.proposed}개 생성 · 탈락 {result.rejected}개 "
-        f"(통과율 {result.pass_rate:.0%}, ${result.cost_usd}) · 승인 대기 → "
-        f"{config.get('PUBLIC_BASE_URL', '')}/admin/candidates",
+        f"(통과율 {result.pass_rate:.0%}, ${result.cost_usd}) · "
+        + (
+            "LLM 심사 대기열에 넣음"
+            if review
+            else f"승인 대기 → {config.get('PUBLIC_BASE_URL', '')}/admin/candidates"
+        ),
     )
     return RunOutcome(language, result=result)
 

@@ -183,6 +183,11 @@ class Config:
     LLM_MAX_PENDING_CANDIDATES = int(os.environ.get("LLM_MAX_PENDING_CANDIDATES") or 60)
     # 한 번에 요청하는 후보 수. 규칙·중복 탈락분을 감안해 필요량보다 넉넉히 받는다.
     LLM_CANDIDATES_PER_CALL = int(os.environ.get("LLM_CANDIDATES_PER_CALL") or 40)
+    # 생성된 후보를 LLM 심사관이 한 번 더 보고 승인/거절까지 한다(사용자 결정 2026-10-16,
+    # "검증까지 AI 로"). 끄면 후보는 승인 대기로 남고 운영자가 /admin/candidates 에서 본다.
+    LLM_REVIEW_ENABLED = os.environ.get("LLM_REVIEW_ENABLED", "true") in ("1", "true", "yes")
+    # 심사 모델. 비우면 생성 모델과 같다. 생성보다 센 모델(opus)을 쓰고 싶을 때 바꾼다.
+    LLM_REVIEW_MODEL = os.environ.get("LLM_REVIEW_MODEL") or ""
 
 
 class DevelopmentConfig(Config):

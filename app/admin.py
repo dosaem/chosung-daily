@@ -254,6 +254,8 @@ def candidates():
         languages=list(PuzzleLanguage),
         pending=word_candidate_service.list_pending(language),
         pending_counts=word_candidate_service.pending_counts(),
+        recent=word_candidate_service.recent_reviewed(),
+        review_enabled=current_app.config["LLM_REVIEW_ENABLED"],
         generation_enabled=current_app.config["LLM_WORD_GENERATION_ENABLED"],
         model=current_app.config["LLM_MODEL"],
         monthly_cost=word_generation_service.monthly_cost_usd(utcnow()),
@@ -303,6 +305,21 @@ def generate_candidates():
             "이 화면을 새로고침하면 보여요."
         )
     return redirect(url_for("admin.candidates", language=language.value))
+
+
+@bp.post("/candidates/review-llm")
+@admin_required
+@csrf_protected
+def review_candidates_llm():
+    """승인 대기 전부를 배치 단위로 LLM 심사관에게 보낸다(심사가 꺼져 있으면 안내만)."""
+    if not current_app.config["LLM_REVIEW_ENABLED"]:
+        flash("LLM 심사가 꺼져 있어요 (LLM_REVIEW_ENABLED).")
+        return redirect(url_for("admin.candidates"))
+    batch_ids = word_candidate_service.pending_batch_ids()
+    for batch_id in batch_ids:
+        task_dispatch.enqueue_task(word_generation_service.REVIEW_TASK_NAME, batch_id)
+    flash(f"배치 {len(batch_ids)}개를 LLM 심사에 보냈어요. 끝나면 Slack 으로 알려요.")
+    return redirect(url_for("admin.candidates"))
 
 
 # --- 배정표·잔량 ---------------------------------------------------------

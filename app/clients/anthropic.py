@@ -82,13 +82,16 @@ def estimate_cost_usd(model: str, input_tokens: int, output_tokens: int) -> Deci
 
 
 def generate_structured(
-    *, system: str, user: str, schema: dict, max_tokens: int = 8000
+    *, system: str, user: str, schema: dict, max_tokens: int = 8000, model: str | None = None
 ) -> StructuredResponse:
-    """시스템·사용자 프롬프트를 보내고 `schema` 모양의 JSON 하나를 받는다."""
+    """시스템·사용자 프롬프트를 보내고 `schema` 모양의 JSON 하나를 받는다.
+
+    `model` 을 주지 않으면 설정의 `LLM_MODEL`. 심사는 생성과 다른 모델을 쓸 수 있다.
+    """
     api_key = current_app.config["ANTHROPIC_API_KEY"]
     if not api_key:
         raise AnthropicConfigError("ANTHROPIC_API_KEY 가 비어 있습니다.")
-    model = current_app.config["LLM_MODEL"]
+    model = model or current_app.config["LLM_MODEL"]
 
     body = {
         "model": model,

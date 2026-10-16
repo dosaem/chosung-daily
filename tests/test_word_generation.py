@@ -224,6 +224,8 @@ def enabled_app(llm_app):
     llm_app.config["LLM_MAX_PENDING_CANDIDATES"] = 3
     llm_app.config["LLM_MONTHLY_BUDGET_USD"] = 1.0
     llm_app.config["LLM_CANDIDATES_PER_CALL"] = 2
+    # 심사 단계는 tests/test_word_review.py 가 본다 — 여기선 생성만 본다.
+    llm_app.config["LLM_REVIEW_ENABLED"] = False
     return llm_app
 
 

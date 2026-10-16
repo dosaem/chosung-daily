@@ -11,6 +11,7 @@
 
 from app.clients.anthropic import AnthropicConfigError, AnthropicTransientError
 from app.models import PuzzleLanguage
+from app.services import word_review_service
 from app.services.operator_alert_service import notify_operator
 from app.services.word_generation_service import TASK_NAME, run_generation
 from celery_app import celery
@@ -45,4 +46,39 @@ def generate_word_candidates_task(self, language: str, trigger: str = "schedule"
         "skipped": outcome.skipped,
         "proposed": outcome.result.proposed if outcome.result else 0,
         "rejected": outcome.result.rejected if outcome.result else 0,
+    }
+
+
+@celery.task(
+    name=word_review_service.TASK_NAME,
+    bind=True,
+    autoretry_for=(AnthropicTransientError,),
+    retry_backoff=True,
+    retry_backoff_max=300,
+    retry_jitter=True,
+    max_retries=MAX_RETRIES,
+)
+def review_word_candidates_task(self, batch_id: str):
+    """배치 하나를 LLM 심사관에게 보내 승인/거절한다. 멱등 — 승인 대기 후보만 본다."""
+    try:
+        outcome = word_review_service.run_review(batch_id)
+    except AnthropicTransientError as err:
+        if self.request.retries >= MAX_RETRIES:
+            notify_operator(
+                "LLM 단어 후보 심사 실패",
+                f"배치 {batch_id[:8]} — {MAX_RETRIES}회 재시도 후 포기: {err} · "
+                "후보는 승인 대기로 남음",
+            )
+        raise
+    except AnthropicConfigError as err:
+        notify_operator(
+            "LLM 단어 후보 심사 실패 (설정)", f"배치 {batch_id[:8]} — 재시도 안 함: {err}"
+        )
+        return {"batch_id": batch_id, "skipped": f"config error: {err}"}
+    return {
+        "batch_id": batch_id,
+        "skipped": outcome.skipped,
+        "approved": outcome.approved,
+        "rejected": outcome.rejected,
+        "left_for_operator": outcome.left_for_operator,
     }

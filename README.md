@@ -440,10 +440,16 @@ Android)을 `app_setting` 테이블에 저장한다. 저장하면 `GET /api/v1/c
 Claude(`LLM_MODEL`, 기본 `claude-sonnet-5-5`)에게 JSON 스키마로 후보 `LLM_CANDIDATES_PER_CALL`
 개(기본 40)를 받는다 → ③ CSV 점검과 **같은 규칙**(`app/services/word_rules.py`: 길이·
 문자·힌트 누설·모음 비율·중복)으로 거르고, 통과는 `word_candidate.proposed`, 탈락은
-`rejected` + 사유로 남긴다 → ④ Slack 에 "후보 N개 · 탈락 M개 · 통과율 · 비용" 이
-간다 → ⑤ 운영자가 `/admin/candidates` 에서 힌트를 고쳐 **선택 승인**(= `create_word`,
-손으로 넣은 단어와 같은 검증·가림 계산) 또는 **선택 거절**한다. 승인 전 후보는 자정
-배정이 절대 뽑지 않는다(다른 테이블).
+`rejected` + 사유로 남긴다 → ④ 통과 후보가 있으면 **심사 태스크**
+`tasks.review_word_candidates(batch_id)` 를 큐에 넣는다 → ⑤ 심사관(`LLM_REVIEW_MODEL`,
+비우면 생성 모델)이 배치를 한 번 더 보고 후보마다 approve/reject + 사유(+ 고친 힌트)를
+준다. approve 는 운영자 승인과 **같은 경로**(`create_word`)로 단어가 되고 심사자는
+`llm:<모델>` 로 남는다; 고친 힌트는 규칙을 통과할 때만 쓴다; 판정이 안 온 후보만 승인
+대기로 남는다 → ⑥ Slack 에 생성 요약("후보 N개 · 탈락 M개 · 통과율 · 비용")과 심사
+요약("승인 · 거절 · 보류 · 비용")이 간다 → ⑦ 운영자는 `/admin/candidates` 에서 보류분을
+처리하고 **최근 처리** 표로 심사관의 판정을 감독한다(잘못 승인된 단어는 단어 목록에서
+수정·삭제). `LLM_REVIEW_ENABLED=false` 면 ④⑤ 가 빠지고 전부 운영자 승인이다. 승인 전
+후보는 자정 배정이 절대 뽑지 않는다(다른 테이블).
 
 **안전장치** (`run_generation`) — 넷 중 하나라도 걸리면 호출 없이 건너뛴다.
 
@@ -454,7 +460,8 @@ Claude(`LLM_MODEL`, 기본 `claude-sonnet-5-5`)에게 JSON 스키마로 후보 `
 | 월 예산 | `LLM_MONTHLY_BUDGET_USD` | 5 | 건너뛰고 Slack 경고 |
 | 언어 락 | Redis `llm:wordgen:{lang}` 10분 | — | 같은 언어 중복 실행 방지 |
 
-호출마다 `llm_call` 에 모델·토큰·비용(USD, 공시 단가로 계산)·지연·결과가 남는다.
+호출마다(`purpose` = `word_generation` / `word_review`) `llm_call` 에 모델·토큰·비용(USD,
+공시 단가로 계산)·지연·결과가 남는다. 월 예산은 두 용도를 합쳐 본다.
 429/5xx/타임아웃은 태스크가 백오프로 최대 3회 재시도하고 그래도 실패하면 Slack,
 4xx(키 오류 등)는 재시도 없이 바로 Slack 이다. 키 없이 돌리면 설정 오류로 끝난다.
 
@@ -2410,6 +2417,7 @@ RELEASE 의 키 보관 절차가 경고를 두 번 적는다.
 | `admin.candidate.list` | `GET /admin/candidates` |
 | `admin.candidate.review` | `POST /admin/candidates/review` |
 | `admin.candidate.generate` | `POST /admin/candidates/generate` |
+| `admin.candidate.review_llm` | `POST /admin/candidates/review-llm` |
 | `account.delete` | `DELETE /api/v1/me`, `POST /account/delete` |
 | `account.link` | `POST /api/v1/auth/token-exchange`, `GET|POST /api/v1/auth/<provider>/callback` |
 | `me.history.read` | `GET /api/v1/me/history` |
@@ -3042,11 +3050,16 @@ ZoneInfo("Asia/Seoul")`(`app/config.py`) 하나를 쓰고, 날짜가 필요한 �
 ### LLM. 출제 파이프라인 — 후보는 사람이 승인하고, 비용은 네 겹으로 막는다
 
 **LLM 결과를 `word` 에 바로 넣지 않는다.** 별도 `word_candidate` 테이블에 쌓고
-운영자가 `/admin/candidates` 에서 승인해야 `create_word` 를 탄다. 사전 API 로 실존
-단어인지 확인하는 단계는 **일부러 뺐다** — 네이버/국립국어원 사전은 키 발급·호출
-한도·용어 정책이 또 하나의 운영 부담이고, 하루 한 단어 게임에서 후보 40개를 사람이
-훑는 데 2분이면 된다. 사람 승인이 곧 사전 검증이다. 대신 기계가 할 수 있는 검사는
-전부 승인 **전에** 끝낸다: CSV 점검 스크립트의 규칙을 `word_rules` 모듈로 빼서
+승인 경로(`create_word`)를 거쳐야 단어가 된다. 처음엔 승인을 전부 운영자 몫으로 뒀는데
+(사람 승인이 곧 사전 검증), 사용자가 "검증까지 AI 로" 를 택해(2026-10-16) **심사관
+LLM** 을 2단계로 넣었다 — 생성과 심사를 한 호출로 합치지 않은 이유는 역할이 반대라서다.
+생성은 "그럴듯한 걸 많이", 심사는 "하나라도 이상하면 떨어뜨려라" 인데 한 프롬프트에 두
+목표를 넣으면 둘 다 느슨해진다. 심사는 배치 id 만 받는 별도 태스크라 일시 오류로
+재시도돼도 생성(과금)은 다시 돌지 않는다. 사전 API 검증은 여전히 **일부러 뺐다** —
+네이버/국립국어원 사전은 키 발급·호출 한도·용어 정책이 또 하나의 운영 부담이고, 심사관이
+"사전에 없는 말" 을 거절 사유로 돌려준다. 운영자는 승인자가 아니라 **감독자**다:
+`/admin/candidates` 의 최근 처리 표에서 판정을 보고, 틀린 승인은 단어 목록에서 고친다.
+기계가 할 수 있는 검사는 전부 심사 **전에** 끝낸다: CSV 점검 스크립트의 규칙을 `word_rules` 모듈로 빼서
 `check_word_csv.py` 와 생성 서비스가 **같은 함수**를 쓴다(규칙이 두 벌이면 CSV 는
 통과하고 LLM 은 떨어지는 단어가 생긴다). 그 리팩터링은 기존 테스트 17개를 한 줄도
 안 바꾸고 통과시키는 걸 조건으로 했다.
