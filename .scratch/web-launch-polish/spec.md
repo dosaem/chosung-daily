@@ -70,7 +70,7 @@
 39. As a 링크로 들어온 플레이어, I want 비교 기준이 분명하길 원한다: 성공이 실패를 이기고, 둘 다 성공이면 시도 적은 쪽, 같으면 소요 시간 짧은 쪽, 그것도 같으면 무승부.
 40. As a 링크로 들어온 플레이어, I want 둘 다 못 맞혔으면 "둘 다 아쉬워요" 무승부로 보고 싶다.
 41. As a 링크로 들어온 플레이어, I want 내 공유 텍스트에도 대결 링크(내 것)가 들어가길 원한다, so that 다음 친구에게 이어진다.
-42. As a 링크로 들어온 플레이어, I want 어제 링크를 열면 "지난 대결이에요 — 오늘 퍼즐을 풀어보세요" 를 보고 평소처럼 플레이하길 원한다.
+42. As a 링크로 들어온 플레이어, I want 어제 링크(48시간 안)를 열면 "지난 대결이에요 — 오늘 퍼즐을 풀어보세요" 를 보고 평소처럼 플레이하길 원한다(그보다 오래된 링크는 복호화 실패로 배너 없이 평소 화면).
 43. As a 링크로 들어온 플레이어, I want 링크가 깨졌거나 상대가 아직 안 끝냈으면 배너 없이 평소 화면을 보길 원한다.
 44. As a 이미 오늘 퍼즐을 끝낸 플레이어, I want 대결 링크를 열면 바로 비교 카드가 보이길 원한다.
 45. As a 플레이어, I want 대결 배너를 닫을 수 있길 원한다(이번 세션만).
@@ -87,7 +87,7 @@
 ### 화면 (웹만, 앱은 범위 밖)
 - 오늘 화면 요소는 SCREENS.md S1/S2 를 따르되 웹 차이만 둔다: 보상형 광고 버튼 없음, 결과 시트는 바텀시트 대신 중앙 다이얼로그(`<dialog>`), 하단 탭 대신 기존 섹션 내비 유지.
 - "어떻게 하나요?" 모달은 온보딩 3장(S6)을 한 장으로: 예시 가림 타일(ko `ㅈㅎㅊㅇ`, en `_PPL_`), 피드백 색 설명, "기회 5번 · 힌트는 3번째 오답 후", "매일 KST 00:00 새 퍼즐". 본 적 있음 표시는 브라우저 저장(실패해도 동작).
-- 퍼즐 번호는 서버가 준다: 오늘 퍼즐 응답에 `number` = `COUNT(daily_puzzle WHERE language=? AND puzzle_date <= 오늘)` 을 추가한다. COUNT 는 뷰가 아니라 `cache_puzzle`(또는 공용 헬퍼) 안에서 계산해 Redis `CachedPuzzle` 페이로드에 넣는다 — `puzzle_service` 와 자정 워밍(`puzzle_maintenance_service`) 두 경로가 같은 값을 넣도록(날짜별 키라 따로 무효화할 게 없고, 과거 날짜 배정은 거부되므로 번호는 안정적이다). 앱 응답 스키마에 필드가 늘어도 앱은 무시하므로 호환.
+- 퍼즐 번호는 서버가 준다: 오늘 퍼즐 응답에 `number` = `COUNT(daily_puzzle WHERE language=? AND puzzle_date <= 오늘)` 을 추가한다. COUNT 는 뷰가 아니라 `cache_puzzle`(또는 공용 헬퍼) 안에서 계산해 Redis `CachedPuzzle` 페이로드에 넣는다 — `puzzle_service` 와 자정 워밍(`puzzle_maintenance_service`) 두 경로가 같은 값을 넣도록(날짜별 키라 따로 무효화할 게 없고, 과거 날짜 배정은 거부되므로 번호는 안정적이다). `get_cached_puzzle` 은 `number` 가 없는 **옛 페이로드를 캐시 미스로 취급해 재채움**한다 — 무중단 배포 직후 옛 캐시를 읽어 KeyError 로 자정까지 500 이 나지 않게(테스트: 옛 모양 페이로드를 심고 조회). 앱 응답 스키마에 필드가 늘어도 앱은 무시하므로 호환.
 - 시도 보드는 기존 `renderBoard`/`renderAttemptRow` 를 확장해 빈 행을 `length` 만큼 `tile-empty` 로 채운다. 입력 중 미리보기는 다음 빈 행에 글자를 그리고 제출 시 피드백으로 교체.
 - 힌트 카드는 응답의 `hint` 로 그린다: `null` 이면 잠김("3번째 오답 후 열려요"), 문장이 오면 열림. 조회·제출 응답 둘 다 같은 규칙(서버 `compute_reveal`). `hint_unlocked` 는 앱의 보상형 "힌트 미리 보기" 플래그라 웹에서는 쓰지 않는다. 서버 변경 없음.
 - 결과 시트의 통계 막대는 완료 제출 뒤 이미 도는 `loadTodayStats()` 의 **같은 응답**으로 시트 막대와 순위 탭을 함께 그린다(요청을 늘리지 않는다). "다음 퍼즐까지" 카운트다운은 기존 `renderCountdown` 을 대상 요소·문구 키를 인자로 받게 일반화해 상태 카드와 시트가 같이 쓴다.
@@ -111,7 +111,7 @@
 
 좋은 테스트는 화면이 **무엇을 보여주는가**와 API 가 **무엇을 돌려주는가**를 본다. DOM 클래스 이름이나 내부 함수 호출 순서는 보지 않는다.
 
-- API(대결 발급·조회, 퍼즐 번호): `tests/test_api_*.py` 식 pytest — 실제 MySQL/Redis, 게스트 두 명을 만들어 한쪽이 끝낸 뒤 발급 → 다른 쪽이 조회. 암호문 변조·미완료·지난 퍼즐·본인 링크 케이스. 프라이어 아트: `tests/test_leaderboard*.py`, `tests/test_hint_unlock*.py`.
+- API(대결 발급·조회, 퍼즐 번호): `tests/test_challenge_api.py`(새 파일, `tests/test_puzzle_api.py`·`tests/test_leaderboard.py` 와 같은 꼴) pytest — 실제 MySQL/Redis, 게스트 두 명을 만들어 한쪽이 끝낸 뒤 발급 → 다른 쪽이 조회. 암호문 변조·미완료·지난 퍼즐·본인 링크 케이스. 프라이어 아트: `tests/test_leaderboard*.py`, `tests/test_hint_unlock*.py`.
 - 화면 계약(요소 존재·문구 사전·토큰 사용): `tests/test_web_design.py` 확장 — 모달·헤더 칩·빈 보드 5행·힌트 카드·`<dialog>`·`<details>` 사업자 정보·대결 배너 자리.
 - 동작(상태 전환): `tests/test_web_js.py` + `tests/js/*.mjs` node 대역 — 첫 방문 모달 1회, 빈 행 → 피드백 행, 힌트 잠김→열림, 완료 시 시트·카운트다운, `?vs=` 배너·비교 카드·언어 불일치 버튼, 지난 대결 문구, 공유 텍스트에 링크 포함. 대역(`tests/js/harness.mjs`)에 `sessionStorage`, `dialog.showModal/close`, `location.search` 조작, `history.replaceState` 를 더한다.
 - 디자인 검사: `impeccable detect` 0건(전역 규칙), 360px 스크린샷을 `design/web-shots/` 에 갱신.
@@ -135,4 +135,4 @@
 ### 미정 항목
 - 사업자 정보를 `<details>` 로 접은 상태가 전자상거래법 제10조 "초기 화면 표시" 를 만족하는지 — 상호·연락처를 `summary` 줄에 펼쳐 두는 절충안으로 간다. **사용자 확인 필요.**
 - 퍼즐 번호의 기준: 그 언어의 첫 퍼즐 날짜를 1로. en 은 ko 보다 늦게 시작해 번호가 다르다 — 공유 텍스트에 언어 표기(`오늘의 초성` / `Hidden Vowels`)가 붙어 구분된다.
-- 리뷰어: Fable 리뷰는 코디네이터 없이 이 세션에서 띄운다(1라운드 MAJOR 7·MINOR 12 → 전부 반영, 2라운드 MAJOR 2·MINOR 8 → 전부 반영, 3라운드 진행). Sol(Codex) 리뷰는 이 세션에서 띄울 수 없어 생략 — 전역 규칙(Fable+Sol)과 어긋나는 예외이며 사용자 결정으로 남긴다(2026-10-16, 사용자가 원하면 `/to-tickets` 전에 별도 실행).
+- 리뷰어: Fable 리뷰는 코디네이터 없이 이 세션에서 띄운다(1라운드 MAJOR 7·MINOR 12 → 전부 반영, 2라운드 MAJOR 2·MINOR 8 → 전부 반영, 3라운드 MAJOR 1·MINOR 2 → 반영, 종료). Sol(Codex) 리뷰는 이 세션에서 띄울 수 없어 생략 — 전역 규칙(Fable+Sol)과 어긋나는 예외이며 사용자 결정으로 남긴다(2026-10-16, 사용자가 원하면 `/to-tickets` 전에 별도 실행).
