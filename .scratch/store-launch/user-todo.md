@@ -54,8 +54,8 @@
 |---|---|---|---|---|
 | 19 | LLM 출제 파이프라인 — 구현 · **`ANTHROPIC_API_KEY` 발급(이 프로젝트 전용)** · 첫 실행 → 통과율·단어당 비용 | **구현 끝(2026-10-16)**, 키·실행은 아직 | Claude(구현) → **사용자(키 발급)** → Claude(첫 실행·지표) | 브랜치 `feat/llm-word-gen`(워크트리 `~/orca/worktrees/chosung-daily-llm`), 커밋 6개. 후보는 `/admin/candidates` 에서 사람이 승인. 켜려면 NAS `.env` 에 `ANTHROPIC_API_KEY` + `LLM_WORD_GENERATION_ENABLED=true`. 지표 SQL 은 README "운영: LLM 단어 후보 생성" |
 | 20 | 티켓 47 무중단 배포 조사 (이미지 먼저 빌드 → app 만 교체, 나중에 blue/green) | 아직 | Claude | 사용자 요청(2026-10-16) |
-| 21 | Cloudflare 터널 `develop-chosung.dosaem.com` 경로 포트 **8090 → 8094** 수정 | 아직 | Claude(Chrome) | 8090 은 알리미가 씀. develop 컨테이너는 8094 에서 health OK(2026-10-16 확인) |
-| 22 | 영어 단어 CSV(`en-general-01-reviewed.csv`, 161개) 업로드 + `/admin/schedule` ko/en 30일 확인 | 아직 (파일은 폼에 첨부됨) | Claude(Chrome) | 한국어 161개는 업로드 끝 |
+| 21 | Cloudflare 터널 `develop-chosung.dosaem.com` 경로 포트 **8090 → 8094** 수정 | **끝(2026-10-16)** | Claude(Chrome) | 8090 은 알리미가 씀. `https://develop-chosung.dosaem.com/health` 200 확인 |
+| 22 | 영어 단어 CSV(`en-general-01-reviewed.csv`, 161개) 업로드 + `/admin/schedule` ko/en 30일 확인 | **끝(2026-10-16)** | Claude(Chrome + ssh nas) | ko 162·en 161 일치. 오늘(10-16) 퍼즐이 두 언어 다 비어 있어서(단어를 자정 뒤에 올림) prod 컨테이너에서 `uv run flask schedule-puzzles --language {ko,en} --days 30` 실행 → ko 4일·en 30일 배정, EN 오늘 퍼즐 API 확인 |
 | 23 | AdMob 계정 승인 → UMP(동의 메시지) 생성 | 승인 대기 | Claude(Chrome) | 승인 전엔 UMP 페이지가 비어 있음 |
 | 24 | Play 라이선스 테스터 목록 저장 실패("변경사항을 저장할 수 없습니다") | 보류 | Claude(Chrome) | 다시 시도 |
 | 25 | `MATCH_GIT_BASIC_AUTHORIZATION` 은 gh 토큰 — 전용 PAT 로 교체 | 아직 | 사용자(토큰 발급) → Claude(secret 교체) | |
