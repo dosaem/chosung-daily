@@ -52,7 +52,34 @@ def test_without_a_bot_token_everything_falls_back_to_the_webhook(app, posts):
     assert "channel" not in posts[0]["json"]
 
 
-def test_a_rejected_post_is_reported_as_failure_not_raised(app, monkeypatch):
+def test_a_missing_channel_falls_back_to_the_webhook(app, monkeypatch):
+    """채널 이름을 바꾸는 중이거나 봇이 아직 안 들어간 채널이면 알림을 버리지 않는다."""
+    app.config["SLACK_BOT_TOKEN"] = "xoxb-test"
+    app.config["SLACK_WEBHOOK_URL"] = "https://hooks.slack.test/one"
+    urls = []
+
+    class R:
+        status_code = 200
+
+        def __init__(self, url):
+            self.url = url
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"ok": False, "error": "channel_not_found"}
+
+    def fake_post(url, **k):
+        urls.append(url)
+        return R(url)
+
+    monkeypatch.setattr(slack.requests, "post", fake_post)
+    assert notify_operator("x", "y") is True
+    assert urls == [slack.POST_MESSAGE_URL, "https://hooks.slack.test/one"]
+
+
+def test_other_rejections_are_reported_as_failure_not_raised(app, monkeypatch):
     app.config["SLACK_BOT_TOKEN"] = "xoxb-test"
 
     class R:
@@ -62,7 +89,7 @@ def test_a_rejected_post_is_reported_as_failure_not_raised(app, monkeypatch):
             pass
 
         def json(self):
-            return {"ok": False, "error": "not_in_channel"}
+            return {"ok": False, "error": "invalid_auth"}
 
     monkeypatch.setattr(slack.requests, "post", lambda *a, **k: R())
     assert notify_operator("x", "y") is False

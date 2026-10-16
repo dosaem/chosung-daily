@@ -62,7 +62,10 @@ def post_channel_message(channel: str, text: str) -> bool:
         logger.warning("Slack chat.postMessage 전송 실패 (%s)", type(exc).__name__)
         return False
     if not body.get("ok"):
-        # 토큰·채널 설정 문제(not_in_channel, channel_not_found 등)는 200 으로 온다.
+        # 토큰·채널 설정 문제는 200 으로 온다. 채널이 아직 없거나 봇이 안 들어가 있으면
+        # 알림을 버리지 않고 예전 웹훅 채널로 떨어뜨린다(채널 이름 바꾸는 중에도 안 끊기게).
         logger.warning("Slack chat.postMessage 거부: %s (channel=%s)", body.get("error"), channel)
+        if body.get("error") in ("channel_not_found", "not_in_channel", "is_archived"):
+            return post_webhook_message(text)
         return False
     return True
