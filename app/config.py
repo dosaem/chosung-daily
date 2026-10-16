@@ -104,6 +104,13 @@ class Config:
     # 릴리스 태그. 배포 스크립트가 배포한 커밋을 넣는다 — 비어 있으면 Sentry
     # 이벤트에 릴리스 없이 환경만 붙는다.
     SENTRY_RELEASE = os.environ.get("SENTRY_RELEASE", "")
+    # [티켓 51] Sentry 내부 통합(Internal Integration) 웹훅 → Slack + GitHub 이슈 → Claude Code
+    # Action. 비밀키가 비면 `/api/v1/ops/sentry` 는 503 으로 닫혀 있다.
+    SENTRY_WEBHOOK_SECRET = os.environ.get("SENTRY_WEBHOOK_SECRET", "")
+    # issues 쓰기만 되는 fine-grained PAT. 비면 GitHub 이슈 없이 Slack 만 간다(태스크가 알림).
+    GITHUB_ISSUES_TOKEN = os.environ.get("GITHUB_ISSUES_TOKEN", "")
+    GITHUB_ISSUES_REPO = os.environ.get("GITHUB_ISSUES_REPO", "dosaem/chosung-daily")
+    OPS_ISSUE_LABEL = os.environ.get("OPS_ISSUE_LABEL", "sentry")
 
     # 로그인 CSRF 방어(app/api/oauth.py의 sync_session 독스트링 참고)의 핵심 설정.
     # SameSite=Lax면 공격자 사이트/링크를 통한 요청엔 이 세션 쿠키가 안 실린다.
