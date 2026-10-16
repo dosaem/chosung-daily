@@ -16,15 +16,11 @@ class Account(db.Model):
 
     __tablename__ = "account"
     __table_args__ = (
-        db.UniqueConstraint(
-            "provider", "provider_user_id", name="uq_account_provider_identity"
-        ),
+        db.UniqueConstraint("provider", "provider_user_id", name="uq_account_provider_identity"),
     )
 
     id: int = db.Column(db.Integer, primary_key=True)
-    guest_id: int = db.Column(
-        db.Integer, db.ForeignKey("guest.id"), nullable=False, unique=True
-    )
+    guest_id: int = db.Column(db.Integer, db.ForeignKey("guest.id"), nullable=False, unique=True)
     provider: OAuthProvider = db.Column(
         db.Enum(OAuthProvider, values_callable=lambda enum_cls: [e.value for e in enum_cls]),
         nullable=False,

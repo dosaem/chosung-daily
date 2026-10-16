@@ -20,6 +20,7 @@ def test_tasks_are_registered():
     assert "tasks.retry_apple_revocations" in celery.tasks
     assert "tasks.recheck_expiring_subscriptions" in celery.tasks
     assert "tasks.purge_access_logs" in celery.tasks
+    assert "tasks.generate_word_candidates" in celery.tasks
 
 
 def test_beat_schedule_matches_spec_times():
@@ -46,9 +47,7 @@ def test_beat_schedule_matches_spec_times():
     assert apple_secret_schedule.day_of_week == {1}
     assert apple_secret_schedule.hour == {9}
     assert apple_secret_schedule.minute == {10}
-    assert (
-        schedule["notify-apple-secret-expiry"]["task"] == "tasks.notify_apple_secret_expiry"
-    )
+    assert schedule["notify-apple-secret-expiry"]["task"] == "tasks.notify_apple_secret_expiry"
 
     # 애플 철회 재시도는 매일이다(스펙 §A.7) — 다른 아침 알림과 10분씩 떨어뜨렸다.
     revocation_schedule = schedule["retry-apple-revocations"]["schedule"]
@@ -98,9 +97,7 @@ def test_tasks_delegate_to_the_service_functions(monkeypatch):
         "ensure_today_puzzles_for_all_languages",
         lambda: called.append("ensure") or [],
     )
-    monkeypatch.setattr(
-        scheduled, "notify_low_word_pool", lambda: called.append("word-pool") or []
-    )
+    monkeypatch.setattr(scheduled, "notify_low_word_pool", lambda: called.append("word-pool") or [])
     monkeypatch.setattr(
         scheduled,
         "notify_apple_secret_expiry",

@@ -6,6 +6,8 @@ from app.models.attempt import Attempt
 from app.models.daily_puzzle import DailyPuzzle
 from app.models.daily_stats import DailyStats
 from app.models.enums import (
+    CandidateStatus,
+    LlmCallResult,
     OAuthProvider,
     PuzzleLanguage,
     SubscriptionEnvironment,
@@ -16,8 +18,10 @@ from app.models.enums import (
 from app.models.guest import Guest
 from app.models.guest_stats import GuestStats
 from app.models.hint_unlock import HintUnlock
+from app.models.llm_call import LlmCall
 from app.models.subscription import Subscription
 from app.models.word import Word
+from app.models.word_candidate import WordCandidate
 
 __all__ = [
     "AccessLog",
@@ -25,11 +29,14 @@ __all__ = [
     "AppSetting",
     "AppleRevocationRetry",
     "Attempt",
+    "CandidateStatus",
     "DailyPuzzle",
     "DailyStats",
     "Guest",
     "GuestStats",
     "HintUnlock",
+    "LlmCall",
+    "LlmCallResult",
     "OAuthProvider",
     "PuzzleLanguage",
     "Subscription",
@@ -37,5 +44,6 @@ __all__ = [
     "SubscriptionStatus",
     "SubscriptionStore",
     "Word",
+    "WordCandidate",
     "WordCategory",
 ]

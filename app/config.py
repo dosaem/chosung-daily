@@ -161,6 +161,25 @@ class Config:
     # (실제로 겪은 문제). ProxyFix가 X-Forwarded-Proto를 읽어 스킴을 바로잡는다.
     TRUST_PROXY = False
 
+    # [LLM 출제] Anthropic API. 키가 비면 생성 태스크는 아무것도 안 하고 끝난다
+    # (dry-run·테스트는 HTTP 경계 mock 으로만 돈다 — 다른 프로젝트 키를 끌어다 쓰지
+    # 않는다). 모델은 환경변수로 바꾼다; 단가표는 app/clients/anthropic.py.
+    ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+    LLM_MODEL = os.environ.get("LLM_MODEL", "claude-sonnet-5-5")
+    # 기능 플래그. 끄면 잔량 감지·어드민 버튼 모두 생성을 큐에 넣지 않는다.
+    LLM_WORD_GENERATION_ENABLED = os.environ.get("LLM_WORD_GENERATION_ENABLED", "") in (
+        "1",
+        "true",
+        "yes",
+    )
+    # 월 예산 상한(USD). 이번 달 llm_call.cost_usd 합이 넘으면 생성하지 않고 Slack 알림.
+    LLM_MONTHLY_BUDGET_USD = float(os.environ.get("LLM_MONTHLY_BUDGET_USD") or 5)
+    # 승인 안 된 후보가 이미 이만큼 쌓여 있으면 그 언어는 생성을 건너뛴다 —
+    # 승인을 안 하는 동안 매일 과금되는 걸 막는다.
+    LLM_MAX_PENDING_CANDIDATES = int(os.environ.get("LLM_MAX_PENDING_CANDIDATES") or 60)
+    # 한 번에 요청하는 후보 수. 규칙·중복 탈락분을 감안해 필요량보다 넉넉히 받는다.
+    LLM_CANDIDATES_PER_CALL = int(os.environ.get("LLM_CANDIDATES_PER_CALL") or 40)
+
 
 class DevelopmentConfig(Config):
     DEBUG = True

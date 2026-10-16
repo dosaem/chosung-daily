@@ -29,9 +29,7 @@ class Subscription(db.Model):
     """
 
     __tablename__ = "subscription"
-    __table_args__ = (
-        db.UniqueConstraint("store", "store_key", name="uq_subscription_store_key"),
-    )
+    __table_args__ = (db.UniqueConstraint("store", "store_key", name="uq_subscription_store_key"),)
 
     id: int = db.Column(db.Integer, primary_key=True)
     # 별도 index=True 를 안 붙인다 — MySQL 은 외래 키에 인덱스를 자동으로

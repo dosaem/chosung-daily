@@ -4,7 +4,7 @@ import pytest
 
 from app.extensions import db
 from app.models import PuzzleLanguage, Word, WordCategory
-from app.services import operator_alert_service
+from app.services import operator_alert_service, task_dispatch
 from app.services.puzzle_schedule_service import schedule_puzzles
 from app.services.word_pool_service import (
     LOW_WORD_POOL_THRESHOLD_DAYS,
@@ -80,3 +80,22 @@ def test_stays_quiet_when_every_language_has_enough_words(app, operator_alerts):
 
     assert notify_low_word_pool() == []
     assert operator_alerts == []
+
+
+def test_low_pool_enqueues_llm_generation_only_when_the_flag_is_on(
+    app, operator_alerts, monkeypatch
+):
+    enqueued = []
+    monkeypatch.setattr(
+        task_dispatch, "enqueue_task", lambda name, *args: enqueued.append((name, args))
+    )
+    _add_words(2, PuzzleLanguage.KO)
+    _add_words(LOW_WORD_POOL_THRESHOLD_DAYS, PuzzleLanguage.EN)
+
+    app.config["LLM_WORD_GENERATION_ENABLED"] = False
+    notify_low_word_pool()
+    assert enqueued == []
+
+    app.config["LLM_WORD_GENERATION_ENABLED"] = True
+    notify_low_word_pool()
+    assert enqueued == [("tasks.generate_word_candidates", ("ko",))]

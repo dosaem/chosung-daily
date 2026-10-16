@@ -16,6 +16,4 @@ class AppSetting(db.Model):
     # `key` 는 MySQL 예약어(KEY)라 컬럼 이름만 setting_key 로 두고, 코드에선 key 로 쓴다.
     key: str = db.Column("setting_key", db.String(60), primary_key=True)
     value: str = db.Column(db.String(500), nullable=False)
-    updated_at: datetime = db.Column(
-        db.DateTime, nullable=False, default=utcnow, onupdate=utcnow
-    )
+    updated_at: datetime = db.Column(db.DateTime, nullable=False, default=utcnow, onupdate=utcnow)
