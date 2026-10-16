@@ -38,13 +38,21 @@ from app.extensions import db
 from app.models import PuzzleLanguage, Word, WordCategory
 from app.repositories import account_repository
 from app.schemas.book import BookSearchResult
-from app.services import app_config_service, puzzle_schedule_service, word_service
+from app.services import (
+    app_config_service,
+    puzzle_schedule_service,
+    task_dispatch,
+    word_candidate_service,
+    word_generation_service,
+    word_service,
+)
 from app.services.book_lookup_service import search_google_books
 from app.services.puzzle_schedule_service import SCHEDULE_DAYS
 from app.services.word_pool_service import (
     LOW_WORD_POOL_THRESHOLD_DAYS,
     remaining_days_by_language,
 )
+from app.utils.time import utcnow
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
 
@@ -227,6 +235,76 @@ def import_csv():
     return _render_import(results=word_service.import_word_rows(rows))
 
 
+# --- LLM 단어 후보 검수 ------------------------------------------------------
+
+
+@bp.get("/candidates")
+@admin_required
+def candidates():
+    """LLM 이 만든 후보 목록(승인 대기만). 운영자가 힌트를 고쳐 승인하거나 거절한다.
+
+    LLM 결과가 `word` 로 바로 들어가지 않는 이유는 `WordCandidate` 모델 주석에
+    있다. 여기서 "후보 생성" 은 Celery 태스크를 큐에 넣기만 하고 돌아온다 —
+    LLM 호출은 수십 초라 요청 안에서 기다리지 않는다.
+    """
+    language = _parse_enum(PuzzleLanguage, request.args.get("language"))
+    return render_template(
+        "admin/candidates.html",
+        language=language,
+        languages=list(PuzzleLanguage),
+        pending=word_candidate_service.list_pending(language),
+        pending_counts=word_candidate_service.pending_counts(),
+        generation_enabled=current_app.config["LLM_WORD_GENERATION_ENABLED"],
+        model=current_app.config["LLM_MODEL"],
+        monthly_cost=word_generation_service.monthly_cost_usd(utcnow()),
+        monthly_budget=current_app.config["LLM_MONTHLY_BUDGET_USD"],
+        max_pending=current_app.config["LLM_MAX_PENDING_CANDIDATES"],
+        csrf_token=issue_csrf_token(),
+    )
+
+
+@bp.post("/candidates/review")
+@admin_required
+@csrf_protected
+def review_candidates():
+    ids = request.form.getlist("candidate_id", type=int)
+    language = request.form.get("language") or None
+    if not ids:
+        flash("승인하거나 거절할 후보를 골라주세요.")
+        return redirect(url_for("admin.candidates", language=language))
+
+    if request.form.get("action") == "reject":
+        result = word_candidate_service.reject(ids, (request.form.get("reason") or "").strip())
+        flash(f"후보 {len(result.rejected)}개를 거절했어요.")
+    else:
+        hints = {
+            cid: (request.form.get(f"hint-{cid}") or "").strip()
+            for cid in ids
+            if (request.form.get(f"hint-{cid}") or "").strip()
+        }
+        result = word_candidate_service.approve(ids, hints)
+        flash(f"후보 {len(result.approved)}개를 단어로 추가했어요.")
+        for candidate, reason in result.failed:
+            flash(f"'{candidate.answer}' 는 추가하지 못해 거절로 돌렸어요: {reason}")
+    return redirect(url_for("admin.candidates", language=language))
+
+
+@bp.post("/candidates/generate")
+@admin_required
+@csrf_protected
+def generate_candidates():
+    language = _read_language(request.form)
+    if not current_app.config["LLM_WORD_GENERATION_ENABLED"]:
+        flash("LLM 후보 생성이 꺼져 있어요 (LLM_WORD_GENERATION_ENABLED).")
+    else:
+        task_dispatch.enqueue_task(word_generation_service.TASK_NAME, language.value, "admin")
+        flash(
+            f"{language.value} 후보 생성을 요청했어요. 끝나면 Slack 으로 알리고, "
+            "이 화면을 새로고침하면 보여요."
+        )
+    return redirect(url_for("admin.candidates", language=language.value))
+
+
 # --- 배정표·잔량 ---------------------------------------------------------
 
 
@@ -279,9 +357,7 @@ def replace_form(puzzle_date):
         current_word=next(
             (day.word for day in schedule_days if day.puzzle_date == target_date), None
         ),
-        assigned_word_ids={
-            day.word.id for day in schedule_days if day.word is not None
-        },
+        assigned_word_ids={day.word.id for day in schedule_days if day.word is not None},
         csrf_token=issue_csrf_token(),
     )
 
@@ -306,8 +382,7 @@ def replace_word(puzzle_date):
         )
 
     flash(
-        f"{target_date.isoformat()} ({language.value}) 퍼즐을 "
-        f"'{puzzle.word.answer}' 로 바꿨어요."
+        f"{target_date.isoformat()} ({language.value}) 퍼즐을 '{puzzle.word.answer}' 로 바꿨어요."
     )
     return redirect(url_for("admin.schedule", language=language.value))
 
@@ -368,10 +443,7 @@ def books():
         try:
             results = search_google_books(keyword)
         except requests.RequestException as exc:
-            error = (
-                f"구글 책 검색에 실패했어요 ({type(exc).__name__}). "
-                "잠시 뒤 다시 시도해주세요."
-            )
+            error = f"구글 책 검색에 실패했어요 ({type(exc).__name__}). 잠시 뒤 다시 시도해주세요."
 
     return render_template(
         "admin/books.html",

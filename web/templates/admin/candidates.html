@@ -1,0 +1,77 @@
+{% extends "admin/_layout.html" %}
+{% block title %}LLM 후보{% endblock %}
+{% block heading %}LLM 단어 후보{% endblock %}
+
+{% block content %}
+<p class="admin-meta">
+  LLM({{ model }})이 만든 후보예요. 승인한 것만 단어가 되고, 힌트는 승인 전에 고칠 수 있어요.
+  이번 달 비용 ${{ "%.4f" | format(monthly_cost) }} / 상한 ${{ monthly_budget }} ·
+  승인 대기 상한 언어당 {{ max_pending }}개
+  {% if not generation_enabled %}· <strong>자동 생성 꺼짐</strong> (LLM_WORD_GENERATION_ENABLED){% endif %}
+</p>
+
+<ul class="admin-stock" aria-label="언어별 승인 대기 후보">
+  {% for stock_language, count in pending_counts.items() %}
+  <li class="admin-stock-card">
+    <p class="admin-stock-language">{{ stock_language.value }}</p>
+    <p class="admin-stock-days">{{ count }}개 대기</p>
+    <form method="post" action="{{ url_for('admin.generate_candidates') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+      <input type="hidden" name="language" value="{{ stock_language.value }}" />
+      <button class="admin-button" type="submit" {% if not generation_enabled %}disabled{% endif %}>후보 생성</button>
+    </form>
+  </li>
+  {% endfor %}
+</ul>
+
+<nav class="admin-tabs" aria-label="언어">
+  <a class="admin-tab {% if language is none %}admin-tab-current{% endif %}" href="{{ url_for('admin.candidates') }}">전체</a>
+  {% for tab in languages %}
+  <a class="admin-tab {% if language == tab %}admin-tab-current{% endif %}" href="{{ url_for('admin.candidates', language=tab.value) }}">{{ tab.value }}</a>
+  {% endfor %}
+</nav>
+
+{% if pending %}
+<form method="post" action="{{ url_for('admin.review_candidates') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+  <input type="hidden" name="language" value="{{ language.value if language else '' }}" />
+  <div class="admin-table-scroll" tabindex="0">
+    <table class="admin-table">
+      <caption class="admin-table-caption">같은 배치끼리 묶여 있어요. 체크한 후보만 승인·거절돼요.</caption>
+      <thead>
+        <tr>
+          <th scope="col"><span class="admin-muted">선택</span></th>
+          <th scope="col">언어</th>
+          <th scope="col">정답</th>
+          <th scope="col">힌트 (고쳐서 승인 가능)</th>
+          <th scope="col">배치</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for candidate in pending %}
+        <tr>
+          <td class="admin-check">
+            <input type="checkbox" name="candidate_id" value="{{ candidate.id }}" aria-label="{{ candidate.answer }} 선택" />
+          </td>
+          <td>{{ candidate.language.value }}</td>
+          <td class="admin-cell-answer">{{ candidate.answer }}</td>
+          <td><input type="text" name="hint-{{ candidate.id }}" value="{{ candidate.hint }}" maxlength="200" /></td>
+          <td><span class="admin-muted">{{ candidate.batch_id[:8] }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="admin-form-actions">
+    <button class="admin-button admin-button-primary" type="submit" name="action" value="approve">선택 승인</button>
+    <label class="admin-field admin-field-grow">
+      <span class="admin-label">거절 사유 (선택)</span>
+      <input type="text" name="reason" maxlength="300" />
+    </label>
+    <button class="admin-button admin-button-danger" type="submit" name="action" value="reject">선택 거절</button>
+  </div>
+</form>
+{% else %}
+<p class="admin-empty">승인 대기 중인 후보가 없어요.</p>
+{% endif %}
+{% endblock %}
