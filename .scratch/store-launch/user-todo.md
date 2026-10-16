@@ -48,7 +48,21 @@
 | 17 | 백업 키 생성 → NAS 밖 두 곳 보관, 공개키 인증서를 NAS 에 | **생성 끝(2026-10-16)** | Claude(로컬) + 사용자(보관) | 구현은 age 가 아니라 openssl CMS(RELEASE "### 36."). 키쌍 `~/.config/chosung-daily/chosung-backup-{key,cert}.pem`, 인증서는 NAS `/volume1/docker/chosung-daily-backups/backup-cert.pem`. **사용자:** 개인키 `chosung-backup-key.pem` 을 비밀번호 관리자 + 오프라인 사본에 보관(잃으면 백업 복구 불가) |
 | 18 | Play Data safety · 앱 콘텐츠 설문 · target SDK/Billing 8+ 재확인 · ASC 수출규정 답변이 면제(`ITSAppUsesNonExemptEncryption=false`, 티켓 41)와 일치하는지 첫 제출 때 확인 · **첫 출시 버튼** | 아직 | Claude(설문 초안·입력) → **출시 버튼은 사용자** | |
 
+## F. 출시 후·운영 (2026-10-16 추가)
+
+| # | 항목 | 상태 | 누가 | 비고 |
+|---|---|---|---|---|
+| 19 | LLM 출제 파이프라인 — 구현 · **`ANTHROPIC_API_KEY` 발급(이 프로젝트 전용)** · 첫 실행 → 통과율·단어당 비용 | **구현 끝(2026-10-16)**, 키·실행은 아직 | Claude(구현) → **사용자(키 발급)** → Claude(첫 실행·지표) | 브랜치 `feat/llm-word-gen`(워크트리 `~/orca/worktrees/chosung-daily-llm`), 커밋 6개. 후보는 `/admin/candidates` 에서 사람이 승인. 켜려면 NAS `.env` 에 `ANTHROPIC_API_KEY` + `LLM_WORD_GENERATION_ENABLED=true`. 지표 SQL 은 README "운영: LLM 단어 후보 생성" |
+| 20 | 티켓 47 무중단 배포 조사 (이미지 먼저 빌드 → app 만 교체, 나중에 blue/green) | 아직 | Claude | 사용자 요청(2026-10-16) |
+| 21 | Cloudflare 터널 `develop-chosung.dosaem.com` 경로 포트 **8090 → 8094** 수정 | 아직 | Claude(Chrome) | 8090 은 알리미가 씀. develop 컨테이너는 8094 에서 health OK(2026-10-16 확인) |
+| 22 | 영어 단어 CSV(`en-general-01-reviewed.csv`, 161개) 업로드 + `/admin/schedule` ko/en 30일 확인 | 아직 (파일은 폼에 첨부됨) | Claude(Chrome) | 한국어 161개는 업로드 끝 |
+| 23 | AdMob 계정 승인 → UMP(동의 메시지) 생성 | 승인 대기 | Claude(Chrome) | 승인 전엔 UMP 페이지가 비어 있음 |
+| 24 | Play 라이선스 테스터 목록 저장 실패("변경사항을 저장할 수 없습니다") | 보류 | Claude(Chrome) | 다시 시도 |
+| 25 | `MATCH_GIT_BASIC_AUTHORIZATION` 은 gh 토큰 — 전용 PAT 로 교체 | 아직 | 사용자(토큰 발급) → Claude(secret 교체) | |
+
 ## 기록
+
+- 2026-10-16 (7차): LLM 출제 파이프라인 구현 완료(19) — word_rules 분리(기존 테스트 17개 무변경), `word_candidate`·`llm_call` 테이블, Anthropic requests 래퍼 + JSON 스키마 출력, Celery 태스크 + 안전장치 4겹(플래그·대기 상한 60·월 5달러·언어 락), `/admin/candidates` 검수 화면, README 운영 절·설계 판단. 키가 없어 실제 호출은 안 했고 HTTP 경계만 가짜로 둔 테스트로 검증. develop 인스턴스 health OK(8094). 남은 것 20~25.
 
 - 2026-10-16 (6차): ASC 비즈니스 완료 — 세금 양식 3개 제출(W-8BEN·Foreign Status 활성화, 한국 양식 대기), 대한민국 전자상거래법 연락처(hsseo@dosaem.com) 활성화, DSA 심사 중, 은행 처리 중 → 유료 앱 계약 "처리 중". 배너 0개. **다음 확인(2026-10-17 이후):** 유료 앱 계약 활성화됨 여부, AdMob 계정 승인 → UMP.
 
