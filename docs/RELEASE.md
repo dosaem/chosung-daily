@@ -1640,9 +1640,9 @@ Android EncryptedSharedPreferences 에 들어간다(`mobile/lib/guest/guest_toke
 `app/web.py` 의 `LEGAL_EFFECTIVE_DATE`, 그리고 Play Data safety 답안(같은 "### 16."
 체크박스)의 수집 항목 설명.
 
-### 47. 무중단 배포 — 전환 순서와 확인 (2026-10-16)
+### 50. 무중단 배포 — 전환 순서와 확인 (2026-10-16)
 
-배포 흐름은 README "설계 판단 47." 이다. 사람이 할 일은 **없다** — 다만 전환 직후 한 번
+배포 흐름은 README "설계 판단 50." 이다. 사람이 할 일은 **없다** — 다만 전환 직후 한 번
 확인한다.
 
 - **전환 1회**: proxy 도입 전 app 컨테이너는 호스트 포트(8089/8094)를 직접 잡고 있다.

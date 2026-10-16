@@ -255,7 +255,7 @@ def test_deploy_runs_steps_in_order(tmp_path):
 PROD = "docker compose -f docker-compose.prod.yml -p chosung-daily-prod --env-file .env"
 
 
-# --- 47: 롤링 교체 ----------------------------------------------------------------
+# --- 50: 롤링 교체 ----------------------------------------------------------------
 
 
 def test_first_deploy_after_proxy_recreates_the_app_that_still_holds_the_port(tmp_path):

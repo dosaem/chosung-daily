@@ -34,5 +34,5 @@ access_log_format = '%(h)s %(t)s "%(m)s %(U)s" %(s)s %(b)s "%({user-agent}i)s" %
 
 # SIGTERM(배포 교체) 뒤 진행 중 요청을 마칠 시간. compose 의 stop_grace_period(20초)
 # 보다 짧아야 gunicorn 이 스스로 정리를 끝낸다 — 정답 제출이 중간에 끊겨 attempt 만
-# 남는 일을 막는다(티켓 47).
+# 남는 일을 막는다(티켓 50).
 graceful_timeout = 15

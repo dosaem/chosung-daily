@@ -42,7 +42,7 @@ def test_prod_compose_has_no_fixed_container_names(prod_compose):
 
 
 def test_host_port_belongs_to_the_proxy_and_is_parametrized(prod_compose):
-    """호스트 포트는 proxy(Caddy)만 잡는다 — app 이 잡으면 롤링 교체(티켓 47)가
+    """호스트 포트는 proxy(Caddy)만 잡는다 — app 이 잡으면 롤링 교체(티켓 50)가
     같은 포트로 새 app 을 못 띄운다."""
     services = prod_compose["services"]
     assert services["proxy"]["ports"] == ["127.0.0.1:${APP_PORT}:80"]

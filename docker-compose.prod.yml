@@ -4,7 +4,7 @@
 # develop : 8094, 체크아웃 디렉터리 /volume1/docker/chosung-daily-develop
 #
 # 배포는 deploy/deploy.sh 가 한다(빌드 → 마이그레이션 → app 롤링 교체 → worker/beat).
-# 아래 `up -d --build` 는 처음 올리거나 proxy 로 전환할 때만 쓴다(docs/RELEASE.md §47).
+# 아래 `up -d --build` 는 처음 올리거나 proxy 로 전환할 때만 쓴다(docs/RELEASE.md §50).
 #
 # 실행 (프로젝트명·포트·env 파일을 전부 밖에서 준다):
 #   prod    : docker compose -f docker-compose.prod.yml -p chosung-daily-prod \
@@ -70,8 +70,8 @@ services:
       PROXY_FIX_X_FOR: 2
     # 호스트 포트는 이 서비스가 아니라 proxy(Caddy)가 잡는다 — app 은 도커 네트워크
     # 안에서만 5000 을 연다. 그래야 롤링 교체(deploy.sh)로 새 app 을 옛 app 옆에
-    # 띄울 수 있다(티켓 47). 포트 바인딩이 여기 있던 시절의 컨테이너가 남아 있으면
-    # proxy 가 포트를 못 잡는다 — 첫 전환은 docs/RELEASE.md "### 47." 순서대로.
+    # 띄울 수 있다(티켓 50). 포트 바인딩이 여기 있던 시절의 컨테이너가 남아 있으면
+    # proxy 가 포트를 못 잡는다 — 첫 전환은 docs/RELEASE.md "### 50." 순서대로.
     # SIGTERM 뒤 진행 중 요청(정답 제출)을 마칠 시간. gunicorn graceful_timeout(15초)
     # 보다 길어야 gunicorn 이 먼저 정리하고 도커가 SIGKILL 을 보내지 않는다.
     stop_grace_period: 20s
@@ -94,7 +94,7 @@ services:
       redis:
         condition: service_healthy
 
-  # app 앞 리버스 프록시 — 호스트 포트를 잡고 app 레플리카로 분배한다(티켓 47,
+  # app 앞 리버스 프록시 — 호스트 포트를 잡고 app 레플리카로 분배한다(티켓 50,
   # 설정은 deploy/Caddyfile). Cloudflare Tunnel이 NAS 안에서
   # http://127.0.0.1:${APP_PORT}로 붙는다 — LAN/인터넷에 직접 노출할 필요가 없어서
   # 루프백에만 바인딩한다(기존 프로젝트들의 0.0.0.0 공개 바인딩보다 한 단계 더 좁힌

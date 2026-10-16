@@ -4,7 +4,7 @@
 # 대상 인자 하나가 브랜치·체크아웃 디렉터리·compose 프로젝트명·env 파일을 전부
 # 정한다. 하는 일: git fetch → (sha 를 받았으면) 그 커밋이 아직 브랜치 끝인지 확인
 # → ff-only merge → 이미지 빌드(옛 컨테이너는 계속 서비스) → 새 이미지로 마이그레이션
-# → app 롤링 교체(새 app 을 옆에 띄워 건강해지면 옛 app 을 내림, 티켓 47) →
+# → app 롤링 교체(새 app 을 옆에 띄워 건강해지면 옛 app 을 내림, 티켓 50) →
 # worker/beat 교체 → 6개 서비스 기동 확인 → /health 가 HTTP 200. 어느 단계에서든
 # 실패하면 즉시 0 이 아닌 코드로 끝나서 GitHub Actions 가 빨갛게 멈춘다
 # (.github/workflows/deploy.yml). 롤링 중 새 app 이 건강해지지 않으면 새것만 지우고

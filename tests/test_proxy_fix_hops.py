@@ -1,4 +1,4 @@
-"""ProxyFix 가 믿는 홉 수(PROXY_FIX_X_FOR) — Caddy 를 앞에 두면 2 다(티켓 47).
+"""ProxyFix 가 믿는 홉 수(PROXY_FIX_X_FOR) — Caddy 를 앞에 두면 2 다(티켓 50).
 
 틀리면 모든 요청이 도커 게이트웨이 IP 로 보여 rate limit 하나를 전부가 나눠 쓴다.
 """
