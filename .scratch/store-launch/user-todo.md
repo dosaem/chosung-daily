@@ -50,6 +50,8 @@
 
 ## 기록
 
+- 2026-10-16 (3차): 7 완료(NAS .env 33키 + Apple Root CA G2/G3 → APP_STORE_ROOT_CERT_PATHS), 12 AdMob 지급 프로필 완료 확인(계정 승인 24h 대기, UMP 페이지는 승인 전 빈 화면). ASC 법인 정보(현지 이름) 저장 완료 → **유료 앱 계약 서명은 금융 계약이라 Claude 차단, 사용자가 직접**(비즈니스 탭 "유료 앱 계약 서명"). Play 서비스 계정 "재무 데이터 보기" 권한 부여도 권한 부여라 차단 → 사용자가 열린 다이얼로그에서 체크·적용·저장. Sandbox 테스터(비밀번호)·Play 판매자 정보(계좌)·키 백업(비밀번호 관리자)은 사용자.
+
 - 2026-10-16 (2차): Chrome 은 hsseo@dosaem.com 프로필(Profile 7, Claude 확장 있음) 창으로 전환 — 이후 Chrome 작업은 그 프로필에서. ASC 구독 설정 완료(13).
 
 - 2026-10-16: Play 앱·서비스 계정 완료(11), AdMob 가입 필요(12), Apple 세션 만료로 ASC 구독 가격 보류(13). Chrome 창 찾기 문제로 Google 쪽은 Orca 브라우저(hsseo@dosaem.com 로그인됨)로 진행.
