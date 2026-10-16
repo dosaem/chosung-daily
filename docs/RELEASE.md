@@ -1639,3 +1639,21 @@ Android EncryptedSharedPreferences 에 들어간다(`mobile/lib/guest/guest_toke
 때 함께 볼 것: ko·en 두 벌, `docs/legal-checklist.md` 의 절 ↔ 조문 매핑,
 `app/web.py` 의 `LEGAL_EFFECTIVE_DATE`, 그리고 Play Data safety 답안(같은 "### 16."
 체크박스)의 수집 항목 설명.
+
+### 47. 무중단 배포 — 전환 순서와 확인 (2026-10-16)
+
+배포 흐름은 README "설계 판단 47." 이다. 사람이 할 일은 **없다** — 다만 전환 직후 한 번
+확인한다.
+
+- **전환 1회**: proxy 도입 전 app 컨테이너는 호스트 포트(8089/8094)를 직접 잡고 있다.
+  이 상태에서 새 `deploy.sh` 가 처음 돌면 `compose port app 5000` 이 값을 돌려주는 걸
+  보고 **그 한 번만** app 을 옛 방식으로 재생성해 포트를 비운 뒤 proxy 를 띄운다(몇 초
+  끊김). 그다음 배포부터 롤링이다. develop(8094) 에 먼저 올려 보고 main 에 올린다.
+- **확인**: NAS 에서 `docker ps` 에 `<프로젝트>-proxy-1` 이 보이고 `app` 은 PORTS 가
+  비어 있다. `curl -s http://127.0.0.1:8094/health` 가 200. 롤링은 배포 로그의
+  `새 app <id> → healthy` 와 `docker stop -t 20 <옛 id>` 줄로 본다.
+- **rate limit 확인**: `PROXY_FIX_X_FOR=2` 가 compose 에 있으니 서로 다른 기기에서 같은
+  분에 11번 제출해도 429 가 **안** 난다. 나면 홉 수가 틀린 것이다.
+- **롤백**: 새 app 이 healthy 가 안 되면 스크립트가 새것만 지우고 1 로 끝난다 — 옛
+  app 이 그대로 서비스 중이므로 급할 게 없다. 원인은 `docker logs --tail 50 <새 id>`
+  (스크립트가 찍어준다).

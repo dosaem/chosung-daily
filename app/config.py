@@ -160,6 +160,10 @@ class Config:
     # 만들어버려서 구글/애플 콘솔에 등록한 https:// URI와 안 맞아 로그인이 막힌다
     # (실제로 겪은 문제). ProxyFix가 X-Forwarded-Proto를 읽어 스킴을 바로잡는다.
     TRUST_PROXY = False
+    # 믿을 프록시 홉 수(ProxyFix x_for). cloudflared 만 있으면 1, 그 앞에 Caddy 가
+    # 있으면 2(Caddy 가 XFF 뒤에 cloudflared 의 IP 를 덧붙인다 — docker-compose.prod.yml).
+    # 틀리면 rate limit·접속기록이 모든 요청을 같은 IP 로 본다.
+    PROXY_FIX_X_FOR = int(os.environ.get("PROXY_FIX_X_FOR") or 1)
 
     # [LLM 출제] Anthropic API. 키가 비면 생성 태스크는 아무것도 안 하고 끝난다
     # (dry-run·테스트는 HTTP 경계 mock 으로만 돈다 — 다른 프로젝트 키를 끌어다 쓰지

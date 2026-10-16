@@ -1,0 +1,29 @@
+# app 앞의 리버스 프록시 (티켓 47 무중단 배포). 호스트 포트(APP_PORT)는 이 컨테이너가
+# 잡고, app 컨테이너는 포트를 안 연다 — 그래야 새 app 을 옛 app 옆에 띄워 놓고
+# 건강해진 뒤에 옛것을 내릴 수 있다(호스트 포트 하나에 컨테이너 하나만 묶이는 문제).
+#
+# TLS 는 Cloudflare 엣지에서 끝나고 cloudflared 가 평문으로 들어온다 — 그래서
+# auto_https 를 끈다. cloudflared 는 NAS 호스트(도커 브리지 게이트웨이 IP)에서 붙으니
+# private_ranges 를 믿을 프록시로 둬서 X-Forwarded-Proto(https)·X-Forwarded-For 를
+# 덮어쓰지 않고 보존한다(Caddy 는 믿는 프록시의 XFF 뒤에 자기 클라이언트 IP 를
+# 덧붙인다 → app 의 ProxyFix 는 x_for=2, docker-compose.prod.yml 의 PROXY_FIX_X_FOR).
+{
+	auto_https off
+	admin off
+}
+
+:80 {
+	reverse_proxy {
+		# 도커 DNS 의 A 레코드로 app 레플리카를 1초마다 다시 찾는다 — 롤링 교체 중
+		# 컨테이너가 둘이면 둘 다, 옛것이 내려가면 새것만 남는다.
+		dynamic a {
+			name app
+			port 5000
+			refresh 1s
+		}
+		trusted_proxies private_ranges
+		# 내려가는 중인 컨테이너에 연결이 거부되면 다른 레플리카로 다시 시도한다.
+		lb_try_duration 5s
+		lb_try_interval 250ms
+	}
+}
