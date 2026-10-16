@@ -43,9 +43,9 @@
 
 | # | 항목 | 상태 | 누가 | 비고 |
 |---|---|---|---|---|
-| 15 | NAS compose 프로젝트명·볼륨명 확인, develop 폴더·`.env.develop`·DNS·터널 | 아직 | 사용자(NAS) | Claude 는 NAS 접속 안 함. 절차는 RELEASE "### 19/20." |
-| 16 | prod `.env` 새 키(`LEGAL_*`·`LOG_DIR`·`BACKUP_ENCRYPTION_CERT_FILE`·`ACCESS_LOG_RETENTION_DAYS`) | 아직 | 사용자(NAS) | 값 목록은 `.env.example` |
-| 17 | 백업 openssl CMS 키쌍 생성(개인키 `BACKUP_DECRYPTION_KEY_FILE` → NAS 밖 두 곳 보관, 공개키 인증서 `BACKUP_ENCRYPTION_CERT_FILE` → NAS) | 아직 | Claude(로컬 생성) + 사용자(보관) | RELEASE "### 36." |
+| 15 | NAS compose 프로젝트명·볼륨명 확인, develop 폴더·`.env.develop`·DNS·터널 | **확인만(2026-10-16)** | Claude(ssh nas) | NAS 체크아웃 `/volume1/docker/chosung-daily` 는 옛 커밋(64ea73a, 티켓 이전) — 티켓 19/20 배포 때 갱신. `/volume1/backup` 은 권한 없음 → 백업·로그 폴더를 `/volume1/docker/chosung-daily-backups/{,logs}` 로. develop 폴더·DNS·터널은 아직 |
+| 16 | prod `.env` 새 키(`LEGAL_*`·`LOG_DIR`·`BACKUP_ENCRYPTION_CERT_FILE`·`ACCESS_LOG_RETENTION_DAYS`) | **끝(2026-10-16)** | Claude(ssh nas) | NAS `.env` 에 33개 키 추가(백업 `.env.bak-20261016`): COMPOSE/APP_PORT, ADMIN_EMAILS, SLACK·SENTRY, GOOGLE_WEB/IOS_CLIENT_ID, APPLE_APP_BUNDLE_ID, LEGAL_*(두샘·서한샘·등록번호·"경기도 구리시"·hsseo@dosaem.com, 전화·책임자·통판 비움), SUBSCRIPTION/APP_STORE_*(ASC 키 KJUAA3YP22 재사용, Apple ID 6823092579), PLAY_*(`/backups/play-publisher.json`), BACKUP_DIR·CERT·LOG_DIR·365. **남은 것:** `APP_STORE_ROOT_CERT_PATHS`(Apple Root CA .cer 다운로드 → 사용자 OK 필요), `GOOGLE_CLIENT_ID/SECRET` 를 새 프로젝트 웹 클라이언트로 교체할지(현재 옛 값 유지) |
+| 17 | 백업 키 생성 → NAS 밖 두 곳 보관, 공개키 인증서를 NAS 에 | **생성 끝(2026-10-16)** | Claude(로컬) + 사용자(보관) | 구현은 age 가 아니라 openssl CMS(RELEASE "### 36."). 키쌍 `~/.config/chosung-daily/chosung-backup-{key,cert}.pem`, 인증서는 NAS `/volume1/docker/chosung-daily-backups/backup-cert.pem`. **사용자:** 개인키 `chosung-backup-key.pem` 을 비밀번호 관리자 + 오프라인 사본에 보관(잃으면 백업 복구 불가) |
 | 18 | Play Data safety · 앱 콘텐츠 설문 · target SDK/Billing 8+ 재확인 · ASC 수출규정 답변이 면제(`ITSAppUsesNonExemptEncryption=false`, 티켓 41)와 일치하는지 첫 제출 때 확인 · **첫 출시 버튼** | 아직 | Claude(설문 초안·입력) → **출시 버튼은 사용자** | |
 
 ## 기록
