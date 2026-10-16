@@ -32,7 +32,7 @@ class RetryOutcome(NamedTuple):
 
 
 def schedule_revocation(refresh_token_enc: str, client_id: str) -> AppleRevocationRetry:
-    """"이 토큰의 애플 연결을 철회해야 한다" 를 재시도 테이블에 적는다. **커밋하지
+    """ "이 토큰의 애플 연결을 철회해야 한다" 를 재시도 테이블에 적는다. **커밋하지
     않는다** — 호출자가 삭제와 같은 트랜잭션에 넣어 같이 커밋한다.
 
     왜 삭제보다 먼저 적는가: 애플 호출이 실패한 **뒤에** 이 행을 저장하면, 삭제
@@ -92,6 +92,7 @@ def retry_pending_revocations() -> RetryOutcome:
                 f"{RETRY_MAX_AGE.days}일 동안 애플 연결 철회에 실패해서 토큰을 폐기했습니다.\n"
                 f"client_id: {retry.client_id}\n"
                 f"삭제 요청 시각(UTC): {retry.created_at.isoformat()}",
+                channel="alerts",
             )
         else:
             pending += 1

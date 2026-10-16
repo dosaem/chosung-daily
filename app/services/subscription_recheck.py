@@ -113,9 +113,7 @@ def recheck(subscription: Subscription) -> bool:
     if _changed_while_asking(subscription, observed) and _restores_entitlement(
         subscription, normalized
     ):
-        logger.info(
-            "구독 %s 재조회 응답이 더 최신 갱신에 밀렸다 — 저장값 유지", subscription.id
-        )
+        logger.info("구독 %s 재조회 응답이 더 최신 갱신에 밀렸다 — 저장값 유지", subscription.id)
         db.session.commit()
         return False
 
@@ -138,9 +136,7 @@ def recheck_expiring_subscriptions() -> int:
     TTL 은 보지 않는다. 이 경로의 목적이 "앱을 안 켜는 구독자의 구독도 하루
     한 번은 확인한다" 라서, 방금 조회한 행이어도 한 번 더 도는 비용을 받는다.
     """
-    subscriptions = find_expiring(
-        sorted(RECHECKABLE_STATUSES), utcnow() + BEAT_RECHECK_WINDOW
-    )
+    subscriptions = find_expiring(sorted(RECHECKABLE_STATUSES), utcnow() + BEAT_RECHECK_WINDOW)
     for subscription in subscriptions:
         recheck(subscription)
 
@@ -176,9 +172,7 @@ def _changed_while_asking(subscription: Subscription, observed: tuple) -> bool:
     return _row_state(subscription) != observed
 
 
-def _restores_entitlement(
-    subscription: Subscription, normalized: NormalizedSubscription
-) -> bool:
+def _restores_entitlement(subscription: Subscription, normalized: NormalizedSubscription) -> bool:
     """우리 응답이 지금 저장된 "권한 없음" 을 "권한 있음" 으로 되돌리나.
 
     판정은 §A.8 판정표 그대로(`entitlement.is_entitled`) 두 상태의 권한을
@@ -213,9 +207,7 @@ def _count_failure(subscription: Subscription, observed: tuple) -> bool:
     커밋해서 잠금을 놓고, "저장 안 함"(False)을 돌려준다.
     """
     if _changed_while_asking(subscription, observed):
-        logger.info(
-            "구독 %s 재조회 실패가 더 최신 갱신에 밀렸다 — 카운터 유지", subscription.id
-        )
+        logger.info("구독 %s 재조회 실패가 더 최신 갱신에 밀렸다 — 카운터 유지", subscription.id)
     else:
         subscription.recheck_failures += 1
     db.session.commit()
@@ -232,9 +224,7 @@ def _ask_store(subscription: Subscription) -> NormalizedSubscription:
         apple = app_store.fetch_subscription_status(
             subscription.store_key, subscription.environment
         )
-        return apple_subscription_status(
-            apple.raw_status, apple.transaction, apple.renewal_info
-        )
+        return apple_subscription_status(apple.raw_status, apple.transaction, apple.renewal_info)
     return google_subscription_status(play.fetch_subscription(subscription.store_key))
 
 
@@ -261,5 +251,6 @@ def _alert_on_repeated_failures() -> bool:
             f"마지막 확인 {subscription.last_verified_at.isoformat()}"
             for subscription in failing
         ),
+        channel="alerts",
     )
     return True

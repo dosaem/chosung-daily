@@ -155,6 +155,7 @@ def run_generation(language: PuzzleLanguage, trigger: str = "schedule") -> RunOu
         notify_operator(
             "LLM 월 예산 도달",
             f"이번 달 ${spent} / 상한 ${budget} — {language.value} 후보 생성을 건너뜀",
+            channel="alerts",
         )
         return RunOutcome(language, skipped=f"월 예산 도달 (${spent} / ${budget})")
 

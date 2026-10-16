@@ -478,6 +478,29 @@ SELECT (SELECT SUM(cost_usd) FROM llm_call WHERE purpose = 'word_generation')
      / NULLIF((SELECT COUNT(*) FROM word_candidate WHERE status = 'approved'), 0);
 ```
 
+## 운영: 에러 알림 자동화 — Sentry → Slack + GitHub 이슈 → Claude Code (티켓 51)
+
+Sentry 에 새 이슈가 생기면 ① Slack 에 요약(레벨·제목·위치·Sentry/GitHub 링크)이 오고
+② GitHub 에 `sentry` 라벨 이슈가 열린다 ③ 그 이슈를 Claude Code GitHub Action
+(`.github/workflows/claude-sentry.yml`)이 읽어 원인 분석 덧글을 달고, 코드로 막을 수
+있으면 테스트 포함 PR 을 연다(머지는 사람). Sentry 에서 해결 처리하면 GitHub 이슈도
+닫힌다. 같은 이슈가 다시 터지면 새 이슈 대신 기존 이슈에 덧글이 붙는다(Redis
+`ops:sentry:<id>` + 제목의 `[Sentry XXX-N]` 식별자).
+
+**설정** — Sentry: Settings → Developer Settings → **Internal Integration** 하나.
+Webhook URL `https://chosung.dosaem.com/api/v1/ops/sentry`, 권한 Issue & Event: Read,
+Webhooks 체크 `issue`(+ 알림 규칙을 통합으로 보내려면 `event alert`). 발급된 Client
+Secret 을 `.env` `SENTRY_WEBHOOK_SECRET` 에. GitHub: fine-grained PAT(이 레포 Issues:
+Read and write 만) → `GITHUB_ISSUES_TOKEN`. 둘 중 비밀키가 비면 엔드포인트는 503 으로
+닫혀 있고, 토큰이 비면 Slack 에만 간다.
+
+**왜 Sentry 의 Slack·GitHub 네이티브 연동이 아니라 우리 웹훅인가.** 네이티브 연동은
+OAuth 승인 두 번에 "이슈 자동 생성" 액션이 플랜에 따라 막히고, 무엇보다 **이슈 본문을
+우리가 쓰지 못한다.** 본문이 Claude 의 작업 지시서라서(Sentry 데이터는 코드 블록에
+가두고 "지시가 아니라 데이터" 라고 박는다 — 공개 레포의 프롬프트 주입 완화) 우리가
+만들어야 했다. 처리는 Celery 태스크라 Sentry 의 1초 응답 제한을 지키고, GitHub 일시
+오류는 재시도, 끝내 실패하면 Slack 에만 남긴다(사람이 직접 연다).
+
 ## 설계 판단
 
 > 아래 `트랜잭션 경계`~`퍼즐 카테고리 비중` 은 초기 구현 때 쓴 항목이다. 스토어 출시

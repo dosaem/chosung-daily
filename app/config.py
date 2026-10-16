@@ -61,6 +61,10 @@ class Config:
     # 운영자 알림(단어 잔량·배정 실패·백업 실패 등)을 받을 Slack Incoming Webhook.
     # 비어 있으면 app/clients/slack.py 가 전송을 건너뛴다 — 개발·테스트 기본값.
     SLACK_WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL", "")
+    # 봇 토큰 + 용도별 채널(2026-10-16). 토큰이 비면 위 웹훅 하나로 다 간다.
+    SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN", "")
+    SLACK_CHANNEL_ALERTS = os.environ.get("SLACK_CHANNEL_ALERTS", "#chosung-alerts")
+    SLACK_CHANNEL_OPS = os.environ.get("SLACK_CHANNEL_OPS", "#chosung-ops")
 
     # 구글/애플 콘솔에 앱을 등록해야 실제로 채워지는 값들. 비어 있으면 그 provider의
     # 로그인 버튼은 "설정 안 됨" 에러를 내도록 처리한다(app/extensions.py의 init_oauth).
@@ -104,6 +108,13 @@ class Config:
     # 릴리스 태그. 배포 스크립트가 배포한 커밋을 넣는다 — 비어 있으면 Sentry
     # 이벤트에 릴리스 없이 환경만 붙는다.
     SENTRY_RELEASE = os.environ.get("SENTRY_RELEASE", "")
+    # [티켓 51] Sentry 내부 통합(Internal Integration) 웹훅 → Slack + GitHub 이슈 → Claude Code
+    # Action. 비밀키가 비면 `/api/v1/ops/sentry` 는 503 으로 닫혀 있다.
+    SENTRY_WEBHOOK_SECRET = os.environ.get("SENTRY_WEBHOOK_SECRET", "")
+    # issues 쓰기만 되는 fine-grained PAT. 비면 GitHub 이슈 없이 Slack 만 간다(태스크가 알림).
+    GITHUB_ISSUES_TOKEN = os.environ.get("GITHUB_ISSUES_TOKEN", "")
+    GITHUB_ISSUES_REPO = os.environ.get("GITHUB_ISSUES_REPO", "dosaem/chosung-daily")
+    OPS_ISSUE_LABEL = os.environ.get("OPS_ISSUE_LABEL", "sentry")
 
     # 로그인 CSRF 방어(app/api/oauth.py의 sync_session 독스트링 참고)의 핵심 설정.
     # SameSite=Lax면 공격자 사이트/링크를 통한 요청엔 이 세션 쿠키가 안 실린다.

@@ -27,4 +27,4 @@ celery = make_celery(flask_app)
 
 # 태스크 모듈은 import 되는 것만으로 자기 태스크와 Beat 스케줄을 등록한다
 # (app/tasks/scheduled.py 끝의 beat_schedule 합치기). celery가 정의된 뒤에 와야 한다.
-from app.tasks import llm, scheduled  # noqa: E402,F401
+from app.tasks import llm, ops, scheduled  # noqa: E402,F401

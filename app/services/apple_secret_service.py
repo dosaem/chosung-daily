@@ -43,6 +43,7 @@ def notify_apple_secret_expiry() -> bool:
             f"{client_id}: {_days_until(expires_at, now)}일 뒤 만료 ({expires_at.isoformat()})"
             for client_id, expires_at in sorted(expiring.items(), key=lambda item: item[1])
         ),
+        channel="alerts",
     )
     return True
 

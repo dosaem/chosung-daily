@@ -36,3 +36,36 @@ def post_webhook_message(text: str) -> bool:
         return False
 
     return True
+
+
+# 봇 토큰 전송 — 채널을 호출부가 고른다(알림 채널 분리, 2026-10-16 사용자 결정: 프로젝트당
+# `#<프로젝트>-alerts`(사람이 봐야 하는 것) / `#<프로젝트>-ops`(운영 알림)). Incoming Webhook 은
+# URL 하나가 채널 하나에 묶여서 채널이 늘 때마다 OAuth 승인을 다시 받아야 하지만, 봇 토큰
+# (`chat:write`)은 하나로 채널명을 지정해 보낸다. 토큰이 비면 예전 웹훅으로 떨어진다.
+POST_MESSAGE_URL = "https://slack.com/api/chat.postMessage"
+
+
+def post_channel_message(channel: str, text: str) -> bool:
+    token = current_app.config["SLACK_BOT_TOKEN"]
+    if not token or not channel:
+        return post_webhook_message(text)
+    try:
+        response = requests.post(
+            POST_MESSAGE_URL,
+            json={"channel": channel, "text": text},
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        body = response.json()
+    except (requests.RequestException, ValueError) as exc:
+        logger.warning("Slack chat.postMessage 전송 실패 (%s)", type(exc).__name__)
+        return False
+    if not body.get("ok"):
+        # 토큰·채널 설정 문제는 200 으로 온다. 채널이 아직 없거나 봇이 안 들어가 있으면
+        # 알림을 버리지 않고 예전 웹훅 채널로 떨어뜨린다(채널 이름 바꾸는 중에도 안 끊기게).
+        logger.warning("Slack chat.postMessage 거부: %s (channel=%s)", body.get("error"), channel)
+        if body.get("error") in ("channel_not_found", "not_in_channel", "is_archived"):
+            return post_webhook_message(text)
+        return False
+    return True
