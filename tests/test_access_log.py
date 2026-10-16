@@ -172,6 +172,9 @@ ADMIN_REQUESTS = {
     "admin.settings.save": lambda c: c.post("/admin/settings", data={}),
     "admin.book.search": lambda c: c.get("/admin/books"),
     "admin.book.create": lambda c: c.post("/admin/books", data={}),
+    "admin.candidate.list": lambda c: c.get("/admin/candidates"),
+    "admin.candidate.review": lambda c: c.post("/admin/candidates/review", data={}),
+    "admin.candidate.generate": lambda c: c.post("/admin/candidates/generate", data={}),
 }
 
 

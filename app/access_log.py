@@ -39,6 +39,9 @@ ACTION_BY_ENDPOINT = {
     "admin.save_settings": "admin.settings.save",
     "admin.books": "admin.book.search",
     "admin.add_book_word": "admin.book.create",
+    "admin.candidates": "admin.candidate.list",
+    "admin.review_candidates": "admin.candidate.review",
+    "admin.generate_candidates": "admin.candidate.generate",
     # 플레이어 본인의 개인정보 처리 — 삭제·열람·연결·설정 변경.
     "me.delete_me": "account.delete",
     "web.account_delete_submit": "account.delete",
