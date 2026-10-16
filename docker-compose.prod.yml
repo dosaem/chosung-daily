@@ -117,7 +117,7 @@ services:
       FLASK_ENV: production
       DATABASE_URL: mysql+pymysql://chosung:${MYSQL_PASSWORD}@mysql:3306/chosung_daily?charset=utf8mb4
       REDIS_URL: redis://redis:6379/0
-    command: ["uv", "run", "celery", "-A", "celery_app.celery", "worker", "--loglevel=info"]
+    command: ["uv", "run", "--no-sync", "celery", "-A", "celery_app.celery", "worker", "--loglevel=info"]
     depends_on:
       mysql:
         condition: service_healthy
@@ -132,7 +132,7 @@ services:
       FLASK_ENV: production
       DATABASE_URL: mysql+pymysql://chosung:${MYSQL_PASSWORD}@mysql:3306/chosung_daily?charset=utf8mb4
       REDIS_URL: redis://redis:6379/0
-    command: ["uv", "run", "celery", "-A", "celery_app.celery", "beat", "--loglevel=info"]
+    command: ["uv", "run", "--no-sync", "celery", "-A", "celery_app.celery", "beat", "--loglevel=info"]
     depends_on:
       mysql:
         condition: service_healthy

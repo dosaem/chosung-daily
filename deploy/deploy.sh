@@ -81,7 +81,7 @@ rolling_replace_app() {
   old_ids="$(capture "${compose[@]}" ps --status running -q app)"
   old_count="$(printf '%s' "$old_ids" | grep -c . || true)"
 
-  run "${compose[@]}" up -d --no-build --no-recreate --scale "app=$((old_count + 1))" app
+  run "${compose[@]}" up -d --no-build --no-deps --no-recreate --scale "app=$((old_count + 1))" app
 
   # 지금 도는 app 중 옛 목록에 없는 것이 새 컨테이너다.
   new_id="$(capture "${compose[@]}" ps --status running -q app \
@@ -212,22 +212,24 @@ main() {
   #    기동 뒤에 돌리면 "새 코드가 아직 없는 열을 읽는" 창이 생긴다.
   run "${compose[@]}" run --rm --no-deps -T app uv run flask db upgrade
 
-  # 3) 인프라·프록시 — 바뀐 게 없으면 compose 가 건드리지 않는다.
+  # 3) 인프라·프록시 — 바뀐 게 없으면 compose 가 건드리지 않는다. `--no-deps` 가 핵심:
+  #    proxy 는 app 에 depends_on 이라 이 줄이 app 까지 끌어와 **재생성**한다(2026-10-16
+  #    첫 롤링 배포에서 실제로 app 이 여기서 한 번 죽었다 — 롤링이 무의미해진다).
   #    전환 1회: app 이 아직 호스트 포트를 직접 잡고 있으면(proxy 도입 전에 만든
   #    컨테이너) proxy 가 같은 포트를 못 잡는다. 그 경우에만 app 을 옛 방식으로
   #    재생성한다(이때만 몇 초 끊김) — 그 뒤로는 포트가 없어서 이 분기를 안 탄다.
   if [[ -n "$(capture "${compose[@]}" port app 5000 2>/dev/null || true)" ]]; then
     echo "app 이 호스트 포트를 직접 잡고 있다(proxy 전환 전) — 이번 한 번만 app 을 재생성한다"
-    run "${compose[@]}" up -d --no-build app
+    run "${compose[@]}" up -d --no-build --no-deps app
   fi
-  run "${compose[@]}" up -d --no-build mysql redis proxy backup
+  run "${compose[@]}" up -d --no-build --no-deps mysql redis proxy backup
 
   # 4) app 롤링 교체 — 유일하게 사용자가 보는 서비스라 끊김 없이 바꾼다.
   rolling_replace_app
 
   # 5) worker·beat 는 짧게 재시작한다 — celery 는 SIGTERM 에 진행 중 태스크를 마치고
   #    내려가고(warm shutdown), 몇 초 비는 동안의 자정 배정·알림은 큐에 남는다.
-  run "${compose[@]}" up -d --no-build worker beat
+  run "${compose[@]}" up -d --no-build --no-deps worker beat
 
   # /health 는 app 하나만 보니까 worker·beat 가 죽어도 200 이 나온다 — compose 가
   # 아는 서비스 전부가 실제로 running 인지 따로 확인한다.

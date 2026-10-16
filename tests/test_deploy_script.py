@@ -236,15 +236,15 @@ def test_deploy_runs_steps_in_order(tmp_path):
         # 마이그레이션은 교체 **전에** 새 이미지로
         f"{PROD} run --rm --no-deps -T app uv run flask db upgrade",
         f"{PROD} port app 5000",
-        f"{PROD} up -d --no-build mysql redis proxy backup",
+        f"{PROD} up -d --no-build --no-deps mysql redis proxy backup",
         # app 롤링 교체: 옆에 하나 더 → healthy → 옛것 내림
         f"{PROD} ps --status running -q app",
-        f"{PROD} up -d --no-build --no-recreate --scale app=2 app",
+        f"{PROD} up -d --no-build --no-deps --no-recreate --scale app=2 app",
         f"{PROD} ps --status running -q app",
         "docker inspect -f {{.State.Health.Status}} app-new",
         "docker stop -t 20 app-old",
         "docker rm app-old",
-        f"{PROD} up -d --no-build worker beat",
+        f"{PROD} up -d --no-build --no-deps worker beat",
         f"{PROD} config --services",
         f"{PROD} ps --services --filter status=running",
         f"{PROD} port proxy 80",
@@ -268,14 +268,14 @@ def test_first_deploy_after_proxy_recreates_the_app_that_still_holds_the_port(tm
 
     assert res.returncode == 0, res.stdout + res.stderr
     calls = nas.calls()
-    assert calls.index(f"{PROD} up -d --no-build app") < calls.index(
-        f"{PROD} up -d --no-build mysql redis proxy backup"
+    assert calls.index(f"{PROD} up -d --no-build --no-deps app") < calls.index(
+        f"{PROD} up -d --no-build --no-deps mysql redis proxy backup"
     )
     assert "proxy 전환 전" in res.stdout
 
     again = FakeNas(tmp_path / "again", "chosung-daily", FAKE_GIT_BRANCH="main")
     again.deploy("prod")
-    assert f"{PROD} up -d --no-build app" not in again.calls()
+    assert f"{PROD} up -d --no-build --no-deps app" not in again.calls()
 
 
 def test_deploy_script_puts_synology_docker_on_the_path():
@@ -283,6 +283,17 @@ def test_deploy_script_puts_synology_docker_on_the_path():
     테스트의 가짜 docker(PATH 앞)를 가리지 않는다."""
     text = DEPLOY_SH.read_text(encoding="utf-8")
     assert 'export PATH="$PATH:/usr/local/bin"' in text
+
+
+def test_infra_and_proxy_are_brought_up_without_dependencies(tmp_path):
+    """proxy 는 app 에 depends_on 이라 `--no-deps` 가 없으면 app 이 여기서 재생성된다 —
+    롤링 교체 전에 한 번 죽는다(2026-10-16 첫 롤링 배포에서 실제로 겪음)."""
+    nas = FakeNas(tmp_path, "chosung-daily", FAKE_GIT_BRANCH="main")
+    nas.deploy("prod")
+
+    ups = [line for line in nas.calls() if " up -d " in line]
+    assert ups, "up 호출이 있어야 한다"
+    assert all("--no-deps" in line for line in ups), ups
 
 
 def test_rolling_keeps_the_old_app_when_the_new_one_never_gets_healthy(tmp_path):
@@ -334,7 +345,7 @@ def test_rolling_with_no_running_app_just_starts_one(tmp_path):
 
     assert res.returncode == 0, res.stdout + res.stderr
     calls = nas.calls()
-    assert f"{PROD} up -d --no-build --no-recreate --scale app=1 app" in calls
+    assert f"{PROD} up -d --no-build --no-deps --no-recreate --scale app=1 app" in calls
     assert not any(line.startswith("docker stop") for line in calls)
 
 
@@ -347,7 +358,7 @@ def test_rolling_replaces_every_old_replica(tmp_path):
 
     assert res.returncode == 0, res.stdout + res.stderr
     calls = nas.calls()
-    assert f"{PROD} up -d --no-build --no-recreate --scale app=3 app" in calls
+    assert f"{PROD} up -d --no-build --no-deps --no-recreate --scale app=3 app" in calls
     assert "docker stop -t 20 app-a" in calls
     assert "docker stop -t 20 app-b" in calls
 
