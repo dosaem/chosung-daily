@@ -28,15 +28,15 @@
 | # | 항목 | 상태 | 누가 | 비고 |
 |---|---|---|---|---|
 | 9 | Slack Webhook · Sentry 2개(웹·앱) · UptimeRobot | 아직 | Claude(Chrome) | 가입은 사용자, 설정은 Claude |
-| 10 | Apple App ID + Sign in with Apple(Services ID) + App Store Server API 키 + Sandbox 테스터 | 아직 | Claude(Chrome) | Apple Developer 가입(연 $99)은 사용자 |
-| 11 | Play 앱 생성 + 서비스 계정 + 라이선스 테스터 + 한국 판매자 정보 | 아직 | Claude(Chrome) | Play 개발자 등록($25)·판매자 정보(결제 계좌)는 사용자 |
+| 10 | Apple App ID + Sign in with Apple(Services ID) + App Store Server API 키 + Sandbox 테스터 | **대부분 끝(2026-10-15)** | Claude(Chrome) | App ID `com.dosaem.chosung`(Sign in with Apple 켬) 등록. 웹 Services ID·키는 기존 것(`.env`) 재사용, `APPLE_APP_BUNDLE_ID` 추가. ASC API 키는 기존 `dosaem-fastlane` 재사용 → GitHub secret `APP_STORE_CONNECT_API_KEY`. 사용권 계약 업데이트 동의 완료. **남은 것(사용자):** Sandbox 테스터 생성(비밀번호 필요), 유료 앱 계약 서명(은행·세금 정보), EU 거래자 자격 |
+| 11 | Play 앱 생성 + 서비스 계정 + 라이선스 테스터 + 한국 판매자 정보 | **일부 끝(2026-10-16)** | Claude(Orca) | 개발자 계정 DOSAEM 에 앱 `Hidden Vowels`(`com.dosaem.chosung`, 게임, 무료) 생성. 서비스 계정 `play-publisher@…` 초대·활성(초안 수정, 프로덕션 출시, 테스트 트랙 출시). **막힘:** 라이선스 테스터 이메일 목록 저장이 "변경사항을 저장할 수 없습니다" — 홈의 "Android 개발자 인증" 미완료 영향 추정(사용자 확인). 판매자 정보(결제 프로필)는 사용자 |
 
 ## D. 앱 (D2)
 
 | # | 항목 | 상태 | 누가 | 비고 |
 |---|---|---|---|---|
-| 12 | AdMob 앱 2 + 유닛 6 + UMP 메시지 | 아직 | Claude(Chrome) | AdMob 계정 승인 대기 가능 → 앱 티켓은 테스트 유닛 ID 로 먼저 |
-| 13 | ASC 앱 생성(이름 중복 확인) + 구독 `adfree_monthly` 양쪽(₩1,500) + Apple Grace Period 16일 | 아직 | Claude(Chrome) | 10·11 뒤. 유료 앱 계약·세금/은행 정보는 사용자 |
+| 12 | AdMob 앱 2 + 유닛 6 + UMP 메시지 | **막힘(2026-10-16)** | 사용자 → Claude | hsseo@dosaem.com 에 AdMob 계정이 없어 가입 화면(생년월일 입력). 계정 생성은 사용자가 Orca 브라우저 AdMob 탭에서. 가입 후 앱·유닛·UMP 는 Claude |
+| 13 | ASC 앱 생성(이름 중복 확인) + 구독 `adfree_monthly` 양쪽(₩1,500) + Apple Grace Period 16일 | **일부 끝(2026-10-15)** | Claude(Chrome) | ASC 앱 `Hidden Vowels`(ID 6823092579, 기본 언어 한국어, SKU chosung-daily) 생성, 구독 그룹 Ad-Free + `adfree_monthly`(1개월, Apple ID 6823093744) 생성. **남은 것:** 가격 ₩1,500·국가·표시 이름·청구 유예 16일(Apple 세션 만료 → 재로그인 후), Play 구독 상품은 첫 AAB 업로드 뒤 |
 | 14 | 업로드 keystore · match · self-hosted 러너 · GitHub secrets | **일부 끝(2026-10-15)** | Claude(로컬 CLI) + 사용자 | keystore 생성(`mobile/android/app/upload-keystore.jks`, 비밀번호는 `mobile/android/key.properties`, 둘 다 gitignore — **사용자가 비밀번호 관리자에 백업**). GitHub secrets 9개(KEYSTORE_*·KEY_*·GOOGLE_PLAY_KEY_JSON·FIREBASE_SERVICE_ACCOUNT·FIREBASE_APP_ID·GOOGLE_SERVICES_JSON_BASE64·GOOGLE_SERVICE_INFO_PLIST_BASE64) + variables 2개(API_BASE_URL_PROD·GOOGLE_SERVER_CLIENT_ID) 설정. 서비스 계정 키는 `~/.config/chosung-daily/*.json`. **남은 것:** match(Apple 로그인 뒤), self-hosted 러너, APP_STORE_CONNECT_API_KEY·MATCH_*·FLUTTER_SENTRY_DSN·ADMOB_*, variable `TESTFLIGHT_TESTER_EMAIL`(testflight-tester 워크플로 기본 테스터, 티켓 41) |
 
 ## E. 배포·심사 (D3)
@@ -49,6 +49,8 @@
 | 18 | Play Data safety · 앱 콘텐츠 설문 · target SDK/Billing 8+ 재확인 · ASC 수출규정 답변이 면제(`ITSAppUsesNonExemptEncryption=false`, 티켓 41)와 일치하는지 첫 제출 때 확인 · **첫 출시 버튼** | 아직 | Claude(설문 초안·입력) → **출시 버튼은 사용자** | |
 
 ## 기록
+
+- 2026-10-16: Play 앱·서비스 계정 완료(11), AdMob 가입 필요(12), Apple 세션 만료로 ASC 구독 가격 보류(13). Chrome 창 찾기 문제로 Google 쪽은 Orca 브라우저(hsseo@dosaem.com 로그인됨)로 진행.
 
 - 2026-10-15 (2차): 7·8 완료, 14 일부. Play 서비스 계정 `play-publisher@chosung-daily.iam.gserviceaccount.com` 은 11번에서 Play Console 에 초대(앱 출시 관리 권한). Orca 브라우저에서 Apple 로그인이 안 돼 나머지는 Chrome 으로 진행.
 - 2026-10-15: 1~18 질문·답 완료. 6 → 티켓 39 추가(38 은 리더보드 익명 이름이 이미 사용). 7~14·18 은 Claude 가 Chrome 으로 진행하기로. 메모리 `ask-numbered-all-at-once`, `console-setup-by-claude`.
