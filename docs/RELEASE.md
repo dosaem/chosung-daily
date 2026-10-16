@@ -1719,5 +1719,5 @@ Android EncryptedSharedPreferences 에 들어간다(`mobile/lib/guest/guest_toke
 - [x] GitHub secret `ANTHROPIC_API_KEY`(위 표) — Claude Code Action 비용은 이 키로 청구된다
 - [x] Claude GitHub 앱 설치(`/install-github-app`) (2026-10-16 사용자)
 - [x] Slack 채널 `#chosung-alerts`(사람이 봐야 하는 것)·`#chosung-ops`(운영 알림), 봇 토큰 → NAS `.env` `SLACK_BOT_TOKEN`
-- [ ] 첫 실제 이벤트로 왕복 확인: Sentry 테스트 에러 → `#chosung-alerts` → GitHub `sentry` 이슈 → Claude 덧글/PR
+- [x] 첫 실제 이벤트로 왕복 확인: Sentry 테스트 에러 → `#chosung-alerts` → GitHub `sentry` 이슈 #1 → Claude 덧글("테스트 이벤트, PR 없음" 정확히 판정, 43초, $0.19) (2026-10-16)
 - 머지는 사람이 한다 — `main` 브랜치 보호(리뷰 1명 필수)를 켜 두면 Action 이 직접 올릴 수 없다
