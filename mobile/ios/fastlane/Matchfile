@@ -3,3 +3,5 @@ git_url("https://github.com/dosaem/match-certs.git")
 storage_mode("git")
 type("appstore")
 team_id("J8QUD7B666")
+# chosung 전용 브랜치 — match-certs 기본 브랜치(BuildUrPalace)와 비밀번호를 분리한다(2026-10-16).
+git_branch("chosung-daily")
