@@ -36,7 +36,7 @@
 | # | 항목 | 상태 | 누가 | 비고 |
 |---|---|---|---|---|
 | 12 | AdMob 앱 2 + 유닛 6 + UMP 메시지 | **막힘(2026-10-16)** | 사용자 → Claude | hsseo@dosaem.com 에 AdMob 계정이 없어 가입 화면(생년월일 입력). 계정 생성은 사용자가 Orca 브라우저 AdMob 탭에서. 가입 후 앱·유닛·UMP 는 Claude |
-| 13 | ASC 앱 생성(이름 중복 확인) + 구독 `adfree_monthly` 양쪽(₩1,500) + Apple Grace Period 16일 | **일부 끝(2026-10-15)** | Claude(Chrome) | ASC 앱 `Hidden Vowels`(ID 6823092579, 기본 언어 한국어, SKU chosung-daily) 생성, 구독 그룹 Ad-Free + `adfree_monthly`(1개월, Apple ID 6823093744) 생성. **남은 것:** 가격 ₩1,500·국가·표시 이름·청구 유예 16일(Apple 세션 만료 → 재로그인 후), Play 구독 상품은 첫 AAB 업로드 뒤 |
+| 13 | ASC 앱 생성(이름 중복 확인) + 구독 `adfree_monthly` 양쪽(₩1,500) + Apple Grace Period 16일 | **일부 끝(2026-10-15)** | Claude(Chrome) | ASC 앱 `Hidden Vowels`(ID 6823092579, 기본 언어 한국어, SKU chosung-daily) 생성, 구독 그룹 Ad-Free + `adfree_monthly`(1개월, Apple ID 6823093744) 생성. **2026-10-16 완료:** 가격 ₩1,500(KRW 기준 175개국 자동 환산), 전체 국가 사용 가능, 표시 이름 ko "광고 제거"/en "Ad-Free", 청구 유예 16일(모든 갱신, 프로덕션+샌드박스). **남은 것:** 구독 그룹 표시 이름 현지화(심사 전), Play 구독 상품은 첫 AAB 업로드 뒤, 유료 앱 계약(사용자) |
 | 14 | 업로드 keystore · match · self-hosted 러너 · GitHub secrets | **일부 끝(2026-10-15)** | Claude(로컬 CLI) + 사용자 | keystore 생성(`mobile/android/app/upload-keystore.jks`, 비밀번호는 `mobile/android/key.properties`, 둘 다 gitignore — **사용자가 비밀번호 관리자에 백업**). GitHub secrets 9개(KEYSTORE_*·KEY_*·GOOGLE_PLAY_KEY_JSON·FIREBASE_SERVICE_ACCOUNT·FIREBASE_APP_ID·GOOGLE_SERVICES_JSON_BASE64·GOOGLE_SERVICE_INFO_PLIST_BASE64) + variables 2개(API_BASE_URL_PROD·GOOGLE_SERVER_CLIENT_ID) 설정. 서비스 계정 키는 `~/.config/chosung-daily/*.json`. **남은 것:** match(Apple 로그인 뒤), self-hosted 러너, APP_STORE_CONNECT_API_KEY·MATCH_*·FLUTTER_SENTRY_DSN·ADMOB_*, variable `TESTFLIGHT_TESTER_EMAIL`(testflight-tester 워크플로 기본 테스터, 티켓 41) |
 
 ## E. 배포·심사 (D3)
@@ -49,6 +49,8 @@
 | 18 | Play Data safety · 앱 콘텐츠 설문 · target SDK/Billing 8+ 재확인 · ASC 수출규정 답변이 면제(`ITSAppUsesNonExemptEncryption=false`, 티켓 41)와 일치하는지 첫 제출 때 확인 · **첫 출시 버튼** | 아직 | Claude(설문 초안·입력) → **출시 버튼은 사용자** | |
 
 ## 기록
+
+- 2026-10-16 (2차): Chrome 은 hsseo@dosaem.com 프로필(Profile 7, Claude 확장 있음) 창으로 전환 — 이후 Chrome 작업은 그 프로필에서. ASC 구독 설정 완료(13).
 
 - 2026-10-16: Play 앱·서비스 계정 완료(11), AdMob 가입 필요(12), Apple 세션 만료로 ASC 구독 가격 보류(13). Chrome 창 찾기 문제로 Google 쪽은 Orca 브라우저(hsseo@dosaem.com 로그인됨)로 진행.
 
