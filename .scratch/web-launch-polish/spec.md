@@ -106,7 +106,7 @@
 ### 화면 (웹만, 앱은 범위 밖)
 - 오늘 화면 요소는 SCREENS.md S1/S2 를 따르되 웹 차이만 둔다: 보상형 광고 버튼 없음, 결과 시트는 바텀시트 대신 중앙 다이얼로그(`<dialog>`), 하단 탭 대신 기존 섹션 내비 유지.
 - "어떻게 하나요?" 모달은 온보딩 3장(S6)을 한 장으로: 예시 가림 타일(ko `ㅈㅎㅊㅇ`, en `_PPL_`), 피드백 색 설명, "기회 5번 · 힌트는 3번째 오답 후", "매일 KST 00:00 새 퍼즐". 본 적 있음 표시는 브라우저 저장(실패해도 동작).
-- 퍼즐 번호는 서버가 준다: 오늘 퍼즐 응답에 `number` = `COUNT(daily_puzzle WHERE language=? AND puzzle_date <= 오늘)` 을 추가한다. COUNT 는 뷰가 아니라 `cache_puzzle`(또는 공용 헬퍼) 안에서 계산해 Redis `CachedPuzzle` 페이로드에 넣는다 — `puzzle_service` 와 자정 워밍(`puzzle_maintenance_service`) 두 경로가 같은 값을 넣도록(날짜별 키라 따로 무효화할 게 없고, 과거 날짜 배정은 거부되므로 번호는 안정적이다). `get_cached_puzzle` 은 `number` 가 없는 **옛 페이로드를 캐시 미스로 취급해 재채움**한다 — 무중단 배포 직후 옛 캐시를 읽어 KeyError 로 자정까지 500 이 나지 않게(테스트: 옛 모양 페이로드를 심고 조회). 앱 응답 스키마에 필드가 늘어도 앱은 무시하므로 호환.
+- 퍼즐 번호는 서버가 준다: 오늘 퍼즐 응답에 `number` = `COUNT(daily_puzzle WHERE language=? AND puzzle_date <= 그 퍼즐의 puzzle_date)` 을 추가한다(오늘 퍼즐엔 오늘 번호, 지난 퍼즐엔 그 날 번호 — `cache_puzzle(puzzle)` 이 `puzzle.puzzle_date` 를 쓰면 아카이브도 그대로 맞는다). COUNT 는 뷰가 아니라 `cache_puzzle`(또는 공용 헬퍼) 안에서 계산해 Redis `CachedPuzzle` 페이로드에 넣는다 — `puzzle_service` 와 자정 워밍(`puzzle_maintenance_service`) 두 경로가 같은 값을 넣도록(날짜별 키라 따로 무효화할 게 없고, 과거 날짜 배정은 거부되므로 번호는 안정적이다). `get_cached_puzzle` 은 `number` 가 없는 **옛 페이로드를 캐시 미스로 취급해 재채움**한다 — 무중단 배포 직후 옛 캐시를 읽어 KeyError 로 자정까지 500 이 나지 않게(테스트: 옛 모양 페이로드를 심고 조회). 앱 응답 스키마에 필드가 늘어도 앱은 무시하므로 호환.
 - 시도 보드는 기존 `renderBoard`/`renderAttemptRow` 를 확장해 빈 행을 `length` 만큼 `tile-empty` 로 채운다. 입력 중 미리보기는 다음 빈 행에 글자를 그리고 제출 시 피드백으로 교체.
 - 힌트 카드는 응답의 `hint` 로 그린다: `null` 이면 잠김("3번째 오답 후 열려요"), 문장이 오면 열림. 조회·제출 응답 둘 다 같은 규칙(서버 `compute_reveal`). `hint_unlocked` 는 앱의 보상형 "힌트 미리 보기" 플래그라 웹에서는 쓰지 않는다. 서버 변경 없음.
 - 결과 시트의 통계 막대는 완료 제출 뒤 이미 도는 `loadTodayStats()` 의 **같은 응답**으로 시트 막대와 순위 탭을 함께 그린다(요청을 늘리지 않는다). "다음 퍼즐까지" 카운트다운은 기존 `renderCountdown` 을 대상 요소·문구 키를 인자로 받게 일반화해 상태 카드와 시트가 같이 쓴다.
@@ -128,11 +128,11 @@
 
 
 ### 지난 퍼즐 아카이브
-- **범위**: `puzzle_date < 오늘(KST)` 이고 배정된 날짜만. 어제부터 7일 전까지는 누구나, 그보다 전은 `entitlement_for(guest).active` 일 때만(앱 구독 = 웹에서도 같은 게스트면 인정). 오늘·미래·미배정 날짜는 404 `NOT_FOUND`(미래 퍼즐 노출 차단, US 65). 어제까지의 퍼즐만 "지난 퍼즐" 이고 오늘은 오늘 경로(`/puzzles/today`)만 쓴다 — 자정 경계 규칙(ADR 0001)을 안 건드린다.
-- **API**: `GET /api/v1/puzzles/archive?language=&days=7` → `[{date, number, status: success|fail|in_progress|none|locked}]`(최근 날짜부터; `locked` 는 구독 필요). `GET /api/v1/puzzles/{date}?language=` → 오늘 응답과 같은 모양(`TodayPuzzleResponse`) + `archived: true` + 끝났으면 `answer`. `POST /api/v1/puzzles/{date}/guesses` → 오늘 제출과 같은 응답. 힌트 미리 보기(`hint-unlock`)는 아카이브에 없다(광고 보상 경로 없음).
-- **제출 로직 재사용**: `guess_service.submit_guess` 의 "오늘 퍼즐 조회" 를 "주어진 퍼즐" 로 일반화한다(`submit_guess(guest, puzzle, raw_guess, *, record_metrics: bool)`). 아카이브는 `record_metrics=False` — 리더보드 ZSET·통계 HINCRBY·`GuestStats`(연속·누적)·`DailyStats` 를 건드리지 않는다(US 56). `Attempt` 행은 그대로 `puzzle_id` 로 저장되므로 테이블 변경이 없고, 이어서 풀기(US 61)와 재플레이 불가(US 60)는 기존 시도 조회로 된다. 퍼즐 고정(`puzzle_id`)과 `PUZZLE_CHANGED` 규칙은 아카이브에서도 같다.
+- **범위**: `puzzle_date < 오늘(KST)` 이고 배정된 날짜만. 어제부터 7일 전까지는 누구나, 그보다 전은 `entitlement_for(guest).active` 일 때만(앱 구독 = 웹에서도 같은 게스트면 인정). 오늘·미래·미배정 날짜는 404 `NOT_FOUND`(미래 퍼즐 노출 차단, US 65). 어제까지의 퍼즐만 "지난 퍼즐" 이고 오늘은 오늘 경로(`/puzzles/today`)만 쓴다 — 자정 경계 규칙(CONTEXT.md "오늘의 퍼즐"/"퍼즐 고정", `puzzle_service.get_today_puzzle_or_404` 독스트링 — `docs/adr/` 는 아직 비어 있어 이 티켓에서 ADR 로 쓴다)을 안 건드린다.
+- **API**: `GET /api/v1/puzzles/archive?language=&days=7` → `{first_date, days: [{date, number, status: success|fail|in_progress|none|locked}]}`(최근 날짜부터; `days` 상한은 `/me/history` 와 같은 31; `locked` 는 구독 필요; `first_date` 는 구독자 날짜 선택기의 `min`). 통계·리더보드처럼 이 목록만 `?language=` 를 받는다. `GET /api/v1/puzzles/{date}` → 오늘 응답과 같은 모양(`TodayPuzzleResponse`) + `archived: true` + 끝났으면 `answer`. `POST /api/v1/puzzles/{date}/guesses` → 오늘 제출과 같은 응답. **두 경로의 언어는 `guest.puzzle_language`** 다(오늘 경로와 같은 이유 — 플레이 중인 퍼즐이 요청마다 달라지면 안 된다; US 63 의 토글은 `PATCH /me` 라 띠도 따라온다). `{date}` 는 ISO 문자열로 받아 파싱 실패는 404(정적 규칙 `today`·`archive` 가 먼저 매칭되므로 충돌 없음). 잠긴 날짜(8일 전 이상, 비구독자)는 GET·POST 모두 **403 `SUBSCRIPTION_REQUIRED`**(`app/errors.py` 클래스 추가, `ERROR_STRING_KEYS`·`ui_strings` "구독하면 전부 풀 수 있어요") — 목록의 `locked` 는 표시일 뿐 차단은 서버가 한다. 구독 판정은 `build_entitlement(find_by_guest(guest.id), utcnow())` 로 — `entitlement_for` 는 재확인 주기마다 스토어 API 를 동기 호출하므로 `/me/stats` 한 곳에만 둔다. 아카이브 제출도 오늘 제출과 같은 `@rate_limited`(`ratelimit:guess:`) 를 탄다. 힌트 미리 보기(`hint-unlock`)는 아카이브에 없다(광고 보상 경로 없음).
+- **제출 로직 재사용**: `guess_service.submit_guess` 의 "오늘 퍼즐 조회" 를 "주어진 퍼즐" 로 일반화한다(`submit_guess(guest, puzzle, raw_guess, *, counts_for_records: bool)`), `get_today_puzzle_view(guest)` 도 `(guest, puzzle)` 로. 아카이브는 `counts_for_records=False` — 트랜잭션 안의 `_record_solve`(GuestStats 연속·누적)와 `_record_metrics`(리더보드 ZSET·통계 HINCRBY·DailyStats) **둘 다** 건너뛰고, `lock_for_guest`·`_hold_the_puzzle_answer` 는 그대로 탄다(US 56). `Attempt` 행은 그대로 `puzzle_id` 로 저장되므로 테이블 변경이 없고, 이어서 풀기(US 61)와 재플레이 불가(US 60)는 기존 시도 조회로 된다. 퍼즐 고정(`puzzle_id`)과 `PUZZLE_CHANGED` 규칙은 아카이브에서도 같다.
 - **캐시**: 지난 퍼즐은 바뀌지 않으므로 `puzzle:{date}:{lang}` 캐시를 그대로 쓴다(`cache_puzzle` 재사용, TTL 26시간은 아카이브 조회에서도 충분 — 자주 열리는 날짜만 다시 채워진다).
-- **내 기록 `GET /me/history`** 는 아카이브 플레이도 그 날짜 결과로 보여준다(이미 `Attempt` 기준이면 그대로, 아니면 날짜별 결과 계산에 포함). 연속 기록 계산은 `GuestStats.last_solved_date` 기반이라 영향 없다.
+- **내 기록 `GET /me/history`** 는 `Attempt` 조인이라 서버 변경 없이 지난 날짜 칸이 아카이브 결과로 채워진다. 웹 띠의 상태 점도 같은 함수(`summarize_by_date_and_language`)를 재사용한다. 연속 기록 계산은 `GuestStats.last_solved_date` 기반이라 영향 없다.
 - **웹**: 결과 시트 아래와 "내 기록" 탭에 지난 7일 띠. 날짜를 고르면 오늘 화면의 보드 컴포넌트를 `archived` 모드로 재사용(헤더에 날짜·`지난 퍼즐`, 통계·카운트다운·대결 배너 숨김, "오늘 퍼즐로" 버튼). 잠긴 날짜는 자물쇠 + 구독 안내(웹은 앱 설치 배지로 연결 — 웹 결제 없음). 구독자는 날짜 선택기(`<input type="date">`, min = 첫 퍼즐 날짜, max = 어제).
 - **공유 텍스트**: 첫 줄 `오늘의 초성 10월 9일 · No. 335 · 3/5 (지난 퍼즐)` + 가림 줄 + 그리드 + 기존 `SHARE_URL`(대결 링크 없음).
 - **앱**: 범위 밖(다음 티켓) — API 는 그대로 쓴다.
@@ -148,7 +148,7 @@
 - 디자인 검사: `impeccable detect` 0건(전역 규칙), 360px 스크린샷을 `design/web-shots/` 에 갱신.
 - E2E: 기존 `scripts/e2e_web.sh` 시나리오 통과 + 대결 링크 왕복 시나리오 `tests/e2e/web/specs/11-challenge-link.spec.mjs` 추가(Playwright 컨텍스트 2개 = 게스트 2명; `tests/test_e2e_scripts.py` 규칙대로 ko·en 두 번 돈다, 언어 예외 없음).
 
-- 아카이브 API: `tests/test_archive_api.py` — 지난 7일 열림·8일 전 잠김(구독자는 열림)·오늘/미래/미배정 404·제출이 Attempt 만 남기고 리더보드·GuestStats·DailyStats 를 안 건드림·끝난 퍼즐 재제출 409 `ALREADY_FINISHED`·이어서 풀기. 프라이어 아트: `tests/test_puzzle_api.py`, `tests/test_guess_*.py`, `tests/test_entitlement*.py`.
+- 아카이브 API: `tests/test_archive_api.py` — 지난 7일 열림·8일 전 잠김(구독자는 열림)·오늘/미래/미배정 404·제출이 Attempt 만 남기고 리더보드·GuestStats·DailyStats 를 안 건드림·끝난 퍼즐 재제출 409 `ALREADY_FINISHED`·이어서 풀기. 프라이어 아트: `tests/test_puzzle_api.py`, `tests/test_guess_flow.py`, `tests/test_entitlement.py`, `tests/test_me_history.py`(아카이브 플레이가 기록 칸에 들어가는 케이스).
 - 웹: 띠 렌더(상태 점·잠금)와 `archived` 모드 보드(통계·카운트다운·대결 숨김, 공유 텍스트 `(지난 퍼즐)`)를 `tests/test_web_js.py` 시나리오로.
 
 ## Out of Scope
