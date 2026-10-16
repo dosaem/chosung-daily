@@ -59,6 +59,9 @@
 | 23 | AdMob 계정 승인 → UMP(동의 메시지) 생성 | 승인 대기 | Claude(Chrome) | 승인 전엔 UMP 페이지가 비어 있음 |
 | 24 | Play 라이선스 테스터 목록 저장 실패("변경사항을 저장할 수 없습니다") | 보류 | Claude(Chrome) | 다시 시도 |
 | 25 | `MATCH_GIT_BASIC_AUTHORIZATION` 은 gh 토큰 — 전용 PAT 로 교체 | 아직 | 사용자(토큰 발급) → Claude(secret 교체) | |
+| 26 | 에러 알림 자동화 — Sentry → 우리 서버 웹훅 → Slack 알림 + GitHub 이슈 → Claude Code GitHub Action 이 원인 분석·수정 PR | **결정(2026-10-16, 사용자 A안)** — 구현 예정 | Claude(구현·Sentry 웹훅 설정) → **사용자(Claude GitHub 앱 설치 승인 1번)** | 사용자가 붙여넣은 Sentry 4건(04:03 UTC)은 prod 재배포 중 마이그레이션 2개가 동시에 돌아 생긴 일회성(04:10 이후 에러 0). 재발 방지는 티켓 50 |
+| 27 | LLM 심사관(검증까지 AI) — 생성 배치를 LLM 이 심사해 승인/거절, 운영자는 감독 | **구현 끝(2026-10-16)** — 머지·배포 대기 | Claude | 브랜치 `feat/llm-review`. 사용자 결정 "검증까지 AI 로". `/admin/candidates` 최근 처리 표로 감독 |
+| 28 | 웹 출시 품질 업데이트 + 대결 링크 — 스펙 `.scratch/web-launch-polish/spec.md` | **스펙 리뷰 중(2026-10-16)** | Claude(스펙·리뷰) → **사용자(`/to-tickets`)** | 사용자 결정: 차별 기능 = 대결 링크, 범위 = 앱 목업 수준 전부, 방식 = 스펙·티켓. 경쟁 비교 `.scratch/store-launch/competitive-analysis.md`. **주의: Orca 워커 48(경쟁 앱 조사)·49(반영)가 동시에 돌고 있어 결과와 맞춰야 함** |
 
 ## 기록
 
